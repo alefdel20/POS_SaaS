@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pos_app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pos_postgres_data:/var/lib/postgresql/data
+      - ./postgres:/docker-entrypoint-initdb.d:ro
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../infra/backend.Dockerfile
+    container_name: pos-backend
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      PORT: 4000
+      NODE_ENV: development
+      FRONTEND_URL: http://localhost:5173
+      JWT_SECRET: change_this_secret
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: pos_app
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    ports:
+      - "4000:4000"
+    volumes:
+      - ../backend:/app
+      - /app/node_modules
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../infra/frontend.Dockerfile
+    container_name: pos-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: /api
+      VITE_PROXY_TARGET: http://backend:4000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+
+volumes:
+  pos_postgres_data:
