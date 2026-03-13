@@ -47,5 +47,5 @@ app.use(errorHandler);
 // 5. ACTIVACIÓN DEL SERVIDOR
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
+  console.log(`SERVIDOR ACTIVADO EN EL PUERTO: ${PORT}`);
 });
