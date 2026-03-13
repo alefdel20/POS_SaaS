@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const { Pool } = require("pg");
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
 const authRoutes = require("./routes/authRoutes");
@@ -12,7 +13,22 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 
 const app = express();
 
-// 1. CABECERAS MANUALES TOTALES
+// 1. CONEXIÓN A BASE DE DATOS DIRECTA
+const pool = new Pool({
+  host: process.env.PGHOST || "chatbots-postgressql-pos-b8rlox",
+  user: process.env.PGUSER,
+  password: process.env.PGPASSWORD,
+  database: process.env.PGDATABASE,
+  port: process.env.PGPORT || 5432,
+});
+
+pool.query('SELECT NOW()', (err) => {
+  if (err) console.error('❌ ERROR DB:', err.message);
+  else console.log('✅ CONEXIÓN A POSTGRES EXITOSA');
+});
+
+// 2. MIDDLEWARES Y CABECERAS
+app.use(express.json());
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
@@ -20,36 +36,22 @@ app.use((req, res, next) => {
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
-
 app.use(cors());
-app.use(express.json());
 
-// 2. RUTAS COMPATIBLES (Con y sin /api para que no falle nada)
-// Ruta de salud doble
-app.get(["/health", "/api/health"], (req, res) => res.json({ status: "ok", message: "Servidor vivo" }));
-
-// Definición de rutas con doble prefijo
-const routes = [
-  { path: "/auth", router: authRoutes, auth: false },
-  { path: "/users", router: userRoutes, auth: true },
-  { path: "/products", router: productRoutes, auth: true },
-  { path: "/sales", router: saleRoutes, auth: true },
-  { path: "/daily-cuts", router: dailyCutRoutes, auth: true },
-  { path: "/reminders", router: reminderRoutes, auth: true },
-  { path: "/dashboard", router: dashboardRoutes, auth: true },
-];
-
-routes.forEach(route => {
-  const handlers = route.auth ? [requireAuth, route.router] : [route.router];
-  // Esto registra la ruta con /api y sin /api
-  app.use(route.path, ...handlers);
-  app.use("/api" + route.path, ...handlers);
-});
+// 3. RUTAS DUALES (Para que no falle el 404 del Front)
+app.get(["/health", "/api/health"], (req, res) => res.json({ status: "ok" }));
+app.use(["/auth", "/api/auth"], authRoutes);
+app.use(["/users", "/api/users"], requireAuth, userRoutes);
+app.use(["/products", "/api/products"], requireAuth, productRoutes);
+app.use(["/sales", "/api/sales"], requireAuth, saleRoutes);
+app.use(["/daily-cuts", "/api/daily-cuts"], requireAuth, dailyCutRoutes);
+app.use(["/reminders", "/api/reminders"], requireAuth, reminderRoutes);
+app.use(["/dashboard", "/api/dashboard"], requireAuth, dashboardRoutes);
 
 app.use(errorHandler);
 
-// 3. PUERTO FIJO PARA DOKPLOY
-const PORT = 3002; 
+// 4. PUERTO FIJO
+const PORT = 3002;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`>>> SERVIDOR POS CORRIENDO EN PUERTO ${PORT} <<<`);
+  console.log(`>>> SERVIDOR FUNCIONANDO EN PUERTO ${PORT} <<<`);
 });
