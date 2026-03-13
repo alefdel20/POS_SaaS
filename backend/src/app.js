@@ -13,12 +13,14 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 
 const app = express();
 
+// Cambio realizado: Se puso '*' en origin para evitar bloqueos de CORS
 app.use(
   cors({
-    origin: frontendUrl,
+    origin: '*', 
     credentials: false
   })
 );
+
 app.use(express.json());
 
 app.get("/api/health", (req, res) => {
