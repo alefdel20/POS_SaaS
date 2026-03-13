@@ -1,14 +1,9 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  server: {
-    proxy: {
-      "/api": {
-        target: process.env.VITE_PROXY_TARGET || "http://localhost:4000",
-        changeOrigin: true
-      }
-    }
+  define: {
+    'process.env.VITE_API_BASE_URL': JSON.stringify('http://pos-APIs-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me')
   }
-});
+})
