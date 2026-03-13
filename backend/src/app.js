@@ -34,7 +34,9 @@ app.get("/health", (req, res) => {
 });
 
 // 4. DEFINICIÓN DE RUTAS (Se quitó el prefijo /api para coincidir con tu VITE_API_BASE_URL)
-app.use("/auth", authRoutes);
+// app.js - Agrega esto para ser compatible con todo
+app.use("/api/auth", authRoutes); // Por si el front manda /api
+app.use("/auth", authRoutes);     // Por si el front NO manda /api
 app.use("/users", requireAuth, userRoutes);
 app.use("/products", requireAuth, productRoutes);
 app.use("/sales", requireAuth, saleRoutes);
