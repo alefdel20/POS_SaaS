@@ -12,42 +12,44 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 
 const app = express();
 
-// 1. CABECERAS MANUALES PARA EVITAR EL BLOQUEO DE CHROME
+// 1. CABECERAS MANUALES TOTALES
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
+  if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
 
-// 2. CONFIGURACIÓN DE MIDDLEWARES
 app.use(cors());
 app.use(express.json());
 
-// 3. RUTA DE SALUD (La dejo sin /api también por si acaso)
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
-});
+// 2. RUTAS COMPATIBLES (Con y sin /api para que no falle nada)
+// Ruta de salud doble
+app.get(["/health", "/api/health"], (req, res) => res.json({ status: "ok", message: "Servidor vivo" }));
 
-// 4. DEFINICIÓN DE RUTAS (Se quitó el prefijo /api para coincidir con tu VITE_API_BASE_URL)
-// app.js - Agrega esto para ser compatible con todo
-app.use("/api/auth", authRoutes); // Por si el front manda /api
-app.use("/auth", authRoutes);     // Por si el front NO manda /api
-app.use("/users", requireAuth, userRoutes);
-app.use("/products", requireAuth, productRoutes);
-app.use("/sales", requireAuth, saleRoutes);
-app.use("/daily-cuts", requireAuth, dailyCutRoutes);
-app.use("/reminders", requireAuth, reminderRoutes);
-app.use("/dashboard", requireAuth, dashboardRoutes);
+// Definición de rutas con doble prefijo
+const routes = [
+  { path: "/auth", router: authRoutes, auth: false },
+  { path: "/users", router: userRoutes, auth: true },
+  { path: "/products", router: productRoutes, auth: true },
+  { path: "/sales", router: saleRoutes, auth: true },
+  { path: "/daily-cuts", router: dailyCutRoutes, auth: true },
+  { path: "/reminders", router: reminderRoutes, auth: true },
+  { path: "/dashboard", router: dashboardRoutes, auth: true },
+];
+
+routes.forEach(route => {
+  const handlers = route.auth ? [requireAuth, route.router] : [route.router];
+  // Esto registra la ruta con /api y sin /api
+  app.use(route.path, ...handlers);
+  app.use("/api" + route.path, ...handlers);
+});
 
 app.use(errorHandler);
 
-// 5. ACTIVACIÓN DEL SERVIDOR
-const PORT = process.env.PORT || 3002;
+// 3. PUERTO FIJO PARA DOKPLOY
+const PORT = 3002; 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`SERVIDOR ACTIVADO EN EL PUERTO: ${PORT}`);
+  console.log(`>>> SERVIDOR POS CORRIENDO EN PUERTO ${PORT} <<<`);
 });
