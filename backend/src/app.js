@@ -14,7 +14,11 @@ const app = express();
 
 // 1. PRIMERO LOS PERMISOS (CORS)
 // Al dejarlo vacío así: cors(), permites TODO por defecto.
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // 2. DESPUÉS EL LECTOR DE DATOS
 app.use(express.json());
