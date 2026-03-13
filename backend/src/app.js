@@ -9,11 +9,6 @@ const saleRoutes = require("./routes/saleRoutes");
 const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
-const PORT = process.env.PORT || 3002;
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
-});
 
 const app = express();
 
@@ -33,20 +28,24 @@ app.use((req, res, next) => {
 app.use(cors());
 app.use(express.json());
 
-// 3. RUTA DE SALUD
-app.get("/api/health", (req, res) => {
+// 3. RUTA DE SALUD (La dejo sin /api también por si acaso)
+app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// 4. DEFINICIÓN DE RUTAS
-app.use("/api/auth", authRoutes);
-app.use("/api/users", requireAuth, userRoutes);
-app.use("/api/products", requireAuth, productRoutes);
-app.use("/api/sales", requireAuth, saleRoutes);
-app.use("/api/daily-cuts", requireAuth, dailyCutRoutes);
-app.use("/api/reminders", requireAuth, reminderRoutes);
-app.use("/api/dashboard", requireAuth, dashboardRoutes);
+// 4. DEFINICIÓN DE RUTAS (Se quitó el prefijo /api para coincidir con tu VITE_API_BASE_URL)
+app.use("/auth", authRoutes);
+app.use("/users", requireAuth, userRoutes);
+app.use("/products", requireAuth, productRoutes);
+app.use("/sales", requireAuth, saleRoutes);
+app.use("/daily-cuts", requireAuth, dailyCutRoutes);
+app.use("/reminders", requireAuth, reminderRoutes);
+app.use("/dashboard", requireAuth, dashboardRoutes);
 
 app.use(errorHandler);
 
-module.exports = app;
+// 5. ACTIVACIÓN DEL SERVIDOR
+const PORT = process.env.PORT || 3002;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor corriendo en el puerto ${PORT}`);
+});
