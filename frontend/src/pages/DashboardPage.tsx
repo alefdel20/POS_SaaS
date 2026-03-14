@@ -18,7 +18,7 @@ export function DashboardPage() {
     <section className="page-grid">
       <div className="page-header">
         <div>
-          <h2>Dashboard administrativo</h2>
+          <h2>Panel administrativo</h2>
           <p className="muted">Vista operativa del dia y la semana.</p>
         </div>
       </div>

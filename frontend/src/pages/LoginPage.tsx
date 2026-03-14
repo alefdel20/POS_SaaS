@@ -38,7 +38,7 @@ export function LoginPage() {
         </div>
         <form className="grid-form" onSubmit={handleSubmit}>
           <label>
-            Usuario o email
+            Usuario o correo
             <input
               autoComplete="username"
               value={identifier}
@@ -46,7 +46,7 @@ export function LoginPage() {
             />
           </label>
           <label>
-            Password
+            Contrasena
             <input
               autoComplete="current-password"
               type="password"

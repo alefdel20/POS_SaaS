@@ -19,9 +19,9 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div>
+      <div className="sidebar-header">
         <div className="brand">POS APP</div>
-        <p className="brand-subtitle">Dark retail dashboard</p>
+        <p className="brand-subtitle">Panel comercial oscuro</p>
       </div>
       <nav className="nav-list">
         {links

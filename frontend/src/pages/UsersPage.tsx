@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { User } from "../types";
+import { getRoleLabel } from "../utils/uiLabels";
 
 const emptyUser = {
   username: "",
@@ -69,7 +70,7 @@ export function UsersPage() {
                 <tr key={user.id}>
                   <td>{user.full_name}</td>
                   <td>{user.username}</td>
-                  <td>{user.role}</td>
+                  <td>{getRoleLabel(user.role)}</td>
                   <td>{user.is_active ? "Activo" : "Inactivo"}</td>
                   <td>
                     <button className="button ghost" onClick={() => toggleUserStatus(user)}>
@@ -95,18 +96,18 @@ export function UsersPage() {
           <input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required />
         </label>
         <label>
-          Email
+          Correo electronico
           <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
         </label>
         <label>
-          Password
+          Contrasena
           <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required />
         </label>
         <label>
           Rol
           <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as "user" | "superadmin" })}>
-            <option value="user">user</option>
-            <option value="superadmin">superadmin</option>
+            <option value="user">{getRoleLabel("user")}</option>
+            <option value="superadmin">{getRoleLabel("superadmin")}</option>
           </select>
         </label>
         <button className="button" type="submit">Crear usuario</button>

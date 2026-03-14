@@ -3,6 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Reminder } from "../types";
 import { dateLabel } from "../utils/format";
+import { getReminderStatusLabel } from "../utils/uiLabels";
 
 const emptyReminder = {
   title: "",
@@ -59,7 +60,7 @@ export function RemindersPage() {
               <div>
                 <strong>{reminder.title}</strong>
                 <p className="muted">{reminder.notes}</p>
-                <small>{reminder.status} · {dateLabel(reminder.due_date)}</small>
+                <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(reminder.due_date)}</small>
               </div>
               {!reminder.is_completed ? (
                 <button className="button ghost" onClick={() => completeReminder(reminder.id)}>
@@ -87,9 +88,9 @@ export function RemindersPage() {
         <label>
           Estado
           <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "pending" | "in_progress" | "completed" })}>
-            <option value="pending">pending</option>
-            <option value="in_progress">in_progress</option>
-            <option value="completed">completed</option>
+            <option value="pending">{getReminderStatusLabel("pending")}</option>
+            <option value="in_progress">{getReminderStatusLabel("in_progress")}</option>
+            <option value="completed">{getReminderStatusLabel("completed")}</option>
           </select>
         </label>
         <label>

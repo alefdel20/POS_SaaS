@@ -3,6 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Sale } from "../types";
 import { currency } from "../utils/format";
+import { getPaymentMethodLabel, getSaleTypeLabel } from "../utils/uiLabels";
 
 export function SalesHistoryPage() {
   const { token } = useAuth();
@@ -36,8 +37,8 @@ export function SalesHistoryPage() {
                 <td>{sale.id}</td>
                 <td>{sale.sale_date}</td>
                 <td>{sale.cashier_name}</td>
-                <td>{sale.payment_method}</td>
-                <td>{sale.sale_type}</td>
+                <td>{getPaymentMethodLabel(sale.payment_method)}</td>
+                <td>{getSaleTypeLabel(sale.sale_type)}</td>
                 <td>{currency(sale.total)}</td>
               </tr>
             ))}

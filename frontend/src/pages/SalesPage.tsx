@@ -3,6 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Product, Sale } from "../types";
 import { currency } from "../utils/format";
+import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 
 interface CartItem {
   product: Product;
@@ -119,7 +120,7 @@ export function SalesPage() {
           </div>
           <input
             className="search-input"
-            placeholder="Buscar producto"
+            placeholder="Buscar por nombre, SKU o codigo"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -182,17 +183,17 @@ export function SalesPage() {
           <label>
             Metodo de pago
             <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>
-              <option value="cash">cash</option>
-              <option value="card">card</option>
-              <option value="credit">credit / por pagar</option>
-              <option value="transfer">transfer</option>
+              <option value="cash">{getPaymentMethodLabel("cash")}</option>
+              <option value="card">{getPaymentMethodLabel("card")}</option>
+              <option value="credit">{getPaymentMethodLabel("credit")}</option>
+              <option value="transfer">{getPaymentMethodLabel("transfer")}</option>
             </select>
           </label>
           <label>
-            Salida
+            Tipo de salida
             <select value={saleType} onChange={(event) => setSaleType(event.target.value as typeof saleType)}>
-              <option value="ticket">ticket</option>
-              <option value="invoice">invoice</option>
+              <option value="ticket">{getSaleTypeLabel("ticket")}</option>
+              <option value="invoice">{getSaleTypeLabel("invoice")}</option>
             </select>
           </label>
           <div className="total-box">
@@ -203,7 +204,7 @@ export function SalesPage() {
         </div>
         {warnings.length ? (
           <div className="warning-box">
-            {warnings.map((warning) => <p key={warning}>{warning}</p>)}
+            {warnings.map((warning) => <p key={warning}>{translateErrorMessage(warning)}</p>)}
           </div>
         ) : null}
       </div>
@@ -227,7 +228,7 @@ export function SalesPage() {
                 <tr key={sale.id}>
                   <td>{sale.sale_date}</td>
                   <td>{sale.cashier_name}</td>
-                  <td>{sale.payment_method}</td>
+                  <td>{getPaymentMethodLabel(sale.payment_method)}</td>
                   <td>{currency(sale.total)}</td>
                 </tr>
               ))}

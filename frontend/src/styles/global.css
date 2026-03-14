@@ -76,10 +76,16 @@ td {
 .sidebar {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 1.25rem;
   padding: 1.5rem;
   border-right: 1px solid var(--border);
   background: rgba(6, 11, 19, 0.88);
+}
+
+.sidebar-header {
+  display: grid;
+  gap: 0.35rem;
 }
 
 .brand {
@@ -98,7 +104,7 @@ td {
 .nav-list {
   display: grid;
   gap: 0.75rem;
-  margin-top: 2rem;
+  margin-top: 0;
 }
 
 .nav-link {
