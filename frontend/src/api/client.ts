@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "/api";
+const API_URL = (import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api";
 
 type RequestOptions = RequestInit & {
   token?: string | null;
@@ -12,9 +12,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers.set("Authorization", `Bearer ${options.token}`);
   }
 
+  // Aquí se une la URL base con la ruta (ej: /auth/login)
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
-    headers
+    headers,
   });
 
   if (!response.ok) {
