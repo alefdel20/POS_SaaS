@@ -3,6 +3,7 @@ const cors = require("cors");
 const { Pool } = require("pg");
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
+const { ensureDatabaseCompatibility } = require("./db/init");
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
@@ -52,6 +53,13 @@ app.use(errorHandler);
 
 // 4. PUERTO FIJO
 const PORT = 3002;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`>>> SERVIDOR FUNCIONANDO EN PUERTO ${PORT} <<<`);
-});
+ensureDatabaseCompatibility()
+  .then(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`>>> SERVIDOR FUNCIONANDO EN PUERTO ${PORT} <<<`);
+    });
+  })
+  .catch((error) => {
+    console.error("Failed to initialize database compatibility", error);
+    process.exit(1);
+  });

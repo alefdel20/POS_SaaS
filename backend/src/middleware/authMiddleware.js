@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const { jwtSecret } = require("../config/env");
 const ApiError = require("../utils/ApiError");
 const userService = require("../services/userService");
+const { normalizeRole } = require("../utils/roles");
 
 async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -32,7 +33,10 @@ function requireRole(roles) {
       return next(new ApiError(401, "Authentication required"));
     }
 
-    if (!roles.includes(req.user.role)) {
+    const allowedRoles = roles.map(normalizeRole);
+    const userRole = normalizeRole(req.user.role);
+
+    if (!allowedRoles.includes(userRole)) {
       return next(new ApiError(403, "Forbidden"));
     }
 

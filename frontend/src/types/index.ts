@@ -1,4 +1,4 @@
-export type Role = "superadmin" | "user";
+export type Role = "superadmin" | "admin" | "user" | "cajero" | "cashier";
 
 export interface User {
   id: number;
@@ -14,6 +14,7 @@ export interface Product {
   name: string;
   sku: string;
   barcode: string;
+  category?: string | null;
   description: string;
   price: number;
   cost_price: number;

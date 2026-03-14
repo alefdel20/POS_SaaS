@@ -18,25 +18,39 @@ export function SalesPage() {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [error, setError] = useState("");
 
-  function loadProducts(term = "") {
+  async function loadProducts(term = "") {
     if (!token) return;
-    const query = term ? `?search=${encodeURIComponent(term)}` : "";
-    apiRequest<Product[]>(`/products${query}`, { token }).then(setProducts).catch(console.error);
+    const params = new URLSearchParams({ activeOnly: "true" });
+    if (term) {
+      params.set("search", term);
+    }
+    const response = await apiRequest<Product[]>(`/products?${params.toString()}`, { token });
+    setProducts(response);
   }
 
-  function loadRecentSales() {
+  async function loadRecentSales() {
     if (!token) return;
-    apiRequest<Sale[]>("/sales/recent", { token }).then(setRecentSales).catch(console.error);
+    const response = await apiRequest<Sale[]>("/sales/recent", { token });
+    setRecentSales(response);
   }
 
   useEffect(() => {
-    loadProducts();
-    loadRecentSales();
+    loadProducts().catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el catalogo");
+    });
+    loadRecentSales().catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar las ventas recientes");
+    });
   }, [token]);
 
   useEffect(() => {
-    const delay = setTimeout(() => loadProducts(search), 250);
+    const delay = setTimeout(() => {
+      loadProducts(search).catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible filtrar el catalogo");
+      });
+    }, 250);
     return () => clearTimeout(delay);
   }, [search]);
 
@@ -70,24 +84,29 @@ export function SalesPage() {
   async function confirmSale() {
     if (!token || cart.length === 0) return;
 
-    const response = await apiRequest<{ sale: Sale; warnings: string[] }>("/sales", {
-      method: "POST",
-      token,
-      body: JSON.stringify({
-        payment_method: paymentMethod,
-        sale_type: saleType,
-        items: cart.map((item) => ({
-          product_id: item.product.id,
-          quantity: item.quantity,
-          unit_price: item.product.price
-        }))
-      })
-    });
+    try {
+      setError("");
+      const response = await apiRequest<{ sale: Sale; warnings: string[] }>("/sales", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          payment_method: paymentMethod,
+          sale_type: saleType,
+          items: cart.map((item) => ({
+            product_id: item.product.id,
+            quantity: item.quantity,
+            unit_price: item.product.price
+          }))
+        })
+      });
 
-    setWarnings(response.warnings);
-    setCart([]);
-    loadProducts(search);
-    loadRecentSales();
+      setWarnings(response.warnings);
+      setCart([]);
+      await loadProducts(search);
+      await loadRecentSales();
+    } catch (saleError) {
+      setError(saleError instanceof Error ? saleError.message : "No fue posible confirmar la venta");
+    }
   }
 
   return (
@@ -105,22 +124,31 @@ export function SalesPage() {
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
+        {error ? <p className="error-text">{error}</p> : null}
         <div className="product-grid">
           {products.map((product) => (
-            <button key={product.id} className="catalog-card" onClick={() => addToCart(product)}>
+            <button
+              key={product.id}
+              className="catalog-card"
+              disabled={Number(product.stock) <= 0}
+              onClick={() => addToCart(product)}
+              type="button"
+            >
               <strong>{product.name}</strong>
               <span>{product.sku}</span>
+              <span>{product.barcode}</span>
               <span>{currency(product.price)}</span>
               <small>Stock: {product.stock}</small>
             </button>
           ))}
+          {products.length === 0 ? <p className="muted">No hay productos activos para mostrar.</p> : null}
         </div>
       </div>
 
       <div className="panel">
         <div className="panel-header">
           <h2>Carrito</h2>
-          <button className="button ghost" onClick={() => setCart([])}>Limpiar</button>
+          <button className="button ghost" onClick={() => setCart([])} type="button">Limpiar</button>
         </div>
         <div className="table-wrap">
           <table>
@@ -138,9 +166,9 @@ export function SalesPage() {
                   <td>{item.product.name}</td>
                   <td>
                     <div className="quantity-control">
-                      <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)}>-</button>
+                      <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)} type="button">-</button>
                       <span>{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)}>+</button>
+                      <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)} type="button">+</button>
                     </div>
                   </td>
                   <td>{currency(item.product.price)}</td>
@@ -171,7 +199,7 @@ export function SalesPage() {
             <span>Total</span>
             <strong>{currency(total)}</strong>
           </div>
-          <button className="button" onClick={confirmSale}>Confirmar venta</button>
+          <button className="button" onClick={confirmSale} type="button">Confirmar venta</button>
         </div>
         {warnings.length ? (
           <div className="warning-box">

@@ -8,10 +8,11 @@ const emptyProduct = {
   name: "",
   sku: "",
   barcode: "",
+  category: "",
   description: "",
-  price: 0,
-  cost_price: 0,
-  stock: 0,
+  price: "",
+  cost_price: "",
+  stock: "",
   is_active: true
 };
 
@@ -19,26 +20,74 @@ export function ProductsPage() {
   const { token } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [form, setForm] = useState(emptyProduct);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  function loadProducts() {
+  async function loadProducts() {
     if (!token) return;
-    apiRequest<Product[]>("/products", { token }).then(setProducts).catch(console.error);
+    const response = await apiRequest<Product[]>("/products", { token });
+    setProducts(response);
   }
 
   useEffect(() => {
-    loadProducts();
+    loadProducts().catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
+    });
   }, [token]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
-    await apiRequest<Product>("/products", {
-      method: "POST",
-      token,
-      body: JSON.stringify(form)
-    });
-    setForm(emptyProduct);
-    loadProducts();
+
+    const price = Number(form.price);
+    const stock = Number(form.stock);
+    const costPrice = form.cost_price === "" ? 0 : Number(form.cost_price);
+
+    if (!form.name.trim()) {
+      setError("El nombre es obligatorio");
+      return;
+    }
+
+    if (Number.isNaN(price) || price < 0) {
+      setError("El precio debe ser numerico y valido");
+      return;
+    }
+
+    if (Number.isNaN(stock) || stock < 0) {
+      setError("El stock debe ser numerico y valido");
+      return;
+    }
+
+    if (Number.isNaN(costPrice) || costPrice < 0) {
+      setError("El costo debe ser numerico y valido");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      await apiRequest<Product>("/products", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          ...form,
+          name: form.name.trim(),
+          sku: form.sku.trim(),
+          barcode: form.barcode.trim(),
+          category: form.category.trim() || null,
+          price,
+          cost_price: costPrice,
+          stock
+        })
+      });
+      setForm(emptyProduct);
+      await loadProducts();
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el producto");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -47,12 +96,14 @@ export function ProductsPage() {
         <div className="panel-header">
           <h2>Productos</h2>
         </div>
+        {error ? <p className="error-text">{error}</p> : null}
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Nombre</th>
                 <th>SKU</th>
+                <th>Categoria</th>
                 <th>Precio</th>
                 <th>Stock</th>
                 <th>Estado</th>
@@ -63,6 +114,7 @@ export function ProductsPage() {
                 <tr key={product.id}>
                   <td>{product.name}</td>
                   <td>{product.sku}</td>
+                  <td>{product.category || "-"}</td>
                   <td>{currency(product.price)}</td>
                   <td>{product.stock}</td>
                   <td>{product.is_active ? "Activo" : "Inactivo"}</td>
@@ -85,8 +137,12 @@ export function ProductsPage() {
           <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
         </label>
         <label>
+          Categoria
+          <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
+        </label>
+        <label>
           Codigo de barras
-          <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} required />
+          <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
         </label>
         <label>
           Descripcion
@@ -94,17 +150,17 @@ export function ProductsPage() {
         </label>
         <label>
           Precio
-          <input type="number" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: Number(event.target.value) })} required />
+          <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
         </label>
         <label>
           Costo
-          <input type="number" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: Number(event.target.value) })} required />
+          <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
         </label>
         <label>
           Stock
-          <input type="number" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: Number(event.target.value) })} required />
+          <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
         </label>
-        <button className="button" type="submit">Guardar producto</button>
+        <button className="button" disabled={saving} type="submit">{saving ? "Guardando..." : "Guardar producto"}</button>
       </form>
     </section>
   );

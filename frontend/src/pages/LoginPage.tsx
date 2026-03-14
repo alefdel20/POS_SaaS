@@ -1,16 +1,17 @@
 import { FormEvent, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getDefaultRouteForRole } from "../utils/roles";
 
 export function LoginPage() {
   const { login, user } = useAuth();
-  const [identifier, setIdentifier] = useState("admin");
-  const [password, setPassword] = useState("Admin123*");
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   if (user) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={getDefaultRouteForRole(user.role)} replace />;
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -38,11 +39,20 @@ export function LoginPage() {
         <form className="grid-form" onSubmit={handleSubmit}>
           <label>
             Usuario o email
-            <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} />
+            <input
+              autoComplete="username"
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
+            />
           </label>
           <label>
             Password
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            <input
+              autoComplete="current-password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
           </label>
           {error ? <p className="error-text">{error}</p> : null}
           <button className="button" disabled={loading} type="submit">

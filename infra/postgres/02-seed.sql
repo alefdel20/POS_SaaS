@@ -4,14 +4,16 @@ VALUES
   ('cajero', 'cajero@pos.local', 'Caja Principal', crypt('Cajero123*', gen_salt('bf', 10)), 'user', TRUE)
 ON CONFLICT (username) DO NOTHING;
 
-INSERT INTO products (name, sku, barcode, description, price, cost_price, stock, is_active)
-VALUES
-  ('Cafe Americano', 'CAF-001', '750000000001', 'Bebida caliente mediana', 35.00, 14.00, 40, TRUE),
-  ('Sandwich de Jamon', 'FOOD-001', '750000000002', 'Sandwich fresco para mostrador', 58.00, 26.00, 18, TRUE),
-  ('Refresco Lata', 'DRK-001', '750000000003', 'Refresco de 355 ml', 22.00, 10.00, 60, TRUE),
-  ('Galletas', 'SNK-001', '750000000004', 'Paquete individual', 18.00, 8.00, 24, TRUE),
-  ('Botella de Agua', 'DRK-002', '750000000005', 'Agua natural 600 ml', 16.00, 7.00, 50, TRUE)
-ON CONFLICT (sku) DO NOTHING;
+INSERT INTO products (name, sku, barcode, category, description, price, cost_price, stock, is_active)
+SELECT * FROM (
+  VALUES
+    ('Cafe Americano', 'CAF-001', '750000000001', 'Bebidas', 'Bebida caliente mediana', 35.00, 14.00, 40, TRUE),
+    ('Sandwich de Jamon', 'FOOD-001', '750000000002', 'Alimentos', 'Sandwich fresco para mostrador', 58.00, 26.00, 18, TRUE),
+    ('Refresco Lata', 'DRK-001', '750000000003', 'Bebidas', 'Refresco de 355 ml', 22.00, 10.00, 60, TRUE),
+    ('Galletas', 'SNK-001', '750000000004', 'Snacks', 'Paquete individual', 18.00, 8.00, 24, TRUE),
+    ('Botella de Agua', 'DRK-002', '750000000005', 'Bebidas', 'Agua natural 600 ml', 16.00, 7.00, 50, TRUE)
+) AS demo_products(name, sku, barcode, category, description, price, cost_price, stock, is_active)
+WHERE NOT EXISTS (SELECT 1 FROM products LIMIT 1);
 
 INSERT INTO reminders (title, notes, status, due_date, assigned_to, created_by, is_completed)
 SELECT 'Revisar corte nocturno', 'Confirmar caja y terminal antes de cerrar.', 'pending', CURRENT_DATE, u2.id, u1.id, FALSE

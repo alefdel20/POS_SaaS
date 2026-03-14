@@ -1,18 +1,21 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { isManagementRole, normalizeRole } from "../utils/roles";
 
 const links = [
-  { to: "/", label: "Resumen", roles: ["superadmin"] },
-  { to: "/sales", label: "Ventas", roles: ["superadmin", "user"] },
-  { to: "/products", label: "Productos", roles: ["superadmin"] },
-  { to: "/users", label: "Usuarios", roles: ["superadmin"] },
-  { to: "/sales-history", label: "Historial", roles: ["superadmin"] },
-  { to: "/daily-cut", label: "Corte Diario", roles: ["superadmin"] },
-  { to: "/reminders", label: "Recordatorios", roles: ["superadmin", "user"] }
+  { to: "/dashboard", label: "Resumen", managementOnly: true },
+  { to: "/sales", label: "Ventas" },
+  { to: "/products", label: "Productos", managementOnly: true },
+  { to: "/users", label: "Usuarios", managementOnly: true },
+  { to: "/sales-history", label: "Historial", managementOnly: true },
+  { to: "/daily-cut", label: "Corte Diario", managementOnly: true },
+  { to: "/reminders", label: "Recordatorios" }
 ];
 
 export function Sidebar() {
   const { user } = useAuth();
+  const managementUser = isManagementRole(user?.role);
+  const role = normalizeRole(user?.role);
 
   return (
     <aside className="sidebar">
@@ -22,7 +25,7 @@ export function Sidebar() {
       </div>
       <nav className="nav-list">
         {links
-          .filter((link) => user && link.roles.includes(user.role))
+          .filter((link) => role && (!link.managementOnly || managementUser))
           .map((link) => (
             <NavLink
               key={link.to}

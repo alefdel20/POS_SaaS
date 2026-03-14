@@ -1,16 +1,20 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 
-async function listProducts(search) {
+async function listProducts(search, activeOnly = false) {
   if (!search) {
-    const { rows } = await pool.query("SELECT * FROM products ORDER BY created_at DESC");
+    const { rows } = await pool.query(
+      `SELECT * FROM products
+       ${activeOnly ? "WHERE is_active = TRUE" : ""}
+       ORDER BY created_at DESC`
+    );
     return rows;
   }
 
   const term = `%${search}%`;
   const { rows } = await pool.query(
     `SELECT * FROM products
-     WHERE name ILIKE $1 OR sku ILIKE $1 OR barcode ILIKE $1
+     WHERE ${activeOnly ? "is_active = TRUE AND " : ""}(name ILIKE $1 OR sku ILIKE $1 OR barcode ILIKE $1 OR category ILIKE $1)
      ORDER BY name ASC`,
     [term]
   );
@@ -18,17 +22,19 @@ async function listProducts(search) {
 }
 
 async function createProduct(payload) {
+  const barcode = payload.barcode?.trim() || payload.sku;
   const { rows } = await pool.query(
-    `INSERT INTO products (name, sku, barcode, description, price, cost_price, stock, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO products (name, sku, barcode, category, description, price, cost_price, stock, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
     [
       payload.name,
       payload.sku,
-      payload.barcode,
+      barcode,
+      payload.category || null,
       payload.description || "",
       payload.price,
-      payload.cost_price,
+      payload.cost_price ?? 0,
       payload.stock ?? 0,
       payload.is_active ?? true
     ]
@@ -46,13 +52,14 @@ async function updateProduct(id, payload) {
 
   const { rows } = await pool.query(
     `UPDATE products
-     SET name = $1, sku = $2, barcode = $3, description = $4, price = $5, cost_price = $6, stock = $7, is_active = $8, updated_at = NOW()
-     WHERE id = $9
+     SET name = $1, sku = $2, barcode = $3, category = $4, description = $5, price = $6, cost_price = $7, stock = $8, is_active = $9, updated_at = NOW()
+     WHERE id = $10
      RETURNING *`,
     [
       payload.name ?? current.name,
       payload.sku ?? current.sku,
-      payload.barcode ?? current.barcode,
+      payload.barcode?.trim() || current.barcode,
+      payload.category ?? current.category,
       payload.description ?? current.description,
       payload.price ?? current.price,
       payload.cost_price ?? current.cost_price,

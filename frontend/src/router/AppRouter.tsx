@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "../components/ProtectedRoute";
+import { useAuth } from "../context/AuthContext";
 import { AppLayout } from "../layouts/AppLayout";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DailyCutPage } from "../pages/DailyCutPage";
@@ -10,6 +11,14 @@ import { RemindersPage } from "../pages/RemindersPage";
 import { SalesHistoryPage } from "../pages/SalesHistoryPage";
 import { SalesPage } from "../pages/SalesPage";
 import { UsersPage } from "../pages/UsersPage";
+import { getDefaultRouteForRole } from "../utils/roles";
+import { Navigate } from "react-router-dom";
+
+function RoleHomeRedirect() {
+  const { user } = useAuth();
+
+  return <Navigate replace to={getDefaultRouteForRole(user?.role)} />;
+}
 
 export function AppRouter() {
   return (
@@ -18,10 +27,11 @@ export function AppRouter() {
         <Route path="/login" element={<LoginPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
+            <Route path="/" element={<RoleHomeRedirect />} />
             <Route path="/sales" element={<SalesPage />} />
             <Route path="/reminders" element={<RemindersPage />} />
-            <Route element={<ProtectedRoute roles={["superadmin"]} />}>
-              <Route path="/" element={<DashboardPage />} />
+            <Route element={<ProtectedRoute roles={["superadmin", "admin"]} />}>
+              <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/users" element={<UsersPage />} />
               <Route path="/sales-history" element={<SalesHistoryPage />} />

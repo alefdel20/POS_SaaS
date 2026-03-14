@@ -3,14 +3,15 @@ const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const productService = require("../services/productService");
 
-const listValidation = [query("search").optional().trim(), validateRequest];
+const listValidation = [query("search").optional().trim(), query("activeOnly").optional().isBoolean(), validateRequest];
 const idValidation = [param("id").isInt(), validateRequest];
 const createValidation = [
   body("name").trim().notEmpty(),
   body("sku").trim().notEmpty(),
-  body("barcode").trim().notEmpty(),
+  body("barcode").optional({ values: "falsy" }).trim(),
+  body("category").optional({ values: "falsy" }).trim(),
   body("price").isFloat({ min: 0 }),
-  body("cost_price").isFloat({ min: 0 }),
+  body("cost_price").optional().isFloat({ min: 0 }),
   body("stock").optional().isFloat(),
   body("is_active").optional().isBoolean(),
   validateRequest
@@ -18,7 +19,8 @@ const createValidation = [
 const updateValidation = [
   body("name").optional().trim().notEmpty(),
   body("sku").optional().trim().notEmpty(),
-  body("barcode").optional().trim().notEmpty(),
+  body("barcode").optional({ values: "falsy" }).trim(),
+  body("category").optional({ values: "falsy" }).trim(),
   body("price").optional().isFloat({ min: 0 }),
   body("cost_price").optional().isFloat({ min: 0 }),
   body("stock").optional().isFloat(),
@@ -28,7 +30,7 @@ const updateValidation = [
 const statusValidation = [body("is_active").isBoolean(), validateRequest];
 
 const listProducts = asyncHandler(async (req, res) => {
-  res.json(await productService.listProducts(req.query.search));
+  res.json(await productService.listProducts(req.query.search, req.query.activeOnly === "true"));
 });
 
 const createProduct = asyncHandler(async (req, res) => {

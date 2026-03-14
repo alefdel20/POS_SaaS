@@ -4,7 +4,7 @@ const { requireRole } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-router.get("/", requireRole(["superadmin"]), controller.listDailyCuts);
-router.get("/today", requireRole(["superadmin"]), controller.getTodayDailyCut);
+router.get("/", requireRole(["superadmin", "admin"]), controller.listDailyCuts);
+router.get("/today", requireRole(["superadmin", "admin"]), controller.getTodayDailyCut);
 
 module.exports = router;
