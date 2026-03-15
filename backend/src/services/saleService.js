@@ -76,31 +76,31 @@ async function createSale(payload, user) {
     }
 
     const { rows: saleRows } = await client.query(
-      `INSERT INTO sales (user_id, payment_method, sale_type, subtotal, total, total_cost, notes, sale_date, sale_time)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_DATE, CURRENT_TIME)
-       RETURNING *`,
+      `INSERT INTO sales (user_id, payment_method, total, total_amount, sale_date, created_at, status)
+      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $5)
+      RETURNING *`,
       [
         user.id,
-        payload.payment_method,
-        payload.sale_type,
+        payload.payment_method || "cash",
         total,
-        total,
-        totalCost,
-        payload.notes || ""
+       total,
+       "completed"
       ]
+
     );
 
     const sale = saleRows[0];
 
     for (const item of normalizedItems) {
       await client.query(
-        `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, unit_cost, subtotal)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [sale.id, item.productId, item.quantity, item.unitPrice, item.unitCost, item.subtotal]
+        `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
+        VALUES ($1, $2, $3, $4, $5)`,
+        [sale.id, item.productId, item.quantity, item.unitPrice, item.subtotal]
+
       );
 
       await client.query(
-        "UPDATE products SET stock = stock - $1, updated_at = NOW() WHERE id = $2",
+        "UPDATE products SET stock = stock - $1 WHERE id = $2",
         [item.quantity, item.productId]
       );
     }
