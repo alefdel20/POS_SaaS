@@ -5,6 +5,9 @@ const userService = require("../services/userService");
 const { normalizeRole } = require("../utils/roles");
 
 async function requireAuth(req, res, next) {
+    if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
