@@ -25,7 +25,24 @@ app.use((req, res, next) => {
 
 app.use(cors());
 app.use(express.json());
+// CORS FIX
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+  );
 
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
 // 2. RUTAS COMPATIBLES (Con y sin /api para que no falle nada)
 // Ruta de salud doble
 app.get(["/health", "/api/health"], (req, res) => res.json({ status: "ok", message: "Servidor vivo" }));
