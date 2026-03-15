@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
+const { ensureDatabaseCompatibility } = require("./db/init");
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
@@ -9,6 +10,7 @@ const saleRoutes = require("./routes/saleRoutes");
 const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
+const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 
 const app = express();
 
@@ -35,6 +37,7 @@ const routes = [
   { path: "/products", router: productRoutes, auth: true },
   { path: "/sales", router: saleRoutes, auth: true },
   { path: "/daily-cuts", router: dailyCutRoutes, auth: true },
+  { path: "/credit-collections", router: creditCollectionRoutes, auth: true },
   { path: "/reminders", router: reminderRoutes, auth: true },
   { path: "/dashboard", router: dashboardRoutes, auth: true },
 ];
@@ -49,7 +52,14 @@ routes.forEach(route => {
 app.use(errorHandler);
 
 // 3. PUERTO FIJO PARA DOKPLOY
-const PORT = 3002; 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`>>> SERVIDOR POS CORRIENDO EN PUERTO ${PORT} <<<`);
-});
+const PORT = 3002;
+ensureDatabaseCompatibility()
+  .then(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`>>> SERVIDOR POS CORRIENDO EN PUERTO ${PORT} <<<`);
+    });
+  })
+  .catch((error) => {
+    console.error("Failed to initialize database compatibility", error);
+    process.exit(1);
+  });

@@ -1,14 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { Product, Sale } from "../types";
-import { currency } from "../utils/format";
+import type { Product, Sale, SaleReceipt } from "../types";
+import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 
 interface CartItem {
   product: Product;
   quantity: number;
 }
+
+const emptyInvoiceData = {
+  company_rfc: "",
+  company_name: "",
+  company_tax_regime: "",
+  company_address: "",
+  client_rfc: "",
+  client_name: "",
+  client_email: "",
+  client_phone: "",
+  cfdi_use: "",
+  client_tax_regime: ""
+};
 
 export function SalesPage() {
   const { token } = useAuth();
@@ -20,6 +33,12 @@ export function SalesPage() {
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [initialPayment, setInitialPayment] = useState("0");
+  const [lastReceipt, setLastReceipt] = useState<SaleReceipt | null>(null);
+  const [lastSale, setLastSale] = useState<Sale | null>(null);
+  const [invoiceData, setInvoiceData] = useState(emptyInvoiceData);
 
   async function loadProducts(term = "") {
     if (!token) return;
@@ -56,9 +75,11 @@ export function SalesPage() {
   }, [search]);
 
   const total = useMemo(
-    () => cart.reduce((sum, item) => sum + Number(item.product.price) * item.quantity, 0),
+    () => cart.reduce((sum, item) => sum + Number(item.product.effective_price ?? item.product.price) * item.quantity, 0),
     [cart]
   );
+  const invoiceTax = Number((total * 0.16).toFixed(2));
+  const pendingBalance = Math.max(total - Number(initialPayment || 0), 0);
 
   function addToCart(product: Product) {
     setCart((current) => {
@@ -87,22 +108,55 @@ export function SalesPage() {
 
     try {
       setError("");
-      const response = await apiRequest<{ sale: Sale; warnings: string[] }>("/sales", {
+      const response = await apiRequest<{ sale: Sale; warnings: string[]; receipt: SaleReceipt }>("/sales", {
         method: "POST",
         token,
         body: JSON.stringify({
           payment_method: paymentMethod,
           sale_type: saleType,
+          customer: paymentMethod === "credit" ? {
+            name: customerName,
+            phone: customerPhone
+          } : undefined,
+          initial_payment: paymentMethod === "credit" ? Number(initialPayment || 0) : 0,
+          invoice_data: saleType === "invoice" ? {
+            company: {
+              rfc: invoiceData.company_rfc,
+              razon_social: invoiceData.company_name,
+              regimen_fiscal: invoiceData.company_tax_regime,
+              direccion: invoiceData.company_address
+            },
+            client: {
+              rfc: invoiceData.client_rfc,
+              nombre: invoiceData.client_name,
+              correo: invoiceData.client_email,
+              telefono: invoiceData.client_phone,
+              uso_cfdi: invoiceData.cfdi_use,
+              regimen_fiscal: invoiceData.client_tax_regime
+            },
+            detail: {
+              subtotal: total,
+              iva: invoiceTax,
+              total,
+              payment_method: paymentMethod
+            }
+          } : undefined,
           items: cart.map((item) => ({
             product_id: item.product.id,
             quantity: item.quantity,
-            unit_price: item.product.price
+            unit_price: item.product.effective_price ?? item.product.price
           }))
         })
       });
 
       setWarnings(response.warnings);
+      setLastReceipt(response.receipt);
+      setLastSale(response.sale);
       setCart([]);
+      setCustomerName("");
+      setCustomerPhone("");
+      setInitialPayment("0");
+      setInvoiceData(emptyInvoiceData);
       await loadProducts(search);
       await loadRecentSales();
     } catch (saleError) {
@@ -138,7 +192,8 @@ export function SalesPage() {
               <strong>{product.name}</strong>
               <span>{product.sku}</span>
               <span>{product.barcode}</span>
-              <span>{currency(product.price)}</span>
+              <span>{currency(product.effective_price ?? product.price)}</span>
+              {product.is_on_sale ? <span className="offer-badge">Oferta | Remate</span> : null}
               <small>Stock: {product.stock}</small>
             </button>
           ))}
@@ -164,7 +219,12 @@ export function SalesPage() {
             <tbody>
               {cart.map((item) => (
                 <tr key={item.product.id}>
-                  <td>{item.product.name}</td>
+                  <td>
+                    <div className="cart-product-cell">
+                      <span>{item.product.name}</span>
+                      {item.product.is_on_sale ? <span className="offer-badge">Oferta | Remate</span> : null}
+                    </div>
+                  </td>
                   <td>
                     <div className="quantity-control">
                       <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)} type="button">-</button>
@@ -172,8 +232,8 @@ export function SalesPage() {
                       <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)} type="button">+</button>
                     </div>
                   </td>
-                  <td>{currency(item.product.price)}</td>
-                  <td>{currency(Number(item.product.price) * item.quantity)}</td>
+                  <td>{currency(item.product.effective_price ?? item.product.price)}</td>
+                  <td>{currency(Number(item.product.effective_price ?? item.product.price) * item.quantity)}</td>
                 </tr>
               ))}
             </tbody>
@@ -202,9 +262,117 @@ export function SalesPage() {
           </div>
           <button className="button" onClick={confirmSale} type="button">Confirmar venta</button>
         </div>
+
+        {paymentMethod === "transfer" ? (
+          <div className="info-card">
+            <h3>Datos bancarios</h3>
+            <p>Banco: BBVA</p>
+            <p>CLABE: 012345678901234567</p>
+            <p>Beneficiario: Comercial XYZ</p>
+          </div>
+        ) : null}
+
+        {paymentMethod === "credit" ? (
+          <div className="form-section-grid">
+            <label>
+              Nombre del comprador
+              <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
+            </label>
+            <label>
+              Telefono
+              <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
+            </label>
+            <label>
+              Pago inicial
+              <input min="0" step="0.01" type="number" value={initialPayment} onChange={(event) => setInitialPayment(event.target.value)} />
+            </label>
+            <div className="total-box secondary">
+              <span>Saldo pendiente</span>
+              <strong>{currency(pendingBalance)}</strong>
+            </div>
+          </div>
+        ) : null}
+
+        {saleType === "invoice" ? (
+          <div className="invoice-grid">
+            <div className="info-card">
+              <h3>Datos empresa</h3>
+              <label>
+                RFC
+                <input value={invoiceData.company_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, company_rfc: event.target.value })} />
+              </label>
+              <label>
+                Razon social
+                <input value={invoiceData.company_name} onChange={(event) => setInvoiceData({ ...invoiceData, company_name: event.target.value })} />
+              </label>
+              <label>
+                Regimen fiscal
+                <input value={invoiceData.company_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, company_tax_regime: event.target.value })} />
+              </label>
+              <label>
+                Direccion
+                <input value={invoiceData.company_address} onChange={(event) => setInvoiceData({ ...invoiceData, company_address: event.target.value })} />
+              </label>
+            </div>
+
+            <div className="info-card">
+              <h3>Datos cliente</h3>
+              <label>
+                RFC
+                <input value={invoiceData.client_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, client_rfc: event.target.value })} />
+              </label>
+              <label>
+                Nombre o razon social
+                <input value={invoiceData.client_name} onChange={(event) => setInvoiceData({ ...invoiceData, client_name: event.target.value })} />
+              </label>
+              <label>
+                Correo electronico
+                <input value={invoiceData.client_email} onChange={(event) => setInvoiceData({ ...invoiceData, client_email: event.target.value })} />
+              </label>
+              <label>
+                Telefono
+                <input value={invoiceData.client_phone} onChange={(event) => setInvoiceData({ ...invoiceData, client_phone: event.target.value })} />
+              </label>
+              <label>
+                Uso CFDI
+                <input value={invoiceData.cfdi_use} onChange={(event) => setInvoiceData({ ...invoiceData, cfdi_use: event.target.value })} />
+              </label>
+              <label>
+                Regimen fiscal receptor
+                <input value={invoiceData.client_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, client_tax_regime: event.target.value })} />
+              </label>
+            </div>
+
+            <div className="info-card">
+              <h3>Detalle factura</h3>
+              <p>Subtotal: {currency(total)}</p>
+              <p>IVA: {currency(invoiceTax)}</p>
+              <p>Total: {currency(total + invoiceTax)}</p>
+              <p>Metodo de pago: {getPaymentMethodLabel(paymentMethod)}</p>
+            </div>
+          </div>
+        ) : null}
+
         {warnings.length ? (
           <div className="warning-box">
             {warnings.map((warning) => <p key={warning}>{translateErrorMessage(warning)}</p>)}
+          </div>
+        ) : null}
+
+        {lastSale ? (
+          <div className="info-card">
+            <h3>Ticket / comprobante interno</h3>
+            <p>Venta #{lastSale.id} | {shortDate(lastSale.sale_date)}</p>
+            <p>Total: {currency(lastSale.total)}</p>
+            <p>Metodo: {getPaymentMethodLabel(lastSale.payment_method)}</p>
+            {lastReceipt?.bank_details ? (
+              <>
+                <p>Banco: {lastReceipt.bank_details.bank}</p>
+                <p>CLABE: {lastReceipt.bank_details.clabe}</p>
+                <p>Beneficiario: {lastReceipt.bank_details.beneficiary}</p>
+              </>
+            ) : null}
+            {lastSale.payment_method === "credit" ? <p>Saldo pendiente: {currency(lastReceipt?.balance_due || 0)}</p> : null}
           </div>
         ) : null}
       </div>
@@ -226,7 +394,7 @@ export function SalesPage() {
             <tbody>
               {recentSales.map((sale) => (
                 <tr key={sale.id}>
-                  <td>{sale.sale_date}</td>
+                  <td>{shortDate(sale.sale_date)}</td>
                   <td>{sale.cashier_name}</td>
                   <td>{getPaymentMethodLabel(sale.payment_method)}</td>
                   <td>{currency(sale.total)}</td>

@@ -2,6 +2,12 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
 
+const BANK_DETAILS = {
+  bank: "BBVA",
+  clabe: "012345678901234567",
+  beneficiary: "Comercial XYZ"
+};
+
 async function listSales() {
   const { rows } = await pool.query(
     `SELECT sales.*, users.full_name AS cashier_name
@@ -27,6 +33,17 @@ async function createSale(payload, user) {
   if (!payload.items || !payload.items.length) {
     throw new ApiError(400, "Sale requires at least one item");
   }
+  if (payload.payment_method === "credit") {
+    if (!payload.customer?.name?.trim()) {
+      throw new ApiError(400, "Customer name is required for credit sales");
+    }
+    if (!payload.customer?.phone?.trim()) {
+      throw new ApiError(400, "Customer phone is required for credit sales");
+    }
+    if (payload.initial_payment === undefined || Number(payload.initial_payment) < 0) {
+      throw new ApiError(400, "Initial payment is required for credit sales");
+    }
+  }
 
   const client = await pool.connect();
 
@@ -35,7 +52,19 @@ async function createSale(payload, user) {
 
     const productIds = payload.items.map((item) => item.product_id);
     const { rows: productRows } = await client.query(
-      "SELECT * FROM products WHERE id = ANY($1::int[])",
+      `WITH sales_30 AS (
+         SELECT
+           si.product_id,
+           COALESCE(SUM(si.quantity), 0) AS recent_units_sold
+         FROM sale_items si
+         INNER JOIN sales s ON s.id = si.sale_id
+         WHERE s.sale_date >= CURRENT_DATE - INTERVAL '30 days'
+         GROUP BY si.product_id
+       )
+       SELECT products.*, COALESCE(sales_30.recent_units_sold, 0) AS recent_units_sold
+       FROM products
+       LEFT JOIN sales_30 ON sales_30.product_id = products.id
+       WHERE products.id = ANY($1::int[])`,
       [productIds]
     );
     const productsMap = new Map(productRows.map((product) => [product.id, product]));
@@ -60,7 +89,16 @@ async function createSale(payload, user) {
         warnings.push(`Insufficient stock for ${product.name}. Current stock: ${product.stock}`);
       }
 
-      const unitPrice = Number(item.unit_price ?? product.price);
+      const nearExpiry =
+        Boolean(product.expires_at) &&
+        new Date(product.expires_at) <= new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      const effectivePrice =
+        product.liquidation_price !== null &&
+        product.liquidation_price !== undefined &&
+        (Number(product.recent_units_sold || 0) <= 2 || nearExpiry)
+          ? product.liquidation_price
+          : product.price;
+      const unitPrice = Number(item.unit_price ?? effectivePrice);
       const unitCost = Number(product.cost_price || 0);
       const subtotal = unitPrice * quantity;
       total += subtotal;
@@ -75,28 +113,57 @@ async function createSale(payload, user) {
       });
     }
 
+    const saleType = payload.sale_type || "ticket";
+    const subtotal = total;
+    const initialPayment = Number(payload.initial_payment || 0);
+    const balanceDue = payload.payment_method === "credit" ? Math.max(total - initialPayment, 0) : 0;
+    const customerName = payload.customer?.name?.trim() || null;
+    const customerPhone = payload.customer?.phone?.trim() || null;
+    const invoiceData = saleType === "invoice" ? payload.invoice_data || {} : {};
+
     const { rows: saleRows } = await client.query(
-      `INSERT INTO sales (user_id, payment_method, total, total_amount, sale_date, created_at, status)
-      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $5)
+      `INSERT INTO sales (
+        user_id,
+        payment_method,
+        sale_type,
+        subtotal,
+        total,
+        total_cost,
+        customer_name,
+        customer_phone,
+        initial_payment,
+        balance_due,
+        invoice_data,
+        notes,
+        sale_date,
+        sale_time,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP)
       RETURNING *`,
       [
         user.id,
         payload.payment_method || "cash",
+        saleType,
+        subtotal,
         total,
-       total,
-       "completed"
+        totalCost,
+        customerName,
+        customerPhone,
+        initialPayment,
+        balanceDue,
+        JSON.stringify(invoiceData),
+        payload.payment_method === "transfer" ? JSON.stringify({ bank_details: BANK_DETAILS }) : ""
       ]
-
     );
 
     const sale = saleRows[0];
 
     for (const item of normalizedItems) {
       await client.query(
-        `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
-        VALUES ($1, $2, $3, $4, $5)`,
-        [sale.id, item.productId, item.quantity, item.unitPrice, item.subtotal]
-
+        `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, unit_cost, subtotal)
+        VALUES ($1, $2, $3, $4, $5, $6)`,
+        [sale.id, item.productId, item.quantity, item.unitPrice, item.unitCost, item.subtotal]
       );
 
       await client.query(
@@ -108,7 +175,14 @@ async function createSale(payload, user) {
     await client.query("COMMIT");
     await recomputeDailyCut(sale.sale_date);
 
-    return { sale, warnings };
+    return {
+      sale,
+      warnings,
+      receipt: {
+        bank_details: payload.payment_method === "transfer" ? BANK_DETAILS : null,
+        balance_due: balanceDue
+      }
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -120,5 +194,6 @@ async function createSale(payload, user) {
 module.exports = {
   listSales,
   listRecentSales,
-  createSale
+  createSale,
+  BANK_DETAILS
 };

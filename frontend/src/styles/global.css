@@ -224,6 +224,11 @@ td {
   border: 1px solid var(--border);
 }
 
+.button.ghost.danger {
+  border-color: rgba(255, 123, 123, 0.35);
+  color: #ffd1d1;
+}
+
 .login-screen,
 .screen-center {
   min-height: 100vh;
@@ -275,6 +280,10 @@ td {
   background: rgba(88, 212, 179, 0.08);
 }
 
+.total-box.secondary {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -297,6 +306,61 @@ td {
 .warning-box,
 .error-text {
   color: #ffd7a4;
+}
+
+.offer-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 180, 84, 0.16);
+  color: #ffcf8a;
+  font-size: 0.78rem;
+}
+
+.cart-product-cell,
+.form-section-grid,
+.invoice-grid,
+.share-actions,
+.credit-summary {
+  display: grid;
+  gap: 1rem;
+}
+
+.form-section-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.invoice-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 1rem;
+}
+
+.info-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.info-card h3 {
+  margin-top: 0;
+}
+
+.share-actions {
+  grid-auto-flow: column;
+}
+
+.credit-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 1rem;
+}
+
+.table-row-active {
+  background: rgba(88, 212, 179, 0.08);
 }
 
 .stack-list {
@@ -329,7 +393,10 @@ td {
   .app-shell,
   .two-columns,
   .sales-layout,
-  .sales-actions {
+  .sales-actions,
+  .form-section-grid,
+  .credit-summary,
+  .share-actions {
     grid-template-columns: 1fr;
   }
 

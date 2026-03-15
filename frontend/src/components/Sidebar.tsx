@@ -8,6 +8,7 @@ const links = [
   { to: "/products", label: "Productos", managementOnly: true },
   { to: "/users", label: "Usuarios", managementOnly: true },
   { to: "/sales-history", label: "Historial", managementOnly: true },
+  { to: "/credit-collections", label: "Credito y Cobranza", managementOnly: true },
   { to: "/daily-cut", label: "Corte Diario", managementOnly: true },
   { to: "/reminders", label: "Recordatorios" }
 ];

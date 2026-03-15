@@ -8,5 +8,6 @@ router.get("/", controller.listValidation, controller.listProducts);
 router.post("/", requireRole(["superadmin", "admin"]), controller.createValidation, controller.createProduct);
 router.put("/:id", requireRole(["superadmin", "admin"]), controller.idValidation, controller.updateValidation, controller.updateProduct);
 router.patch("/:id/status", requireRole(["superadmin", "admin"]), controller.idValidation, controller.statusValidation, controller.updateProductStatus);
+router.delete("/:id", requireRole(["superadmin", "admin"]), controller.idValidation, controller.deleteProduct);
 
 module.exports = router;

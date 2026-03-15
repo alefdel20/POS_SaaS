@@ -11,6 +11,7 @@ const saleRoutes = require("./routes/saleRoutes");
 const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
+const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.use(["/users", "/api/users"], requireAuth, userRoutes);
 app.use(["/products", "/api/products"], requireAuth, productRoutes);
 app.use(["/sales", "/api/sales"], requireAuth, saleRoutes);
 app.use(["/daily-cuts", "/api/daily-cuts"], requireAuth, dailyCutRoutes);
+app.use(["/credit-collections", "/api/credit-collections"], requireAuth, creditCollectionRoutes);
 app.use(["/reminders", "/api/reminders"], requireAuth, reminderRoutes);
 app.use(["/dashboard", "/api/dashboard"], requireAuth, dashboardRoutes);
 

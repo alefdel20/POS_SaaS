@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Product } from "../types";
-import { currency } from "../utils/format";
+import { currency, shortDate } from "../utils/format";
 
 const emptyProduct = {
   name: "",
@@ -12,7 +12,9 @@ const emptyProduct = {
   description: "",
   price: "",
   cost_price: "",
+  liquidation_price: "",
   stock: "",
+  expires_at: "",
   is_active: true
 };
 
@@ -22,6 +24,7 @@ export function ProductsPage() {
   const [form, setForm] = useState(emptyProduct);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   async function loadProducts() {
     if (!token) return;
@@ -42,6 +45,7 @@ export function ProductsPage() {
     const price = Number(form.price);
     const stock = Number(form.stock);
     const costPrice = form.cost_price === "" ? 0 : Number(form.cost_price);
+    const liquidationPrice = form.liquidation_price === "" ? null : Number(form.liquidation_price);
 
     if (!form.name.trim()) {
       setError("El nombre es obligatorio");
@@ -63,6 +67,11 @@ export function ProductsPage() {
       return;
     }
 
+    if (liquidationPrice !== null && (Number.isNaN(liquidationPrice) || liquidationPrice < 0)) {
+      setError("El precio de remate debe ser numerico y valido");
+      return;
+    }
+
     setSaving(true);
     setError("");
 
@@ -78,7 +87,9 @@ export function ProductsPage() {
           category: form.category.trim() || null,
           price,
           cost_price: costPrice,
-          stock
+          liquidation_price: liquidationPrice,
+          stock,
+          expires_at: form.expires_at || null
         })
       });
       setForm(emptyProduct);
@@ -90,78 +101,167 @@ export function ProductsPage() {
     }
   }
 
+  async function handleDeleteProduct(product: Product) {
+    if (!token) return;
+    const confirmed = window.confirm(`Eliminar producto "${product.name}"?`);
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(product.id);
+      setError("");
+      await apiRequest(`/products/${product.id}`, {
+        method: "DELETE",
+        token
+      });
+      await loadProducts();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const liquidationProducts = products.filter((product) => product.is_low_rotation || product.is_near_expiry);
+
   return (
-    <section className="page-grid two-columns">
+    <section className="page-grid">
       <div className="panel">
         <div className="panel-header">
-          <h2>Productos</h2>
+          <div>
+            <h2>Remate</h2>
+            <p className="muted">Productos con baja rotacion o proximos a vencer.</p>
+          </div>
         </div>
-        {error ? <p className="error-text">{error}</p> : null}
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Nombre</th>
-                <th>SKU</th>
-                <th>Categoria</th>
-                <th>Precio</th>
-                <th>Stock</th>
-                <th>Estado</th>
+                <th>Producto</th>
+                <th>Motivo</th>
+                <th>Precio normal</th>
+                <th>Precio remate</th>
+                <th>Vence</th>
               </tr>
             </thead>
             <tbody>
-              {products.map((product) => (
-                <tr key={product.id}>
+              {liquidationProducts.map((product) => (
+                <tr key={`liquidation-${product.id}`}>
                   <td>{product.name}</td>
-                  <td>{product.sku}</td>
-                  <td>{product.category || "-"}</td>
+                  <td>
+                    {product.is_low_rotation ? "Baja rotacion" : ""}
+                    {product.is_low_rotation && product.is_near_expiry ? " + " : ""}
+                    {product.is_near_expiry ? "Proximo a vencer" : ""}
+                  </td>
                   <td>{currency(product.price)}</td>
-                  <td>{product.stock}</td>
-                  <td>{product.is_active ? "Activo" : "Inactivo"}</td>
+                  <td>{product.liquidation_price ? currency(product.liquidation_price) : "-"}</td>
+                  <td>{shortDate(product.expires_at || null)}</td>
                 </tr>
               ))}
+              {liquidationProducts.length === 0 ? (
+                <tr>
+                  <td className="muted" colSpan={5}>No hay productos candidatos a remate.</td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
       </div>
-      <form className="panel grid-form" onSubmit={handleSubmit}>
-        <div className="panel-header">
-          <h2>Nuevo producto</h2>
+
+      <div className="page-grid two-columns">
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Productos</h2>
+          </div>
+          {error ? <p className="error-text">{error}</p> : null}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>SKU</th>
+                  <th>Categoria</th>
+                  <th>Costo</th>
+                  <th>Precio</th>
+                  <th>Remate</th>
+                  <th>Stock</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.map((product) => (
+                  <tr key={product.id}>
+                    <td>{product.name}</td>
+                    <td>{product.sku}</td>
+                    <td>{product.category || "-"}</td>
+                    <td>{currency(product.cost_price)}</td>
+                    <td>{currency(product.price)}</td>
+                    <td>{product.liquidation_price ? currency(product.liquidation_price) : "-"}</td>
+                    <td>{product.stock}</td>
+                    <td>{product.is_active ? "Activo" : "Inactivo"}</td>
+                    <td>
+                      <button
+                        className="button ghost danger"
+                        disabled={deletingId === product.id}
+                        onClick={() => handleDeleteProduct(product)}
+                        type="button"
+                      >
+                        {deletingId === product.id ? "Eliminando..." : "Eliminar"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <label>
-          Nombre
-          <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-        </label>
-        <label>
-          SKU
-          <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
-        </label>
-        <label>
-          Categoria
-          <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
-        </label>
-        <label>
-          Codigo de barras
-          <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
-        </label>
-        <label>
-          Descripcion
-          <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-        </label>
-        <label>
-          Precio
-          <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
-        </label>
-        <label>
-          Costo
-          <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
-        </label>
-        <label>
-          Stock
-          <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
-        </label>
-        <button className="button" disabled={saving} type="submit">{saving ? "Guardando..." : "Guardar producto"}</button>
-      </form>
+        <form className="panel grid-form" onSubmit={handleSubmit}>
+          <div className="panel-header">
+            <h2>Nuevo producto</h2>
+          </div>
+          <label>
+            Nombre
+            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+          </label>
+          <label>
+            SKU
+            <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
+          </label>
+          <label>
+            Categoria
+            <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
+          </label>
+          <label>
+            Codigo de barras
+            <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
+          </label>
+          <label>
+            Descripcion
+            <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+          </label>
+          <label>
+            Precio
+            <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
+          </label>
+          <label>
+            Costo
+            <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
+          </label>
+          <label>
+            Precio remate
+            <input type="number" min="0" step="0.01" value={form.liquidation_price} onChange={(event) => setForm({ ...form, liquidation_price: event.target.value })} />
+          </label>
+          <label>
+            Stock
+            <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
+          </label>
+          <label>
+            Fecha de vencimiento
+            <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
+          </label>
+          <button className="button" disabled={saving} type="submit">{saving ? "Guardando..." : "Guardar producto"}</button>
+        </form>
+      </div>
     </section>
   );
 }

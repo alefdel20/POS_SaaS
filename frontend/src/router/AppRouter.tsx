@@ -3,6 +3,7 @@ import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useAuth } from "../context/AuthContext";
 import { AppLayout } from "../layouts/AppLayout";
 import { DashboardPage } from "../pages/DashboardPage";
+import { CreditCollectionsPage } from "../pages/CreditCollectionsPage";
 import { DailyCutPage } from "../pages/DailyCutPage";
 import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -35,6 +36,7 @@ export function AppRouter() {
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/users" element={<UsersPage />} />
               <Route path="/sales-history" element={<SalesHistoryPage />} />
+              <Route path="/credit-collections" element={<CreditCollectionsPage />} />
               <Route path="/daily-cut" element={<DailyCutPage />} />
             </Route>
           </Route>

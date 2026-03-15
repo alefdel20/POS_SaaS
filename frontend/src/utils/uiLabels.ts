@@ -35,7 +35,12 @@ const errorTranslations: Record<string, string> = {
   "Invalid or expired token": "La sesion expiro",
   "Username or email already exists": "El usuario o correo ya existe",
   "Product not found": "Producto no encontrado",
-  "User not found": "Usuario no encontrado"
+  "User not found": "Usuario no encontrado",
+  "Customer name is required for credit sales": "El nombre del comprador es obligatorio para ventas a credito",
+  "Customer phone is required for credit sales": "El telefono del comprador es obligatorio para ventas a credito",
+  "Initial payment is required for credit sales": "El pago inicial es obligatorio para ventas a credito",
+  "Credit sale not found": "La venta a credito no existe",
+  "Payment amount must be greater than zero": "El abono debe ser mayor a cero"
 };
 
 export function getPaymentMethodLabel(value: Sale["payment_method"]) {

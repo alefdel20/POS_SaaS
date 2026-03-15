@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS products (
   description TEXT NOT NULL DEFAULT '',
   price NUMERIC(12, 2) NOT NULL DEFAULT 0,
   cost_price NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  liquidation_price NUMERIC(12, 2),
   stock NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  expires_at DATE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -35,6 +37,11 @@ CREATE TABLE IF NOT EXISTS sales (
   subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
   total NUMERIC(12, 2) NOT NULL DEFAULT 0,
   total_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  customer_name VARCHAR(150),
+  customer_phone VARCHAR(40),
+  initial_payment NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  balance_due NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  invoice_data JSONB NOT NULL DEFAULT '{}'::jsonb,
   notes TEXT NOT NULL DEFAULT '',
   sale_date DATE NOT NULL DEFAULT CURRENT_DATE,
   sale_time TIME NOT NULL DEFAULT CURRENT_TIME,
@@ -49,6 +56,16 @@ CREATE TABLE IF NOT EXISTS sale_items (
   unit_price NUMERIC(12, 2) NOT NULL,
   unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
   subtotal NUMERIC(12, 2) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS credit_payments (
+  id SERIAL PRIMARY KEY,
+  sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+  payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  amount NUMERIC(12, 2) NOT NULL,
+  payment_method VARCHAR(20) NOT NULL CHECK (payment_method IN ('cash', 'card', 'credit', 'transfer')),
+  notes TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
@@ -137,4 +154,5 @@ CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales(sale_date);
+CREATE INDEX IF NOT EXISTS idx_credit_payments_sale_id ON credit_payments(sale_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_due_date ON reminders(due_date);

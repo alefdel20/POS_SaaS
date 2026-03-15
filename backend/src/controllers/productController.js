@@ -12,7 +12,9 @@ const createValidation = [
   body("category").optional({ values: "falsy" }).trim(),
   body("price").isFloat({ min: 0 }),
   body("cost_price").optional().isFloat({ min: 0 }),
+  body("liquidation_price").optional({ values: "falsy" }).isFloat({ min: 0 }),
   body("stock").optional().isFloat(),
+  body("expires_at").optional({ values: "falsy" }).isISO8601(),
   body("is_active").optional().isBoolean(),
   validateRequest
 ];
@@ -23,7 +25,9 @@ const updateValidation = [
   body("category").optional({ values: "falsy" }).trim(),
   body("price").optional().isFloat({ min: 0 }),
   body("cost_price").optional().isFloat({ min: 0 }),
+  body("liquidation_price").optional({ values: "falsy" }).isFloat({ min: 0 }),
   body("stock").optional().isFloat(),
+  body("expires_at").optional({ values: "falsy" }).isISO8601(),
   body("is_active").optional().isBoolean(),
   validateRequest
 ];
@@ -45,6 +49,10 @@ const updateProductStatus = asyncHandler(async (req, res) => {
   res.json(await productService.updateProductStatus(Number(req.params.id), req.body.is_active));
 });
 
+const deleteProduct = asyncHandler(async (req, res) => {
+  res.json(await productService.deleteProduct(Number(req.params.id)));
+});
+
 module.exports = {
   listValidation,
   idValidation,
@@ -54,5 +62,6 @@ module.exports = {
   listProducts,
   createProduct,
   updateProduct,
-  updateProductStatus
+  updateProductStatus,
+  deleteProduct
 };

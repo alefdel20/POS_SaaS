@@ -18,7 +18,14 @@ export interface Product {
   description: string;
   price: number;
   cost_price: number;
+  liquidation_price?: number | null;
+  effective_price?: number;
+  recent_units_sold?: number;
+  is_low_rotation?: boolean;
+  is_near_expiry?: boolean;
+  is_on_sale?: boolean;
   stock: number;
+  expires_at?: string | null;
   is_active: boolean;
 }
 
@@ -30,8 +37,44 @@ export interface Sale {
   sale_type: "ticket" | "invoice";
   subtotal: number;
   total: number;
+  total_cost?: number;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  initial_payment?: number;
+  balance_due?: number;
+  invoice_data?: Record<string, unknown>;
   sale_date: string;
   sale_time: string;
+  created_at: string;
+}
+
+export interface SaleReceipt {
+  bank_details: {
+    bank: string;
+    clabe: string;
+    beneficiary: string;
+  } | null;
+  balance_due: number;
+}
+
+export interface Debtor {
+  sale_id: number;
+  sale_date: string;
+  person: string;
+  phone: string;
+  total: number;
+  initial_payment: number;
+  total_paid: number;
+  balance_due: number;
+}
+
+export interface CreditPayment {
+  id: number;
+  sale_id: number;
+  payment_date: string;
+  amount: number;
+  payment_method: Sale["payment_method"];
+  notes: string;
   created_at: string;
 }
 

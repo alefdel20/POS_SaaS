@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { DailyCut } from "../types";
-import { currency } from "../utils/format";
+import { currency, dateLabel, shortDate } from "../utils/format";
 
 export function DailyCutPage() {
   const { token } = useAuth();
@@ -15,19 +15,36 @@ export function DailyCutPage() {
     apiRequest<DailyCut[]>("/daily-cuts", { token }).then(setHistory).catch(console.error);
   }, [token]);
 
+  const shareMessage = today
+    ? `Corte Diario\nFecha: ${shortDate(today.cut_date)}\n\nTotal: ${currency(today.total_day)}\nEfectivo: ${currency(today.cash_total)}\nTarjeta: ${currency(today.card_total)}\nTransferencia: ${currency(today.transfer_total)}\n\nGanancia: ${currency(today.gross_profit)}\nTickets: ${today.ticket_count}`
+    : "";
+  const encodedShareMessage = encodeURIComponent(shareMessage);
+
   return (
     <section className="page-grid">
-      <div className="stats-grid">
-        <div className="stat-card"><span className="stat-label">Fecha</span><strong className="stat-value">{today?.cut_date || "-"}</strong></div>
-        <div className="stat-card"><span className="stat-label">Total dia</span><strong className="stat-value">{currency(today?.total_day || 0)}</strong></div>
-        <div className="stat-card"><span className="stat-label">Efectivo</span><strong className="stat-value">{currency(today?.cash_total || 0)}</strong></div>
-        <div className="stat-card"><span className="stat-label">Tarjeta</span><strong className="stat-value">{currency(today?.card_total || 0)}</strong></div>
-        <div className="stat-card"><span className="stat-label">Credito</span><strong className="stat-value">{currency(today?.credit_total || 0)}</strong></div>
-        <div className="stat-card"><span className="stat-label">Transferencia</span><strong className="stat-value">{currency(today?.transfer_total || 0)}</strong></div>
-        <div className="stat-card"><span className="stat-label">Facturas</span><strong className="stat-value">{today?.invoice_count || 0}</strong></div>
-        <div className="stat-card"><span className="stat-label">Tickets</span><strong className="stat-value">{today?.ticket_count || 0}</strong></div>
-        <div className="stat-card"><span className="stat-label">Ganancia</span><strong className="stat-value">{currency(today?.gross_profit || 0)}</strong></div>
-        <div className="stat-card"><span className="stat-label">Margen</span><strong className="stat-value">{Number(today?.gross_margin || 0).toFixed(2)}%</strong></div>
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Corte diario</h2>
+            <p className="muted">{today ? dateLabel(today.cut_date) : "-"}</p>
+          </div>
+          <div className="share-actions">
+            <a className="button ghost" href={`https://wa.me/?text=${encodedShareMessage}`} rel="noreferrer" target="_blank">Enviar por WhatsApp</a>
+            <a className="button ghost" href={`mailto:?subject=Corte Diario ${today ? shortDate(today.cut_date) : ""}&body=${encodedShareMessage}`}>Enviar por correo</a>
+          </div>
+        </div>
+        <div className="stats-grid">
+          <div className="stat-card"><span className="stat-label">Fecha</span><strong className="stat-value">{today ? shortDate(today.cut_date) : "-"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Total del dia</span><strong className="stat-value">{currency(today?.total_day || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Efectivo</span><strong className="stat-value">{currency(today?.cash_total || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Tarjeta</span><strong className="stat-value">{currency(today?.card_total || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Credito</span><strong className="stat-value">{currency(today?.credit_total || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Transferencia</span><strong className="stat-value">{currency(today?.transfer_total || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Facturas</span><strong className="stat-value">{today?.invoice_count || 0}</strong></div>
+          <div className="stat-card"><span className="stat-label">Tickets</span><strong className="stat-value">{today?.ticket_count || 0}</strong></div>
+          <div className="stat-card"><span className="stat-label">Ganancia</span><strong className="stat-value">{currency(today?.gross_profit || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Margen</span><strong className="stat-value">{Number(today?.gross_margin || 0).toFixed(2)}%</strong></div>
+        </div>
       </div>
       <div className="panel">
         <div className="panel-header">
@@ -41,16 +58,18 @@ export function DailyCutPage() {
                 <th>Total</th>
                 <th>Efectivo</th>
                 <th>Tarjeta</th>
+                <th>Transferencia</th>
                 <th>Ganancia</th>
               </tr>
             </thead>
             <tbody>
               {history.map((cut) => (
                 <tr key={cut.id}>
-                  <td>{cut.cut_date}</td>
+                  <td>{shortDate(cut.cut_date)}</td>
                   <td>{currency(cut.total_day)}</td>
                   <td>{currency(cut.cash_total)}</td>
                   <td>{currency(cut.card_total)}</td>
+                  <td>{currency(cut.transfer_total)}</td>
                   <td>{currency(cut.gross_profit)}</td>
                 </tr>
               ))}

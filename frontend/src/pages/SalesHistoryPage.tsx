@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Sale } from "../types";
-import { currency } from "../utils/format";
+import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel } from "../utils/uiLabels";
 
 export function SalesHistoryPage() {
@@ -35,7 +35,7 @@ export function SalesHistoryPage() {
             {sales.map((sale) => (
               <tr key={sale.id}>
                 <td>{sale.id}</td>
-                <td>{sale.sale_date}</td>
+                <td>{shortDate(sale.sale_date)}</td>
                 <td>{sale.cashier_name}</td>
                 <td>{getPaymentMethodLabel(sale.payment_method)}</td>
                 <td>{getSaleTypeLabel(sale.sale_type)}</td>
