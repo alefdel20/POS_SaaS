@@ -5,7 +5,7 @@ const saleService = require("../services/saleService");
 
 const createValidation = [
   body("payment_method").isIn(["cash", "card", "credit", "transfer"]),
-  body("sale_type").isIn(["ticket", "invoice"]),
+  body("sale_type").optional().isIn(["ticket", "invoice"]),
   body("items").isArray({ min: 1 }),
   body("items.*.product_id").isInt(),
   body("items.*.quantity").isFloat({ gt: 0 }),
