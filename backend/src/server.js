@@ -24,24 +24,56 @@ const pool = new Pool({
   port: process.env.PGPORT || 5432,
 });
 
-pool.query('SELECT NOW()', (err) => {
-  if (err) console.error('❌ ERROR DB:', err.message);
-  else console.log('✅ CONEXIÓN A POSTGRES EXITOSA');
+pool.query("SELECT NOW()", (err) => {
+  if (err) console.error("❌ ERROR DB:", err.message);
+  else console.log("✅ CONEXIÓN A POSTGRES EXITOSA");
 });
 
-// 2. MIDDLEWARES Y CABECERAS
+// 2. CORS Y MIDDLEWARES
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
+}));
+
+app.options("*", (req, res) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+  );
+  return res.sendStatus(204);
+});
+
 app.use(express.json());
+
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") return res.sendStatus(200);
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
   next();
 });
-app.use(cors());
 
-// 3. RUTAS DUALES (Para que no falle el 404 del Front)
-app.get(["/health", "/api/health"], (req, res) => res.json({ status: "ok" }));
+// 3. RUTAS DUALES
+app.get(["/health", "/api/health"], (req, res) => {
+  res.json({ status: "ok" });
+});
+
 app.use(["/auth", "/api/auth"], authRoutes);
 app.use(["/users", "/api/users"], requireAuth, userRoutes);
 app.use(["/products", "/api/products"], requireAuth, productRoutes);
@@ -55,6 +87,7 @@ app.use(errorHandler);
 
 // 4. PUERTO FIJO
 const PORT = 3002;
+
 ensureDatabaseCompatibility()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
