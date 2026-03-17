@@ -1,4 +1,3 @@
-import { AnkodeLogo } from "./AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
 import { getRoleLabel } from "../utils/uiLabels";
 
@@ -8,10 +7,7 @@ export function Header() {
   return (
     <header className="header">
       <div className="header-brand-block">
-        <div className="header-brand">
-          <AnkodeLogo className="header-logo" size={34} variant="icon" alt="ANKODE K" />
-          <p className="header-title">POS APP</p>
-        </div>
+        <p className="header-title">POS APP</p>
         <p className="header-subtitle">{user?.full_name} | {getRoleLabel(user?.role)}</p>
       </div>
       <button className="button ghost" onClick={logout}>
