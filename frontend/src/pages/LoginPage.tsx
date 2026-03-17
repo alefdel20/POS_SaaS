@@ -33,11 +33,8 @@ export function LoginPage() {
     <div className="login-screen">
       <div className="login-card">
         <div className="login-branding">
-          <AnkodeLogo className="login-logo" size={88} withBackground />
-          <div className="login-brand-copy">
-            <p className="login-brand-name">ANKODE</p>
-            <p className="login-brand-tagline">POS SYSTEM</p>
-          </div>
+          <AnkodeLogo className="login-logo" size="min(320px, 78vw)" variant="full" alt="ANKODE" />
+          <p className="login-brand-tagline">POS SYSTEM</p>
         </div>
         <div className="login-intro">
           <p className="eyebrow">POS MVP</p>

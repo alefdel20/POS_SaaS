@@ -9,7 +9,7 @@ export function Header() {
     <header className="header">
       <div className="header-brand-block">
         <div className="header-brand">
-          <AnkodeLogo className="header-logo" size={34} />
+          <AnkodeLogo className="header-logo" size={34} variant="icon" alt="ANKODE K" />
           <p className="header-title">POS APP</p>
         </div>
         <p className="header-subtitle">{user?.full_name} | {getRoleLabel(user?.role)}</p>
