@@ -94,6 +94,20 @@ td {
   gap: 0.35rem;
 }
 
+.sidebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.sidebar-logo {
+  display: block;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 .brand {
   font-size: 1.5rem;
   font-weight: 700;

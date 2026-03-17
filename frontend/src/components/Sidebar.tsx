@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { AnkodeLogo } from "./AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
 import { isManagementRole, normalizeRole } from "../utils/roles";
 
@@ -21,7 +22,10 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <div className="brand">POS APP</div>
+        <div className="sidebar-brand">
+          <AnkodeLogo className="sidebar-logo" size={30} variant="icon" alt="ANKODE K" />
+          <div className="brand">POS APP</div>
+        </div>
         <p className="brand-subtitle">Panel comercial oscuro</p>
       </div>
       <nav className="nav-list">
