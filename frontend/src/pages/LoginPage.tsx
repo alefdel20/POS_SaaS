@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { AnkodeLogo } from "../components/AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
 import { getDefaultRouteForRole } from "../utils/roles";
 
@@ -31,7 +32,14 @@ export function LoginPage() {
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div>
+        <div className="login-branding">
+          <AnkodeLogo className="login-logo" size={88} withBackground />
+          <div className="login-brand-copy">
+            <p className="login-brand-name">ANKODE</p>
+            <p className="login-brand-tagline">POS SYSTEM</p>
+          </div>
+        </div>
+        <div className="login-intro">
           <p className="eyebrow">POS MVP</p>
           <h1>Control de ventas con estilo oscuro</h1>
           <p className="muted">Accede con usuario o correo para operar caja, inventario y recordatorios.</p>
@@ -55,7 +63,7 @@ export function LoginPage() {
             />
           </label>
           {error ? <p className="error-text">{error}</p> : null}
-          <button className="button" disabled={loading} type="submit">
+          <button className="button login-button" disabled={loading} type="submit">
             {loading ? "Entrando..." : "Iniciar sesion"}
           </button>
         </form>

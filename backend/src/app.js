@@ -14,18 +14,29 @@ const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 
 const app = express();
 
-// 1. CABECERAS MANUALES TOTALES
-app.use((req, res, next) => {
+// CORS
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
+}));
+
+app.options("*", (req, res) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") return res.sendStatus(200);
-  next();
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+  );
+  return res.sendStatus(204);
 });
 
-app.use(cors());
 app.use(express.json());
-// CORS FIX
+
+// Cabeceras extra por compatibilidad
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header(
@@ -43,11 +54,13 @@ app.use((req, res, next) => {
 
   next();
 });
-// 2. RUTAS COMPATIBLES (Con y sin /api para que no falle nada)
-// Ruta de salud doble
-app.get(["/health", "/api/health"], (req, res) => res.json({ status: "ok", message: "Servidor vivo" }));
 
-// Definición de rutas con doble prefijo
+// Ruta de salud con y sin /api
+app.get(["/health", "/api/health"], (req, res) => {
+  res.json({ status: "ok", message: "Servidor vivo" });
+});
+
+// Rutas con y sin /api
 const routes = [
   { path: "/auth", router: authRoutes, auth: false },
   { path: "/users", router: userRoutes, auth: true },
@@ -59,17 +72,17 @@ const routes = [
   { path: "/dashboard", router: dashboardRoutes, auth: true },
 ];
 
-routes.forEach(route => {
+routes.forEach((route) => {
   const handlers = route.auth ? [requireAuth, route.router] : [route.router];
-  // Esto registra la ruta con /api y sin /api
   app.use(route.path, ...handlers);
   app.use("/api" + route.path, ...handlers);
 });
 
 app.use(errorHandler);
 
-// 3. PUERTO FIJO PARA DOKPLOY
+// Puerto fijo para Dokploy
 const PORT = 3002;
+
 ensureDatabaseCompatibility()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
