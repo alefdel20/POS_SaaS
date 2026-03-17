@@ -19,9 +19,10 @@ const reminderStatusLabels: Record<Reminder["status"], string> = {
 };
 
 const roleLabels: Record<Role, string> = {
+  superusuario: "superusuario",
   superadmin: "superadministrador",
   admin: "administrador",
-  user: "usuario",
+  user: "cajero",
   cajero: "cajero",
   cashier: "cajero"
 };
@@ -34,13 +35,22 @@ const errorTranslations: Record<string, string> = {
   "Invalid session": "La sesion ya no es valida",
   "Invalid or expired token": "La sesion expiro",
   "Username or email already exists": "El usuario o correo ya existe",
+  "Invalid role": "Rol invalido",
+  "Forbidden role assignment": "No puedes asignar ese rol",
   "Product not found": "Producto no encontrado",
+  "Supplier not found": "Proveedor no encontrado",
   "User not found": "Usuario no encontrado",
   "Customer name is required for credit sales": "El nombre del comprador es obligatorio para ventas a credito",
   "Customer phone is required for credit sales": "El telefono del comprador es obligatorio para ventas a credito",
   "Initial payment is required for credit sales": "El pago inicial es obligatorio para ventas a credito",
   "Credit sale not found": "La venta a credito no existe",
-  "Payment amount must be greater than zero": "El abono debe ser mayor a cero"
+  "Payment amount must be greater than zero": "El abono debe ser mayor a cero",
+  "Producto inactivo, contactar proveedor": "Producto inactivo, contactar proveedor",
+  "Cannot permanently delete product with sales history": "No se puede eliminar definitivamente un producto con historial de ventas",
+  "Discount configuration is incomplete": "La configuracion del remate esta incompleta",
+  "Discount value must be positive": "El valor del remate debe ser positivo",
+  "At least one product is required": "Debes seleccionar al menos un producto",
+  "Telefono invalido para recordatorio": "No hay un telefono valido para enviar recordatorio"
 };
 
 export function getPaymentMethodLabel(value: Sale["payment_method"]) {

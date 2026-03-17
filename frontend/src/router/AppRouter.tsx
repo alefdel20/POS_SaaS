@@ -5,9 +5,11 @@ import { AppLayout } from "../layouts/AppLayout";
 import { DashboardPage } from "../pages/DashboardPage";
 import { CreditCollectionsPage } from "../pages/CreditCollectionsPage";
 import { DailyCutPage } from "../pages/DailyCutPage";
+import { FinancesPage } from "../pages/FinancesPage";
 import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { ProductsPage } from "../pages/ProductsPage";
+import { RematePage } from "../pages/RematePage";
 import { RemindersPage } from "../pages/RemindersPage";
 import { SalesHistoryPage } from "../pages/SalesHistoryPage";
 import { SalesPage } from "../pages/SalesPage";
@@ -34,10 +36,12 @@ export function AppRouter() {
             <Route element={<ProtectedRoute roles={["superadmin", "admin"]} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/products" element={<ProductsPage />} />
+              <Route path="/remate" element={<RematePage />} />
               <Route path="/users" element={<UsersPage />} />
               <Route path="/sales-history" element={<SalesHistoryPage />} />
               <Route path="/credit-collections" element={<CreditCollectionsPage />} />
               <Route path="/daily-cut" element={<DailyCutPage />} />
+              <Route path="/finances" element={<FinancesPage />} />
             </Route>
           </Route>
         </Route>

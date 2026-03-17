@@ -1,4 +1,5 @@
-export type Role = "superadmin" | "admin" | "user" | "cajero" | "cashier";
+export type Role = "superusuario" | "superadmin" | "admin" | "cajero" | "cashier" | "user";
+export type PosType = "Tlapaleria" | "Tienda" | "Farmacia" | "Papeleria" | "Otro";
 
 export interface User {
   id: number;
@@ -6,7 +7,15 @@ export interface User {
   email: string;
   full_name: string;
   role: Role;
+  pos_type?: PosType;
   is_active: boolean;
+}
+
+export interface Supplier {
+  id: number;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
 }
 
 export interface Product {
@@ -18,7 +27,15 @@ export interface Product {
   description: string;
   price: number;
   cost_price: number;
+  supplier_id?: number | null;
+  supplier_name?: string | null;
   liquidation_price?: number | null;
+  discount_type?: "percentage" | "fixed" | null;
+  discount_value?: number | null;
+  discount_start?: string | null;
+  discount_end?: string | null;
+  has_active_discount?: boolean;
+  has_legacy_liquidation?: boolean;
   effective_price?: number;
   recent_units_sold?: number;
   is_low_rotation?: boolean;
@@ -27,6 +44,7 @@ export interface Product {
   stock: number;
   expires_at?: string | null;
   is_active: boolean;
+  status?: "activo" | "inactivo";
 }
 
 export interface Sale {
@@ -66,6 +84,7 @@ export interface Debtor {
   initial_payment: number;
   total_paid: number;
   balance_due: number;
+  send_reminder?: boolean;
 }
 
 export interface CreditPayment {
@@ -110,6 +129,34 @@ export interface DashboardSummary {
   low_stock_products: number;
   active_users: number;
   pending_reminders: number;
+}
+
+export interface Expense {
+  id: number;
+  concept: string;
+  category: string;
+  amount: number;
+  date: string;
+  notes: string;
+  payment_method: Sale["payment_method"];
+  created_at: string;
+}
+
+export interface OwnerLoan {
+  id: number;
+  amount: number;
+  type: "entrada" | "abono";
+  balance: number;
+  date: string;
+  created_at: string;
+}
+
+export interface FinanceDashboard {
+  ingresos: number;
+  gastos: number;
+  utilidad_bruta: number;
+  utilidad_neta: number;
+  deuda_dueno: number;
 }
 
 export interface AuthResponse {

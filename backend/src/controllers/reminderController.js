@@ -18,6 +18,12 @@ const updateValidation = [
   body("assigned_to").optional({ nullable: true }).isInt(),
   validateRequest
 ];
+const sendValidation = [
+  body("sale_id").optional().isInt(),
+  body("phone").optional({ values: "falsy" }).trim(),
+  body("message").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 
 const listReminders = asyncHandler(async (req, res) => {
   res.json(await reminderService.listReminders());
@@ -35,12 +41,18 @@ const completeReminder = asyncHandler(async (req, res) => {
   res.json(await reminderService.completeReminder(Number(req.params.id)));
 });
 
+const sendReminder = asyncHandler(async (req, res) => {
+  res.json(await reminderService.sendReminder(req.body));
+});
+
 module.exports = {
   idValidation,
   createValidation,
   updateValidation,
+  sendValidation,
   listReminders,
   createReminder,
   updateReminder,
-  completeReminder
+  completeReminder,
+  sendReminder
 };

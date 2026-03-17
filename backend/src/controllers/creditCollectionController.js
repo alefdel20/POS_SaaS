@@ -12,6 +12,11 @@ const createPaymentValidation = [
   body("notes").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
+const reminderPreferenceValidation = [
+  param("saleId").isInt(),
+  body("send_reminder").isBoolean(),
+  validateRequest
+];
 
 const listDebtors = asyncHandler(async (_req, res) => {
   res.json(await creditCollectionService.listDebtors());
@@ -25,10 +30,16 @@ const createPayment = asyncHandler(async (req, res) => {
   res.status(201).json(await creditCollectionService.createPayment(Number(req.params.saleId), req.body));
 });
 
+const updateReminderPreference = asyncHandler(async (req, res) => {
+  res.json(await creditCollectionService.updateReminderPreference(Number(req.params.saleId), req.body.send_reminder));
+});
+
 module.exports = {
   saleIdValidation,
   createPaymentValidation,
+  reminderPreferenceValidation,
   listDebtors,
   listPaymentsBySale,
-  createPayment
+  createPayment,
+  updateReminderPreference
 };

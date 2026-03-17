@@ -1,6 +1,45 @@
 const pool = require("./pool");
 
 async function ensureDatabaseCompatibility() {
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'");
+  await pool.query("UPDATE users SET role = 'superusuario' WHERE role = 'superadmin'");
+  await pool.query("UPDATE users SET role = 'cajero' WHERE role IN ('user', 'cashier')");
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'users_role_check'
+          AND conrelid = 'users'::regclass
+      ) THEN
+        ALTER TABLE users DROP CONSTRAINT users_role_check;
+      END IF;
+    END $$;
+  `);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'users_role_check'
+          AND conrelid = 'users'::regclass
+      ) THEN
+        ALTER TABLE users
+        ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'cajero'));
+      END IF;
+    END $$;
+  `);
+
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id)");
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'activo'");
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_type VARCHAR(20)");
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_value NUMERIC(12, 2)");
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_start TIMESTAMP");
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_end TIMESTAMP");
+  await pool.query("UPDATE products SET status = 'activo' WHERE status IS NULL");
+  await pool.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS send_reminder BOOLEAN NOT NULL DEFAULT FALSE");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS category VARCHAR(120)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS liquidation_price NUMERIC(12, 2)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS expires_at DATE");
@@ -22,6 +61,33 @@ async function ensureDatabaseCompatibility() {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS expenses (
+      id SERIAL PRIMARY KEY,
+      concept VARCHAR(180) NOT NULL,
+      category VARCHAR(120) NOT NULL DEFAULT 'General',
+      amount NUMERIC(12, 2) NOT NULL,
+      date DATE NOT NULL DEFAULT CURRENT_DATE,
+      notes TEXT NOT NULL DEFAULT '',
+      payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS owner_loans (
+      id SERIAL PRIMARY KEY,
+      amount NUMERIC(12, 2) NOT NULL,
+      type VARCHAR(20) NOT NULL CHECK (type IN ('entrada', 'abono')),
+      balance NUMERIC(12, 2) NOT NULL DEFAULT 0,
+      date DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_suppliers_name_lower ON suppliers ((LOWER(name)))");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_owner_loans_date ON owner_loans(date)");
 }
 
 module.exports = {

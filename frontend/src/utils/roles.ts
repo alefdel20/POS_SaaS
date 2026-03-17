@@ -6,19 +6,24 @@ export function normalizeRole(role?: string | null): Role | null {
   }
 
   const normalized = role.toLowerCase();
-  if (normalized === "admin" || normalized === "superadmin") {
-    return "superadmin";
+  if (normalized === "superusuario" || normalized === "superadmin") {
+    return "superusuario";
+  }
+
+  if (normalized === "admin") {
+    return "admin";
   }
 
   if (normalized === "cajero" || normalized === "cashier" || normalized === "user") {
-    return "user";
+    return "cajero";
   }
 
   return null;
 }
 
 export function isManagementRole(role?: string | null) {
-  return normalizeRole(role) === "superadmin";
+  const normalized = normalizeRole(role);
+  return normalized === "superusuario" || normalized === "admin";
 }
 
 export function getDefaultRouteForRole(role?: string | null) {

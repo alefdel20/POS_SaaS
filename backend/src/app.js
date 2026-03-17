@@ -11,6 +11,7 @@ const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
+const financeRoutes = require("./routes/financeRoutes");
 
 const app = express();
 
@@ -70,6 +71,7 @@ const routes = [
   { path: "/credit-collections", router: creditCollectionRoutes, auth: true },
   { path: "/reminders", router: reminderRoutes, auth: true },
   { path: "/dashboard", router: dashboardRoutes, auth: true },
+  { path: "/finances", router: financeRoutes, auth: true },
 ];
 
 routes.forEach((route) => {

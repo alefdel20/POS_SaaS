@@ -1,19 +1,52 @@
 const roleAliases = {
-  admin: "superadmin",
-  superadmin: "superadmin",
-  cajero: "user",
-  cashier: "user",
-  user: "user"
+  superusuario: "superusuario",
+  superadmin: "superusuario",
+  admin: "admin",
+  cajero: "cajero",
+  cashier: "cajero",
+  user: "cajero"
 };
 
 function normalizeRole(role) {
   if (!role) {
-    return role;
+    return null;
   }
 
-  return roleAliases[String(role).toLowerCase()] || role;
+  return roleAliases[String(role).toLowerCase()] || null;
+}
+
+function isManagementRole(role) {
+  const normalizedRole = normalizeRole(role);
+  return normalizedRole === "superusuario" || normalizedRole === "admin";
+}
+
+function getAssignableRoles(actorRole) {
+  const normalizedRole = normalizeRole(actorRole);
+
+  if (normalizedRole === "superusuario") {
+    return ["admin", "cajero"];
+  }
+
+  if (normalizedRole === "admin") {
+    return ["cajero"];
+  }
+
+  return [];
+}
+
+function canAssignRole(actorRole, targetRole) {
+  const normalizedTargetRole = normalizeRole(targetRole);
+
+  if (!normalizedTargetRole) {
+    return false;
+  }
+
+  return getAssignableRoles(actorRole).includes(normalizedTargetRole);
 }
 
 module.exports = {
-  normalizeRole
+  normalizeRole,
+  isManagementRole,
+  getAssignableRoles,
+  canAssignRole
 };

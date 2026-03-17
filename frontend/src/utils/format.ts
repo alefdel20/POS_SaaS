@@ -26,3 +26,17 @@ export function shortDate(value: string | null) {
     year: "numeric"
   }).format(new Date(value));
 }
+
+export function shortDateTime(value: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+}

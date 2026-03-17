@@ -7,6 +7,8 @@ const links = [
   { to: "/dashboard", label: "Resumen", managementOnly: true },
   { to: "/sales", label: "Ventas" },
   { to: "/products", label: "Productos", managementOnly: true },
+  { to: "/remate", label: "Remate", managementOnly: true },
+  { to: "/finances", label: "Finanzas", managementOnly: true },
   { to: "/users", label: "Usuarios", managementOnly: true },
   { to: "/sales-history", label: "Historial", managementOnly: true },
   { to: "/credit-collections", label: "Credito y Cobranza", managementOnly: true },

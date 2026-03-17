@@ -1,59 +1,102 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { User } from "../types";
+import type { PosType, Role, User } from "../types";
 import { getRoleLabel } from "../utils/uiLabels";
+import { normalizeRole } from "../utils/roles";
+
+const POS_TYPES: PosType[] = ["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"];
 
 const emptyUser = {
   username: "",
   email: "",
   full_name: "",
   password: "",
-  role: "user"
+  role: "cajero" as Role,
+  pos_type: "Otro" as PosType
 };
 
 export function UsersPage() {
-  const { token } = useAuth();
+  const { token, user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [form, setForm] = useState(emptyUser);
+  const [error, setError] = useState("");
+
+  const currentRole = normalizeRole(currentUser?.role);
+  const roleOptions = useMemo(() => {
+    if (currentRole === "superusuario") {
+      return ["admin", "cajero"] as const;
+    }
+
+    if (currentRole === "admin") {
+      return ["cajero"] as const;
+    }
+
+    return [] as const;
+  }, [currentRole]);
 
   function loadUsers() {
     if (!token) return;
-    apiRequest<User[]>("/users", { token }).then(setUsers).catch(console.error);
+    apiRequest<User[]>("/users", { token })
+      .then(setUsers)
+      .catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar usuarios");
+      });
   }
 
   useEffect(() => {
     loadUsers();
   }, [token]);
 
+  useEffect(() => {
+    if (!roleOptions.includes(form.role as typeof roleOptions[number])) {
+      setForm((current) => ({ ...current, role: roleOptions[0] || "cajero" }));
+    }
+  }, [roleOptions]);
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
-    await apiRequest<User>("/users", {
-      method: "POST",
-      token,
-      body: JSON.stringify(form)
-    });
-    setForm(emptyUser);
-    loadUsers();
+
+    try {
+      setError("");
+      await apiRequest<User>("/users", {
+        method: "POST",
+        token,
+        body: JSON.stringify(form)
+      });
+      setForm({ ...emptyUser, role: roleOptions[0] || "cajero" });
+      loadUsers();
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "No fue posible crear el usuario");
+    }
   }
 
   async function toggleUserStatus(user: User) {
     if (!token) return;
-    await apiRequest<User>(`/users/${user.id}/status`, {
-      method: "PATCH",
-      token,
-      body: JSON.stringify({ is_active: !user.is_active })
-    });
-    loadUsers();
+    try {
+      setError("");
+      await apiRequest<User>(`/users/${user.id}/status`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ is_active: !user.is_active })
+      });
+      loadUsers();
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "No fue posible actualizar el usuario");
+    }
   }
 
   return (
     <section className="page-grid two-columns">
       <div className="panel">
         <div className="panel-header">
-          <h2>Usuarios</h2>
+          <div>
+            <h2>Usuarios retail</h2>
+            <p className="muted">Superusuario crea admins y cajeros. Admin solo crea cajeros.</p>
+          </div>
         </div>
+        {error ? <p className="error-text">{error}</p> : null}
         <div className="table-wrap">
           <table>
             <thead>
@@ -61,6 +104,7 @@ export function UsersPage() {
                 <th>Nombre</th>
                 <th>Usuario</th>
                 <th>Rol</th>
+                <th>POS</th>
                 <th>Estado</th>
                 <th></th>
               </tr>
@@ -71,9 +115,10 @@ export function UsersPage() {
                   <td>{user.full_name}</td>
                   <td>{user.username}</td>
                   <td>{getRoleLabel(user.role)}</td>
+                  <td>{user.pos_type || "Otro"}</td>
                   <td>{user.is_active ? "Activo" : "Inactivo"}</td>
                   <td>
-                    <button className="button ghost" onClick={() => toggleUserStatus(user)}>
+                    <button className="button ghost" onClick={() => toggleUserStatus(user)} type="button">
                       {user.is_active ? "Desactivar" : "Activar"}
                     </button>
                   </td>
@@ -105,12 +150,21 @@ export function UsersPage() {
         </label>
         <label>
           Rol
-          <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as "user" | "superadmin" })}>
-            <option value="user">{getRoleLabel("user")}</option>
-            <option value="superadmin">{getRoleLabel("superadmin")}</option>
+          <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as Role })}>
+            {roleOptions.map((role) => (
+              <option key={role} value={role}>{getRoleLabel(role)}</option>
+            ))}
           </select>
         </label>
-        <button className="button" type="submit">Crear usuario</button>
+        <label>
+          Tipo de POS
+          <select value={form.pos_type} onChange={(event) => setForm({ ...form, pos_type: event.target.value as PosType })}>
+            {POS_TYPES.map((posType) => (
+              <option key={posType} value={posType}>{posType}</option>
+            ))}
+          </select>
+        </label>
+        <button className="button" disabled={!roleOptions.length} type="submit">Crear usuario</button>
       </form>
     </section>
   );

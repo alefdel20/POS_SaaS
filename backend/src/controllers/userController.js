@@ -8,7 +8,8 @@ const createValidation = [
   body("username").trim().notEmpty(),
   body("email").isEmail(),
   body("full_name").trim().notEmpty(),
-  body("role").isIn(["superadmin", "user"]),
+  body("role").isIn(["superusuario", "superadmin", "admin", "cajero", "cashier", "user"]),
+  body("pos_type").optional({ values: "falsy" }).isIn(["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"]),
   body("password").isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
   validateRequest
@@ -17,7 +18,8 @@ const updateValidation = [
   body("username").optional().trim().notEmpty(),
   body("email").optional().isEmail(),
   body("full_name").optional().trim().notEmpty(),
-  body("role").optional().isIn(["superadmin", "user"]),
+  body("role").optional().isIn(["superusuario", "superadmin", "admin", "cajero", "cashier", "user"]),
+  body("pos_type").optional({ values: "falsy" }).isIn(["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"]),
   body("password").optional().isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
   validateRequest
@@ -29,11 +31,11 @@ const listUsers = asyncHandler(async (req, res) => {
 });
 
 const createUser = asyncHandler(async (req, res) => {
-  res.status(201).json(await userService.createUser(req.body));
+  res.status(201).json(await userService.createUser(req.body, req.user));
 });
 
 const updateUser = asyncHandler(async (req, res) => {
-  res.json(await userService.updateUser(Number(req.params.id), req.body));
+  res.json(await userService.updateUser(Number(req.params.id), req.body, req.user));
 });
 
 const updateUserStatus = asyncHandler(async (req, res) => {

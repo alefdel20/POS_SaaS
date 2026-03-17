@@ -12,6 +12,7 @@ async function listDebtors() {
        sales.total,
        sales.initial_payment,
        sales.balance_due,
+       sales.send_reminder,
        COALESCE(SUM(credit_payments.amount), 0) AS total_paid
      FROM sales
      LEFT JOIN credit_payments ON credit_payments.sale_id = sales.id
@@ -21,6 +22,50 @@ async function listDebtors() {
      ORDER BY sales.sale_date DESC, sales.id DESC`
   );
   return rows;
+}
+
+async function updateReminderPreference(saleId, sendReminder) {
+  const { rows } = await pool.query(
+    `UPDATE sales
+     SET send_reminder = $1
+     WHERE id = $2 AND payment_method = 'credit'
+     RETURNING id AS sale_id, send_reminder`,
+    [sendReminder, saleId]
+  );
+
+  if (!rows[0]) {
+    throw new ApiError(404, "Credit sale not found");
+  }
+
+  return rows[0];
+}
+
+async function getReminderContext(saleId) {
+  const { rows } = await pool.query(
+    `SELECT
+       sales.id AS sale_id,
+       sales.customer_name,
+       sales.customer_phone,
+       sales.total,
+       sales.initial_payment,
+       sales.balance_due,
+       sales.send_reminder,
+       COALESCE(SUM(credit_payments.amount), 0) AS total_paid,
+       COALESCE(STRING_AGG(DISTINCT products.name, ', '), 'tu compra') AS product_names
+     FROM sales
+     LEFT JOIN credit_payments ON credit_payments.sale_id = sales.id
+     LEFT JOIN sale_items ON sale_items.sale_id = sales.id
+     LEFT JOIN products ON products.id = sale_items.product_id
+     WHERE sales.id = $1 AND sales.payment_method = 'credit'
+     GROUP BY sales.id`,
+    [saleId]
+  );
+
+  if (!rows[0]) {
+    throw new ApiError(404, "Credit sale not found");
+  }
+
+  return rows[0];
 }
 
 async function listPaymentsBySale(saleId) {
@@ -98,5 +143,7 @@ async function createPayment(saleId, payload) {
 module.exports = {
   listDebtors,
   listPaymentsBySale,
-  createPayment
+  createPayment,
+  updateReminderPreference,
+  getReminderContext
 };

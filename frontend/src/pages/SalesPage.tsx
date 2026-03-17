@@ -72,7 +72,7 @@ export function SalesPage() {
       });
     }, 250);
     return () => clearTimeout(delay);
-  }, [search]);
+  }, [search, token]);
 
   const total = useMemo(
     () => cart.reduce((sum, item) => sum + Number(item.product.effective_price ?? item.product.price) * item.quantity, 0),
@@ -82,6 +82,11 @@ export function SalesPage() {
   const pendingBalance = Math.max(total - Number(initialPayment || 0), 0);
 
   function addToCart(product: Product) {
+    if (product.status === "inactivo" || !product.is_active) {
+      setError("Producto inactivo, contactar proveedor");
+      return;
+    }
+
     setCart((current) => {
       const existing = current.find((item) => item.product.id === product.id);
       if (existing) {
@@ -169,12 +174,12 @@ export function SalesPage() {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Ventas</h2>
-            <p className="muted">Busca por nombre, SKU o codigo de barras.</p>
+            <h2>Ventas retail</h2>
+            <p className="muted">Busca por nombre, SKU, codigo de barras o proveedor.</p>
           </div>
           <input
             className="search-input"
-            placeholder="Buscar por nombre, SKU o codigo"
+            placeholder="Buscar por nombre, SKU o proveedor"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -185,14 +190,22 @@ export function SalesPage() {
             <button
               key={product.id}
               className="catalog-card"
-              disabled={Number(product.stock) <= 0}
+              disabled={Number(product.stock) <= 0 || product.status === "inactivo" || !product.is_active}
               onClick={() => addToCart(product)}
               type="button"
             >
               <strong>{product.name}</strong>
               <span>{product.sku}</span>
               <span>{product.barcode}</span>
-              <span>{currency(product.effective_price ?? product.price)}</span>
+              <span>{product.supplier_name || product.category || "-"}</span>
+              {product.is_on_sale ? (
+                <div className="price-stack">
+                  <span className="price-original">{currency(product.price)}</span>
+                  <strong>{currency(product.effective_price ?? product.price)}</strong>
+                </div>
+              ) : (
+                <span>{currency(product.effective_price ?? product.price)}</span>
+              )}
               {product.is_on_sale ? <span className="offer-badge">Oferta | Remate</span> : null}
               <small>Stock: {product.stock}</small>
             </button>
@@ -232,7 +245,16 @@ export function SalesPage() {
                       <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)} type="button">+</button>
                     </div>
                   </td>
-                  <td>{currency(item.product.effective_price ?? item.product.price)}</td>
+                  <td>
+                    {item.product.is_on_sale ? (
+                      <div className="price-stack">
+                        <span className="price-original">{currency(item.product.price)}</span>
+                        <strong>{currency(item.product.effective_price ?? item.product.price)}</strong>
+                      </div>
+                    ) : (
+                      currency(item.product.effective_price ?? item.product.price)
+                    )}
+                  </td>
                   <td>{currency(Number(item.product.effective_price ?? item.product.price) * item.quantity)}</td>
                 </tr>
               ))}

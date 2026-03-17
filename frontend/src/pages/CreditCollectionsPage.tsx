@@ -26,6 +26,7 @@ export function CreditCollectionsPage() {
   const [payments, setPayments] = useState<CreditPayment[]>([]);
   const [form, setForm] = useState(emptyPayment);
   const [error, setError] = useState("");
+  const [sendingReminder, setSendingReminder] = useState(false);
 
   async function loadDebtors() {
     if (!token) return;
@@ -74,6 +75,45 @@ export function CreditCollectionsPage() {
       await loadPayments(selectedSaleId);
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible registrar el abono");
+    }
+  }
+
+  async function updateReminderPreference(sendReminder: boolean) {
+    if (!token || !selectedSaleId) return;
+
+    try {
+      setError("");
+      await apiRequest(`/credit-collections/${selectedSaleId}/reminder`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ send_reminder: sendReminder })
+      });
+      await loadDebtors();
+    } catch (preferenceError) {
+      setError(preferenceError instanceof Error ? preferenceError.message : "No fue posible actualizar el recordatorio");
+    }
+  }
+
+  async function sendReminder() {
+    if (!token || !selectedSaleId) return;
+
+    try {
+      setSendingReminder(true);
+      setError("");
+      const response = await apiRequest<{ whatsapp_url: string; webhook: { attempted: boolean; success: boolean; message: string } }>("/reminders/send", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ sale_id: selectedSaleId })
+      });
+
+      window.open(response.whatsapp_url, "_blank", "noopener,noreferrer");
+      if (response.webhook.attempted && !response.webhook.success) {
+        setError(response.webhook.message);
+      }
+    } catch (reminderError) {
+      setError(reminderError instanceof Error ? reminderError.message : "No fue posible enviar el recordatorio");
+    } finally {
+      setSendingReminder(false);
     }
   }
 
@@ -149,7 +189,21 @@ export function CreditCollectionsPage() {
             Notas
             <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </label>
-          <button className="button" disabled={!selectedSaleId} type="submit">Registrar abono</button>
+          <label className="checkbox-row">
+            <input
+              checked={Boolean(selectedDebtor?.send_reminder)}
+              disabled={!selectedSaleId}
+              onChange={(event) => updateReminderPreference(event.target.checked)}
+              type="checkbox"
+            />
+            <span>Enviar recordatorio</span>
+          </label>
+          <div className="inline-actions">
+            <button className="button" disabled={!selectedSaleId} type="submit">Registrar abono</button>
+            <button className="button ghost" disabled={!selectedSaleId || sendingReminder} onClick={sendReminder} type="button">
+              {sendingReminder ? "Enviando..." : "Enviar recordatorio"}
+            </button>
+          </div>
         </form>
 
         <div className="panel">

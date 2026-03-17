@@ -8,6 +8,37 @@ const BANK_DETAILS = {
   beneficiary: "Comercial XYZ"
 };
 
+function computeDiscountedPrice(product) {
+  if (
+    product.status !== "activo" ||
+    !product.discount_type ||
+    product.discount_value === null ||
+    product.discount_value === undefined ||
+    !product.discount_start ||
+    !product.discount_end
+  ) {
+    return null;
+  }
+
+  const now = new Date();
+  const start = new Date(product.discount_start);
+  const end = new Date(product.discount_end);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || now < start || now > end) {
+    return null;
+  }
+
+  if (product.discount_type === "percentage") {
+    return Math.max(Number(product.price) - Number(product.price) * (Number(product.discount_value) / 100), 0);
+  }
+
+  if (product.discount_type === "fixed") {
+    return Math.max(Number(product.price) - Number(product.discount_value), 0);
+  }
+
+  return null;
+}
+
 async function listSales() {
   const { rows } = await pool.query(
     `SELECT sales.*, users.full_name AS cashier_name
@@ -79,6 +110,9 @@ async function createSale(payload, user) {
       if (!product) {
         throw new ApiError(404, `Product ${item.product_id} not found`);
       }
+      if (!product.is_active || product.status !== "activo") {
+        throw new ApiError(409, "Producto inactivo, contactar proveedor");
+      }
 
       const quantity = Number(item.quantity);
       if (quantity <= 0) {
@@ -92,10 +126,13 @@ async function createSale(payload, user) {
       const nearExpiry =
         Boolean(product.expires_at) &&
         new Date(product.expires_at) <= new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      const activeDiscountPrice = computeDiscountedPrice(product);
       const effectivePrice =
-        product.liquidation_price !== null &&
-        product.liquidation_price !== undefined &&
-        (Number(product.recent_units_sold || 0) <= 2 || nearExpiry)
+        activeDiscountPrice !== null
+          ? activeDiscountPrice
+          : product.liquidation_price !== null &&
+              product.liquidation_price !== undefined &&
+              (Number(product.recent_units_sold || 0) <= 2 || nearExpiry)
           ? product.liquidation_price
           : product.price;
       const unitPrice = Number(item.unit_price ?? effectivePrice);

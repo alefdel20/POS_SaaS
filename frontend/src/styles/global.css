@@ -22,6 +22,18 @@
   --ankode-login-bg: #020617;
 }
 
+:root[data-pos-type="Farmacia"] {
+  --accent: #22c55e;
+}
+
+:root[data-pos-type="Tlapaleria"] {
+  --accent: #f97316;
+}
+
+:root[data-pos-type="Papeleria"] {
+  --accent: #60a5fa;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -359,6 +371,58 @@ td {
 
 .search-input {
   max-width: 320px;
+}
+
+.price-stack {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.price-original {
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-decoration: line-through;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(2, 6, 23, 0.7);
+  z-index: 40;
+}
+
+.modal-card {
+  width: min(420px, 100%);
+  padding: 1.25rem;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.modal-card h3,
+.modal-card p {
+  margin-top: 0;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #eef4ff;
+}
+
+.checkbox-row input {
+  width: auto;
 }
 
 .sales-actions {

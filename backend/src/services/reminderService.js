@@ -1,5 +1,7 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
+const { n8nWebhookUrl } = require("../config/env");
+const { getReminderContext } = require("./creditCollectionService");
 
 async function listReminders() {
   const { rows } = await pool.query(
@@ -71,9 +73,74 @@ async function completeReminder(id) {
   return rows[0];
 }
 
+function normalizePhone(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+
+function buildCollectionMessage(context) {
+  const totalPaid = Number(context.initial_payment || 0) + Number(context.total_paid || 0);
+  return `Recuerda que debes pagar ${context.product_names}. Debes ${Number(context.total).toFixed(2)}, llevas pagado ${totalPaid.toFixed(2)}`;
+}
+
+async function sendReminder(payload) {
+  const context = payload.sale_id ? await getReminderContext(Number(payload.sale_id)) : payload;
+  const phone = normalizePhone(context.customer_phone || payload.phone);
+
+  if (!phone || phone.length < 10) {
+    throw new ApiError(400, "Telefono invalido para recordatorio");
+  }
+
+  const message = payload.message?.trim() || buildCollectionMessage(context);
+  const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+
+  let webhook = { attempted: false, success: false, message: "Webhook no configurado" };
+  if (n8nWebhookUrl) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const response = await fetch(n8nWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sale_id: context.sale_id,
+          customer_name: context.customer_name,
+          customer_phone: phone,
+          total: Number(context.total || 0),
+          paid: Number(context.initial_payment || 0) + Number(context.total_paid || 0),
+          balance_due: Number(context.balance_due || 0),
+          message
+        }),
+        signal: controller.signal
+      });
+
+      webhook = {
+        attempted: true,
+        success: response.ok,
+        message: response.ok ? "Webhook enviado" : "Webhook respondio con error"
+      };
+    } catch (_error) {
+      webhook = {
+        attempted: true,
+        success: false,
+        message: "No fue posible enviar al webhook"
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  return {
+    whatsapp_url: whatsappUrl,
+    message,
+    webhook
+  };
+}
+
 module.exports = {
   listReminders,
   createReminder,
   updateReminder,
-  completeReminder
+  completeReminder,
+  sendReminder
 };
