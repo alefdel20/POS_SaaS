@@ -2,6 +2,8 @@ const roleAliases = {
   superusuario: "superusuario",
   superadmin: "superusuario",
   admin: "admin",
+  soporte: "soporte",
+  support: "soporte",
   cajero: "cajero",
   cashier: "cajero",
   user: "cajero"
@@ -24,7 +26,7 @@ function getAssignableRoles(actorRole) {
   const normalizedRole = normalizeRole(actorRole);
 
   if (normalizedRole === "superusuario") {
-    return ["admin", "cajero"];
+    return ["superusuario", "admin", "cajero", "soporte"];
   }
 
   if (normalizedRole === "admin") {

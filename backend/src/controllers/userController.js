@@ -8,25 +8,38 @@ const createValidation = [
   body("username").trim().notEmpty(),
   body("email").isEmail(),
   body("full_name").trim().notEmpty(),
-  body("role").isIn(["superusuario", "superadmin", "admin", "cajero", "cashier", "user"]),
+  body("role").isIn(["superusuario", "superadmin", "admin", "cajero", "cashier", "user", "soporte", "support"]),
   body("pos_type").optional({ values: "falsy" }).isIn(["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"]),
   body("password").isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
+  body("must_change_password").optional().isBoolean(),
   validateRequest
 ];
 const updateValidation = [
   body("username").optional().trim().notEmpty(),
   body("email").optional().isEmail(),
   body("full_name").optional().trim().notEmpty(),
-  body("role").optional().isIn(["superusuario", "superadmin", "admin", "cajero", "cashier", "user"]),
+  body("role").optional().isIn(["superusuario", "superadmin", "admin", "cajero", "cashier", "user", "soporte", "support"]),
   body("pos_type").optional({ values: "falsy" }).isIn(["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"]),
   body("password").optional().isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
+  body("must_change_password").optional().isBoolean(),
   validateRequest
 ];
 const statusValidation = [body("is_active").isBoolean(), validateRequest];
+const resetPasswordValidation = [
+  param("id").isInt(),
+  body("new_password").optional({ values: "falsy" }).isLength({ min: 8 }),
+  body("force_change").optional().isBoolean(),
+  validateRequest
+];
+const supportAccessValidation = [
+  param("id").isInt(),
+  body("reason").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 
-const listUsers = asyncHandler(async (req, res) => {
+const listUsers = asyncHandler(async (_req, res) => {
   res.json(await userService.listUsers());
 });
 
@@ -39,7 +52,15 @@ const updateUser = asyncHandler(async (req, res) => {
 });
 
 const updateUserStatus = asyncHandler(async (req, res) => {
-  res.json(await userService.updateUserStatus(Number(req.params.id), req.body.is_active));
+  res.json(await userService.updateUserStatus(Number(req.params.id), req.body.is_active, req.user));
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+  res.json(await userService.resetUserPassword(Number(req.params.id), req.body, req.user));
+});
+
+const supportAccess = asyncHandler(async (req, res) => {
+  res.json(await userService.logSupportAccess(Number(req.params.id), req.user, req.body.reason));
 });
 
 module.exports = {
@@ -47,8 +68,12 @@ module.exports = {
   createValidation,
   updateValidation,
   statusValidation,
+  resetPasswordValidation,
+  supportAccessValidation,
   listUsers,
   createUser,
   updateUser,
-  updateUserStatus
+  updateUserStatus,
+  resetPassword,
+  supportAccess
 };

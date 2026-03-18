@@ -87,9 +87,8 @@ export function ProductsPage() {
   const [form, setForm] = useState<ProductFormState>(emptyProduct);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
 
   async function loadProducts() {
     if (!token) return;
@@ -201,23 +200,26 @@ export function ProductsPage() {
     setError("");
   }
 
-  async function handleDeleteAction(action: "deactivate" | "delete") {
-    if (!token || !deleteTarget) return;
+  async function toggleProductStatus(product: Product) {
+    if (!token) return;
 
     try {
-      setDeletingId(deleteTarget.id);
+      setTogglingId(product.id);
       setError("");
-      await apiRequest(`/products/${deleteTarget.id}`, {
-        method: "DELETE",
+      const nextStatus = product.status === "inactivo" ? "activo" : "inactivo";
+      await apiRequest(`/products/${product.id}/status`, {
+        method: "PATCH",
         token,
-        body: JSON.stringify({ action })
+        body: JSON.stringify({
+          status: nextStatus,
+          is_active: nextStatus === "activo"
+        })
       });
-      setDeleteTarget(null);
       await loadProducts();
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "No fue posible actualizar el producto");
     } finally {
-      setDeletingId(null);
+      setTogglingId(null);
     }
   }
 
@@ -278,7 +280,7 @@ export function ProductsPage() {
         </div>
       </div>
 
-      <div className="page-grid two-columns">
+      <div className="page-grid product-management-layout">
         <div className="panel">
           <div className="panel-header">
             <h2>Catalogo administrativo</h2>
@@ -321,12 +323,16 @@ export function ProductsPage() {
                       <div className="inline-actions">
                         <button className="button ghost" onClick={() => handleEdit(product)} type="button">Editar</button>
                         <button
-                          className="button ghost danger"
-                          disabled={deletingId === product.id}
-                          onClick={() => setDeleteTarget(product)}
+                          className="button ghost"
+                          disabled={togglingId === product.id}
+                          onClick={() => toggleProductStatus(product)}
                           type="button"
                         >
-                          {deletingId === product.id ? "Procesando..." : "Eliminar"}
+                          {togglingId === product.id
+                            ? "Actualizando..."
+                            : product.status === "inactivo"
+                              ? "Activar"
+                              : "Desactivar"}
                         </button>
                       </div>
                     </td>
@@ -337,7 +343,7 @@ export function ProductsPage() {
           </div>
         </div>
 
-        <form className="panel grid-form" onSubmit={handleSubmit}>
+        <form className="panel product-form-panel" onSubmit={handleSubmit}>
           <div className="panel-header">
             <h2>{editingId ? "Editar producto" : "Nuevo producto"}</h2>
             {editingId ? (
@@ -353,115 +359,103 @@ export function ProductsPage() {
               </button>
             ) : null}
           </div>
-          <label>
-            Nombre
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-          </label>
-          <label>
-            Proveedor
-            <input
-              list="supplier-options"
-              value={form.supplier_name}
-              onChange={(event) => {
-                const value = event.target.value;
-                const matchedSupplier = suppliers.find((supplier) => supplier.name.toLowerCase() === value.toLowerCase());
-                setForm({
-                  ...form,
-                  supplier_name: value,
-                  supplier_id: matchedSupplier ? String(matchedSupplier.id) : ""
-                });
-                loadSuppliers(value).catch(console.error);
-              }}
-              placeholder="Selecciona o escribe un proveedor"
-            />
-          </label>
-          <datalist id="supplier-options">
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.name} />
-            ))}
-          </datalist>
-          <label>
-            SKU
-            <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
-          </label>
-          <label>
-            Categoria
-            <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
-          </label>
-          <label>
-            Codigo de barras
-            <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
-          </label>
-          <label>
-            Estado
-            <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "activo" | "inactivo", is_active: event.target.value === "activo" })}>
-              <option value="activo">Activo</option>
-              <option value="inactivo">Inactivo</option>
-            </select>
-          </label>
-          <label>
-            Descripcion
-            <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-          </label>
-          <label>
-            Precio
-            <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
-          </label>
-          <label>
-            Costo
-            <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
-          </label>
-          <label>
-            Precio remate legacy
-            <input type="number" min="0" step="0.01" value={form.liquidation_price} onChange={(event) => setForm({ ...form, liquidation_price: event.target.value })} />
-          </label>
-          <label>
-            Tipo de remate
-            <select value={form.discount_type} onChange={(event) => setForm({ ...form, discount_type: event.target.value as ProductFormState["discount_type"] })}>
-              <option value="">Sin remate programado</option>
-              <option value="percentage">Porcentaje</option>
-              <option value="fixed">Monto fijo</option>
-            </select>
-          </label>
-          <label>
-            Valor de remate
-            <input type="number" min="0" step="0.01" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} />
-          </label>
-          <label>
-            Inicio remate
-            <input type="datetime-local" value={form.discount_start} onChange={(event) => setForm({ ...form, discount_start: event.target.value })} />
-          </label>
-          <label>
-            Fin remate
-            <input type="datetime-local" value={form.discount_end} onChange={(event) => setForm({ ...form, discount_end: event.target.value })} />
-          </label>
-          <label>
-            Stock
-            <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
-          </label>
-          <label>
-            Fecha de vencimiento
-            <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
-          </label>
+          <div className="product-form-grid">
+            <label>
+              Nombre
+              <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+            </label>
+            <label>
+              Proveedor
+              <input
+                list="supplier-options"
+                value={form.supplier_name}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  const matchedSupplier = suppliers.find((supplier) => supplier.name.toLowerCase() === value.toLowerCase());
+                  setForm({
+                    ...form,
+                    supplier_name: value,
+                    supplier_id: matchedSupplier ? String(matchedSupplier.id) : ""
+                  });
+                  loadSuppliers(value).catch(console.error);
+                }}
+                placeholder="Selecciona o escribe un proveedor"
+              />
+            </label>
+            <datalist id="supplier-options">
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.name} />
+              ))}
+            </datalist>
+            <label>
+              SKU
+              <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
+            </label>
+            <label>
+              Categoria
+              <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
+            </label>
+            <label>
+              Codigo de barras
+              <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
+            </label>
+            <label>
+              Estado
+              <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "activo" | "inactivo", is_active: event.target.value === "activo" })}>
+                <option value="activo">Activo</option>
+                <option value="inactivo">Inactivo</option>
+              </select>
+            </label>
+            <label className="form-span-2">
+              Descripcion
+              <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+            </label>
+            <label>
+              Precio
+              <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
+            </label>
+            <label>
+              Costo
+              <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
+            </label>
+            <label>
+              Precio remate legacy
+              <input type="number" min="0" step="0.01" value={form.liquidation_price} onChange={(event) => setForm({ ...form, liquidation_price: event.target.value })} />
+            </label>
+            <label>
+              Tipo de remate
+              <select value={form.discount_type} onChange={(event) => setForm({ ...form, discount_type: event.target.value as ProductFormState["discount_type"] })}>
+                <option value="">Sin remate programado</option>
+                <option value="percentage">Porcentaje</option>
+                <option value="fixed">Monto fijo</option>
+              </select>
+            </label>
+            <label>
+              Valor de remate
+              <input type="number" min="0" step="0.01" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} />
+            </label>
+            <label>
+              Inicio remate
+              <input type="datetime-local" value={form.discount_start} onChange={(event) => setForm({ ...form, discount_start: event.target.value })} />
+            </label>
+            <label>
+              Fin remate
+              <input type="datetime-local" value={form.discount_end} onChange={(event) => setForm({ ...form, discount_end: event.target.value })} />
+            </label>
+            <label>
+              Stock
+              <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
+            </label>
+            <label>
+              Fecha de vencimiento
+              <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
+            </label>
+          </div>
           <button className="button" disabled={saving} type="submit">
             {saving ? "Guardando..." : editingId ? "Actualizar producto" : "Guardar producto"}
           </button>
         </form>
       </div>
-
-      {deleteTarget ? (
-        <div className="modal-backdrop" role="presentation">
-          <div className="modal-card">
-            <h3>Gestionar producto</h3>
-            <p>Elige si quieres desactivar o eliminar definitivamente "{deleteTarget.name}".</p>
-            <div className="inline-actions">
-              <button className="button ghost" onClick={() => handleDeleteAction("deactivate")} type="button">Desactivar</button>
-              <button className="button ghost danger" onClick={() => handleDeleteAction("delete")} type="button">Eliminar definitivo</button>
-              <button className="button ghost" onClick={() => setDeleteTarget(null)} type="button">Cancelar</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }

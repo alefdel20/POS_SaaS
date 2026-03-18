@@ -321,26 +321,16 @@ async function deleteProduct(id, action) {
     throw new ApiError(404, "Product not found");
   }
 
-  const { rows: usageRows } = await pool.query(
-    "SELECT EXISTS(SELECT 1 FROM sale_items WHERE product_id = $1) AS has_sales",
+  const { rows } = await pool.query(
+    `UPDATE products
+     SET is_active = FALSE,
+         status = 'inactivo',
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
     [id]
   );
-
-  const hasSales = Boolean(usageRows[0]?.has_sales);
-  if (action === "delete" && hasSales) {
-    throw new ApiError(409, "Cannot permanently delete product with sales history");
-  }
-
-  if (action === "deactivate" || hasSales) {
-    const { rows } = await pool.query(
-      "UPDATE products SET is_active = FALSE, status = 'inactivo', updated_at = NOW() WHERE id = $1 RETURNING *",
-      [id]
-    );
-    return { mode: "soft", product: rows[0] };
-  }
-
-  await pool.query("DELETE FROM products WHERE id = $1", [id]);
-  return { mode: "hard", product };
+  return { mode: "soft", product: rows[0], requested_action: action || "deactivate" };
 }
 
 async function applyBulkDiscount(productIds, payload) {

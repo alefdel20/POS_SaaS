@@ -22,6 +22,8 @@ const roleLabels: Record<Role, string> = {
   superusuario: "superusuario",
   superadmin: "superadministrador",
   admin: "administrador",
+  soporte: "soporte",
+  support: "soporte",
   user: "cajero",
   cajero: "cajero",
   cashier: "cajero"
@@ -37,6 +39,7 @@ const errorTranslations: Record<string, string> = {
   "Username or email already exists": "El usuario o correo ya existe",
   "Invalid role": "Rol invalido",
   "Forbidden role assignment": "No puedes asignar ese rol",
+  "At least one active superusuario must remain": "Debe permanecer al menos un superusuario activo",
   "Product not found": "Producto no encontrado",
   "Supplier not found": "Proveedor no encontrado",
   "User not found": "Usuario no encontrado",
@@ -50,7 +53,8 @@ const errorTranslations: Record<string, string> = {
   "Discount configuration is incomplete": "La configuracion del remate esta incompleta",
   "Discount value must be positive": "El valor del remate debe ser positivo",
   "At least one product is required": "Debes seleccionar al menos un producto",
-  "Telefono invalido para recordatorio": "No hay un telefono valido para enviar recordatorio"
+  "Telefono invalido para recordatorio": "No hay un telefono valido para enviar recordatorio",
+  "Password must be at least 8 characters": "La contrasena debe tener al menos 8 caracteres"
 };
 
 export function getPaymentMethodLabel(value: Sale["payment_method"]) {

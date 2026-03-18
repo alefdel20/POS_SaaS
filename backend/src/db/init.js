@@ -27,10 +27,14 @@ async function ensureDatabaseCompatibility() {
           AND conrelid = 'users'::regclass
       ) THEN
         ALTER TABLE users
-        ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'cajero'));
+        ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'cajero', 'soporte'));
       END IF;
     END $$;
   `);
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_by INTEGER REFERENCES users(id)");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_at TIMESTAMP");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP");
 
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'activo'");
@@ -83,11 +87,21 @@ async function ensureDatabaseCompatibility() {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_access_logs (
+      id SERIAL PRIMARY KEY,
+      actor_user_id INTEGER NOT NULL REFERENCES users(id),
+      target_user_id INTEGER NOT NULL REFERENCES users(id),
+      reason TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
   await pool.query("CREATE INDEX IF NOT EXISTS idx_suppliers_name_lower ON suppliers ((LOWER(name)))");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_owner_loans_date ON owner_loans(date)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_support_access_logs_actor ON support_access_logs(actor_user_id)");
 }
 
 module.exports = {

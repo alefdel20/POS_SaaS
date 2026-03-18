@@ -1,4 +1,4 @@
-export type Role = "superusuario" | "superadmin" | "admin" | "cajero" | "cashier" | "user";
+export type Role = "superusuario" | "superadmin" | "admin" | "soporte" | "support" | "cajero" | "cashier" | "user";
 export type PosType = "Tlapaleria" | "Tienda" | "Farmacia" | "Papeleria" | "Otro";
 
 export interface User {
@@ -9,6 +9,7 @@ export interface User {
   role: Role;
   pos_type?: PosType;
   is_active: boolean;
+  must_change_password?: boolean;
 }
 
 export interface Supplier {

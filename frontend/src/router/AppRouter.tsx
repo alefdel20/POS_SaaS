@@ -33,11 +33,13 @@ export function AppRouter() {
             <Route path="/" element={<RoleHomeRedirect />} />
             <Route path="/sales" element={<SalesPage />} />
             <Route path="/reminders" element={<RemindersPage />} />
+            <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin", "soporte"]} />}>
+              <Route path="/users" element={<UsersPage />} />
+            </Route>
             <Route element={<ProtectedRoute roles={["superadmin", "admin"]} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/remate" element={<RematePage />} />
-              <Route path="/users" element={<UsersPage />} />
               <Route path="/sales-history" element={<SalesHistoryPage />} />
               <Route path="/credit-collections" element={<CreditCollectionsPage />} />
               <Route path="/daily-cut" element={<DailyCutPage />} />

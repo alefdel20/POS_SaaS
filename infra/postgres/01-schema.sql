@@ -6,9 +6,13 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(120) UNIQUE NOT NULL,
   full_name VARCHAR(120) NOT NULL,
   password_hash TEXT NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('superusuario', 'admin', 'cajero')),
+  role VARCHAR(20) NOT NULL CHECK (role IN ('superusuario', 'admin', 'cajero', 'soporte')),
   pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro',
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+  password_reset_by INTEGER REFERENCES users(id),
+  password_reset_at TIMESTAMP,
+  password_changed_at TIMESTAMP,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -156,6 +160,14 @@ CREATE TABLE IF NOT EXISTS owner_loans (
   type VARCHAR(20) NOT NULL CHECK (type IN ('entrada', 'abono')),
   balance NUMERIC(12, 2) NOT NULL DEFAULT 0,
   date DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS support_access_logs (
+  id SERIAL PRIMARY KEY,
+  actor_user_id INTEGER NOT NULL REFERENCES users(id),
+  target_user_id INTEGER NOT NULL REFERENCES users(id),
+  reason TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 

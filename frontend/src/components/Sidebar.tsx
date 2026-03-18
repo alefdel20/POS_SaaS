@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { AnkodeLogo } from "./AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
-import { isManagementRole, normalizeRole } from "../utils/roles";
+import { canViewUsers, isManagementRole, normalizeRole } from "../utils/roles";
 
 const links = [
   { to: "/dashboard", label: "Resumen", managementOnly: true },
@@ -9,7 +9,7 @@ const links = [
   { to: "/products", label: "Productos", managementOnly: true },
   { to: "/remate", label: "Remate", managementOnly: true },
   { to: "/finances", label: "Finanzas", managementOnly: true },
-  { to: "/users", label: "Usuarios", managementOnly: true },
+  { to: "/users", label: "Usuarios", managementOnly: false, usersOnly: true },
   { to: "/sales-history", label: "Historial", managementOnly: true },
   { to: "/credit-collections", label: "Credito y Cobranza", managementOnly: true },
   { to: "/daily-cut", label: "Corte Diario", managementOnly: true },
@@ -19,6 +19,7 @@ const links = [
 export function Sidebar() {
   const { user } = useAuth();
   const managementUser = isManagementRole(user?.role);
+  const usersViewer = canViewUsers(user?.role);
   const role = normalizeRole(user?.role);
 
   return (
@@ -32,7 +33,13 @@ export function Sidebar() {
       </div>
       <nav className="nav-list">
         {links
-          .filter((link) => role && (!link.managementOnly || managementUser))
+          .filter((link) => {
+            if (!role) return false;
+            if (link.usersOnly) {
+              return usersViewer;
+            }
+            return !link.managementOnly || managementUser;
+          })
           .map((link) => (
             <NavLink
               key={link.to}

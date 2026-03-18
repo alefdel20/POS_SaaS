@@ -14,6 +14,10 @@ export function normalizeRole(role?: string | null): Role | null {
     return "admin";
   }
 
+  if (normalized === "soporte" || normalized === "support") {
+    return "soporte";
+  }
+
   if (normalized === "cajero" || normalized === "cashier" || normalized === "user") {
     return "cajero";
   }
@@ -24,6 +28,11 @@ export function normalizeRole(role?: string | null): Role | null {
 export function isManagementRole(role?: string | null) {
   const normalized = normalizeRole(role);
   return normalized === "superusuario" || normalized === "admin";
+}
+
+export function canViewUsers(role?: string | null) {
+  const normalized = normalizeRole(role);
+  return normalized === "superusuario" || normalized === "admin" || normalized === "soporte";
 }
 
 export function getDefaultRouteForRole(role?: string | null) {

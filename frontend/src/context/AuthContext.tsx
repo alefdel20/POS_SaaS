@@ -9,6 +9,7 @@ interface AuthContextValue {
   loading: boolean;
   login: (identifier: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -40,6 +41,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     hydrate();
   }, [token]);
 
+  async function refreshUser() {
+    if (!token) {
+      setUser(null);
+      return;
+    }
+
+    const response = await apiRequest<{ user: User }>("/auth/me", { token });
+    setUser(response.user);
+  }
+
   async function login(identifier: string, password: string) {
     const response = await apiRequest<AuthResponse>("/auth/login", {
       method: "POST",
@@ -58,7 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ token, user, loading, login, logout }}>
+    <AuthContext.Provider value={{ token, user, loading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
