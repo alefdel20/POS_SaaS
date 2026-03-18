@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { Product, Supplier } from "../types";
+import type { PaginatedProductsResponse, Product, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 
 type ProductFormState = {
@@ -12,13 +12,16 @@ type ProductFormState = {
   description: string;
   price: string;
   cost_price: string;
-  liquidation_price: string;
   stock: string;
   expires_at: string;
   is_active: boolean;
   status: "activo" | "inactivo";
   supplier_name: string;
   supplier_id: string;
+  supplier_email: string;
+  supplier_phone: string;
+  supplier_whatsapp: string;
+  supplier_observations: string;
   discount_type: "" | "percentage" | "fixed";
   discount_value: string;
   discount_start: string;
@@ -33,13 +36,16 @@ const emptyProduct: ProductFormState = {
   description: "",
   price: "",
   cost_price: "",
-  liquidation_price: "",
   stock: "",
   expires_at: "",
   is_active: true,
   status: "activo",
   supplier_name: "",
   supplier_id: "",
+  supplier_email: "",
+  supplier_phone: "",
+  supplier_whatsapp: "",
+  supplier_observations: "",
   discount_type: "",
   discount_value: "",
   discount_start: "",
@@ -66,13 +72,16 @@ function productToForm(product: Product): ProductFormState {
     description: product.description || "",
     price: String(product.price ?? ""),
     cost_price: String(product.cost_price ?? ""),
-    liquidation_price: product.liquidation_price === null || product.liquidation_price === undefined ? "" : String(product.liquidation_price),
     stock: String(product.stock ?? ""),
     expires_at: product.expires_at?.slice(0, 10) || "",
     is_active: product.is_active,
     status: product.status || (product.is_active ? "activo" : "inactivo"),
     supplier_name: product.supplier_name || "",
     supplier_id: product.supplier_id ? String(product.supplier_id) : "",
+    supplier_email: product.supplier_email || "",
+    supplier_phone: product.supplier_phone || "",
+    supplier_whatsapp: product.supplier_whatsapp || "",
+    supplier_observations: product.supplier_observations || "",
     discount_type: (product.discount_type as ProductFormState["discount_type"]) || "",
     discount_value: product.discount_value === null || product.discount_value === undefined ? "" : String(product.discount_value),
     discount_start: toDateTimeLocal(product.discount_start),
@@ -85,33 +94,60 @@ export function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [form, setForm] = useState<ProductFormState>(emptyProduct);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<10 | 15>(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  async function loadProducts() {
+  async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize) {
     if (!token) return;
-    const response = await apiRequest<Product[]>("/products", { token });
-    setProducts(response);
+    const params = new URLSearchParams({
+      page: String(nextPage),
+      pageSize: String(nextPageSize)
+    });
+
+    if (nextSearch.trim()) {
+      params.set("search", nextSearch.trim());
+    }
+
+    const response = await apiRequest<PaginatedProductsResponse>(`/products?${params.toString()}`, { token });
+    setProducts(response.items);
+    setTotalPages(response.pagination.totalPages);
+    setTotalProducts(response.pagination.total);
   }
 
-  async function loadSuppliers(search = "") {
+  async function loadSuppliers(searchTerm = "") {
     if (!token) return;
     const params = new URLSearchParams();
-    if (search.trim()) {
-      params.set("search", search.trim());
+    if (searchTerm.trim()) {
+      params.set("search", searchTerm.trim());
     }
     const response = await apiRequest<Supplier[]>(`/products/suppliers?${params.toString()}`, { token });
     setSuppliers(response);
   }
 
   useEffect(() => {
-    loadProducts().catch((loadError) => {
+    loadProducts(search, page, pageSize).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
     });
     loadSuppliers().catch(console.error);
-  }, [token]);
+  }, [token, page, pageSize]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setPage(1);
+      loadProducts(search, 1, pageSize).catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible buscar productos");
+      });
+    }, 250);
+
+    return () => clearTimeout(timeout);
+  }, [search, pageSize, token]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -120,7 +156,6 @@ export function ProductsPage() {
     const price = Number(form.price);
     const stock = Number(form.stock);
     const costPrice = form.cost_price === "" ? 0 : Number(form.cost_price);
-    const liquidationPrice = form.liquidation_price === "" ? null : Number(form.liquidation_price);
     const discountValue = form.discount_value === "" ? null : Number(form.discount_value);
 
     if (!form.name.trim()) {
@@ -129,10 +164,6 @@ export function ProductsPage() {
     }
     if (Number.isNaN(price) || price < 0 || Number.isNaN(stock) || stock < 0 || Number.isNaN(costPrice) || costPrice < 0) {
       setError("Precio, costo y stock deben ser numericos validos");
-      return;
-    }
-    if (liquidationPrice !== null && (Number.isNaN(liquidationPrice) || liquidationPrice < 0)) {
-      setError("El precio de remate legacy debe ser valido");
       return;
     }
     if (form.discount_type && (discountValue === null || Number.isNaN(discountValue) || discountValue < 0)) {
@@ -154,11 +185,14 @@ export function ProductsPage() {
       description: form.description.trim(),
       price,
       cost_price: costPrice,
-      liquidation_price: liquidationPrice,
       stock,
       expires_at: form.expires_at || null,
       supplier_id: form.supplier_id ? Number(form.supplier_id) : supplierByName?.id ?? null,
       supplier_name: form.supplier_name.trim() || null,
+      supplier_email: form.supplier_email.trim() || null,
+      supplier_phone: form.supplier_phone.trim() || null,
+      supplier_whatsapp: form.supplier_whatsapp.trim() || null,
+      supplier_observations: form.supplier_observations.trim(),
       discount_type: form.discount_type || null,
       discount_value: discountValue,
       discount_start: form.discount_start ? new Date(form.discount_start).toISOString() : null,
@@ -185,7 +219,7 @@ export function ProductsPage() {
       }
       setForm(emptyProduct);
       setEditingId(null);
-      await loadProducts();
+      await loadProducts(search, page, pageSize);
       await loadSuppliers();
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el producto");
@@ -215,7 +249,7 @@ export function ProductsPage() {
           is_active: nextStatus === "activo"
         })
       });
-      await loadProducts();
+      await loadProducts(search, page, pageSize);
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : "No fue posible actualizar el producto");
     } finally {
@@ -282,8 +316,23 @@ export function ProductsPage() {
 
       <div className="page-grid product-management-layout">
         <div className="panel">
-          <div className="panel-header">
-            <h2>Catalogo administrativo</h2>
+          <div className="panel-header product-catalog-header">
+            <div>
+              <h2>Catalogo administrativo</h2>
+              <p className="muted">Buscador y paginacion sin borrado destructivo.</p>
+            </div>
+            <div className="inline-actions">
+              <input
+                className="search-input"
+                placeholder="Buscar por nombre, SKU, categoria o proveedor"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+              <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value) as 10 | 15)}>
+                <option value={10}>10 por pagina</option>
+                <option value={15}>15 por pagina</option>
+              </select>
+            </div>
           </div>
           {error ? <p className="error-text">{error}</p> : null}
           <div className="table-wrap">
@@ -304,7 +353,10 @@ export function ProductsPage() {
                 {products.map((product) => (
                   <tr key={product.id}>
                     <td>{product.name}</td>
-                    <td>{product.supplier_name || "-"}</td>
+                    <td>
+                      <div>{product.supplier_name || "-"}</div>
+                      <small className="muted">{product.supplier_whatsapp || product.supplier_phone || product.supplier_email || "-"}</small>
+                    </td>
                     <td>{product.sku}</td>
                     <td>{product.category || "-"}</td>
                     <td>
@@ -338,12 +390,25 @@ export function ProductsPage() {
                     </td>
                   </tr>
                 ))}
+                {products.length === 0 ? (
+                  <tr>
+                    <td className="muted" colSpan={8}>No se encontraron productos.</td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
+          <div className="panel-header product-table-footer">
+            <p className="muted">{totalProducts} productos encontrados</p>
+            <div className="inline-actions">
+              <button className="button ghost" disabled={page <= 1} onClick={() => setPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
+              <span className="muted">Pagina {page} de {totalPages}</span>
+              <button className="button ghost" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(current + 1, totalPages))} type="button">Siguiente</button>
+            </div>
+          </div>
         </div>
 
-        <form className="panel product-form-panel" onSubmit={handleSubmit}>
+        <form className="panel product-form-panel product-form-panel-wide" onSubmit={handleSubmit}>
           <div className="panel-header">
             <h2>{editingId ? "Editar producto" : "Nuevo producto"}</h2>
             {editingId ? (
@@ -359,7 +424,7 @@ export function ProductsPage() {
               </button>
             ) : null}
           </div>
-          <div className="product-form-grid">
+          <div className="product-form-grid product-form-grid-wide">
             <label>
               Nombre
               <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
@@ -375,7 +440,11 @@ export function ProductsPage() {
                   setForm({
                     ...form,
                     supplier_name: value,
-                    supplier_id: matchedSupplier ? String(matchedSupplier.id) : ""
+                    supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
+                    supplier_email: matchedSupplier?.email || "",
+                    supplier_phone: matchedSupplier?.phone || "",
+                    supplier_whatsapp: matchedSupplier?.whatsapp || "",
+                    supplier_observations: matchedSupplier?.observations || ""
                   });
                   loadSuppliers(value).catch(console.error);
                 }}
@@ -387,6 +456,18 @@ export function ProductsPage() {
                 <option key={supplier.id} value={supplier.name} />
               ))}
             </datalist>
+            <label>
+              Correo proveedor
+              <input type="email" value={form.supplier_email} onChange={(event) => setForm({ ...form, supplier_email: event.target.value })} />
+            </label>
+            <label>
+              Telefono proveedor
+              <input value={form.supplier_phone} onChange={(event) => setForm({ ...form, supplier_phone: event.target.value })} />
+            </label>
+            <label>
+              WhatsApp proveedor
+              <input value={form.supplier_whatsapp} onChange={(event) => setForm({ ...form, supplier_whatsapp: event.target.value })} />
+            </label>
             <label>
               SKU
               <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
@@ -410,6 +491,10 @@ export function ProductsPage() {
               Descripcion
               <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
             </label>
+            <label className="form-span-2">
+              Observaciones proveedor
+              <textarea value={form.supplier_observations} onChange={(event) => setForm({ ...form, supplier_observations: event.target.value })} />
+            </label>
             <label>
               Precio
               <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
@@ -417,10 +502,6 @@ export function ProductsPage() {
             <label>
               Costo
               <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
-            </label>
-            <label>
-              Precio remate legacy
-              <input type="number" min="0" step="0.01" value={form.liquidation_price} onChange={(event) => setForm({ ...form, liquidation_price: event.target.value })} />
             </label>
             <label>
               Tipo de remate

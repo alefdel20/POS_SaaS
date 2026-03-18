@@ -38,6 +38,11 @@ const supportAccessValidation = [
   body("reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
+const supportModeValidation = [
+  param("id").isInt(),
+  body("reason").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 
 const listUsers = asyncHandler(async (_req, res) => {
   res.json(await userService.listUsers());
@@ -63,6 +68,14 @@ const supportAccess = asyncHandler(async (req, res) => {
   res.json(await userService.logSupportAccess(Number(req.params.id), req.user, req.body.reason));
 });
 
+const activateSupportMode = asyncHandler(async (req, res) => {
+  res.json(await userService.activateSupportMode(Number(req.params.id), req.user, req.body.reason));
+});
+
+const deactivateSupportMode = asyncHandler(async (req, res) => {
+  res.json(await userService.deactivateSupportMode(Number(req.params.id), req.user, req.body.reason));
+});
+
 module.exports = {
   idValidation,
   createValidation,
@@ -70,10 +83,13 @@ module.exports = {
   statusValidation,
   resetPasswordValidation,
   supportAccessValidation,
+  supportModeValidation,
   listUsers,
   createUser,
   updateUser,
   updateUserStatus,
   resetPassword,
-  supportAccess
+  supportAccess,
+  activateSupportMode,
+  deactivateSupportMode
 };

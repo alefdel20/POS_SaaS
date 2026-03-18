@@ -41,6 +41,10 @@ const completeReminder = asyncHandler(async (req, res) => {
   res.json(await reminderService.completeReminder(Number(req.params.id)));
 });
 
+const deleteReminder = asyncHandler(async (req, res) => {
+  res.json(await reminderService.deleteReminder(Number(req.params.id)));
+});
+
 const sendReminder = asyncHandler(async (req, res) => {
   res.json(await reminderService.sendReminder(req.body));
 });
@@ -54,5 +58,6 @@ module.exports = {
   createReminder,
   updateReminder,
   completeReminder,
+  deleteReminder,
   sendReminder
 };

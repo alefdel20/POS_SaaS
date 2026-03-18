@@ -12,6 +12,7 @@ const reminderRoutes = require("./routes/reminderRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 const financeRoutes = require("./routes/financeRoutes");
+const profileRoutes = require("./routes/profileRoutes");
 
 const app = express();
 
@@ -72,6 +73,7 @@ const routes = [
   { path: "/reminders", router: reminderRoutes, auth: true },
   { path: "/dashboard", router: dashboardRoutes, auth: true },
   { path: "/finances", router: financeRoutes, auth: true },
+  { path: "/profile", router: profileRoutes, auth: true },
 ];
 
 routes.forEach((route) => {

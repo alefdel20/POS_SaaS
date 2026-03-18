@@ -129,6 +129,15 @@ export function CreditCollectionsPage() {
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
+        <label className="checkbox-row">
+          <input
+            checked={Boolean(selectedDebtor?.send_reminder)}
+            disabled={!selectedSaleId}
+            onChange={(event) => updateReminderPreference(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Recordatorio activo para esta cuenta</span>
+        </label>
         <div className="table-wrap">
           <table>
             <thead>
@@ -188,15 +197,6 @@ export function CreditCollectionsPage() {
           <label>
             Notas
             <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-          </label>
-          <label className="checkbox-row">
-            <input
-              checked={Boolean(selectedDebtor?.send_reminder)}
-              disabled={!selectedSaleId}
-              onChange={(event) => updateReminderPreference(event.target.checked)}
-              type="checkbox"
-            />
-            <span>Enviar recordatorio</span>
           </label>
           <div className="inline-actions">
             <button className="button" disabled={!selectedSaleId} type="submit">Registrar abono</button>

@@ -73,6 +73,21 @@ async function completeReminder(id) {
   return rows[0];
 }
 
+async function deleteReminder(id) {
+  const { rows } = await pool.query(
+    `DELETE FROM reminders
+     WHERE id = $1
+     RETURNING *`,
+    [id]
+  );
+
+  if (!rows[0]) {
+    throw new ApiError(404, "Reminder not found");
+  }
+
+  return rows[0];
+}
+
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
 }
@@ -142,5 +157,6 @@ module.exports = {
   createReminder,
   updateReminder,
   completeReminder,
+  deleteReminder,
   sendReminder
 };

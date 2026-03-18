@@ -19,15 +19,59 @@ function buildSearchCondition(activeOnly) {
     : "";
 }
 
+function normalizeListOptions(search, options) {
+  if (options && typeof options === "object" && !Array.isArray(options)) {
+    return {
+      search: search || "",
+      activeOnly: Boolean(options.activeOnly),
+      page: options.page ? Number(options.page) : null,
+      pageSize: options.pageSize ? Number(options.pageSize) : null
+    };
+  }
+
+  return {
+    search: search || "",
+    activeOnly: Boolean(options),
+    page: null,
+    pageSize: null
+  };
+}
+
 async function ensureSupplierReference(payload, client = pool) {
   const supplierId = payload.supplier_id ? Number(payload.supplier_id) : null;
   const supplierName = payload.supplier_name?.trim();
+  const supplierEmail = payload.supplier_email?.trim() || null;
+  const supplierPhone = payload.supplier_phone?.trim() || null;
+  const supplierWhatsapp = payload.supplier_whatsapp?.trim() || null;
+  const supplierObservations = payload.supplier_observations?.trim() || "";
 
   if (supplierId) {
-    const { rows } = await client.query("SELECT id FROM suppliers WHERE id = $1", [supplierId]);
+    const { rows } = await client.query("SELECT * FROM suppliers WHERE id = $1", [supplierId]);
     if (!rows[0]) {
       throw new ApiError(404, "Supplier not found");
     }
+
+    if (supplierName || supplierEmail || supplierPhone || supplierWhatsapp || supplierObservations) {
+      await client.query(
+        `UPDATE suppliers
+         SET name = $1,
+             email = $2,
+             phone = $3,
+             whatsapp = $4,
+             observations = $5,
+             updated_at = NOW()
+         WHERE id = $6`,
+        [
+          supplierName || rows[0].name,
+          supplierEmail !== null ? supplierEmail : rows[0].email,
+          supplierPhone !== null ? supplierPhone : rows[0].phone,
+          supplierWhatsapp !== null ? supplierWhatsapp : rows[0].whatsapp,
+          supplierObservations || rows[0].observations || "",
+          supplierId
+        ]
+      );
+    }
+
     return supplierId;
   }
 
@@ -35,16 +79,32 @@ async function ensureSupplierReference(payload, client = pool) {
     return null;
   }
 
-  const { rows: existingRows } = await client.query("SELECT id FROM suppliers WHERE LOWER(name) = LOWER($1)", [supplierName]);
+  const { rows: existingRows } = await client.query("SELECT * FROM suppliers WHERE LOWER(name) = LOWER($1)", [supplierName]);
   if (existingRows[0]) {
+    await client.query(
+      `UPDATE suppliers
+       SET email = $1,
+           phone = $2,
+           whatsapp = $3,
+           observations = $4,
+           updated_at = NOW()
+       WHERE id = $5`,
+      [
+        supplierEmail !== null ? supplierEmail : existingRows[0].email,
+        supplierPhone !== null ? supplierPhone : existingRows[0].phone,
+        supplierWhatsapp !== null ? supplierWhatsapp : existingRows[0].whatsapp,
+        supplierObservations || existingRows[0].observations || "",
+        existingRows[0].id
+      ]
+    );
     return existingRows[0].id;
   }
 
   const { rows } = await client.query(
-    `INSERT INTO suppliers (name, created_at, updated_at)
-     VALUES ($1, NOW(), NOW())
+    `INSERT INTO suppliers (name, email, phone, whatsapp, observations, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
      RETURNING id`,
-    [supplierName]
+    [supplierName, supplierEmail, supplierPhone, supplierWhatsapp, supplierObservations]
   );
   return rows[0].id;
 }
@@ -82,12 +142,40 @@ function buildEffectivePriceCase() {
   `;
 }
 
-async function listProducts(search, activeOnly = false) {
-  const filters = buildSearchCondition(activeOnly);
+async function listProducts(search, activeOnlyOrOptions = false) {
+  const options = normalizeListOptions(search, activeOnlyOrOptions);
+  const filters = buildSearchCondition(options.activeOnly);
   const effectivePriceCase = buildEffectivePriceCase();
+  const page = options.page && options.page > 0 ? options.page : null;
+  const pageSize = page && [10, 15].includes(options.pageSize) ? options.pageSize : 10;
+  const offset = page ? (page - 1) * pageSize : 0;
 
-  if (!search) {
-    const { rows } = await pool.query(
+  async function withPagination(baseQuery, params) {
+    if (!page) {
+      const { rows } = await pool.query(baseQuery, params);
+      return rows;
+    }
+
+    const countQuery = `SELECT COUNT(*)::int AS total FROM (${baseQuery}) AS catalog_count`;
+    const paginatedQuery = `${baseQuery} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    const [{ rows: countRows }, { rows }] = await Promise.all([
+      pool.query(countQuery, params),
+      pool.query(paginatedQuery, [...params, pageSize, offset])
+    ]);
+
+    return {
+      items: rows,
+      pagination: {
+        page,
+        pageSize,
+        total: Number(countRows[0]?.total || 0),
+        totalPages: Math.max(Math.ceil(Number(countRows[0]?.total || 0) / pageSize), 1)
+      }
+    };
+  }
+
+  if (!options.search) {
+    const baseQuery =
       `WITH sales_30 AS (
          SELECT
            si.product_id,
@@ -120,14 +208,14 @@ async function listProducts(search, activeOnly = false) {
        LEFT JOIN sales_30 ON sales_30.product_id = product_data.id
        LEFT JOIN suppliers ON suppliers.id = product_data.supplier_id
        ${filters}
-       ORDER BY product_data.created_at DESC`
-    );
-    return rows;
+       ORDER BY product_data.created_at DESC`;
+
+    return withPagination(baseQuery, []);
   }
 
-  const term = `%${search}%`;
-  const activePredicate = activeOnly ? "product_data.is_active = TRUE AND product_data.status = 'activo' AND " : "";
-  const { rows } = await pool.query(
+  const term = `%${options.search}%`;
+  const activePredicate = options.activeOnly ? "product_data.is_active = TRUE AND product_data.status = 'activo' AND " : "";
+  const baseQuery =
     `WITH sales_30 AS (
        SELECT
          si.product_id,
@@ -160,23 +248,22 @@ async function listProducts(search, activeOnly = false) {
      LEFT JOIN sales_30 ON sales_30.product_id = product_data.id
      LEFT JOIN suppliers ON suppliers.id = product_data.supplier_id
      WHERE ${activePredicate}(product_data.name ILIKE $1 OR product_data.sku ILIKE $1 OR product_data.barcode ILIKE $1 OR product_data.category ILIKE $1 OR suppliers.name ILIKE $1)
-     ORDER BY product_data.name ASC`,
-    [term]
-  );
-  return rows;
+     ORDER BY product_data.name ASC`;
+
+  return withPagination(baseQuery, [term]);
 }
 
 async function listSuppliers(search) {
   const term = search?.trim();
   if (!term) {
     const { rows } = await pool.query(
-      "SELECT id, name, email, phone, created_at, updated_at FROM suppliers ORDER BY name ASC LIMIT 20"
+      "SELECT id, name, email, phone, whatsapp, observations, created_at, updated_at FROM suppliers ORDER BY name ASC LIMIT 20"
     );
     return rows;
   }
 
   const { rows } = await pool.query(
-    `SELECT id, name, email, phone, created_at, updated_at
+    `SELECT id, name, email, phone, whatsapp, observations, created_at, updated_at
      FROM suppliers
      WHERE name ILIKE $1
      ORDER BY name ASC

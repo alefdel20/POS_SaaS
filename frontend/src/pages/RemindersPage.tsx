@@ -16,10 +16,21 @@ export function RemindersPage() {
   const { token } = useAuth();
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [form, setForm] = useState(emptyReminder);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  function resetForm() {
+    setForm(emptyReminder);
+    setEditingId(null);
+  }
 
   function loadReminders() {
     if (!token) return;
-    apiRequest<Reminder[]>("/reminders", { token }).then(setReminders).catch(console.error);
+    apiRequest<Reminder[]>("/reminders", { token })
+      .then(setReminders)
+      .catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar recordatorios");
+      });
   }
 
   useEffect(() => {
@@ -29,23 +40,63 @@ export function RemindersPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
-    await apiRequest<Reminder>("/reminders", {
-      method: "POST",
-      token,
-      body: JSON.stringify(form)
-    });
-    setForm(emptyReminder);
-    loadReminders();
+
+    try {
+      setError("");
+      await apiRequest<Reminder>(editingId ? `/reminders/${editingId}` : "/reminders", {
+        method: editingId ? "PUT" : "POST",
+        token,
+        body: JSON.stringify(form)
+      });
+      resetForm();
+      loadReminders();
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el recordatorio");
+    }
   }
 
   async function completeReminder(id: number) {
     if (!token) return;
-    await apiRequest<Reminder>(`/reminders/${id}/complete`, {
-      method: "PATCH",
-      token,
-      body: JSON.stringify({})
+
+    try {
+      setError("");
+      await apiRequest<Reminder>(`/reminders/${id}/complete`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({})
+      });
+      loadReminders();
+    } catch (completionError) {
+      setError(completionError instanceof Error ? completionError.message : "No fue posible completar el recordatorio");
+    }
+  }
+
+  function startEditing(reminder: Reminder) {
+    setEditingId(reminder.id);
+    setForm({
+      title: reminder.title,
+      notes: reminder.notes || "",
+      status: reminder.status,
+      due_date: reminder.due_date || ""
     });
-    loadReminders();
+  }
+
+  async function deleteReminder(id: number) {
+    if (!token || !window.confirm("¿Eliminar este recordatorio?")) return;
+
+    try {
+      setError("");
+      await apiRequest<Reminder>(`/reminders/${id}`, {
+        method: "DELETE",
+        token
+      });
+      if (editingId === id) {
+        resetForm();
+      }
+      loadReminders();
+    } catch (deletionError) {
+      setError(deletionError instanceof Error ? deletionError.message : "No fue posible eliminar el recordatorio");
+    }
   }
 
   return (
@@ -54,6 +105,7 @@ export function RemindersPage() {
         <div className="panel-header">
           <h2>Recordatorios</h2>
         </div>
+        {error ? <p className="error-text">{error}</p> : null}
         <div className="stack-list">
           {reminders.map((reminder) => (
             <article key={reminder.id} className="reminder-card">
@@ -62,20 +114,36 @@ export function RemindersPage() {
                 <p className="muted">{reminder.notes}</p>
                 <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(reminder.due_date)}</small>
               </div>
-              {!reminder.is_completed ? (
-                <button className="button ghost" onClick={() => completeReminder(reminder.id)}>
-                  Completar
+              <div className="inline-actions">
+                <button className="button ghost" onClick={() => startEditing(reminder)} type="button">
+                  Editar
                 </button>
-              ) : (
-                <span className="pill success">Completado</span>
-              )}
+                {!reminder.is_completed ? (
+                  <button className="button ghost" onClick={() => completeReminder(reminder.id)} type="button">
+                    Completar
+                  </button>
+                ) : (
+                  <span className="pill success">Completado</span>
+                )}
+                <button className="button ghost" onClick={() => deleteReminder(reminder.id)} type="button">
+                  Eliminar
+                </button>
+              </div>
             </article>
           ))}
         </div>
       </div>
       <form className="panel grid-form" onSubmit={handleSubmit}>
         <div className="panel-header">
-          <h2>Nuevo recordatorio</h2>
+          <div>
+            <h2>{editingId ? "Editar recordatorio" : "Nuevo recordatorio"}</h2>
+            <p className="muted">{editingId ? `Editando #${editingId}` : "Captura los datos del recordatorio."}</p>
+          </div>
+          {editingId ? (
+            <button className="button ghost" onClick={resetForm} type="button">
+              Cancelar
+            </button>
+          ) : null}
         </div>
         <label>
           Titulo
@@ -97,7 +165,7 @@ export function RemindersPage() {
           Vencimiento
           <input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} />
         </label>
-        <button className="button" type="submit">Guardar recordatorio</button>
+        <button className="button" type="submit">{editingId ? "Actualizar recordatorio" : "Guardar recordatorio"}</button>
       </form>
     </section>
   );

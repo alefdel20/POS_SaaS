@@ -30,7 +30,7 @@ function getAssignableRoles(actorRole) {
   }
 
   if (normalizedRole === "admin") {
-    return ["cajero"];
+    return ["admin", "cajero"];
   }
 
   return [];

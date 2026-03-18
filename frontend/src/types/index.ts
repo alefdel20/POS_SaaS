@@ -17,6 +17,8 @@ export interface Supplier {
   name: string;
   email?: string | null;
   phone?: string | null;
+  whatsapp?: string | null;
+  observations?: string | null;
 }
 
 export interface Product {
@@ -30,6 +32,10 @@ export interface Product {
   cost_price: number;
   supplier_id?: number | null;
   supplier_name?: string | null;
+  supplier_email?: string | null;
+  supplier_phone?: string | null;
+  supplier_whatsapp?: string | null;
+  supplier_observations?: string | null;
   liquidation_price?: number | null;
   discount_type?: "percentage" | "fixed" | null;
   discount_value?: number | null;
@@ -69,11 +75,36 @@ export interface Sale {
 
 export interface SaleReceipt {
   bank_details: {
-    bank: string;
-    clabe: string;
-    beneficiary: string;
+    bank: string | null;
+    clabe: string | null;
+    beneficiary: string | null;
   } | null;
   balance_due: number;
+  invoice_status?: string;
+  stamp_status?: string;
+}
+
+export interface CompanyProfile {
+  id: number;
+  profile_key: string;
+  owner_name?: string | null;
+  company_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address: string;
+  bank_name?: string | null;
+  bank_clabe?: string | null;
+  bank_beneficiary?: string | null;
+  fiscal_rfc?: string | null;
+  fiscal_business_name?: string | null;
+  fiscal_regime?: string | null;
+  fiscal_address: string;
+  pac_provider?: string | null;
+  pac_mode: "test" | "production";
+  stamps_available: number;
+  stamps_used: number;
+  stamp_alert_threshold: number;
+  is_active: boolean;
 }
 
 export interface Debtor {
@@ -107,10 +138,11 @@ export interface Reminder {
   assigned_to: number | null;
   assigned_to_name?: string;
   is_completed: boolean;
+  updated_at?: string;
 }
 
 export interface DailyCut {
-  id: number;
+  id?: number;
   cut_date: string;
   total_day: number;
   cash_total: number;
@@ -121,6 +153,10 @@ export interface DailyCut {
   ticket_count: number;
   gross_profit: number;
   gross_margin: number;
+  timbres_usados?: number;
+  timbres_restantes?: number;
+  cashier_names?: string;
+  month?: string;
 }
 
 export interface DashboardSummary {
@@ -140,7 +176,11 @@ export interface Expense {
   date: string;
   notes: string;
   payment_method: Sale["payment_method"];
+  fixed_expense_id?: number | null;
+  is_voided?: boolean;
+  void_reason?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface OwnerLoan {
@@ -149,7 +189,11 @@ export interface OwnerLoan {
   type: "entrada" | "abono";
   balance: number;
   date: string;
+  notes: string;
+  is_voided?: boolean;
+  void_reason?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface FinanceDashboard {
@@ -163,4 +207,26 @@ export interface FinanceDashboard {
 export interface AuthResponse {
   token: string;
   user: User;
+}
+
+export interface PaginatedProductsResponse {
+  items: Product[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface FixedExpense {
+  id: number;
+  name: string;
+  category: string;
+  default_amount: number;
+  frequency: "weekly" | "biweekly" | "monthly" | "custom";
+  payment_method: Sale["payment_method"];
+  due_day?: number | null;
+  notes: string;
+  is_active: boolean;
 }

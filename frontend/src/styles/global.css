@@ -436,7 +436,7 @@ td {
 }
 
 .product-management-layout {
-  grid-template-columns: minmax(0, 1.1fr) minmax(440px, 560px);
+  grid-template-columns: minmax(0, 1fr) minmax(540px, 760px);
 }
 
 .product-form-panel {
@@ -444,10 +444,23 @@ td {
   gap: 1rem;
 }
 
+.product-form-panel-wide {
+  min-width: 0;
+}
+
 .product-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
+}
+
+.product-form-grid-wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.product-catalog-header,
+.product-table-footer {
+  align-items: flex-start;
 }
 
 .form-span-2 {

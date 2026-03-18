@@ -54,7 +54,18 @@ const errorTranslations: Record<string, string> = {
   "Discount value must be positive": "El valor del remate debe ser positivo",
   "At least one product is required": "Debes seleccionar al menos un producto",
   "Telefono invalido para recordatorio": "No hay un telefono valido para enviar recordatorio",
-  "Password must be at least 8 characters": "La contrasena debe tener al menos 8 caracteres"
+  "Password must be at least 8 characters": "La contrasena debe tener al menos 8 caracteres",
+  "Fiscal profile is incomplete": "Faltan datos fiscales en el perfil del negocio",
+  "No invoice stamps available": "No hay timbres disponibles para facturar",
+  "Loan note is required": "La nota es obligatoria para movimientos de deuda del dueno",
+  "Void reason is required": "Debes capturar un motivo de anulacion",
+  "Expense not found": "Gasto no encontrado",
+  "Void expense cannot be edited": "No puedes editar un gasto anulado",
+  "Expense is already voided": "El gasto ya fue anulado",
+  "Owner loan not found": "Movimiento del dueno no encontrado",
+  "Owner loan is already voided": "El movimiento del dueno ya fue anulado",
+  "Fixed expense not found": "Gasto fijo no encontrado",
+  "Reminder not found": "Recordatorio no encontrado"
 };
 
 export function getPaymentMethodLabel(value: Sale["payment_method"]) {

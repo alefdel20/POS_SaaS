@@ -3,7 +3,13 @@ const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const productService = require("../services/productService");
 
-const listValidation = [query("search").optional().trim(), query("activeOnly").optional().isBoolean(), validateRequest];
+const listValidation = [
+  query("search").optional().trim(),
+  query("activeOnly").optional().isBoolean(),
+  query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
+  query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
+  validateRequest
+];
 const idValidation = [param("id").isInt(), validateRequest];
 const createValidation = [
   body("name").trim().notEmpty(),
@@ -12,6 +18,10 @@ const createValidation = [
   body("category").optional({ values: "falsy" }).trim(),
   body("supplier_id").optional({ values: "falsy" }).isInt(),
   body("supplier_name").optional({ values: "falsy" }).trim(),
+  body("supplier_email").optional({ values: "falsy" }).isEmail(),
+  body("supplier_phone").optional({ values: "falsy" }).trim(),
+  body("supplier_whatsapp").optional({ values: "falsy" }).trim(),
+  body("supplier_observations").optional().trim(),
   body("price").isFloat({ min: 0 }),
   body("cost_price").optional().isFloat({ min: 0 }),
   body("liquidation_price").optional({ values: "falsy" }).isFloat({ min: 0 }),
@@ -32,6 +42,10 @@ const updateValidation = [
   body("category").optional({ values: "falsy" }).trim(),
   body("supplier_id").optional({ values: "falsy" }).isInt(),
   body("supplier_name").optional({ values: "falsy" }).trim(),
+  body("supplier_email").optional({ values: "falsy" }).isEmail(),
+  body("supplier_phone").optional({ values: "falsy" }).trim(),
+  body("supplier_whatsapp").optional({ values: "falsy" }).trim(),
+  body("supplier_observations").optional().trim(),
   body("price").optional().isFloat({ min: 0 }),
   body("cost_price").optional().isFloat({ min: 0 }),
   body("liquidation_price").optional({ values: "falsy" }).isFloat({ min: 0 }),
@@ -68,7 +82,11 @@ const deleteValidation = [
 ];
 
 const listProducts = asyncHandler(async (req, res) => {
-  res.json(await productService.listProducts(req.query.search, req.query.activeOnly === "true"));
+  res.json(await productService.listProducts(req.query.search, {
+    activeOnly: req.query.activeOnly === "true",
+    page: req.query.page,
+    pageSize: req.query.pageSize
+  }));
 });
 
 const listSuppliers = asyncHandler(async (req, res) => {

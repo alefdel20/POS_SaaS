@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { Product, Sale, SaleReceipt } from "../types";
+import type { CompanyProfile, Product, Sale, SaleReceipt } from "../types";
 import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 
@@ -27,6 +27,7 @@ export function SalesPage() {
   const { token } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
+  const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
@@ -36,6 +37,8 @@ export function SalesPage() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [initialPayment, setInitialPayment] = useState("0");
+  const [cashReceived, setCashReceived] = useState("");
+  const [saleNotes, setSaleNotes] = useState("");
   const [lastReceipt, setLastReceipt] = useState<SaleReceipt | null>(null);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [invoiceData, setInvoiceData] = useState(emptyInvoiceData);
@@ -56,12 +59,40 @@ export function SalesPage() {
     setRecentSales(response);
   }
 
+  async function loadProfile() {
+    if (!token) return;
+    const response = await apiRequest<CompanyProfile>("/profile", { token });
+    setProfile(response);
+  }
+
+  function resetSaleForm() {
+    setCart([]);
+    setPaymentMethod("cash");
+    setSaleType("ticket");
+    setCustomerName("");
+    setCustomerPhone("");
+    setInitialPayment("0");
+    setCashReceived("");
+    setSaleNotes("");
+    setWarnings([]);
+    setInvoiceData({
+      ...emptyInvoiceData,
+      company_rfc: profile?.fiscal_rfc || "",
+      company_name: profile?.fiscal_business_name || "",
+      company_tax_regime: profile?.fiscal_regime || "",
+      company_address: profile?.fiscal_address || ""
+    });
+  }
+
   useEffect(() => {
     loadProducts().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el catalogo");
     });
     loadRecentSales().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar las ventas recientes");
+    });
+    loadProfile().catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil del negocio");
     });
   }, [token]);
 
@@ -80,6 +111,33 @@ export function SalesPage() {
   );
   const invoiceTax = Number((total * 0.16).toFixed(2));
   const pendingBalance = Math.max(total - Number(initialPayment || 0), 0);
+  const cashReceivedAmount = Number(cashReceived || 0);
+  const cashChange = Math.max(cashReceivedAmount - total, 0);
+  const hasFiscalProfile = Boolean(
+    profile?.fiscal_rfc &&
+    profile?.fiscal_business_name &&
+    profile?.fiscal_regime &&
+    profile?.fiscal_address
+  );
+  const hasAvailableStamps = Number(profile?.stamps_available || 0) > 0;
+  const canUseInvoice = hasFiscalProfile;
+  const invoiceBlockedByStamps = canUseInvoice && !hasAvailableStamps;
+
+  useEffect(() => {
+    setInvoiceData((current) => ({
+      ...current,
+      company_rfc: profile?.fiscal_rfc || "",
+      company_name: profile?.fiscal_business_name || "",
+      company_tax_regime: profile?.fiscal_regime || "",
+      company_address: profile?.fiscal_address || ""
+    }));
+  }, [profile]);
+
+  useEffect(() => {
+    if ((!canUseInvoice || invoiceBlockedByStamps) && saleType === "invoice") {
+      setSaleType("ticket");
+    }
+  }, [canUseInvoice, invoiceBlockedByStamps, saleType]);
 
   function addToCart(product: Product) {
     if (product.status === "inactivo" || !product.is_active) {
@@ -110,6 +168,18 @@ export function SalesPage() {
 
   async function confirmSale() {
     if (!token || cart.length === 0) return;
+    if (paymentMethod === "cash" && cashReceived.trim() !== "" && cashReceivedAmount < total) {
+      setError("El dinero recibido no cubre el total");
+      return;
+    }
+    if (saleType === "invoice" && !canUseInvoice) {
+      setError("Faltan datos fiscales en el perfil del negocio");
+      return;
+    }
+    if (saleType === "invoice" && invoiceBlockedByStamps) {
+      setError("No hay timbres disponibles para facturar");
+      return;
+    }
 
     try {
       setError("");
@@ -146,6 +216,7 @@ export function SalesPage() {
               payment_method: paymentMethod
             }
           } : undefined,
+          notes: saleNotes.trim() || undefined,
           items: cart.map((item) => ({
             product_id: item.product.id,
             quantity: item.quantity,
@@ -157,13 +228,10 @@ export function SalesPage() {
       setWarnings(response.warnings);
       setLastReceipt(response.receipt);
       setLastSale(response.sale);
-      setCart([]);
-      setCustomerName("");
-      setCustomerPhone("");
-      setInitialPayment("0");
-      setInvoiceData(emptyInvoiceData);
+      resetSaleForm();
       await loadProducts(search);
       await loadRecentSales();
+      await loadProfile();
     } catch (saleError) {
       setError(saleError instanceof Error ? saleError.message : "No fue posible confirmar la venta");
     }
@@ -217,7 +285,7 @@ export function SalesPage() {
       <div className="panel">
         <div className="panel-header">
           <h2>Carrito</h2>
-          <button className="button ghost" onClick={() => setCart([])} type="button">Limpiar</button>
+          <button className="button ghost" onClick={resetSaleForm} type="button">Limpiar</button>
         </div>
         <div className="table-wrap">
           <table>
@@ -275,22 +343,68 @@ export function SalesPage() {
             Tipo de salida
             <select value={saleType} onChange={(event) => setSaleType(event.target.value as typeof saleType)}>
               <option value="ticket">{getSaleTypeLabel("ticket")}</option>
-              <option value="invoice">{getSaleTypeLabel("invoice")}</option>
+              {canUseInvoice ? (
+                <option disabled={invoiceBlockedByStamps} value="invoice">{getSaleTypeLabel("invoice")}</option>
+              ) : null}
             </select>
           </label>
           <div className="total-box">
             <span>Total</span>
             <strong>{currency(total)}</strong>
           </div>
-          <button className="button" onClick={confirmSale} type="button">Confirmar venta</button>
+          <button
+            className="button"
+            disabled={saleType === "invoice" && (!canUseInvoice || invoiceBlockedByStamps)}
+            onClick={confirmSale}
+            type="button"
+          >
+            Confirmar venta
+          </button>
         </div>
+
+        {!canUseInvoice ? (
+          <div className="warning-box">
+            <p>La opcion de factura no esta disponible porque faltan datos fiscales en Perfil.</p>
+          </div>
+        ) : null}
+
+        {invoiceBlockedByStamps ? (
+          <div className="warning-box">
+            <p>No hay timbres disponibles para facturar.</p>
+            <p>Timbres restantes: {profile?.stamps_available || 0}</p>
+          </div>
+        ) : null}
+
+        <div className="form-section-grid">
+          <label className="form-span-2">
+            Observaciones temporales
+            <textarea value={saleNotes} onChange={(event) => setSaleNotes(event.target.value)} />
+          </label>
+        </div>
+
+        {paymentMethod === "cash" ? (
+          <div className="form-section-grid">
+            <div className="total-box secondary">
+              <span>Total a cobrar</span>
+              <strong>{currency(total)}</strong>
+            </div>
+            <label>
+              Dinero recibido
+              <input min="0" step="0.01" type="number" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} />
+            </label>
+            <div className="total-box secondary">
+              <span>Cambio</span>
+              <strong>{currency(cashChange)}</strong>
+            </div>
+          </div>
+        ) : null}
 
         {paymentMethod === "transfer" ? (
           <div className="info-card">
             <h3>Datos bancarios</h3>
-            <p>Banco: BBVA</p>
-            <p>CLABE: 012345678901234567</p>
-            <p>Beneficiario: Comercial XYZ</p>
+            <p>Banco: {profile?.bank_name || "-"}</p>
+            <p>CLABE: {profile?.bank_clabe || "-"}</p>
+            <p>Beneficiario: {profile?.bank_beneficiary || "-"}</p>
           </div>
         ) : null}
 
@@ -321,19 +435,19 @@ export function SalesPage() {
               <h3>Datos empresa</h3>
               <label>
                 RFC
-                <input value={invoiceData.company_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, company_rfc: event.target.value })} />
+                <input disabled value={invoiceData.company_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, company_rfc: event.target.value })} />
               </label>
               <label>
                 Razon social
-                <input value={invoiceData.company_name} onChange={(event) => setInvoiceData({ ...invoiceData, company_name: event.target.value })} />
+                <input disabled value={invoiceData.company_name} onChange={(event) => setInvoiceData({ ...invoiceData, company_name: event.target.value })} />
               </label>
               <label>
                 Regimen fiscal
-                <input value={invoiceData.company_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, company_tax_regime: event.target.value })} />
+                <input disabled value={invoiceData.company_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, company_tax_regime: event.target.value })} />
               </label>
               <label>
                 Direccion
-                <input value={invoiceData.company_address} onChange={(event) => setInvoiceData({ ...invoiceData, company_address: event.target.value })} />
+                <input disabled value={invoiceData.company_address} onChange={(event) => setInvoiceData({ ...invoiceData, company_address: event.target.value })} />
               </label>
             </div>
 
@@ -389,12 +503,14 @@ export function SalesPage() {
             <p>Metodo: {getPaymentMethodLabel(lastSale.payment_method)}</p>
             {lastReceipt?.bank_details ? (
               <>
-                <p>Banco: {lastReceipt.bank_details.bank}</p>
-                <p>CLABE: {lastReceipt.bank_details.clabe}</p>
-                <p>Beneficiario: {lastReceipt.bank_details.beneficiary}</p>
+                <p>Banco: {lastReceipt.bank_details.bank || "-"}</p>
+                <p>CLABE: {lastReceipt.bank_details.clabe || "-"}</p>
+                <p>Beneficiario: {lastReceipt.bank_details.beneficiary || "-"}</p>
               </>
             ) : null}
             {lastSale.payment_method === "credit" ? <p>Saldo pendiente: {currency(lastReceipt?.balance_due || 0)}</p> : null}
+            {lastReceipt?.invoice_status ? <p>Estado factura: {lastReceipt.invoice_status}</p> : null}
+            {lastReceipt?.stamp_status ? <p>Estado timbre: {lastReceipt.stamp_status}</p> : null}
           </div>
         ) : null}
       </div>
