@@ -1,8 +1,16 @@
 INSERT INTO users (username, email, full_name, password_hash, role, is_active)
 VALUES
-  ('admin', 'admin@pos.local', 'Administrador General', crypt('Admin123*', gen_salt('bf', 10)), 'superadmin', TRUE),
-  ('cajero', 'cajero@pos.local', 'Caja Principal', crypt('Cajero123*', gen_salt('bf', 10)), 'user', TRUE)
+  ('admin', 'admin@pos.local', 'Administrador General', crypt('Admin123*', gen_salt('bf', 10)), 'superusuario', TRUE),
+  ('cajero', 'cajero@pos.local', 'Caja Principal', crypt('Cajero123*', gen_salt('bf', 10)), 'cajero', TRUE)
 ON CONFLICT (username) DO NOTHING;
+
+INSERT INTO company_profiles (profile_key, general_settings, is_active)
+SELECT 'default', '{}'::jsonb, TRUE
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM company_profiles
+  WHERE profile_key = 'default'
+);
 
 INSERT INTO products (name, sku, barcode, category, description, price, cost_price, stock, is_active)
 SELECT * FROM (

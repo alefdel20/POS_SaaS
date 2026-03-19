@@ -378,6 +378,18 @@ td {
   gap: 0.15rem;
 }
 
+.input-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.input-action-button {
+  white-space: nowrap;
+  padding: 0.85rem 1rem;
+}
+
 .price-original {
   color: var(--muted);
   font-size: 0.82rem;
@@ -565,6 +577,19 @@ td {
   margin-bottom: 1rem;
 }
 
+.credit-balance-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.credit-reminder-toggle {
+  justify-content: flex-end;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+
 .table-row-active {
   background: rgba(88, 212, 179, 0.08);
 }
@@ -609,6 +634,11 @@ td {
 
   .sidebar {
     display: none;
+  }
+
+  .credit-balance-cell {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 

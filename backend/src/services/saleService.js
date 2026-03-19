@@ -93,6 +93,10 @@ function buildSaleFilters(filters = {}) {
     addCondition("sales.user_id = ?", Number(filters.user_id));
   }
 
+  if (filters.cashier) {
+    addCondition("users.full_name ILIKE ?", `%${String(filters.cashier).trim()}%`);
+  }
+
   if (filters.payment_method) {
     addCondition("sales.payment_method = ?", filters.payment_method);
   }

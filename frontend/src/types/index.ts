@@ -73,6 +73,47 @@ export interface Sale {
   created_at: string;
 }
 
+export interface SaleDetailItem {
+  id: number;
+  product_id: number;
+  product_name: string;
+  sku?: string | null;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+}
+
+export interface SaleCreditInfo {
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  initial_payment: number;
+  balance_due: number;
+  payments: CreditPayment[];
+}
+
+export interface SaleDetail extends Sale {
+  folio: number;
+  cashier_username?: string;
+  user?: {
+    id: number;
+    full_name: string;
+    username: string;
+  };
+  credit_info?: SaleCreditInfo | null;
+  transfer_info?: {
+    bank?: string | null;
+    clabe?: string | null;
+    beneficiary?: string | null;
+  } | null;
+  invoice_info?: {
+    status?: string;
+    stamp_status?: string;
+    stamp_snapshot?: Record<string, unknown>;
+    invoice_data?: Record<string, any>;
+  } | null;
+  items: SaleDetailItem[];
+}
+
 export interface SaleReceipt {
   bank_details: {
     bank: string | null;

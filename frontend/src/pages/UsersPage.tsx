@@ -29,6 +29,8 @@ export function UsersPage() {
   const [resetTarget, setResetTarget] = useState<User | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [forceChange, setForceChange] = useState(true);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
 
   const currentRole = normalizeRole(currentUser?.role);
   const canCreateUsers = currentRole === "superusuario" || currentRole === "admin";
@@ -251,7 +253,17 @@ export function UsersPage() {
         </label>
         <label>
           Contrasena
-          <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required />
+          <div className="input-with-action">
+            <input
+              type={showCreatePassword ? "text" : "password"}
+              value={form.password}
+              onChange={(event) => setForm({ ...form, password: event.target.value })}
+              required
+            />
+            <button className="button ghost input-action-button" onClick={() => setShowCreatePassword((current) => !current)} type="button">
+              {showCreatePassword ? "Ocultar" : "Mostrar"}
+            </button>
+          </div>
         </label>
         <label>
           Rol
@@ -279,7 +291,17 @@ export function UsersPage() {
             <p>Asigna una contrasena manual o genera una temporal para {resetTarget.username}.</p>
             <label>
               Nueva contrasena
-              <input type="password" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} placeholder="Dejar vacio para generar" />
+              <div className="input-with-action">
+                <input
+                  type={showResetPassword ? "text" : "password"}
+                  value={resetPassword}
+                  onChange={(event) => setResetPassword(event.target.value)}
+                  placeholder="Dejar vacio para generar"
+                />
+                <button className="button ghost input-action-button" onClick={() => setShowResetPassword((current) => !current)} type="button">
+                  {showResetPassword ? "Ocultar" : "Mostrar"}
+                </button>
+              </div>
             </label>
             <label className="checkbox-row">
               <input checked={forceChange} onChange={(event) => setForceChange(event.target.checked)} type="checkbox" />

@@ -36,5 +36,10 @@ export function canViewUsers(role?: string | null) {
 }
 
 export function getDefaultRouteForRole(role?: string | null) {
+  const normalized = normalizeRole(role);
+  if (normalized === "soporte") {
+    return "/users";
+  }
+
   return isManagementRole(role) ? "/dashboard" : "/sales";
 }

@@ -122,6 +122,11 @@ export function SalesPage() {
   const hasAvailableStamps = Number(profile?.stamps_available || 0) > 0;
   const canUseInvoice = hasFiscalProfile;
   const invoiceBlockedByStamps = canUseInvoice && !hasAvailableStamps;
+  const transferDetails = {
+    bank: profile?.bank_name || "-",
+    clabe: profile?.bank_clabe || "-",
+    beneficiary: profile?.bank_beneficiary || "-"
+  };
 
   useEffect(() => {
     setInvoiceData((current) => ({
@@ -402,9 +407,9 @@ export function SalesPage() {
         {paymentMethod === "transfer" ? (
           <div className="info-card">
             <h3>Datos bancarios</h3>
-            <p>Banco: {profile?.bank_name || "-"}</p>
-            <p>CLABE: {profile?.bank_clabe || "-"}</p>
-            <p>Beneficiario: {profile?.bank_beneficiary || "-"}</p>
+            <p>Banco: {transferDetails.bank}</p>
+            <p>CLABE: {transferDetails.clabe}</p>
+            <p>Beneficiario: {transferDetails.beneficiary}</p>
           </div>
         ) : null}
 
@@ -509,8 +514,8 @@ export function SalesPage() {
               </>
             ) : null}
             {lastSale.payment_method === "credit" ? <p>Saldo pendiente: {currency(lastReceipt?.balance_due || 0)}</p> : null}
-            {lastReceipt?.invoice_status ? <p>Estado factura: {lastReceipt.invoice_status}</p> : null}
-            {lastReceipt?.stamp_status ? <p>Estado timbre: {lastReceipt.stamp_status}</p> : null}
+            {lastSale.sale_type === "invoice" && lastReceipt?.invoice_status ? <p>Estado factura: {lastReceipt.invoice_status}</p> : null}
+            {lastSale.sale_type === "invoice" && lastReceipt?.stamp_status ? <p>Estado timbre: {lastReceipt.stamp_status}</p> : null}
           </div>
         ) : null}
       </div>

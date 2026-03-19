@@ -18,6 +18,26 @@ const emptyDiscount: DiscountForm = {
   discount_end: ""
 };
 
+function toDateTimeLocal(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  const timezoneOffset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - timezoneOffset * 60000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function productToDiscountForm(product: Product): DiscountForm {
+  return {
+    discount_type: product.discount_type || "",
+    discount_value: product.discount_value === null || product.discount_value === undefined ? "" : String(product.discount_value),
+    discount_start: toDateTimeLocal(product.discount_start),
+    discount_end: toDateTimeLocal(product.discount_end)
+  };
+}
+
 export function RematePage() {
   const { token } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
@@ -53,6 +73,18 @@ export function RematePage() {
     () => products.filter((product) => product.status !== "inactivo"),
     [products]
   );
+  const selectedProducts = useMemo(
+    () => filteredProducts.filter((product) => selectedIds.includes(product.id)),
+    [filteredProducts, selectedIds]
+  );
+
+  useEffect(() => {
+    if (selectedProducts.length !== 1) {
+      return;
+    }
+
+    setForm(productToDiscountForm(selectedProducts[0]));
+  }, [selectedProducts]);
 
   async function applyDiscount(event: FormEvent) {
     event.preventDefault();
@@ -103,6 +135,12 @@ export function RematePage() {
     setSelectedIds((current) =>
       current.includes(productId) ? current.filter((id) => id !== productId) : [...current, productId]
     );
+  }
+
+  function clearSelection() {
+    setSelectedIds([]);
+    setForm(emptyDiscount);
+    setError("");
   }
 
   return (
@@ -168,7 +206,10 @@ export function RematePage() {
         <div className="panel-header">
           <div>
             <h2>Aplicar remate</h2>
-            <p className="muted">{selectedIds.length} productos seleccionados</p>
+            <p className="muted">
+              {selectedIds.length} productos seleccionados
+              {selectedProducts.length === 1 && selectedProducts[0].discount_type ? " | remate actual cargado para edicion" : ""}
+            </p>
           </div>
         </div>
         <label>
@@ -193,7 +234,7 @@ export function RematePage() {
         </label>
         <div className="inline-actions">
           <button className="button" disabled={!selectedIds.length} type="submit">Aplicar remate</button>
-          <button className="button ghost" disabled={!selectedIds.length} onClick={() => clearDiscount()} type="button">Limpiar seleccion</button>
+          <button className="button ghost" disabled={!selectedIds.length && !form.discount_type && !form.discount_value && !form.discount_start && !form.discount_end} onClick={clearSelection} type="button">Limpiar seleccion</button>
         </div>
       </form>
     </section>

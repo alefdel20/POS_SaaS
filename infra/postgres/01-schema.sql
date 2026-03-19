@@ -13,6 +13,51 @@ CREATE TABLE IF NOT EXISTS users (
   password_reset_by INTEGER REFERENCES users(id),
   password_reset_at TIMESTAMP,
   password_changed_at TIMESTAMP,
+  support_mode_active BOOLEAN NOT NULL DEFAULT FALSE,
+  support_mode_activated_at TIMESTAMP,
+  support_mode_deactivated_at TIMESTAMP,
+  support_mode_updated_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  email VARCHAR(120),
+  phone VARCHAR(40),
+  whatsapp VARCHAR(40),
+  observations TEXT NOT NULL DEFAULT '',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS company_profiles (
+  id SERIAL PRIMARY KEY,
+  profile_key VARCHAR(50) NOT NULL DEFAULT 'default',
+  owner_name VARCHAR(150),
+  company_name VARCHAR(180),
+  phone VARCHAR(40),
+  email VARCHAR(120),
+  address TEXT NOT NULL DEFAULT '',
+  general_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+  bank_name VARCHAR(120),
+  bank_clabe VARCHAR(32),
+  bank_beneficiary VARCHAR(180),
+  fiscal_rfc VARCHAR(20),
+  fiscal_business_name VARCHAR(180),
+  fiscal_regime VARCHAR(120),
+  fiscal_address TEXT NOT NULL DEFAULT '',
+  pac_provider VARCHAR(120),
+  pac_mode VARCHAR(20) NOT NULL DEFAULT 'test',
+  stamps_available INTEGER NOT NULL DEFAULT 0,
+  stamps_used INTEGER NOT NULL DEFAULT 0,
+  stamp_alert_threshold INTEGER NOT NULL DEFAULT 10,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by INTEGER REFERENCES users(id),
+  updated_by INTEGER REFERENCES users(id),
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -55,6 +100,12 @@ CREATE TABLE IF NOT EXISTS sales (
   send_reminder BOOLEAN NOT NULL DEFAULT FALSE,
   invoice_data JSONB NOT NULL DEFAULT '{}'::jsonb,
   notes TEXT NOT NULL DEFAULT '',
+  company_profile_id INTEGER REFERENCES company_profiles(id),
+  transfer_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  invoice_status VARCHAR(30) NOT NULL DEFAULT 'not_requested',
+  stamp_status VARCHAR(30) NOT NULL DEFAULT 'not_applicable',
+  stamp_movement_id BIGINT,
+  stamp_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
   sale_date DATE NOT NULL DEFAULT CURRENT_DATE,
   sale_time TIME NOT NULL DEFAULT CURRENT_TIME,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -171,6 +222,36 @@ CREATE TABLE IF NOT EXISTS support_access_logs (
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS fixed_expenses (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(180) NOT NULL,
+  category VARCHAR(120) NOT NULL DEFAULT 'General',
+  default_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  frequency VARCHAR(20) NOT NULL DEFAULT 'monthly',
+  payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
+  due_day INTEGER,
+  notes TEXT NOT NULL DEFAULT '',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by INTEGER REFERENCES users(id),
+  updated_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGSERIAL PRIMARY KEY,
+  usuario_id INTEGER REFERENCES users(id),
+  modulo VARCHAR(60) NOT NULL,
+  accion VARCHAR(60) NOT NULL,
+  entidad_tipo VARCHAR(60) NOT NULL,
+  entidad_id VARCHAR(80),
+  detalle_anterior JSONB NOT NULL DEFAULT '{}'::jsonb,
+  detalle_nuevo JSONB NOT NULL DEFAULT '{}'::jsonb,
+  motivo TEXT NOT NULL DEFAULT '',
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS reports (
   id SERIAL PRIMARY KEY,
   report_type VARCHAR(60) NOT NULL,
@@ -190,10 +271,114 @@ CREATE TABLE IF NOT EXISTS sync_logs (
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS company_stamp_movements (
+  id BIGSERIAL PRIMARY KEY,
+  company_profile_id INTEGER NOT NULL REFERENCES company_profiles(id),
+  movement_type VARCHAR(30) NOT NULL,
+  quantity INTEGER NOT NULL,
+  balance_before INTEGER NOT NULL DEFAULT 0,
+  balance_after INTEGER NOT NULL DEFAULT 0,
+  related_sale_id INTEGER REFERENCES sales(id),
+  note TEXT NOT NULL DEFAULT '',
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_active BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_activated_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_deactivated_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_updated_by INTEGER REFERENCES users(id);
+
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(40);
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS observations TEXT NOT NULL DEFAULT '';
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS company_profile_id INTEGER REFERENCES company_profiles(id);
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS transfer_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS invoice_status VARCHAR(30) NOT NULL DEFAULT 'not_requested';
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_status VARCHAR(30) NOT NULL DEFAULT 'not_applicable';
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_movement_id BIGINT;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS fixed_expense_id INTEGER REFERENCES fixed_expenses(id);
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_voided BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS voided_at TIMESTAMP;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS voided_by INTEGER REFERENCES users(id);
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS void_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);
+
+ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
+ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS is_voided BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS voided_at TIMESTAMP;
+ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS voided_by INTEGER REFERENCES users(id);
+ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS void_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_sales_stamp_movement'
+      AND conrelid = 'sales'::regclass
+  ) THEN
+    ALTER TABLE sales
+    ADD CONSTRAINT fk_sales_stamp_movement
+    FOREIGN KEY (stamp_movement_id) REFERENCES company_stamp_movements(id);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'company_profiles_pac_mode_check'
+      AND conrelid = 'company_profiles'::regclass
+  ) THEN
+    ALTER TABLE company_profiles
+    ADD CONSTRAINT company_profiles_pac_mode_check
+    CHECK (pac_mode IN ('test', 'production'));
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'company_stamp_movements_type_check'
+      AND conrelid = 'company_stamp_movements'::regclass
+  ) THEN
+    ALTER TABLE company_stamp_movements
+    ADD CONSTRAINT company_stamp_movements_type_check
+    CHECK (movement_type IN ('load', 'consume', 'adjustment', 'rollback', 'expire'));
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_company_profiles_profile_key ON company_profiles(profile_key);
+
 CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+CREATE INDEX IF NOT EXISTS idx_suppliers_name_lower ON suppliers ((LOWER(name)));
 CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales(sale_date);
+CREATE INDEX IF NOT EXISTS idx_sales_user_id ON sales(user_id);
+CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON sales(payment_method);
+CREATE INDEX IF NOT EXISTS idx_sales_stamp_status ON sales(stamp_status);
 CREATE INDEX IF NOT EXISTS idx_credit_payments_sale_id ON credit_payments(sale_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_due_date ON reminders(due_date);
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
+CREATE INDEX IF NOT EXISTS idx_expenses_is_voided ON expenses(is_voided);
+CREATE INDEX IF NOT EXISTS idx_expenses_fixed_expense_id ON expenses(fixed_expense_id);
+CREATE INDEX IF NOT EXISTS idx_fixed_expenses_is_active ON fixed_expenses(is_active);
+CREATE INDEX IF NOT EXISTS idx_owner_loans_date ON owner_loans(date);
+CREATE INDEX IF NOT EXISTS idx_owner_loans_is_voided ON owner_loans(is_voided);
+CREATE INDEX IF NOT EXISTS idx_support_access_logs_actor ON support_access_logs(actor_user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_usuario_id ON audit_logs(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_modulo ON audit_logs(modulo);
+CREATE INDEX IF NOT EXISTS idx_company_stamp_movements_profile ON company_stamp_movements(company_profile_id);

@@ -335,6 +335,12 @@ async function updateProduct(id, payload) {
     ? await ensureSupplierReference(payload)
     : current.supplier_id;
   const discountFields = normalizeDiscountFields(payload);
+  const clearDiscountData = payload.discount_type !== undefined && discountFields.discount_type === null;
+  const nextLiquidationPrice = clearDiscountData
+    ? null
+    : payload.liquidation_price !== undefined
+      ? payload.liquidation_price
+      : current.liquidation_price;
 
   const { rows } = await pool.query(
     `UPDATE products
@@ -366,16 +372,16 @@ async function updateProduct(id, payload) {
       payload.description ?? current.description,
       payload.price ?? current.price,
       payload.cost_price ?? current.cost_price,
-      payload.liquidation_price !== undefined ? payload.liquidation_price : current.liquidation_price,
+      nextLiquidationPrice,
       payload.stock ?? current.stock,
       payload.expires_at !== undefined ? payload.expires_at : current.expires_at,
       payload.is_active ?? current.is_active,
       supplierId,
       payload.status ?? current.status ?? "activo",
-      payload.discount_type !== undefined ? discountFields.discount_type : current.discount_type,
-      payload.discount_value !== undefined ? discountFields.discount_value : current.discount_value,
-      payload.discount_start !== undefined ? discountFields.discount_start : current.discount_start,
-      payload.discount_end !== undefined ? discountFields.discount_end : current.discount_end,
+      clearDiscountData || payload.discount_type !== undefined ? discountFields.discount_type : current.discount_type,
+      clearDiscountData || payload.discount_value !== undefined ? discountFields.discount_value : current.discount_value,
+      clearDiscountData || payload.discount_start !== undefined ? discountFields.discount_start : current.discount_start,
+      clearDiscountData || payload.discount_end !== undefined ? discountFields.discount_end : current.discount_end,
       id
     ]
   );

@@ -129,15 +129,6 @@ export function CreditCollectionsPage() {
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
-        <label className="checkbox-row">
-          <input
-            checked={Boolean(selectedDebtor?.send_reminder)}
-            disabled={!selectedSaleId}
-            onChange={(event) => updateReminderPreference(event.target.checked)}
-            type="checkbox"
-          />
-          <span>Recordatorio activo para esta cuenta</span>
-        </label>
         <div className="table-wrap">
           <table>
             <thead>
@@ -156,7 +147,22 @@ export function CreditCollectionsPage() {
                 >
                   <td>{debtor.person}</td>
                   <td>{debtor.phone}</td>
-                  <td>{currency(debtor.balance_due)}</td>
+                  <td>
+                    <div className="credit-balance-cell">
+                      <span>{currency(debtor.balance_due)}</span>
+                      {debtor.sale_id === selectedSaleId ? (
+                        <label className="checkbox-row credit-reminder-toggle">
+                          <input
+                            checked={Boolean(selectedDebtor?.send_reminder)}
+                            disabled={!selectedSaleId}
+                            onChange={(event) => updateReminderPreference(event.target.checked)}
+                            type="checkbox"
+                          />
+                          <span>Recordatorio activo para esta cuenta</span>
+                        </label>
+                      ) : null}
+                    </div>
+                  </td>
                 </tr>
               ))}
               {debtors.length === 0 ? (

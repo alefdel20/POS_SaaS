@@ -314,228 +314,238 @@ export function ProductsPage() {
         </div>
       </div>
 
-      <div className="page-grid product-management-layout">
-        <div className="panel">
-          <div className="panel-header product-catalog-header">
-            <div>
-              <h2>Catalogo administrativo</h2>
-              <p className="muted">Buscador y paginacion sin borrado destructivo.</p>
-            </div>
-            <div className="inline-actions">
-              <input
-                className="search-input"
-                placeholder="Buscar por nombre, SKU, categoria o proveedor"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-              <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value) as 10 | 15)}>
-                <option value={10}>10 por pagina</option>
-                <option value={15}>15 por pagina</option>
-              </select>
-            </div>
+      <form className="panel product-form-panel product-form-panel-wide" onSubmit={handleSubmit}>
+        <div className="panel-header">
+          <h2>{editingId ? "Editar producto" : "Nuevo producto"}</h2>
+          {editingId ? (
+            <button
+              className="button ghost"
+              onClick={() => {
+                setEditingId(null);
+                setForm(emptyProduct);
+              }}
+              type="button"
+            >
+              Cancelar
+            </button>
+          ) : null}
+        </div>
+        <div className="product-form-grid product-form-grid-wide">
+          <label>
+            Nombre
+            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+          </label>
+          <label>
+            Proveedor
+            <input
+              list="supplier-options"
+              value={form.supplier_name}
+              onChange={(event) => {
+                const value = event.target.value;
+                const matchedSupplier = suppliers.find((supplier) => supplier.name.toLowerCase() === value.toLowerCase());
+                setForm({
+                  ...form,
+                  supplier_name: value,
+                  supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
+                  supplier_email: matchedSupplier?.email || "",
+                  supplier_phone: matchedSupplier?.phone || "",
+                  supplier_whatsapp: matchedSupplier?.whatsapp || "",
+                  supplier_observations: matchedSupplier?.observations || ""
+                });
+                loadSuppliers(value).catch(console.error);
+              }}
+              placeholder="Selecciona o escribe un proveedor"
+            />
+          </label>
+          <datalist id="supplier-options">
+            {suppliers.map((supplier) => (
+              <option key={supplier.id} value={supplier.name} />
+            ))}
+          </datalist>
+          <label>
+            Correo proveedor
+            <input type="email" value={form.supplier_email} onChange={(event) => setForm({ ...form, supplier_email: event.target.value })} />
+          </label>
+          <label>
+            Telefono proveedor
+            <input value={form.supplier_phone} onChange={(event) => setForm({ ...form, supplier_phone: event.target.value })} />
+          </label>
+          <label>
+            WhatsApp proveedor
+            <input value={form.supplier_whatsapp} onChange={(event) => setForm({ ...form, supplier_whatsapp: event.target.value })} />
+          </label>
+          <label>
+            SKU
+            <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
+          </label>
+          <label>
+            Categoria
+            <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
+          </label>
+          <label>
+            Codigo de barras
+            <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
+          </label>
+          <label>
+            Estado
+            <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "activo" | "inactivo", is_active: event.target.value === "activo" })}>
+              <option value="activo">Activo</option>
+              <option value="inactivo">Inactivo</option>
+            </select>
+          </label>
+          <label className="form-span-2">
+            Descripcion
+            <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+          </label>
+          <label className="form-span-2">
+            Observaciones proveedor
+            <textarea value={form.supplier_observations} onChange={(event) => setForm({ ...form, supplier_observations: event.target.value })} />
+          </label>
+          <label>
+            Precio
+            <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
+          </label>
+          <label>
+            Costo
+            <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
+          </label>
+          <label>
+            Tipo de remate
+            <select
+              value={form.discount_type}
+              onChange={(event) => {
+                const nextDiscountType = event.target.value as ProductFormState["discount_type"];
+                setForm({
+                  ...form,
+                  discount_type: nextDiscountType,
+                  discount_value: nextDiscountType ? form.discount_value : "",
+                  discount_start: nextDiscountType ? form.discount_start : "",
+                  discount_end: nextDiscountType ? form.discount_end : ""
+                });
+              }}
+            >
+              <option value="">Sin remate programado</option>
+              <option value="percentage">Porcentaje</option>
+              <option value="fixed">Monto fijo</option>
+            </select>
+          </label>
+          <label>
+            Valor de remate
+            <input type="number" min="0" step="0.01" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} />
+          </label>
+          <label>
+            Inicio remate
+            <input type="datetime-local" value={form.discount_start} onChange={(event) => setForm({ ...form, discount_start: event.target.value })} />
+          </label>
+          <label>
+            Fin remate
+            <input type="datetime-local" value={form.discount_end} onChange={(event) => setForm({ ...form, discount_end: event.target.value })} />
+          </label>
+          <label>
+            Stock
+            <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
+          </label>
+          <label>
+            Fecha de vencimiento
+            <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
+          </label>
+        </div>
+        <button className="button" disabled={saving} type="submit">
+          {saving ? "Guardando..." : editingId ? "Actualizar producto" : "Guardar producto"}
+        </button>
+      </form>
+
+      <div className="panel">
+        <div className="panel-header product-catalog-header">
+          <div>
+            <h2>Catalogo administrativo</h2>
+            <p className="muted">Buscador y paginacion sin borrado destructivo.</p>
           </div>
-          {error ? <p className="error-text">{error}</p> : null}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Nombre</th>
-                  <th>Proveedor</th>
-                  <th>SKU</th>
-                  <th>Categoria</th>
-                  <th>Precio</th>
-                  <th>Stock</th>
-                  <th>Estado</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {products.map((product) => (
-                  <tr key={product.id}>
-                    <td>{product.name}</td>
-                    <td>
-                      <div>{product.supplier_name || "-"}</div>
-                      <small className="muted">{product.supplier_whatsapp || product.supplier_phone || product.supplier_email || "-"}</small>
-                    </td>
-                    <td>{product.sku}</td>
-                    <td>{product.category || "-"}</td>
-                    <td>
-                      {product.is_on_sale ? (
-                        <div className="price-stack">
-                          <span className="price-original">{currency(product.price)}</span>
-                          <strong>{currency(product.effective_price ?? product.price)}</strong>
-                        </div>
-                      ) : (
-                        currency(product.price)
-                      )}
-                    </td>
-                    <td>{product.stock}</td>
-                    <td>{product.status || (product.is_active ? "activo" : "inactivo")}</td>
-                    <td>
-                      <div className="inline-actions">
-                        <button className="button ghost" onClick={() => handleEdit(product)} type="button">Editar</button>
-                        <button
-                          className="button ghost"
-                          disabled={togglingId === product.id}
-                          onClick={() => toggleProductStatus(product)}
-                          type="button"
-                        >
-                          {togglingId === product.id
-                            ? "Actualizando..."
-                            : product.status === "inactivo"
-                              ? "Activar"
-                              : "Desactivar"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {products.length === 0 ? (
-                  <tr>
-                    <td className="muted" colSpan={8}>No se encontraron productos.</td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-          <div className="panel-header product-table-footer">
-            <p className="muted">{totalProducts} productos encontrados</p>
-            <div className="inline-actions">
-              <button className="button ghost" disabled={page <= 1} onClick={() => setPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
-              <span className="muted">Pagina {page} de {totalPages}</span>
-              <button className="button ghost" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(current + 1, totalPages))} type="button">Siguiente</button>
-            </div>
+          <div className="inline-actions">
+            <input
+              className="search-input"
+              placeholder="Buscar por nombre, SKU, categoria o proveedor"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value) as 10 | 15)}>
+              <option value={10}>10 por pagina</option>
+              <option value={15}>15 por pagina</option>
+            </select>
           </div>
         </div>
-
-        <form className="panel product-form-panel product-form-panel-wide" onSubmit={handleSubmit}>
-          <div className="panel-header">
-            <h2>{editingId ? "Editar producto" : "Nuevo producto"}</h2>
-            {editingId ? (
-              <button
-                className="button ghost"
-                onClick={() => {
-                  setEditingId(null);
-                  setForm(emptyProduct);
-                }}
-                type="button"
-              >
-                Cancelar
-              </button>
-            ) : null}
-          </div>
-          <div className="product-form-grid product-form-grid-wide">
-            <label>
-              Nombre
-              <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-            </label>
-            <label>
-              Proveedor
-              <input
-                list="supplier-options"
-                value={form.supplier_name}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  const matchedSupplier = suppliers.find((supplier) => supplier.name.toLowerCase() === value.toLowerCase());
-                  setForm({
-                    ...form,
-                    supplier_name: value,
-                    supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
-                    supplier_email: matchedSupplier?.email || "",
-                    supplier_phone: matchedSupplier?.phone || "",
-                    supplier_whatsapp: matchedSupplier?.whatsapp || "",
-                    supplier_observations: matchedSupplier?.observations || ""
-                  });
-                  loadSuppliers(value).catch(console.error);
-                }}
-                placeholder="Selecciona o escribe un proveedor"
-              />
-            </label>
-            <datalist id="supplier-options">
-              {suppliers.map((supplier) => (
-                <option key={supplier.id} value={supplier.name} />
+        {error ? <p className="error-text">{error}</p> : null}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Proveedor</th>
+                <th>SKU</th>
+                <th>Categoria</th>
+                <th>Precio</th>
+                <th>Stock</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((product) => (
+                <tr key={product.id}>
+                  <td>{product.name}</td>
+                  <td>
+                    <div>{product.supplier_name || "-"}</div>
+                    <small className="muted">{product.supplier_whatsapp || product.supplier_phone || product.supplier_email || "-"}</small>
+                  </td>
+                  <td>{product.sku}</td>
+                  <td>{product.category || "-"}</td>
+                  <td>
+                    {product.is_on_sale ? (
+                      <div className="price-stack">
+                        <span className="price-original">{currency(product.price)}</span>
+                        <strong>{currency(product.effective_price ?? product.price)}</strong>
+                      </div>
+                    ) : (
+                      currency(product.price)
+                    )}
+                  </td>
+                  <td>{product.stock}</td>
+                  <td>{product.status || (product.is_active ? "activo" : "inactivo")}</td>
+                  <td>
+                    <div className="inline-actions">
+                      <button className="button ghost" onClick={() => handleEdit(product)} type="button">Editar</button>
+                      <button
+                        className="button ghost"
+                        disabled={togglingId === product.id}
+                        onClick={() => toggleProductStatus(product)}
+                        type="button"
+                      >
+                        {togglingId === product.id
+                          ? "Actualizando..."
+                          : product.status === "inactivo"
+                            ? "Activar"
+                            : "Desactivar"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               ))}
-            </datalist>
-            <label>
-              Correo proveedor
-              <input type="email" value={form.supplier_email} onChange={(event) => setForm({ ...form, supplier_email: event.target.value })} />
-            </label>
-            <label>
-              Telefono proveedor
-              <input value={form.supplier_phone} onChange={(event) => setForm({ ...form, supplier_phone: event.target.value })} />
-            </label>
-            <label>
-              WhatsApp proveedor
-              <input value={form.supplier_whatsapp} onChange={(event) => setForm({ ...form, supplier_whatsapp: event.target.value })} />
-            </label>
-            <label>
-              SKU
-              <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
-            </label>
-            <label>
-              Categoria
-              <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
-            </label>
-            <label>
-              Codigo de barras
-              <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
-            </label>
-            <label>
-              Estado
-              <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "activo" | "inactivo", is_active: event.target.value === "activo" })}>
-                <option value="activo">Activo</option>
-                <option value="inactivo">Inactivo</option>
-              </select>
-            </label>
-            <label className="form-span-2">
-              Descripcion
-              <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-            </label>
-            <label className="form-span-2">
-              Observaciones proveedor
-              <textarea value={form.supplier_observations} onChange={(event) => setForm({ ...form, supplier_observations: event.target.value })} />
-            </label>
-            <label>
-              Precio
-              <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
-            </label>
-            <label>
-              Costo
-              <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
-            </label>
-            <label>
-              Tipo de remate
-              <select value={form.discount_type} onChange={(event) => setForm({ ...form, discount_type: event.target.value as ProductFormState["discount_type"] })}>
-                <option value="">Sin remate programado</option>
-                <option value="percentage">Porcentaje</option>
-                <option value="fixed">Monto fijo</option>
-              </select>
-            </label>
-            <label>
-              Valor de remate
-              <input type="number" min="0" step="0.01" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} />
-            </label>
-            <label>
-              Inicio remate
-              <input type="datetime-local" value={form.discount_start} onChange={(event) => setForm({ ...form, discount_start: event.target.value })} />
-            </label>
-            <label>
-              Fin remate
-              <input type="datetime-local" value={form.discount_end} onChange={(event) => setForm({ ...form, discount_end: event.target.value })} />
-            </label>
-            <label>
-              Stock
-              <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
-            </label>
-            <label>
-              Fecha de vencimiento
-              <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
-            </label>
+              {products.length === 0 ? (
+                <tr>
+                  <td className="muted" colSpan={8}>No se encontraron productos.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+        <div className="panel-header product-table-footer">
+          <p className="muted">{totalProducts} productos encontrados</p>
+          <div className="inline-actions">
+            <button className="button ghost" disabled={page <= 1} onClick={() => setPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
+            <span className="muted">Pagina {page} de {totalPages}</span>
+            <button className="button ghost" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(current + 1, totalPages))} type="button">Siguiente</button>
           </div>
-          <button className="button" disabled={saving} type="submit">
-            {saving ? "Guardando..." : editingId ? "Actualizar producto" : "Guardar producto"}
-          </button>
-        </form>
+        </div>
       </div>
     </section>
   );

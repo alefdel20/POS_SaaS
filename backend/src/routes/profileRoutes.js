@@ -4,7 +4,7 @@ const { requireRole } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-router.get("/", requireRole(["superusuario", "superadmin", "admin"]), controller.getProfile);
+router.get("/", requireRole(["superusuario", "superadmin", "admin", "cajero", "cashier", "user"]), controller.getProfile);
 router.put("/general", requireRole(["superusuario", "superadmin", "admin"]), controller.generalValidation, controller.updateGeneral);
 router.put("/banking", requireRole(["superusuario", "superadmin", "admin"]), controller.bankingValidation, controller.updateBanking);
 router.put("/fiscal", requireRole(["superusuario", "superadmin", "admin"]), controller.fiscalValidation, controller.updateFiscal);

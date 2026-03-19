@@ -8,6 +8,7 @@ import { DailyCutPage } from "../pages/DailyCutPage";
 import { FinancesPage } from "../pages/FinancesPage";
 import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
+import { ProfilePage } from "../pages/ProfilePage";
 import { ProductsPage } from "../pages/ProductsPage";
 import { RematePage } from "../pages/RematePage";
 import { RemindersPage } from "../pages/RemindersPage";
@@ -31,13 +32,16 @@ export function AppRouter() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<RoleHomeRedirect />} />
-            <Route path="/sales" element={<SalesPage />} />
+            <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin", "cajero", "cashier", "user"]} />}>
+              <Route path="/sales" element={<SalesPage />} />
+            </Route>
             <Route path="/reminders" element={<RemindersPage />} />
             <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin", "soporte"]} />}>
               <Route path="/users" element={<UsersPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={["superadmin", "admin"]} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/remate" element={<RematePage />} />
               <Route path="/sales-history" element={<SalesHistoryPage />} />

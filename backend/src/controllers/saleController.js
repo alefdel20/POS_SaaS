@@ -8,6 +8,7 @@ const listValidation = [
   query("date_from").optional({ values: "falsy" }).isISO8601(),
   query("date_to").optional({ values: "falsy" }).isISO8601(),
   query("user_id").optional({ values: "falsy" }).isInt(),
+  query("cashier").optional({ values: "falsy" }).trim(),
   query("payment_method").optional().isIn(["cash", "card", "credit", "transfer"]),
   query("total").optional({ values: "falsy" }).isFloat({ min: 0 }),
   query("total_min").optional({ values: "falsy" }).isFloat({ min: 0 }),

@@ -5,7 +5,8 @@ import { canViewUsers, isManagementRole, normalizeRole } from "../utils/roles";
 
 const links = [
   { to: "/dashboard", label: "Resumen", managementOnly: true },
-  { to: "/sales", label: "Ventas" },
+  { to: "/sales", label: "Ventas", salesOnly: true },
+  { to: "/profile", label: "Perfil", managementOnly: true },
   { to: "/products", label: "Productos", managementOnly: true },
   { to: "/remate", label: "Remate", managementOnly: true },
   { to: "/finances", label: "Finanzas", managementOnly: true },
@@ -37,6 +38,9 @@ export function Sidebar() {
             if (!role) return false;
             if (link.usersOnly) {
               return usersViewer;
+            }
+            if (link.salesOnly) {
+              return role === "superusuario" || role === "admin" || role === "cajero";
             }
             return !link.managementOnly || managementUser;
           })
