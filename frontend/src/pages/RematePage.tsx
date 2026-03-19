@@ -217,20 +217,20 @@ export function RematePage() {
           <select value={form.discount_type} onChange={(event) => setForm({ ...form, discount_type: event.target.value as DiscountForm["discount_type"] })}>
             <option value="">Selecciona</option>
             <option value="percentage">Porcentaje</option>
-            <option value="fixed">Monto fijo</option>
+            <option value="fixed">Fijo</option>
           </select>
         </label>
         <label>
-          Valor
+          Valor de remate
           <input type="number" min="0" step="0.01" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} />
         </label>
         <label>
-          Inicio
-          <input type="datetime-local" value={form.discount_start} onChange={(event) => setForm({ ...form, discount_start: event.target.value })} />
+          Inicio (24h)
+          <input step="60" type="datetime-local" value={form.discount_start} onChange={(event) => setForm({ ...form, discount_start: event.target.value })} />
         </label>
         <label>
-          Fin
-          <input type="datetime-local" value={form.discount_end} onChange={(event) => setForm({ ...form, discount_end: event.target.value })} />
+          Fin (24h)
+          <input step="60" type="datetime-local" value={form.discount_end} onChange={(event) => setForm({ ...form, discount_end: event.target.value })} />
         </label>
         <div className="inline-actions">
           <button className="button" disabled={!selectedIds.length} type="submit">Aplicar remate</button>

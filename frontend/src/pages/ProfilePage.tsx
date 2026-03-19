@@ -3,92 +3,85 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { CompanyProfile } from "../types";
 
-type GeneralFormState = {
+type ProfileFormState = {
   owner_name: string;
   company_name: string;
   phone: string;
   email: string;
   address: string;
-};
-
-type BankingFormState = {
   bank_name: string;
   bank_clabe: string;
   bank_beneficiary: string;
-};
-
-type FiscalFormState = {
   fiscal_rfc: string;
   fiscal_business_name: string;
   fiscal_regime: string;
   fiscal_address: string;
+  pac_provider: string;
+  pac_mode: "test" | "production";
+  stamps_available: string;
+  stamp_alert_threshold: string;
 };
 
-const emptyGeneral: GeneralFormState = {
+const emptyForm: ProfileFormState = {
   owner_name: "",
   company_name: "",
   phone: "",
   email: "",
-  address: ""
-};
-
-const emptyBanking: BankingFormState = {
+  address: "",
   bank_name: "",
   bank_clabe: "",
-  bank_beneficiary: ""
-};
-
-const emptyFiscal: FiscalFormState = {
+  bank_beneficiary: "",
   fiscal_rfc: "",
   fiscal_business_name: "",
   fiscal_regime: "",
-  fiscal_address: ""
+  fiscal_address: "",
+  pac_provider: "",
+  pac_mode: "test",
+  stamps_available: "0",
+  stamp_alert_threshold: "10"
 };
 
-function profileToGeneral(profile: CompanyProfile | null): GeneralFormState {
+function profileToForm(profile: CompanyProfile | null): ProfileFormState {
   return {
     owner_name: profile?.owner_name || "",
     company_name: profile?.company_name || "",
     phone: profile?.phone || "",
     email: profile?.email || "",
-    address: profile?.address || ""
-  };
-}
-
-function profileToBanking(profile: CompanyProfile | null): BankingFormState {
-  return {
+    address: profile?.address || "",
     bank_name: profile?.bank_name || "",
     bank_clabe: profile?.bank_clabe || "",
-    bank_beneficiary: profile?.bank_beneficiary || ""
-  };
-}
-
-function profileToFiscal(profile: CompanyProfile | null): FiscalFormState {
-  return {
+    bank_beneficiary: profile?.bank_beneficiary || "",
     fiscal_rfc: profile?.fiscal_rfc || "",
     fiscal_business_name: profile?.fiscal_business_name || "",
     fiscal_regime: profile?.fiscal_regime || "",
-    fiscal_address: profile?.fiscal_address || ""
+    fiscal_address: profile?.fiscal_address || "",
+    pac_provider: profile?.pac_provider || "",
+    pac_mode: profile?.pac_mode || "test",
+    stamps_available: String(profile?.stamps_available ?? 0),
+    stamp_alert_threshold: String(profile?.stamp_alert_threshold ?? 10)
   };
 }
+
+const sectionFields = {
+  general: ["owner_name", "company_name", "phone", "email", "address"],
+  banking: ["bank_name", "bank_clabe", "bank_beneficiary"],
+  fiscal: ["fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address"],
+  stamps: ["pac_provider", "pac_mode", "stamps_available", "stamp_alert_threshold"]
+} as const satisfies Record<string, readonly (keyof ProfileFormState)[]>;
 
 export function ProfilePage() {
   const { token } = useAuth();
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
-  const [generalForm, setGeneralForm] = useState<GeneralFormState>(emptyGeneral);
-  const [bankingForm, setBankingForm] = useState<BankingFormState>(emptyBanking);
-  const [fiscalForm, setFiscalForm] = useState<FiscalFormState>(emptyFiscal);
+  const [formData, setFormData] = useState<ProfileFormState>(emptyForm);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
-  const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "">("");
+  const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "stamps" | "">("");
 
   async function loadProfile() {
     if (!token) return;
     const response = await apiRequest<CompanyProfile>("/profile", { token });
     setProfile(response);
-    setGeneralForm(profileToGeneral(response));
-    setBankingForm(profileToBanking(response));
-    setFiscalForm(profileToFiscal(response));
+    setFormData(profileToForm(response));
   }
 
   useEffect(() => {
@@ -97,10 +90,28 @@ export function ProfilePage() {
     });
   }, [token]);
 
+  function updateField<K extends keyof ProfileFormState>(field: K, value: ProfileFormState[K]) {
+    setFormData((current) => ({ ...current, [field]: value }));
+  }
+
+  function applySectionFromResponse(
+    section: keyof typeof sectionFields,
+    response: CompanyProfile
+  ) {
+    const nextValues = profileToForm(response);
+    setFormData((current) => {
+      const next = { ...current };
+      sectionFields[section].forEach((field) => {
+        next[field] = nextValues[field];
+      });
+      return next;
+    });
+  }
+
   async function saveSection(
     event: FormEvent,
-    section: "general" | "banking" | "fiscal",
-    body: GeneralFormState | BankingFormState | FiscalFormState
+    section: keyof typeof sectionFields,
+    body: Record<string, unknown>
   ) {
     event.preventDefault();
     if (!token) return;
@@ -115,9 +126,7 @@ export function ProfilePage() {
         body: JSON.stringify(body)
       });
       setProfile(response);
-      setGeneralForm(profileToGeneral(response));
-      setBankingForm(profileToBanking(response));
-      setFiscalForm(profileToFiscal(response));
+      applySectionFromResponse(section, response);
       setInfo("Perfil actualizado correctamente");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el perfil");
@@ -132,19 +141,25 @@ export function ProfilePage() {
         <div className="panel-header">
           <div>
             <h2>Perfil</h2>
-            <p className="muted">Configura los datos del dueno, la empresa, transferencias y datos fiscales.</p>
+            <p className="muted">Administra identidad del negocio, transferencias, datos fiscales y facturacion.</p>
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
         {info ? <p className="success-text">{info}</p> : null}
         {profile ? (
           <p className="muted">
-            Empresa actual: <strong>{profile.company_name || "-"}</strong>
+            Empresa actual: <strong>{profile.company_name || "-"}</strong> | Timbres disponibles: <strong>{profile.stamps_available || 0}</strong>
           </p>
         ) : null}
       </div>
 
-      <form className="panel grid-form" onSubmit={(event) => saveSection(event, "general", generalForm)}>
+      <form className="panel grid-form" onSubmit={(event) => saveSection(event, "general", {
+        owner_name: formData.owner_name,
+        company_name: formData.company_name,
+        phone: formData.phone,
+        email: formData.email,
+        address: formData.address
+      })}>
         <div className="panel-header">
           <div>
             <h2>Informacion general</h2>
@@ -153,30 +168,34 @@ export function ProfilePage() {
         </div>
         <label>
           Nombre del dueno
-          <input value={generalForm.owner_name} onChange={(event) => setGeneralForm({ ...generalForm, owner_name: event.target.value })} />
+          <input value={formData.owner_name} onChange={(event) => updateField("owner_name", event.target.value)} />
         </label>
         <label>
           Nombre de la empresa
-          <input value={generalForm.company_name} onChange={(event) => setGeneralForm({ ...generalForm, company_name: event.target.value })} />
+          <input value={formData.company_name} onChange={(event) => updateField("company_name", event.target.value)} />
         </label>
         <label>
           Telefono
-          <input value={generalForm.phone} onChange={(event) => setGeneralForm({ ...generalForm, phone: event.target.value })} />
+          <input value={formData.phone} onChange={(event) => updateField("phone", event.target.value)} />
         </label>
         <label>
           Correo
-          <input type="email" value={generalForm.email} onChange={(event) => setGeneralForm({ ...generalForm, email: event.target.value })} />
+          <input type="email" value={formData.email} onChange={(event) => updateField("email", event.target.value)} />
         </label>
         <label>
           Direccion
-          <textarea value={generalForm.address} onChange={(event) => setGeneralForm({ ...generalForm, address: event.target.value })} />
+          <textarea value={formData.address} onChange={(event) => updateField("address", event.target.value)} />
         </label>
         <button className="button" disabled={savingSection === "general"} type="submit">
           {savingSection === "general" ? "Guardando..." : "Guardar informacion general"}
         </button>
       </form>
 
-      <form className="panel grid-form" onSubmit={(event) => saveSection(event, "banking", bankingForm)}>
+      <form className="panel grid-form" onSubmit={(event) => saveSection(event, "banking", {
+        bank_name: formData.bank_name,
+        bank_clabe: formData.bank_clabe,
+        bank_beneficiary: formData.bank_beneficiary
+      })}>
         <div className="panel-header">
           <div>
             <h2>Transferencias</h2>
@@ -185,22 +204,27 @@ export function ProfilePage() {
         </div>
         <label>
           Banco
-          <input value={bankingForm.bank_name} onChange={(event) => setBankingForm({ ...bankingForm, bank_name: event.target.value })} />
+          <input value={formData.bank_name} onChange={(event) => updateField("bank_name", event.target.value)} />
         </label>
         <label>
           CLABE
-          <input value={bankingForm.bank_clabe} onChange={(event) => setBankingForm({ ...bankingForm, bank_clabe: event.target.value })} />
+          <input value={formData.bank_clabe} onChange={(event) => updateField("bank_clabe", event.target.value)} />
         </label>
         <label>
           Beneficiario
-          <input value={bankingForm.bank_beneficiary} onChange={(event) => setBankingForm({ ...bankingForm, bank_beneficiary: event.target.value })} />
+          <input value={formData.bank_beneficiary} onChange={(event) => updateField("bank_beneficiary", event.target.value)} />
         </label>
         <button className="button" disabled={savingSection === "banking"} type="submit">
           {savingSection === "banking" ? "Guardando..." : "Guardar transferencias"}
         </button>
       </form>
 
-      <form className="panel grid-form" onSubmit={(event) => saveSection(event, "fiscal", fiscalForm)}>
+      <form className="panel grid-form" onSubmit={(event) => saveSection(event, "fiscal", {
+        fiscal_rfc: formData.fiscal_rfc,
+        fiscal_business_name: formData.fiscal_business_name,
+        fiscal_regime: formData.fiscal_regime,
+        fiscal_address: formData.fiscal_address
+      })}>
         <div className="panel-header">
           <div>
             <h2>Datos fiscales</h2>
@@ -209,22 +233,67 @@ export function ProfilePage() {
         </div>
         <label>
           RFC
-          <input value={fiscalForm.fiscal_rfc} onChange={(event) => setFiscalForm({ ...fiscalForm, fiscal_rfc: event.target.value })} />
+          <input value={formData.fiscal_rfc} onChange={(event) => updateField("fiscal_rfc", event.target.value)} />
         </label>
         <label>
           Razon social
-          <input value={fiscalForm.fiscal_business_name} onChange={(event) => setFiscalForm({ ...fiscalForm, fiscal_business_name: event.target.value })} />
+          <input value={formData.fiscal_business_name} onChange={(event) => updateField("fiscal_business_name", event.target.value)} />
         </label>
         <label>
           Regimen fiscal
-          <input value={fiscalForm.fiscal_regime} onChange={(event) => setFiscalForm({ ...fiscalForm, fiscal_regime: event.target.value })} />
+          <input value={formData.fiscal_regime} onChange={(event) => updateField("fiscal_regime", event.target.value)} />
         </label>
         <label>
           Direccion fiscal
-          <textarea value={fiscalForm.fiscal_address} onChange={(event) => setFiscalForm({ ...fiscalForm, fiscal_address: event.target.value })} />
+          <textarea value={formData.fiscal_address} onChange={(event) => updateField("fiscal_address", event.target.value)} />
         </label>
         <button className="button" disabled={savingSection === "fiscal"} type="submit">
           {savingSection === "fiscal" ? "Guardando..." : "Guardar datos fiscales"}
+        </button>
+      </form>
+
+      <form className="panel grid-form" onSubmit={(event) => saveSection(event, "stamps", {
+        fiscal_rfc: formData.fiscal_rfc,
+        pac_provider: formData.pac_provider,
+        pac_mode: formData.pac_mode,
+        stamps_available: Number(formData.stamps_available || 0),
+        stamp_alert_threshold: Number(formData.stamp_alert_threshold || 0)
+      })}>
+        <div className="panel-header">
+          <div>
+            <h2>Configuracion &gt; Facturacion</h2>
+            <p className="muted">Configura RFC emisor, proveedor CFDI y disponibilidad de timbres.</p>
+          </div>
+        </div>
+        <label>
+          RFC empresa
+          <input value={formData.fiscal_rfc} onChange={(event) => updateField("fiscal_rfc", event.target.value)} />
+        </label>
+        <label>
+          Proveedor CFDI
+          <input
+            placeholder="Proveedor CFDI mock"
+            value={formData.pac_provider}
+            onChange={(event) => updateField("pac_provider", event.target.value)}
+          />
+        </label>
+        <label>
+          Modo PAC
+          <select value={formData.pac_mode} onChange={(event) => updateField("pac_mode", event.target.value as "test" | "production")}>
+            <option value="test">Pruebas</option>
+            <option value="production">Produccion</option>
+          </select>
+        </label>
+        <label>
+          Timbres disponibles
+          <input type="number" min="0" value={formData.stamps_available} onChange={(event) => updateField("stamps_available", event.target.value)} />
+        </label>
+        <label>
+          Alerta de timbres
+          <input type="number" min="0" value={formData.stamp_alert_threshold} onChange={(event) => updateField("stamp_alert_threshold", event.target.value)} />
+        </label>
+        <button className="button" disabled={savingSection === "stamps"} type="submit">
+          {savingSection === "stamps" ? "Guardando..." : "Guardar configuracion de facturacion"}
         </button>
       </form>
     </section>

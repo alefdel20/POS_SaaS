@@ -124,6 +124,7 @@ async function updateProfileSection(payload, actor, section) {
     }
 
     if (section === "stamps") {
+      updates.fiscal_rfc = payload.fiscal_rfc ?? current.fiscal_rfc;
       updates.stamps_available = payload.stamps_available ?? updates.stamps_available;
       updates.stamps_used = payload.stamps_used ?? updates.stamps_used;
       updates.stamp_alert_threshold = payload.stamp_alert_threshold ?? updates.stamp_alert_threshold;

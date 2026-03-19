@@ -51,6 +51,7 @@ async function ensureDatabaseCompatibility() {
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS category VARCHAR(120)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS liquidation_price NUMERIC(12, 2)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS expires_at DATE");
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo NUMERIC(12, 2) NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_name VARCHAR(150)");
   await pool.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(40)");
   await pool.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS initial_payment NUMERIC(12, 2) NOT NULL DEFAULT 0");
@@ -240,6 +241,7 @@ async function ensureDatabaseCompatibility() {
   await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_products_stock_minimo ON products(stock_minimo)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales(sale_date)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_sales_user_id ON sales(user_id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON sales(payment_method)");
@@ -255,6 +257,27 @@ async function ensureDatabaseCompatibility() {
   await pool.query("CREATE INDEX IF NOT EXISTS idx_audit_logs_usuario_id ON audit_logs(usuario_id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_audit_logs_modulo ON audit_logs(modulo)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_company_stamp_movements_profile ON company_stamp_movements(company_profile_id)");
+  await pool.query("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS source_key VARCHAR(160)");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS uq_reminders_source_key ON reminders(source_key) WHERE source_key IS NOT NULL");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS product_suppliers (
+      id SERIAL PRIMARY KEY,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+      is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      UNIQUE(product_id, supplier_id)
+    )
+  `);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_product_suppliers_product_id ON product_suppliers(product_id)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_product_suppliers_supplier_id ON product_suppliers(supplier_id)");
+  await pool.query(`
+    INSERT INTO product_suppliers (product_id, supplier_id, is_primary)
+    SELECT id, supplier_id, TRUE
+    FROM products
+    WHERE supplier_id IS NOT NULL
+    ON CONFLICT (product_id, supplier_id) DO NOTHING
+  `);
 }
 
 module.exports = {

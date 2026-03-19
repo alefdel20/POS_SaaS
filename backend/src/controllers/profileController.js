@@ -34,6 +34,7 @@ const stampsValidation = [
   body("stamps_available").optional().isInt({ min: 0 }),
   body("stamps_used").optional().isInt({ min: 0 }),
   body("stamp_alert_threshold").optional().isInt({ min: 0 }),
+  body("fiscal_rfc").optional({ values: "falsy" }).trim(),
   body("pac_provider").optional({ values: "falsy" }).trim(),
   body("pac_mode").optional().isIn(["test", "production"]),
   body("reason").optional({ values: "falsy" }).trim(),

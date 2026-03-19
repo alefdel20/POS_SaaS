@@ -341,10 +341,12 @@ export function FinancesPage() {
                       <td>{expense.notes || "-"}</td>
                       <td>{expense.is_voided ? `Anulado: ${expense.void_reason || "-"}` : "Activo"}</td>
                       <td>
-                        <div className="inline-actions">
-                          <button className="button ghost" disabled={Boolean(expense.is_voided)} onClick={() => startEditExpense(expense)} type="button">Editar</button>
-                          <button className="button ghost danger" disabled={Boolean(expense.is_voided)} onClick={() => voidExpense(expense.id)} type="button">Anular</button>
-                        </div>
+                        {!expense.is_voided ? (
+                          <div className="inline-actions">
+                            <button className="button ghost" onClick={() => startEditExpense(expense)} type="button">Editar</button>
+                            <button className="button ghost danger" onClick={() => voidExpense(expense.id)} type="button">Anular</button>
+                          </div>
+                        ) : null}
                       </td>
                     </tr>
                   ))}

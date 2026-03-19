@@ -168,7 +168,56 @@ export function UsersPage() {
 
   return (
     <section className="page-grid two-columns">
-      <div className="panel">
+      <form className="panel grid-form" onSubmit={handleSubmit}>
+        <div className="panel-header">
+          <h2>Nuevo usuario</h2>
+        </div>
+        <label>
+          Nombre completo
+          <input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required />
+        </label>
+        <label>
+          Usuario
+          <input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required />
+        </label>
+        <label>
+          Correo electronico
+          <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
+        </label>
+        <label>
+          Contrasena
+          <div className="input-with-action">
+            <input
+              type={showCreatePassword ? "text" : "password"}
+              value={form.password}
+              onChange={(event) => setForm({ ...form, password: event.target.value })}
+              required
+            />
+            <button className="button ghost input-action-button" onClick={() => setShowCreatePassword((current) => !current)} type="button">
+              {showCreatePassword ? "Ocultar" : "Mostrar"}
+            </button>
+          </div>
+        </label>
+        <label>
+          Rol
+          <select disabled={!canCreateUsers} value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as Role })}>
+            {roleOptions.map((role) => (
+              <option key={role} value={role}>{getRoleLabel(role)}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Tipo de POS
+          <select disabled={!canCreateUsers || currentRole !== "superusuario"} value={form.pos_type} onChange={(event) => setForm({ ...form, pos_type: event.target.value as PosType })}>
+            {POS_TYPES.map((posType) => (
+              <option key={posType} value={posType}>{posType}</option>
+            ))}
+          </select>
+        </label>
+        <button className="button" disabled={!canCreateUsers || !roleOptions.length} type="submit">Crear usuario</button>
+      </form>
+
+      <div className="panel form-span-2">
         <div className="panel-header">
           <div>
             <h2>Usuarios retail</h2>
@@ -234,55 +283,6 @@ export function UsersPage() {
           </table>
         </div>
       </div>
-
-      <form className="panel grid-form" onSubmit={handleSubmit}>
-        <div className="panel-header">
-          <h2>Nuevo usuario</h2>
-        </div>
-        <label>
-          Nombre completo
-          <input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required />
-        </label>
-        <label>
-          Usuario
-          <input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required />
-        </label>
-        <label>
-          Correo electronico
-          <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
-        </label>
-        <label>
-          Contrasena
-          <div className="input-with-action">
-            <input
-              type={showCreatePassword ? "text" : "password"}
-              value={form.password}
-              onChange={(event) => setForm({ ...form, password: event.target.value })}
-              required
-            />
-            <button className="button ghost input-action-button" onClick={() => setShowCreatePassword((current) => !current)} type="button">
-              {showCreatePassword ? "Ocultar" : "Mostrar"}
-            </button>
-          </div>
-        </label>
-        <label>
-          Rol
-          <select disabled={!canCreateUsers} value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as Role })}>
-            {roleOptions.map((role) => (
-              <option key={role} value={role}>{getRoleLabel(role)}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Tipo de POS
-          <select disabled={!canCreateUsers || currentRole !== "superusuario"} value={form.pos_type} onChange={(event) => setForm({ ...form, pos_type: event.target.value as PosType })}>
-            {POS_TYPES.map((posType) => (
-              <option key={posType} value={posType}>{posType}</option>
-            ))}
-          </select>
-        </label>
-        <button className="button" disabled={!canCreateUsers || !roleOptions.length} type="submit">Crear usuario</button>
-      </form>
 
       {resetTarget ? (
         <div className="modal-backdrop" role="presentation">

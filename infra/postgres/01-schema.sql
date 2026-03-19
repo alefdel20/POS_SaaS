@@ -79,10 +79,20 @@ CREATE TABLE IF NOT EXISTS products (
   discount_start TIMESTAMP,
   discount_end TIMESTAMP,
   stock NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  stock_minimo NUMERIC(12, 2) NOT NULL DEFAULT 0,
   expires_at DATE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS product_suppliers (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE(product_id, supplier_id)
 );
 
 CREATE TABLE IF NOT EXISTS sales (
@@ -154,6 +164,7 @@ CREATE TABLE IF NOT EXISTS reminders (
   notes TEXT NOT NULL DEFAULT '',
   status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed')),
   due_date DATE,
+  source_key VARCHAR(160),
   assigned_to INTEGER REFERENCES users(id),
   created_by INTEGER REFERENCES users(id),
   is_completed BOOLEAN NOT NULL DEFAULT FALSE,
@@ -315,6 +326,7 @@ ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS voided_by INTEGER REFERENCES us
 ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS void_reason TEXT NOT NULL DEFAULT '';
 ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
 ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo NUMERIC(12, 2) NOT NULL DEFAULT 0;
 
 DO $$
 BEGIN
@@ -365,6 +377,9 @@ CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+CREATE INDEX IF NOT EXISTS idx_products_stock_minimo ON products(stock_minimo);
+CREATE INDEX IF NOT EXISTS idx_product_suppliers_product_id ON product_suppliers(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_suppliers_supplier_id ON product_suppliers(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_suppliers_name_lower ON suppliers ((LOWER(name)));
 CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales(sale_date);
 CREATE INDEX IF NOT EXISTS idx_sales_user_id ON sales(user_id);
@@ -372,6 +387,7 @@ CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON sales(payment_method);
 CREATE INDEX IF NOT EXISTS idx_sales_stamp_status ON sales(stamp_status);
 CREATE INDEX IF NOT EXISTS idx_credit_payments_sale_id ON credit_payments(sale_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_due_date ON reminders(due_date);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_reminders_source_key ON reminders(source_key) WHERE source_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
 CREATE INDEX IF NOT EXISTS idx_expenses_is_voided ON expenses(is_voided);
 CREATE INDEX IF NOT EXISTS idx_expenses_fixed_expense_id ON expenses(fixed_expense_id);
@@ -382,3 +398,9 @@ CREATE INDEX IF NOT EXISTS idx_support_access_logs_actor ON support_access_logs(
 CREATE INDEX IF NOT EXISTS idx_audit_logs_usuario_id ON audit_logs(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_modulo ON audit_logs(modulo);
 CREATE INDEX IF NOT EXISTS idx_company_stamp_movements_profile ON company_stamp_movements(company_profile_id);
+
+INSERT INTO product_suppliers (product_id, supplier_id, is_primary)
+SELECT id, supplier_id, TRUE
+FROM products
+WHERE supplier_id IS NOT NULL
+ON CONFLICT (product_id, supplier_id) DO NOTHING;

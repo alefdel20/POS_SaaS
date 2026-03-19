@@ -24,6 +24,11 @@ const sendValidation = [
   body("message").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
+const webhookValidation = [
+  body("event").optional({ values: "falsy" }).trim(),
+  body("type").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 
 const listReminders = asyncHandler(async (req, res) => {
   res.json(await reminderService.listReminders());
@@ -49,15 +54,21 @@ const sendReminder = asyncHandler(async (req, res) => {
   res.json(await reminderService.sendReminder(req.body));
 });
 
+const receiveAutomationWebhook = asyncHandler(async (req, res) => {
+  res.status(202).json(await reminderService.receiveAutomationWebhook(req.body));
+});
+
 module.exports = {
   idValidation,
   createValidation,
   updateValidation,
   sendValidation,
+  webhookValidation,
   listReminders,
   createReminder,
   updateReminder,
   completeReminder,
   deleteReminder,
-  sendReminder
+  sendReminder,
+  receiveAutomationWebhook
 };

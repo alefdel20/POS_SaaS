@@ -10,18 +10,28 @@ const listValidation = [
   query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
   validateRequest
 ];
+const categoryListValidation = [query("search").optional().trim(), validateRequest];
 const idValidation = [param("id").isInt(), validateRequest];
 const createValidation = [
   body("name").trim().notEmpty(),
   body("sku").trim().notEmpty(),
   body("barcode").optional({ values: "falsy" }).trim(),
   body("category").optional({ values: "falsy" }).trim(),
+  body("stock_minimo").isFloat({ min: 0 }),
   body("supplier_id").optional({ values: "falsy" }).isInt(),
   body("supplier_name").optional({ values: "falsy" }).trim(),
   body("supplier_email").optional({ values: "falsy" }).isEmail(),
   body("supplier_phone").optional({ values: "falsy" }).trim(),
   body("supplier_whatsapp").optional({ values: "falsy" }).trim(),
   body("supplier_observations").optional().trim(),
+  body("suppliers").optional().isArray({ min: 1 }),
+  body("suppliers.*.supplier_id").optional({ values: "falsy" }).isInt(),
+  body("suppliers.*.supplier_name").optional({ values: "falsy" }).trim(),
+  body("suppliers.*.supplier_email").optional({ values: "falsy" }).isEmail(),
+  body("suppliers.*.supplier_phone").optional({ values: "falsy" }).trim(),
+  body("suppliers.*.supplier_whatsapp").optional({ values: "falsy" }).trim(),
+  body("suppliers.*.supplier_observations").optional().trim(),
+  body("suppliers.*.is_primary").optional().isBoolean(),
   body("price").isFloat({ min: 0 }),
   body("cost_price").optional().isFloat({ min: 0 }),
   body("liquidation_price").optional({ values: "falsy" }).isFloat({ min: 0 }),
@@ -40,12 +50,21 @@ const updateValidation = [
   body("sku").optional().trim().notEmpty(),
   body("barcode").optional({ values: "falsy" }).trim(),
   body("category").optional({ values: "falsy" }).trim(),
+  body("stock_minimo").optional().isFloat({ min: 0 }),
   body("supplier_id").optional({ values: "falsy" }).isInt(),
   body("supplier_name").optional({ values: "falsy" }).trim(),
   body("supplier_email").optional({ values: "falsy" }).isEmail(),
   body("supplier_phone").optional({ values: "falsy" }).trim(),
   body("supplier_whatsapp").optional({ values: "falsy" }).trim(),
   body("supplier_observations").optional().trim(),
+  body("suppliers").optional().isArray({ min: 1 }),
+  body("suppliers.*.supplier_id").optional({ values: "falsy" }).isInt(),
+  body("suppliers.*.supplier_name").optional({ values: "falsy" }).trim(),
+  body("suppliers.*.supplier_email").optional({ values: "falsy" }).isEmail(),
+  body("suppliers.*.supplier_phone").optional({ values: "falsy" }).trim(),
+  body("suppliers.*.supplier_whatsapp").optional({ values: "falsy" }).trim(),
+  body("suppliers.*.supplier_observations").optional().trim(),
+  body("suppliers.*.is_primary").optional().isBoolean(),
   body("price").optional().isFloat({ min: 0 }),
   body("cost_price").optional().isFloat({ min: 0 }),
   body("liquidation_price").optional({ values: "falsy" }).isFloat({ min: 0 }),
@@ -93,6 +112,10 @@ const listSuppliers = asyncHandler(async (req, res) => {
   res.json(await productService.listSuppliers(req.query.search));
 });
 
+const listCategories = asyncHandler(async (req, res) => {
+  res.json(await productService.listCategories(req.query.search));
+});
+
 const createProduct = asyncHandler(async (req, res) => {
   res.status(201).json(await productService.createProduct(req.body));
 });
@@ -115,6 +138,7 @@ const applyBulkDiscount = asyncHandler(async (req, res) => {
 
 module.exports = {
   listValidation,
+  categoryListValidation,
   idValidation,
   createValidation,
   updateValidation,
@@ -124,6 +148,7 @@ module.exports = {
   deleteValidation,
   listProducts,
   listSuppliers,
+  listCategories,
   createProduct,
   updateProduct,
   updateProductStatus,

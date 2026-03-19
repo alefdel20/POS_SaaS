@@ -9,6 +9,7 @@ const productRoutes = require("./routes/productRoutes");
 const saleRoutes = require("./routes/saleRoutes");
 const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
+const automationRoutes = require("./routes/automationRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 const financeRoutes = require("./routes/financeRoutes");
@@ -65,6 +66,7 @@ app.get(["/health", "/api/health"], (req, res) => {
 // Rutas con y sin /api
 const routes = [
   { path: "/auth", router: authRoutes, auth: false },
+  { path: "/automation", router: automationRoutes, auth: false },
   { path: "/users", router: userRoutes, auth: true },
   { path: "/products", router: productRoutes, auth: true },
   { path: "/sales", router: saleRoutes, auth: true },

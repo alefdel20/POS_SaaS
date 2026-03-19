@@ -4,6 +4,15 @@ import { useAuth } from "../context/AuthContext";
 import type { PaginatedProductsResponse, Product, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 
+type ProductSupplierFormState = {
+  supplier_id: string;
+  supplier_name: string;
+  supplier_email: string;
+  supplier_phone: string;
+  supplier_whatsapp: string;
+  supplier_observations: string;
+};
+
 type ProductFormState = {
   name: string;
   sku: string;
@@ -13,19 +22,24 @@ type ProductFormState = {
   price: string;
   cost_price: string;
   stock: string;
+  stock_minimo: string;
   expires_at: string;
   is_active: boolean;
   status: "activo" | "inactivo";
-  supplier_name: string;
-  supplier_id: string;
-  supplier_email: string;
-  supplier_phone: string;
-  supplier_whatsapp: string;
-  supplier_observations: string;
+  suppliers: ProductSupplierFormState[];
   discount_type: "" | "percentage" | "fixed";
   discount_value: string;
   discount_start: string;
   discount_end: string;
+};
+
+const emptySupplier: ProductSupplierFormState = {
+  supplier_id: "",
+  supplier_name: "",
+  supplier_email: "",
+  supplier_phone: "",
+  supplier_whatsapp: "",
+  supplier_observations: ""
 };
 
 const emptyProduct: ProductFormState = {
@@ -37,15 +51,11 @@ const emptyProduct: ProductFormState = {
   price: "",
   cost_price: "",
   stock: "",
+  stock_minimo: "",
   expires_at: "",
   is_active: true,
   status: "activo",
-  supplier_name: "",
-  supplier_id: "",
-  supplier_email: "",
-  supplier_phone: "",
-  supplier_whatsapp: "",
-  supplier_observations: "",
+  suppliers: [{ ...emptySupplier }],
   discount_type: "",
   discount_value: "",
   discount_start: "",
@@ -63,6 +73,17 @@ function toDateTimeLocal(value?: string | null) {
   return localDate.toISOString().slice(0, 16);
 }
 
+function supplierToForm(supplier?: Supplier | null): ProductSupplierFormState {
+  return {
+    supplier_id: supplier?.supplier_id ? String(supplier.supplier_id) : supplier?.id ? String(supplier.id) : "",
+    supplier_name: supplier?.supplier_name || supplier?.name || "",
+    supplier_email: supplier?.email || "",
+    supplier_phone: supplier?.phone || "",
+    supplier_whatsapp: supplier?.whatsapp || "",
+    supplier_observations: supplier?.observations || ""
+  };
+}
+
 function productToForm(product: Product): ProductFormState {
   return {
     name: product.name,
@@ -73,15 +94,20 @@ function productToForm(product: Product): ProductFormState {
     price: String(product.price ?? ""),
     cost_price: String(product.cost_price ?? ""),
     stock: String(product.stock ?? ""),
+    stock_minimo: String(product.stock_minimo ?? ""),
     expires_at: product.expires_at?.slice(0, 10) || "",
     is_active: product.is_active,
     status: product.status || (product.is_active ? "activo" : "inactivo"),
-    supplier_name: product.supplier_name || "",
-    supplier_id: product.supplier_id ? String(product.supplier_id) : "",
-    supplier_email: product.supplier_email || "",
-    supplier_phone: product.supplier_phone || "",
-    supplier_whatsapp: product.supplier_whatsapp || "",
-    supplier_observations: product.supplier_observations || "",
+    suppliers: product.suppliers?.length
+      ? product.suppliers.map((supplier) => supplierToForm(supplier))
+      : [supplierToForm({
+          id: product.supplier_id || undefined,
+          supplier_name: product.supplier_name || undefined,
+          email: product.supplier_email,
+          phone: product.supplier_phone,
+          whatsapp: product.supplier_whatsapp,
+          observations: product.supplier_observations
+        })],
     discount_type: (product.discount_type as ProductFormState["discount_type"]) || "",
     discount_value: product.discount_value === null || product.discount_value === undefined ? "" : String(product.discount_value),
     discount_start: toDateTimeLocal(product.discount_start),
@@ -89,10 +115,15 @@ function productToForm(product: Product): ProductFormState {
   };
 }
 
+function requiredLabel(text: string) {
+  return `${text} *`;
+}
+
 export function ProductsPage() {
   const { token } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [form, setForm] = useState<ProductFormState>(emptyProduct);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -131,11 +162,22 @@ export function ProductsPage() {
     setSuppliers(response);
   }
 
+  async function loadCategories(searchTerm = "") {
+    if (!token) return;
+    const params = new URLSearchParams();
+    if (searchTerm.trim()) {
+      params.set("search", searchTerm.trim());
+    }
+    const response = await apiRequest<string[]>(`/products/categories?${params.toString()}`, { token });
+    setCategories(response);
+  }
+
   useEffect(() => {
     loadProducts(search, page, pageSize).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
     });
     loadSuppliers().catch(console.error);
+    loadCategories().catch(console.error);
   }, [token, page, pageSize]);
 
   useEffect(() => {
@@ -149,21 +191,33 @@ export function ProductsPage() {
     return () => clearTimeout(timeout);
   }, [search, pageSize, token]);
 
+  function updateSupplier(index: number, nextSupplier: ProductSupplierFormState) {
+    setForm((current) => ({
+      ...current,
+      suppliers: current.suppliers.map((supplier, supplierIndex) => supplierIndex === index ? nextSupplier : supplier)
+    }));
+  }
+
+  function resolveSupplierByName(name: string) {
+    return suppliers.find((supplier) => supplier.name.toLowerCase() === name.trim().toLowerCase()) || null;
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
 
     const price = Number(form.price);
     const stock = Number(form.stock);
+    const stockMinimo = Number(form.stock_minimo);
     const costPrice = form.cost_price === "" ? 0 : Number(form.cost_price);
     const discountValue = form.discount_value === "" ? null : Number(form.discount_value);
 
-    if (!form.name.trim()) {
-      setError("El nombre es obligatorio");
+    if (!form.name.trim() || !form.sku.trim()) {
+      setError("Nombre y SKU son obligatorios");
       return;
     }
-    if (Number.isNaN(price) || price < 0 || Number.isNaN(stock) || stock < 0 || Number.isNaN(costPrice) || costPrice < 0) {
-      setError("Precio, costo y stock deben ser numericos validos");
+    if (Number.isNaN(price) || price < 0 || Number.isNaN(stock) || stock < 0 || Number.isNaN(costPrice) || costPrice < 0 || Number.isNaN(stockMinimo) || stockMinimo < 0) {
+      setError("Precio, costo, stock y stock minimo deben ser numericos validos");
       return;
     }
     if (form.discount_type && (discountValue === null || Number.isNaN(discountValue) || discountValue < 0)) {
@@ -175,7 +229,28 @@ export function ProductsPage() {
       return;
     }
 
-    const supplierByName = suppliers.find((supplier) => supplier.name.toLowerCase() === form.supplier_name.trim().toLowerCase());
+    const normalizedSuppliers = form.suppliers
+      .map((supplier) => {
+        const matchedSupplier = resolveSupplierByName(supplier.supplier_name);
+        return {
+          supplier_id: supplier.supplier_id ? Number(supplier.supplier_id) : matchedSupplier?.id ?? undefined,
+          supplier_name: supplier.supplier_name.trim(),
+          supplier_email: supplier.supplier_email.trim() || null,
+          supplier_phone: supplier.supplier_phone.trim() || null,
+          supplier_whatsapp: supplier.supplier_whatsapp.trim() || null,
+          supplier_observations: supplier.supplier_observations.trim() || "",
+          is_primary: false
+        };
+      })
+      .filter((supplier) => supplier.supplier_id || supplier.supplier_name);
+
+    if (!normalizedSuppliers.length) {
+      normalizedSuppliers.push({ ...emptySupplier, supplier_name: "", is_primary: true });
+    } else {
+      normalizedSuppliers[0].is_primary = true;
+    }
+
+    const primarySupplier = normalizedSuppliers[0];
     const payload = {
       ...form,
       name: form.name.trim(),
@@ -186,13 +261,15 @@ export function ProductsPage() {
       price,
       cost_price: costPrice,
       stock,
+      stock_minimo: stockMinimo,
       expires_at: form.expires_at || null,
-      supplier_id: form.supplier_id ? Number(form.supplier_id) : supplierByName?.id ?? null,
-      supplier_name: form.supplier_name.trim() || null,
-      supplier_email: form.supplier_email.trim() || null,
-      supplier_phone: form.supplier_phone.trim() || null,
-      supplier_whatsapp: form.supplier_whatsapp.trim() || null,
-      supplier_observations: form.supplier_observations.trim(),
+      supplier_id: primarySupplier?.supplier_id ?? null,
+      supplier_name: primarySupplier?.supplier_name || null,
+      supplier_email: primarySupplier?.supplier_email || null,
+      supplier_phone: primarySupplier?.supplier_phone || null,
+      supplier_whatsapp: primarySupplier?.supplier_whatsapp || null,
+      supplier_observations: primarySupplier?.supplier_observations || "",
+      suppliers: normalizedSuppliers,
       discount_type: form.discount_type || null,
       discount_value: discountValue,
       discount_start: form.discount_start ? new Date(form.discount_start).toISOString() : null,
@@ -221,6 +298,7 @@ export function ProductsPage() {
       setEditingId(null);
       await loadProducts(search, page, pageSize);
       await loadSuppliers();
+      await loadCategories();
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el producto");
     } finally {
@@ -287,7 +365,7 @@ export function ProductsPage() {
               {liquidationProducts.map((product) => (
                 <tr key={`liquidation-${product.id}`}>
                   <td>{product.name}</td>
-                  <td>{product.supplier_name || "-"}</td>
+                  <td>{product.supplier_names?.join(", ") || product.supplier_name || "-"}</td>
                   <td>
                     {product.has_active_discount ? "Remate activo" : ""}
                     {product.has_active_discount && (product.is_low_rotation || product.is_near_expiry) ? " + " : ""}
@@ -332,56 +410,29 @@ export function ProductsPage() {
         </div>
         <div className="product-form-grid product-form-grid-wide">
           <label>
-            Nombre
+            {requiredLabel("Nombre")}
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
           </label>
           <label>
-            Proveedor
-            <input
-              list="supplier-options"
-              value={form.supplier_name}
-              onChange={(event) => {
-                const value = event.target.value;
-                const matchedSupplier = suppliers.find((supplier) => supplier.name.toLowerCase() === value.toLowerCase());
-                setForm({
-                  ...form,
-                  supplier_name: value,
-                  supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
-                  supplier_email: matchedSupplier?.email || "",
-                  supplier_phone: matchedSupplier?.phone || "",
-                  supplier_whatsapp: matchedSupplier?.whatsapp || "",
-                  supplier_observations: matchedSupplier?.observations || ""
-                });
-                loadSuppliers(value).catch(console.error);
-              }}
-              placeholder="Selecciona o escribe un proveedor"
-            />
-          </label>
-          <datalist id="supplier-options">
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.name} />
-            ))}
-          </datalist>
-          <label>
-            Correo proveedor
-            <input type="email" value={form.supplier_email} onChange={(event) => setForm({ ...form, supplier_email: event.target.value })} />
-          </label>
-          <label>
-            Telefono proveedor
-            <input value={form.supplier_phone} onChange={(event) => setForm({ ...form, supplier_phone: event.target.value })} />
-          </label>
-          <label>
-            WhatsApp proveedor
-            <input value={form.supplier_whatsapp} onChange={(event) => setForm({ ...form, supplier_whatsapp: event.target.value })} />
-          </label>
-          <label>
-            SKU
+            {requiredLabel("SKU")}
             <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
           </label>
           <label>
             Categoria
-            <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
+            <input
+              list="product-category-options"
+              value={form.category}
+              onChange={(event) => {
+                setForm({ ...form, category: event.target.value });
+                loadCategories(event.target.value).catch(console.error);
+              }}
+            />
           </label>
+          <datalist id="product-category-options">
+            {categories.map((category) => (
+              <option key={category} value={category} />
+            ))}
+          </datalist>
           <label>
             Codigo de barras
             <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
@@ -397,17 +448,25 @@ export function ProductsPage() {
             Descripcion
             <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
           </label>
-          <label className="form-span-2">
-            Observaciones proveedor
-            <textarea value={form.supplier_observations} onChange={(event) => setForm({ ...form, supplier_observations: event.target.value })} />
-          </label>
           <label>
-            Precio
+            {requiredLabel("Precio")}
             <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
           </label>
           <label>
             Costo
             <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
+          </label>
+          <label>
+            {requiredLabel("Stock")}
+            <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
+          </label>
+          <label>
+            {requiredLabel("Stock minimo")}
+            <input type="number" min="0" step="0.01" value={form.stock_minimo} onChange={(event) => setForm({ ...form, stock_minimo: event.target.value })} required />
+          </label>
+          <label>
+            Fecha de vencimiento
+            <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
           </label>
           <label>
             Tipo de remate
@@ -441,15 +500,89 @@ export function ProductsPage() {
             Fin remate
             <input type="datetime-local" value={form.discount_end} onChange={(event) => setForm({ ...form, discount_end: event.target.value })} />
           </label>
-          <label>
-            Stock
-            <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
-          </label>
-          <label>
-            Fecha de vencimiento
-            <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
-          </label>
         </div>
+
+        <div className="panel-header">
+          <div>
+            <h2>Proveedores</h2>
+            <p className="muted">El primer proveedor se toma como principal. Puedes registrar varios.</p>
+          </div>
+          <button
+            className="button ghost"
+            onClick={() => setForm((current) => ({ ...current, suppliers: [...current.suppliers, { ...emptySupplier }] }))}
+            type="button"
+          >
+            Agregar proveedor
+          </button>
+        </div>
+        <div className="product-form-grid product-form-grid-wide">
+          {form.suppliers.map((supplier, index) => (
+            <div className="info-card form-span-2" key={`supplier-${index}`}>
+              <div className="panel-header">
+                <div>
+                  <h3>{index === 0 ? "Proveedor principal" : `Proveedor ${index + 1}`}</h3>
+                </div>
+                {form.suppliers.length > 1 ? (
+                  <button
+                    className="button ghost"
+                    onClick={() => setForm((current) => ({
+                      ...current,
+                      suppliers: current.suppliers.filter((_, supplierIndex) => supplierIndex !== index)
+                    }))}
+                    type="button"
+                  >
+                    Quitar
+                  </button>
+                ) : null}
+              </div>
+              <div className="product-form-grid product-form-grid-wide">
+                <label>
+                  Nombre proveedor
+                  <input
+                    list="supplier-options"
+                    value={supplier.supplier_name}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      const matchedSupplier = resolveSupplierByName(value);
+                      updateSupplier(index, {
+                        supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
+                        supplier_name: value,
+                        supplier_email: matchedSupplier?.email || "",
+                        supplier_phone: matchedSupplier?.phone || "",
+                        supplier_whatsapp: matchedSupplier?.whatsapp || "",
+                        supplier_observations: matchedSupplier?.observations || ""
+                      });
+                      loadSuppliers(value).catch(console.error);
+                    }}
+                    placeholder="Selecciona o escribe un proveedor"
+                  />
+                </label>
+                <label>
+                  Correo proveedor
+                  <input type="email" value={supplier.supplier_email} onChange={(event) => updateSupplier(index, { ...supplier, supplier_email: event.target.value })} />
+                </label>
+                <label>
+                  Telefono proveedor
+                  <input value={supplier.supplier_phone} onChange={(event) => updateSupplier(index, { ...supplier, supplier_phone: event.target.value })} />
+                </label>
+                <label>
+                  WhatsApp proveedor
+                  <input value={supplier.supplier_whatsapp} onChange={(event) => updateSupplier(index, { ...supplier, supplier_whatsapp: event.target.value })} />
+                </label>
+                <label className="form-span-2">
+                  Observaciones proveedor
+                  <textarea value={supplier.supplier_observations} onChange={(event) => updateSupplier(index, { ...supplier, supplier_observations: event.target.value })} />
+                </label>
+              </div>
+            </div>
+          ))}
+          <datalist id="supplier-options">
+            {suppliers.map((supplier) => (
+              <option key={supplier.id} value={supplier.name} />
+            ))}
+          </datalist>
+        </div>
+        {error ? <p className="error-text">{error}</p> : null}
         <button className="button" disabled={saving} type="submit">
           {saving ? "Guardando..." : editingId ? "Actualizar producto" : "Guardar producto"}
         </button>
@@ -459,7 +592,7 @@ export function ProductsPage() {
         <div className="panel-header product-catalog-header">
           <div>
             <h2>Catalogo administrativo</h2>
-            <p className="muted">Buscador y paginacion sin borrado destructivo.</p>
+            <p className="muted">Buscador, paginacion y alertas por stock minimo.</p>
           </div>
           <div className="inline-actions">
             <input
@@ -480,7 +613,7 @@ export function ProductsPage() {
             <thead>
               <tr>
                 <th>Nombre</th>
-                <th>Proveedor</th>
+                <th>Proveedores</th>
                 <th>SKU</th>
                 <th>Categoria</th>
                 <th>Precio</th>
@@ -492,9 +625,12 @@ export function ProductsPage() {
             <tbody>
               {products.map((product) => (
                 <tr key={product.id}>
-                  <td>{product.name}</td>
                   <td>
-                    <div>{product.supplier_name || "-"}</div>
+                    <div>{product.name}</div>
+                    {product.is_low_stock ? <small className="error-text">Stock bajo</small> : null}
+                  </td>
+                  <td>
+                    <div>{product.supplier_names?.join(", ") || product.supplier_name || "-"}</div>
                     <small className="muted">{product.supplier_whatsapp || product.supplier_phone || product.supplier_email || "-"}</small>
                   </td>
                   <td>{product.sku}</td>
@@ -509,7 +645,10 @@ export function ProductsPage() {
                       currency(product.price)
                     )}
                   </td>
-                  <td>{product.stock}</td>
+                  <td>
+                    {product.stock}
+                    <small className="muted"> / min {product.stock_minimo ?? 0}</small>
+                  </td>
                   <td>{product.status || (product.is_active ? "activo" : "inactivo")}</td>
                   <td>
                     <div className="inline-actions">

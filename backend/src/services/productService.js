@@ -13,6 +13,36 @@ function normalizeDiscountFields(payload) {
   };
 }
 
+function normalizeSupplierEntries(payload) {
+  if (Array.isArray(payload.suppliers)) {
+    return payload.suppliers
+      .map((supplier, index) => ({
+        supplier_id: supplier?.supplier_id ? Number(supplier.supplier_id) : null,
+        supplier_name: supplier?.supplier_name?.trim() || "",
+        supplier_email: supplier?.supplier_email?.trim() || null,
+        supplier_phone: supplier?.supplier_phone?.trim() || null,
+        supplier_whatsapp: supplier?.supplier_whatsapp?.trim() || null,
+        supplier_observations: supplier?.supplier_observations?.trim() || "",
+        is_primary: Boolean(supplier?.is_primary) || index === 0
+      }))
+      .filter((supplier) => supplier.supplier_id || supplier.supplier_name);
+  }
+
+  if (payload.supplier_id || payload.supplier_name) {
+    return [{
+      supplier_id: payload.supplier_id ? Number(payload.supplier_id) : null,
+      supplier_name: payload.supplier_name?.trim() || "",
+      supplier_email: payload.supplier_email?.trim() || null,
+      supplier_phone: payload.supplier_phone?.trim() || null,
+      supplier_whatsapp: payload.supplier_whatsapp?.trim() || null,
+      supplier_observations: payload.supplier_observations?.trim() || "",
+      is_primary: true
+    }];
+  }
+
+  return [];
+}
+
 function buildSearchCondition(activeOnly) {
   return activeOnly
     ? "WHERE product_data.is_active = TRUE AND product_data.status = 'activo'"
@@ -109,6 +139,52 @@ async function ensureSupplierReference(payload, client = pool) {
   return rows[0].id;
 }
 
+async function syncProductSuppliers(productId, payload, client = pool) {
+  const supplierEntries = normalizeSupplierEntries(payload);
+
+  if (!supplierEntries.length) {
+    await client.query("DELETE FROM product_suppliers WHERE product_id = $1", [productId]);
+    return null;
+  }
+
+  const resolvedSupplierIds = [];
+  for (const [index, supplierEntry] of supplierEntries.entries()) {
+    const supplierId = await ensureSupplierReference({
+      ...supplierEntry,
+      supplier_id: supplierEntry.supplier_id || undefined
+    }, client);
+
+    if (!supplierId || resolvedSupplierIds.includes(supplierId)) {
+      continue;
+    }
+
+    resolvedSupplierIds.push(supplierId);
+    await client.query(
+      `INSERT INTO product_suppliers (product_id, supplier_id, is_primary)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (product_id, supplier_id)
+       DO UPDATE SET is_primary = EXCLUDED.is_primary`,
+      [productId, supplierId, index === 0]
+    );
+  }
+
+  await client.query(
+    `DELETE FROM product_suppliers
+     WHERE product_id = $1
+       AND supplier_id <> ALL($2::int[])`,
+    [productId, resolvedSupplierIds]
+  );
+
+  await client.query(
+    `UPDATE product_suppliers
+     SET is_primary = supplier_id = $2
+     WHERE product_id = $1`,
+    [productId, resolvedSupplierIds[0]]
+  );
+
+  return resolvedSupplierIds[0] || null;
+}
+
 function buildEffectivePriceCase() {
   return `
     COALESCE(
@@ -139,6 +215,66 @@ function buildEffectivePriceCase() {
       END,
       product_data.price
     )
+  `;
+}
+
+function buildProductSelect(effectivePriceCase) {
+  return `
+    SELECT
+      product_data.*,
+      primary_supplier.name AS supplier_name,
+      primary_supplier.email AS supplier_email,
+      primary_supplier.phone AS supplier_phone,
+      primary_supplier.whatsapp AS supplier_whatsapp,
+      primary_supplier.observations AS supplier_observations,
+      COALESCE(supplier_meta.suppliers_json, '[]'::jsonb) AS suppliers,
+      COALESCE(supplier_meta.supplier_names, ARRAY[]::text[]) AS supplier_names,
+      COALESCE(sales_30.recent_units_sold, 0) AS recent_units_sold,
+      product_data.stock <= product_data.stock_minimo AS is_low_stock,
+      COALESCE(sales_30.recent_units_sold, 0) <= 2 AS is_low_rotation,
+      product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days' AS is_near_expiry,
+      product_data.discount_type IS NOT NULL
+        AND product_data.discount_value IS NOT NULL
+        AND product_data.discount_start IS NOT NULL
+        AND product_data.discount_end IS NOT NULL
+        AND NOW() BETWEEN product_data.discount_start AND product_data.discount_end
+        AND product_data.status = 'activo' AS has_active_discount,
+      product_data.liquidation_price IS NOT NULL
+        AND (
+          COALESCE(sales_30.recent_units_sold, 0) <= 2
+          OR (product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days')
+        ) AS has_legacy_liquidation,
+      (${effectivePriceCase}) AS effective_price,
+      product_data.price > (${effectivePriceCase}) AS is_on_sale
+    FROM products product_data
+    LEFT JOIN sales_30 ON sales_30.product_id = product_data.id
+    LEFT JOIN LATERAL (
+      SELECT
+        jsonb_agg(
+          jsonb_build_object(
+            'supplier_id', suppliers.id,
+            'supplier_name', suppliers.name,
+            'supplier_email', suppliers.email,
+            'supplier_phone', suppliers.phone,
+            'supplier_whatsapp', suppliers.whatsapp,
+            'supplier_observations', suppliers.observations,
+            'is_primary', product_suppliers.is_primary
+          )
+          ORDER BY product_suppliers.is_primary DESC, suppliers.name ASC
+        ) AS suppliers_json,
+        array_agg(suppliers.name ORDER BY product_suppliers.is_primary DESC, suppliers.name ASC) AS supplier_names
+      FROM product_suppliers
+      INNER JOIN suppliers ON suppliers.id = product_suppliers.supplier_id
+      WHERE product_suppliers.product_id = product_data.id
+    ) supplier_meta ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT suppliers.*
+      FROM product_suppliers
+      INNER JOIN suppliers ON suppliers.id = product_suppliers.supplier_id
+      WHERE product_suppliers.product_id = product_data.id
+      ORDER BY product_suppliers.is_primary DESC, suppliers.name ASC
+      LIMIT 1
+    ) primary_supplier ON TRUE
   `;
 }
 
@@ -185,28 +321,7 @@ async function listProducts(search, activeOnlyOrOptions = false) {
          WHERE s.sale_date >= CURRENT_DATE - INTERVAL '30 days'
          GROUP BY si.product_id
        )
-       SELECT
-         product_data.*,
-         suppliers.name AS supplier_name,
-         COALESCE(sales_30.recent_units_sold, 0) AS recent_units_sold,
-         COALESCE(sales_30.recent_units_sold, 0) <= 2 AS is_low_rotation,
-         product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days' AS is_near_expiry,
-         product_data.discount_type IS NOT NULL
-           AND product_data.discount_value IS NOT NULL
-           AND product_data.discount_start IS NOT NULL
-           AND product_data.discount_end IS NOT NULL
-           AND NOW() BETWEEN product_data.discount_start AND product_data.discount_end
-           AND product_data.status = 'activo' AS has_active_discount,
-         product_data.liquidation_price IS NOT NULL
-           AND (
-             COALESCE(sales_30.recent_units_sold, 0) <= 2
-             OR (product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days')
-           ) AS has_legacy_liquidation,
-         (${effectivePriceCase}) AS effective_price,
-         product_data.price > (${effectivePriceCase}) AS is_on_sale
-       FROM products product_data
-       LEFT JOIN sales_30 ON sales_30.product_id = product_data.id
-       LEFT JOIN suppliers ON suppliers.id = product_data.supplier_id
+       ${buildProductSelect(effectivePriceCase)}
        ${filters}
        ORDER BY product_data.created_at DESC`;
 
@@ -225,29 +340,20 @@ async function listProducts(search, activeOnlyOrOptions = false) {
        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '30 days'
        GROUP BY si.product_id
      )
-     SELECT
-       product_data.*,
-       suppliers.name AS supplier_name,
-       COALESCE(sales_30.recent_units_sold, 0) AS recent_units_sold,
-       COALESCE(sales_30.recent_units_sold, 0) <= 2 AS is_low_rotation,
-       product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days' AS is_near_expiry,
-       product_data.discount_type IS NOT NULL
-         AND product_data.discount_value IS NOT NULL
-         AND product_data.discount_start IS NOT NULL
-         AND product_data.discount_end IS NOT NULL
-         AND NOW() BETWEEN product_data.discount_start AND product_data.discount_end
-         AND product_data.status = 'activo' AS has_active_discount,
-       product_data.liquidation_price IS NOT NULL
-         AND (
-           COALESCE(sales_30.recent_units_sold, 0) <= 2
-           OR (product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days')
-         ) AS has_legacy_liquidation,
-       (${effectivePriceCase}) AS effective_price,
-       product_data.price > (${effectivePriceCase}) AS is_on_sale
-     FROM products product_data
-     LEFT JOIN sales_30 ON sales_30.product_id = product_data.id
-     LEFT JOIN suppliers ON suppliers.id = product_data.supplier_id
-     WHERE ${activePredicate}(product_data.name ILIKE $1 OR product_data.sku ILIKE $1 OR product_data.barcode ILIKE $1 OR product_data.category ILIKE $1 OR suppliers.name ILIKE $1)
+     ${buildProductSelect(effectivePriceCase)}
+     WHERE ${activePredicate}(
+       product_data.name ILIKE $1
+       OR product_data.sku ILIKE $1
+       OR product_data.barcode ILIKE $1
+       OR product_data.category ILIKE $1
+       OR EXISTS (
+         SELECT 1
+         FROM product_suppliers ps
+         INNER JOIN suppliers s ON s.id = ps.supplier_id
+         WHERE ps.product_id = product_data.id
+           AND s.name ILIKE $1
+       )
+     )
      ORDER BY product_data.name ASC`;
 
   return withPagination(baseQuery, [term]);
@@ -273,13 +379,32 @@ async function listSuppliers(search) {
   return rows;
 }
 
+async function listCategories(search) {
+  const term = search?.trim();
+  const { rows } = await pool.query(
+    `SELECT DISTINCT category
+     FROM products
+     WHERE category IS NOT NULL
+       AND category <> ''
+       ${term ? "AND category ILIKE $1" : ""}
+     ORDER BY category ASC
+     LIMIT 20`,
+    term ? [`%${term}%`] : []
+  );
+
+  return rows.map((row) => row.category);
+}
+
 async function createProduct(payload) {
   const barcode = payload.barcode?.trim() || payload.sku;
-  const supplierId = await ensureSupplierReference(payload);
   const discountFields = normalizeDiscountFields(payload);
+  const client = await pool.connect();
 
-  const { rows } = await pool.query(
-    `INSERT INTO products (
+  try {
+    await client.query("BEGIN");
+    const primarySupplierId = await ensureSupplierReference(payload, client);
+    const { rows } = await client.query(
+      `INSERT INTO products (
       name,
       sku,
       barcode,
@@ -296,54 +421,69 @@ async function createProduct(payload) {
       discount_type,
       discount_value,
       discount_start,
-      discount_end
+      discount_end,
+      stock_minimo
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      RETURNING *`,
-    [
-      payload.name,
-      payload.sku,
-      barcode,
-      payload.category || null,
-      payload.description || "",
-      payload.price,
-      payload.cost_price ?? 0,
-      payload.liquidation_price ?? null,
-      payload.stock ?? 0,
-      payload.expires_at || null,
-      payload.is_active ?? true,
-      supplierId,
-      payload.status || "activo",
-      discountFields.discount_type,
-      discountFields.discount_value,
-      discountFields.discount_start,
-      discountFields.discount_end
-    ]
-  );
-  return rows[0];
+      [
+        payload.name,
+        payload.sku,
+        barcode,
+        payload.category || null,
+        payload.description || "",
+        payload.price,
+        payload.cost_price ?? 0,
+        payload.liquidation_price ?? null,
+        payload.stock ?? 0,
+        payload.expires_at || null,
+        payload.is_active ?? true,
+        primarySupplierId,
+        payload.status || "activo",
+        discountFields.discount_type,
+        discountFields.discount_value,
+        discountFields.discount_start,
+        discountFields.discount_end,
+        payload.stock_minimo ?? 0
+      ]
+    );
+    const created = rows[0];
+    await syncProductSuppliers(created.id, payload, client);
+    await client.query("COMMIT");
+    return created;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function updateProduct(id, payload) {
-  const { rows: currentRows } = await pool.query("SELECT * FROM products WHERE id = $1", [id]);
-  const current = currentRows[0];
+  const client = await pool.connect();
 
-  if (!current) {
-    throw new ApiError(404, "Product not found");
-  }
+  try {
+    await client.query("BEGIN");
+    const { rows: currentRows } = await client.query("SELECT * FROM products WHERE id = $1", [id]);
+    const current = currentRows[0];
 
-  const supplierId = payload.supplier_id !== undefined || payload.supplier_name !== undefined
-    ? await ensureSupplierReference(payload)
-    : current.supplier_id;
-  const discountFields = normalizeDiscountFields(payload);
-  const clearDiscountData = payload.discount_type !== undefined && discountFields.discount_type === null;
-  const nextLiquidationPrice = clearDiscountData
-    ? null
-    : payload.liquidation_price !== undefined
-      ? payload.liquidation_price
-      : current.liquidation_price;
+    if (!current) {
+      throw new ApiError(404, "Product not found");
+    }
 
-  const { rows } = await pool.query(
-    `UPDATE products
+    const supplierId = payload.supplier_id !== undefined || payload.supplier_name !== undefined || payload.suppliers !== undefined
+      ? await ensureSupplierReference(payload, client)
+      : current.supplier_id;
+    const discountFields = normalizeDiscountFields(payload);
+    const clearDiscountData = payload.discount_type !== undefined && discountFields.discount_type === null;
+    const nextLiquidationPrice = clearDiscountData
+      ? null
+      : payload.liquidation_price !== undefined
+        ? payload.liquidation_price
+        : current.liquidation_price;
+
+    const { rows } = await client.query(
+      `UPDATE products
      SET name = $1,
          sku = $2,
          barcode = $3,
@@ -361,31 +501,48 @@ async function updateProduct(id, payload) {
          discount_value = $15,
          discount_start = $16,
          discount_end = $17,
+         stock_minimo = $18,
          updated_at = NOW()
-     WHERE id = $18
+     WHERE id = $19
      RETURNING *`,
-    [
-      payload.name ?? current.name,
-      payload.sku ?? current.sku,
-      payload.barcode?.trim() || current.barcode,
-      payload.category ?? current.category,
-      payload.description ?? current.description,
-      payload.price ?? current.price,
-      payload.cost_price ?? current.cost_price,
-      nextLiquidationPrice,
-      payload.stock ?? current.stock,
-      payload.expires_at !== undefined ? payload.expires_at : current.expires_at,
-      payload.is_active ?? current.is_active,
-      supplierId,
-      payload.status ?? current.status ?? "activo",
-      clearDiscountData || payload.discount_type !== undefined ? discountFields.discount_type : current.discount_type,
-      clearDiscountData || payload.discount_value !== undefined ? discountFields.discount_value : current.discount_value,
-      clearDiscountData || payload.discount_start !== undefined ? discountFields.discount_start : current.discount_start,
-      clearDiscountData || payload.discount_end !== undefined ? discountFields.discount_end : current.discount_end,
-      id
-    ]
-  );
-  return rows[0];
+      [
+        payload.name ?? current.name,
+        payload.sku ?? current.sku,
+        payload.barcode?.trim() || current.barcode,
+        payload.category ?? current.category,
+        payload.description ?? current.description,
+        payload.price ?? current.price,
+        payload.cost_price ?? current.cost_price,
+        nextLiquidationPrice,
+        payload.stock ?? current.stock,
+        payload.expires_at !== undefined ? payload.expires_at : current.expires_at,
+        payload.is_active ?? current.is_active,
+        supplierId,
+        payload.status ?? current.status ?? "activo",
+        clearDiscountData || payload.discount_type !== undefined ? discountFields.discount_type : current.discount_type,
+        clearDiscountData || payload.discount_value !== undefined ? discountFields.discount_value : current.discount_value,
+        clearDiscountData || payload.discount_start !== undefined ? discountFields.discount_start : current.discount_start,
+        clearDiscountData || payload.discount_end !== undefined ? discountFields.discount_end : current.discount_end,
+        payload.stock_minimo ?? current.stock_minimo ?? 0,
+        id
+      ]
+    );
+
+    if (payload.supplier_id !== undefined || payload.supplier_name !== undefined || payload.suppliers !== undefined) {
+      const primarySupplierId = await syncProductSuppliers(id, payload, client);
+      if (primarySupplierId !== supplierId) {
+        await client.query("UPDATE products SET supplier_id = $1 WHERE id = $2", [primarySupplierId, id]);
+      }
+    }
+
+    await client.query("COMMIT");
+    return rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function updateProductStatus(id, isActive, status) {
@@ -480,6 +637,7 @@ async function applyBulkDiscount(productIds, payload) {
 module.exports = {
   listProducts,
   listSuppliers,
+  listCategories,
   createProduct,
   updateProduct,
   updateProductStatus,

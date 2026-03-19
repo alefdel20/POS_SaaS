@@ -1,6 +1,12 @@
 const ExcelJS = require("exceljs");
 const pool = require("../db/pool");
 
+function getLocalIsoDate() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
+
 function normalizeMonthRange(month) {
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
     return null;
@@ -74,7 +80,7 @@ function mapCutRow(row) {
   };
 }
 
-async function recomputeDailyCut(date = new Date().toISOString().slice(0, 10)) {
+async function recomputeDailyCut(date = getLocalIsoDate()) {
   const { rows } = await pool.query(
     `SELECT
        COALESCE(SUM(total), 0) AS total_day,
@@ -166,7 +172,7 @@ async function listDailyCuts(filters = {}) {
 }
 
 async function getTodayDailyCut() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalIsoDate();
   await recomputeDailyCut(today);
   const rows = await listDailyCuts({ date: today });
   return rows[0] || {
@@ -262,7 +268,7 @@ async function exportDailyCutsExcel(period = "daily", filters = {}) {
   const workbook = await buildWorkbook(period, filters);
   const buffer = await workbook.xlsx.writeBuffer();
   const suffix = period === "monthly" ? "mensual" : "diario";
-  const dateSuffix = new Date().toISOString().slice(0, 10);
+  const dateSuffix = getLocalIsoDate();
 
   return {
     buffer,

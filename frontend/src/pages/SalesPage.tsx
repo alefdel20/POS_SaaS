@@ -375,7 +375,8 @@ export function SalesPage() {
 
         {invoiceBlockedByStamps ? (
           <div className="warning-box">
-            <p>No hay timbres disponibles para facturar.</p>
+            <p>No es posible emitir factura en este momento.</p>
+            <p>El saldo de timbres esta en cero. Recarga timbres en Configuracion &gt; Facturacion para continuar.</p>
             <p>Timbres restantes: {profile?.stamps_available || 0}</p>
           </div>
         ) : null}
@@ -436,26 +437,6 @@ export function SalesPage() {
 
         {saleType === "invoice" ? (
           <div className="invoice-grid">
-            <div className="info-card">
-              <h3>Datos empresa</h3>
-              <label>
-                RFC
-                <input disabled value={invoiceData.company_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, company_rfc: event.target.value })} />
-              </label>
-              <label>
-                Razon social
-                <input disabled value={invoiceData.company_name} onChange={(event) => setInvoiceData({ ...invoiceData, company_name: event.target.value })} />
-              </label>
-              <label>
-                Regimen fiscal
-                <input disabled value={invoiceData.company_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, company_tax_regime: event.target.value })} />
-              </label>
-              <label>
-                Direccion
-                <input disabled value={invoiceData.company_address} onChange={(event) => setInvoiceData({ ...invoiceData, company_address: event.target.value })} />
-              </label>
-            </div>
-
             <div className="info-card">
               <h3>Datos cliente</h3>
               <label>

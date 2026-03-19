@@ -14,11 +14,14 @@ export interface User {
 
 export interface Supplier {
   id: number;
+  supplier_id?: number;
   name: string;
+  supplier_name?: string;
   email?: string | null;
   phone?: string | null;
   whatsapp?: string | null;
   observations?: string | null;
+  is_primary?: boolean;
 }
 
 export interface Product {
@@ -30,12 +33,15 @@ export interface Product {
   description: string;
   price: number;
   cost_price: number;
+  stock_minimo?: number;
   supplier_id?: number | null;
   supplier_name?: string | null;
   supplier_email?: string | null;
   supplier_phone?: string | null;
   supplier_whatsapp?: string | null;
   supplier_observations?: string | null;
+  suppliers?: Supplier[];
+  supplier_names?: string[];
   liquidation_price?: number | null;
   discount_type?: "percentage" | "fixed" | null;
   discount_value?: number | null;
@@ -45,6 +51,7 @@ export interface Product {
   has_legacy_liquidation?: boolean;
   effective_price?: number;
   recent_units_sold?: number;
+  is_low_stock?: boolean;
   is_low_rotation?: boolean;
   is_near_expiry?: boolean;
   is_on_sale?: boolean;
@@ -174,6 +181,7 @@ export interface Reminder {
   id: number;
   title: string;
   notes: string;
+  source_key?: string | null;
   status: "pending" | "in_progress" | "completed";
   due_date: string | null;
   assigned_to: number | null;
