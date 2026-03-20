@@ -131,6 +131,8 @@ export function ProductsPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [form, setForm] = useState<ProductFormState>(emptyProduct);
+  const [supplierDrafts, setSupplierDrafts] = useState<ProductSupplierFormState[]>([]);
+  const [showSuppliersModal, setShowSuppliersModal] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<10 | 15>(10);
@@ -204,8 +206,44 @@ export function ProductsPage() {
     }));
   }
 
+  function updateSupplierDraft(index: number, nextSupplier: ProductSupplierFormState) {
+    setSupplierDrafts((current) => current.map((supplier, supplierIndex) => supplierIndex === index ? nextSupplier : supplier));
+  }
+
   function resolveSupplierByName(name: string) {
     return suppliers.find((supplier) => supplier.name.toLowerCase() === name.trim().toLowerCase()) || null;
+  }
+
+  function openSuppliersModal() {
+    setSupplierDrafts(form.suppliers.slice(1).map((supplier) => ({ ...supplier })));
+    setShowSuppliersModal(true);
+  }
+
+  function closeSuppliersModal() {
+    setSupplierDrafts([]);
+    setShowSuppliersModal(false);
+  }
+
+  function saveSuppliersModal() {
+    const cleanedDrafts = supplierDrafts
+      .map((supplier) => ({
+        ...supplier,
+        supplier_id: supplier.supplier_id.trim(),
+        supplier_name: supplier.supplier_name.trim(),
+        supplier_email: supplier.supplier_email.trim(),
+        supplier_phone: supplier.supplier_phone.trim(),
+        supplier_whatsapp: supplier.supplier_whatsapp.trim(),
+        supplier_observations: supplier.supplier_observations.trim(),
+        purchase_cost: supplier.purchase_cost.trim()
+      }))
+      .filter((supplier) => supplier.supplier_id || supplier.supplier_name);
+
+    setForm((current) => ({
+      ...current,
+      suppliers: [current.suppliers[0] || { ...emptySupplier }, ...cleanedDrafts]
+    }));
+    setShowSuppliersModal(false);
+    setSupplierDrafts([]);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -331,6 +369,8 @@ export function ProductsPage() {
       }
       setForm(emptyProduct);
       setEditingId(null);
+      setSupplierDrafts([]);
+      setShowSuppliersModal(false);
       await loadProducts(search, page, pageSize);
       await loadSuppliers();
       await loadCategories();
@@ -344,6 +384,8 @@ export function ProductsPage() {
   function handleEdit(product: Product) {
     setEditingId(product.id);
     setForm(productToForm(product));
+    setSupplierDrafts([]);
+    setShowSuppliersModal(false);
     setError("");
   }
 
@@ -436,6 +478,8 @@ export function ProductsPage() {
               onClick={() => {
                 setEditingId(null);
                 setForm(emptyProduct);
+                setSupplierDrafts([]);
+                setShowSuppliersModal(false);
               }}
               type="button"
             >
@@ -540,94 +584,93 @@ export function ProductsPage() {
         <div className="panel-header">
           <div>
             <h2>Proveedores</h2>
-            <p className="muted">El primer proveedor se toma como principal. Puedes registrar varios.</p>
+            <p className="muted">El proveedor principal permanece visible. Los proveedores adicionales se administran bajo demanda.</p>
           </div>
           <button
             className="button ghost"
-            onClick={() => setForm((current) => ({ ...current, suppliers: [...current.suppliers, { ...emptySupplier }] }))}
+            onClick={openSuppliersModal}
             type="button"
           >
-            Agregar otro proveedor
+            {form.suppliers.length > 1 ? `Gestionar proveedores extra (${form.suppliers.length - 1})` : "Agregar otro proveedor"}
           </button>
         </div>
         <div className="product-form-grid product-form-grid-wide">
-          {form.suppliers.map((supplier, index) => (
-            <div className="info-card form-span-2" key={`supplier-${index}`}>
-              <div className="panel-header">
-                <div>
-                  <h3>{index === 0 ? "Proveedor principal" : `Proveedor ${index + 1}`}</h3>
-                </div>
-                {form.suppliers.length > 1 ? (
-                  <button
-                    className="button ghost"
-                    onClick={() => setForm((current) => ({
-                      ...current,
-                      suppliers: current.suppliers.filter((_, supplierIndex) => supplierIndex !== index)
-                    }))}
-                    type="button"
-                  >
-                    Quitar
-                  </button>
-                ) : null}
-              </div>
-              <div className="product-form-grid product-form-grid-wide">
-                <label>
-                  Nombre proveedor
-                  <input
-                    list="supplier-options"
-                    value={supplier.supplier_name}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      const matchedSupplier = resolveSupplierByName(value);
-                      updateSupplier(index, {
-                        supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
-                        supplier_name: value,
-                        supplier_email: matchedSupplier?.email || "",
-                        supplier_phone: matchedSupplier?.phone || "",
-                        supplier_whatsapp: matchedSupplier?.whatsapp || "",
-                        supplier_observations: matchedSupplier?.observations || "",
-                        purchase_cost: supplier.purchase_cost,
-                        cost_updated_at: supplier.cost_updated_at
-                      });
-                      loadSuppliers(value).catch(console.error);
-                    }}
-                    placeholder="Selecciona o escribe un proveedor"
-                  />
-                </label>
-                <label>
-                  WhatsApp proveedor
-                  <input value={supplier.supplier_whatsapp} onChange={(event) => updateSupplier(index, { ...supplier, supplier_whatsapp: event.target.value })} />
-                </label>
-                <label>
-                  Correo proveedor
-                  <input type="email" value={supplier.supplier_email} onChange={(event) => updateSupplier(index, { ...supplier, supplier_email: event.target.value })} />
-                </label>
-                <label>
-                  Teléfono proveedor
-                  <input value={supplier.supplier_phone} onChange={(event) => updateSupplier(index, { ...supplier, supplier_phone: event.target.value })} />
-                </label>
-                <label>
-                  Costo de compra
-                  <input
-                    min="0"
-                    step="0.01"
-                    type="number"
-                    value={supplier.purchase_cost}
-                    onChange={(event) => updateSupplier(index, { ...supplier, purchase_cost: event.target.value })}
-                  />
-                </label>
-                <label className="form-span-2">
-                  Observaciones proveedor
-                  <textarea value={supplier.supplier_observations} onChange={(event) => updateSupplier(index, { ...supplier, supplier_observations: event.target.value })} />
-                </label>
-                {supplier.cost_updated_at ? (
-                  <p className="muted form-span-2">
-                    Última actualización de costo: {shortDateTime(supplier.cost_updated_at)}
-                  </p>
-                ) : null}
+          <div className="info-card form-span-2">
+            <div className="panel-header">
+              <div>
+                <h3>Proveedor principal</h3>
               </div>
             </div>
-          ))}
+            <div className="product-form-grid product-form-grid-wide">
+              <label>
+                Nombre proveedor
+                <input
+                  list="supplier-options"
+                  value={form.suppliers[0]?.supplier_name || ""}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    const matchedSupplier = resolveSupplierByName(value);
+                    updateSupplier(0, {
+                      supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
+                      supplier_name: value,
+                      supplier_email: matchedSupplier?.email || "",
+                      supplier_phone: matchedSupplier?.phone || "",
+                      supplier_whatsapp: matchedSupplier?.whatsapp || "",
+                      supplier_observations: matchedSupplier?.observations || "",
+                      purchase_cost: form.suppliers[0]?.purchase_cost || "",
+                      cost_updated_at: form.suppliers[0]?.cost_updated_at || null
+                    });
+                    loadSuppliers(value).catch(console.error);
+                  }}
+                  placeholder="Selecciona o escribe un proveedor"
+                />
+              </label>
+              <label>
+                WhatsApp proveedor
+                <input
+                  value={form.suppliers[0]?.supplier_whatsapp || ""}
+                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), supplier_whatsapp: event.target.value })}
+                />
+              </label>
+              <label>
+                Correo proveedor
+                <input
+                  type="email"
+                  value={form.suppliers[0]?.supplier_email || ""}
+                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), supplier_email: event.target.value })}
+                />
+              </label>
+              <label>
+                Teléfono proveedor
+                <input
+                  value={form.suppliers[0]?.supplier_phone || ""}
+                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), supplier_phone: event.target.value })}
+                />
+              </label>
+              <label>
+                Costo de compra
+                <input
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  value={form.suppliers[0]?.purchase_cost || ""}
+                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), purchase_cost: event.target.value })}
+                />
+              </label>
+              <label className="form-span-2">
+                Observaciones proveedor
+                <textarea
+                  value={form.suppliers[0]?.supplier_observations || ""}
+                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), supplier_observations: event.target.value })}
+                />
+              </label>
+              {form.suppliers[0]?.cost_updated_at ? (
+                <p className="muted form-span-2">
+                  Última actualización de costo: {shortDateTime(form.suppliers[0]?.cost_updated_at)}
+                </p>
+              ) : null}
+            </div>
+          </div>
           <datalist id="supplier-options">
             {suppliers.map((supplier) => (
               <option key={supplier.id} value={supplier.name} />
@@ -639,6 +682,110 @@ export function ProductsPage() {
           {saving ? "Guardando..." : editingId ? "Actualizar producto" : "Guardar producto"}
         </button>
       </form>
+
+      {showSuppliersModal ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card supplier-modal-card">
+            <div className="panel-header">
+              <div>
+                <h3>Proveedores adicionales</h3>
+                <p className="muted">Agrega o edita proveedores extra sin saturar la vista principal.</p>
+              </div>
+              <button className="button ghost" onClick={closeSuppliersModal} type="button">Cerrar</button>
+            </div>
+            <div className="inline-actions supplier-modal-actions">
+              <button
+                className="button ghost"
+                onClick={() => setSupplierDrafts((current) => [...current, { ...emptySupplier }])}
+                type="button"
+              >
+                Agregar proveedor
+              </button>
+            </div>
+            <div className="supplier-modal-list">
+              {supplierDrafts.length === 0 ? (
+                <p className="muted">Aún no hay proveedores adicionales configurados.</p>
+              ) : null}
+              {supplierDrafts.map((supplier, index) => (
+                <div className="info-card" key={`supplier-draft-${index}`}>
+                  <div className="panel-header">
+                    <div>
+                      <h3>{`Proveedor ${index + 2}`}</h3>
+                    </div>
+                    <button
+                      className="button ghost"
+                      onClick={() => setSupplierDrafts((current) => current.filter((_, supplierIndex) => supplierIndex !== index))}
+                      type="button"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                  <div className="product-form-grid product-form-grid-wide">
+                    <label>
+                      Nombre proveedor
+                      <input
+                        list="supplier-options"
+                        value={supplier.supplier_name}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          const matchedSupplier = resolveSupplierByName(value);
+                          updateSupplierDraft(index, {
+                            supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
+                            supplier_name: value,
+                            supplier_email: matchedSupplier?.email || "",
+                            supplier_phone: matchedSupplier?.phone || "",
+                            supplier_whatsapp: matchedSupplier?.whatsapp || "",
+                            supplier_observations: matchedSupplier?.observations || "",
+                            purchase_cost: supplier.purchase_cost,
+                            cost_updated_at: supplier.cost_updated_at
+                          });
+                          loadSuppliers(value).catch(console.error);
+                        }}
+                        placeholder="Selecciona o escribe un proveedor"
+                      />
+                    </label>
+                    <label>
+                      WhatsApp proveedor
+                      <input value={supplier.supplier_whatsapp} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_whatsapp: event.target.value })} />
+                    </label>
+                    <label>
+                      Correo proveedor
+                      <input type="email" value={supplier.supplier_email} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_email: event.target.value })} />
+                    </label>
+                    <label>
+                      Teléfono proveedor
+                      <input value={supplier.supplier_phone} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_phone: event.target.value })} />
+                    </label>
+                    <label>
+                      Costo de compra
+                      <input
+                        min="0"
+                        step="0.01"
+                        type="number"
+                        value={supplier.purchase_cost}
+                        onChange={(event) => updateSupplierDraft(index, { ...supplier, purchase_cost: event.target.value })}
+                      />
+                    </label>
+                    <label className="form-span-2">
+                      Observaciones proveedor
+                      <textarea value={supplier.supplier_observations} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_observations: event.target.value })} />
+                    </label>
+                    {supplier.cost_updated_at ? (
+                      <p className="muted form-span-2">
+                        Última actualización de costo: {shortDateTime(supplier.cost_updated_at)}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="inline-actions supplier-modal-actions">
+              <button className="button ghost" onClick={closeSuppliersModal} type="button">Cancelar</button>
+              <button className="button" onClick={saveSuppliersModal} type="button">Aplicar proveedores</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="panel">
         <div className="panel-header product-catalog-header">

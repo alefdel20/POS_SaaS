@@ -130,13 +130,13 @@ export function CreditCollectionsPage() {
         </div>
         {error ? <p className="error-text">{error}</p> : null}
         <div className="table-wrap">
-          <table>
+          <table className="credit-collections-table">
             <thead>
               <tr>
                 <th>Persona</th>
                 <th>Teléfono</th>
                 <th>Saldo pendiente</th>
-                <th>Recordatorio</th>
+                <th className="credit-reminder-header">Recordatorio</th>
               </tr>
             </thead>
             <tbody>
@@ -149,7 +149,7 @@ export function CreditCollectionsPage() {
                   <td>{debtor.person}</td>
                   <td>{debtor.phone}</td>
                   <td>{currency(debtor.balance_due)}</td>
-                  <td>
+                  <td className="credit-reminder-cell">
                     <label className="checkbox-row credit-reminder-toggle">
                       <input
                         checked={Boolean(debtor.send_reminder)}

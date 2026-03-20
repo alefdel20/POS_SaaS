@@ -144,7 +144,7 @@ async function ensureAutomaticReminders() {
 
   const [lowStockRows, fixedExpenseRows] = await Promise.all([
     pool.query(
-      `SELECT id, name, stock, stock_minimo
+      `SELECT id, name, sku, stock, stock_minimo
        FROM products
        WHERE is_active = TRUE
          AND status = 'activo'
@@ -163,8 +163,8 @@ async function ensureAutomaticReminders() {
   for (const product of lowStockRows.rows) {
     await upsertAutomaticReminder({
       source_key: `auto:stock-low:${product.id}`,
-      title: `Stock bajo: ${product.name}`,
-      notes: `Stock actual ${Number(product.stock)}. Minimo configurado ${Number(product.stock_minimo)}.`,
+      title: `STOCK BAJO: ${product.name}`,
+      notes: `El producto con SKU: ${product.sku || "-"} ha llegado a su nivel mínimo (${Number(product.stock_minimo)}). Stock actual: ${Number(product.stock)}.`,
       due_date: today
     });
   }

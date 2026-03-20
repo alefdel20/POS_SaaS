@@ -590,6 +590,58 @@ td {
   white-space: nowrap;
 }
 
+.credit-collections-table th,
+.credit-collections-table td {
+  vertical-align: middle;
+}
+
+.credit-collections-table th:nth-child(1),
+.credit-collections-table td:nth-child(1) {
+  width: 32%;
+}
+
+.credit-collections-table th:nth-child(2),
+.credit-collections-table td:nth-child(2) {
+  width: 22%;
+}
+
+.credit-collections-table th:nth-child(3),
+.credit-collections-table td:nth-child(3) {
+  width: 22%;
+}
+
+.credit-reminder-header,
+.credit-reminder-cell {
+  width: 24%;
+  text-align: center;
+}
+
+.credit-reminder-toggle {
+  justify-content: center;
+  min-width: 0;
+  margin: 0;
+}
+
+.credit-reminder-toggle input {
+  margin: 0;
+}
+
+.supplier-modal-card {
+  width: min(960px, 94vw);
+}
+
+.supplier-modal-actions {
+  justify-content: flex-end;
+}
+
+.supplier-modal-list {
+  display: grid;
+  gap: 1rem;
+  max-height: 65vh;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
 .table-row-active {
   background: rgba(88, 212, 179, 0.08);
 }
