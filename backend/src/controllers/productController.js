@@ -109,35 +109,35 @@ const listProducts = asyncHandler(async (req, res) => {
     activeOnly: req.query.activeOnly === "true",
     page: req.query.page,
     pageSize: req.query.pageSize
-  }));
+  }, req.user));
 });
 
 const listSuppliers = asyncHandler(async (req, res) => {
-  res.json(await productService.listSuppliers(req.query.search));
+  res.json(await productService.listSuppliers(req.query.search, req.user));
 });
 
 const listCategories = asyncHandler(async (req, res) => {
-  res.json(await productService.listCategories(req.query.search));
+  res.json(await productService.listCategories(req.query.search, req.user));
 });
 
 const createProduct = asyncHandler(async (req, res) => {
-  res.status(201).json(await productService.createProduct(req.body));
+  res.status(201).json(await productService.createProduct(req.body, req.user));
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
-  res.json(await productService.updateProduct(Number(req.params.id), req.body));
+  res.json(await productService.updateProduct(Number(req.params.id), req.body, req.user));
 });
 
 const updateProductStatus = asyncHandler(async (req, res) => {
-  res.json(await productService.updateProductStatus(Number(req.params.id), req.body.is_active, req.body.status));
+  res.json(await productService.updateProductStatus(Number(req.params.id), req.body.is_active, req.body.status, req.user));
 });
 
 const deleteProduct = asyncHandler(async (req, res) => {
-  res.json(await productService.deleteProduct(Number(req.params.id), req.body.action));
+  res.json(await productService.deleteProduct(Number(req.params.id), req.body.action, req.user));
 });
 
 const applyBulkDiscount = asyncHandler(async (req, res) => {
-  res.json(await productService.applyBulkDiscount(req.body.product_ids, req.body));
+  res.json(await productService.applyBulkDiscount(req.body.product_ids, req.body, req.user));
 });
 
 module.exports = {

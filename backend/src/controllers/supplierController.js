@@ -14,11 +14,11 @@ const idValidation = [
 ];
 
 const listSuppliers = asyncHandler(async (req, res) => {
-  res.json(await supplierService.listSuppliers(req.query.search || ""));
+  res.json(await supplierService.listSuppliers(req.query.search || "", req.user));
 });
 
 const getSupplierDetail = asyncHandler(async (req, res) => {
-  res.json(await supplierService.getSupplierDetail(Number(req.params.id)));
+  res.json(await supplierService.getSupplierDetail(Number(req.params.id), req.user));
 });
 
 module.exports = {

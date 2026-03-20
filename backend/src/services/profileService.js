@@ -2,16 +2,14 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
+const { canBypassBusinessScope, requireActorBusinessId } = require("../utils/tenant");
 
 function mapProfile(profile) {
-  if (!profile) {
-    return null;
-  }
-
+  if (!profile) return null;
   const generalSettings = profile.general_settings || {};
-
   return {
     id: profile.id,
+    business_id: profile.business_id,
     profile_key: profile.profile_key,
     owner_name: profile.owner_name,
     company_name: profile.company_name,
@@ -25,9 +23,7 @@ function mapProfile(profile) {
     card_terminal: generalSettings.card_terminal || null,
     card_bank: generalSettings.card_bank || null,
     card_instructions: generalSettings.card_instructions || null,
-    card_commission: generalSettings.card_commission === undefined || generalSettings.card_commission === null
-      ? null
-      : Number(generalSettings.card_commission),
+    card_commission: generalSettings.card_commission === undefined || generalSettings.card_commission === null ? null : Number(generalSettings.card_commission),
     fiscal_rfc: profile.fiscal_rfc,
     fiscal_business_name: profile.fiscal_business_name,
     fiscal_regime: profile.fiscal_regime,
@@ -43,190 +39,76 @@ function mapProfile(profile) {
   };
 }
 
-async function getDefaultProfile(client = pool) {
+function ensureProfileManagementAccess(actor, section) {
+  const actorRole = normalizeRole(actor?.role);
+  if (!["superusuario", "admin"].includes(actorRole || "")) throw new ApiError(403, "Forbidden");
+  if (section === "stamps" && actorRole !== "superusuario") throw new ApiError(403, "Forbidden");
+}
+
+function getTargetBusinessId(actor) {
+  return canBypassBusinessScope(actor) ? Number(actor?.business_id) : requireActorBusinessId(actor);
+}
+
+async function getDefaultProfile(actor, client = pool) {
+  const businessId = getTargetBusinessId(actor);
   const { rows } = await client.query(
     `SELECT *
      FROM company_profiles
-     WHERE profile_key = 'default'
-     LIMIT 1`
+     WHERE business_id = $1 AND profile_key = 'default'
+     LIMIT 1`,
+    [businessId]
   );
-
   return rows[0] || null;
 }
 
-async function ensureDefaultProfile(client = pool) {
-  let profile = await getDefaultProfile(client);
-
-  if (profile) {
-    return profile;
-  }
-
+async function ensureDefaultProfile(actor, client = pool) {
+  const businessId = getTargetBusinessId(actor);
+  const existing = await getDefaultProfile(actor, client);
+  if (existing) return existing;
   const { rows } = await client.query(
-    `INSERT INTO company_profiles (profile_key, general_settings, is_active)
-     VALUES ('default', '{}'::jsonb, TRUE)
-     RETURNING *`
+    `INSERT INTO company_profiles (business_id, profile_key, general_settings, is_active)
+     VALUES ($1, 'default', '{}'::jsonb, TRUE)
+     RETURNING *`,
+    [businessId]
   );
-
   return rows[0];
 }
 
-function ensureProfileManagementAccess(actor, section) {
-  const actorRole = normalizeRole(actor?.role);
-  if (!["superusuario", "admin"].includes(actorRole || "")) {
-    throw new ApiError(403, "Forbidden");
-  }
-
-  if (section === "stamps" && actorRole !== "superusuario") {
-    throw new ApiError(403, "Forbidden");
-  }
-}
-
-async function getProfile() {
-  return mapProfile(await ensureDefaultProfile());
+async function getProfile(actor) {
+  return mapProfile(await ensureDefaultProfile(actor));
 }
 
 async function updateProfileSection(payload, actor, section) {
   ensureProfileManagementAccess(actor, section);
-
   const client = await pool.connect();
-
   try {
     await client.query("BEGIN");
-
-    const current = await ensureDefaultProfile(client);
-    const updates = {
-      owner_name: current.owner_name,
-      company_name: current.company_name,
-      phone: current.phone,
-      email: current.email,
-      address: current.address,
-      bank_name: current.bank_name,
-      bank_clabe: current.bank_clabe,
-      bank_beneficiary: current.bank_beneficiary,
-      fiscal_rfc: current.fiscal_rfc,
-      fiscal_business_name: current.fiscal_business_name,
-      fiscal_regime: current.fiscal_regime,
-      fiscal_address: current.fiscal_address,
-      pac_provider: current.pac_provider,
-      pac_mode: current.pac_mode,
-      stamps_available: Number(current.stamps_available || 0),
-      stamps_used: Number(current.stamps_used || 0),
-      stamp_alert_threshold: Number(current.stamp_alert_threshold || 10)
-    };
-    const generalSettings = {
-      ...(current.general_settings || {})
-    };
-
-    if (section === "general") {
-      updates.owner_name = payload.owner_name ?? current.owner_name;
-      updates.company_name = payload.company_name ?? current.company_name;
-      updates.phone = payload.phone ?? current.phone;
-      updates.email = payload.email ?? current.email;
-      updates.address = payload.address ?? current.address;
-    }
-
+    const current = await ensureDefaultProfile(actor, client);
+    const updates = { ...current };
+    const generalSettings = { ...(current.general_settings || {}) };
+    if (section === "general") Object.assign(updates, { owner_name: payload.owner_name ?? current.owner_name, company_name: payload.company_name ?? current.company_name, phone: payload.phone ?? current.phone, email: payload.email ?? current.email, address: payload.address ?? current.address });
     if (section === "banking") {
-      updates.bank_name = payload.bank_name ?? current.bank_name;
-      updates.bank_clabe = payload.bank_clabe ?? current.bank_clabe;
-      updates.bank_beneficiary = payload.bank_beneficiary ?? current.bank_beneficiary;
+      Object.assign(updates, { bank_name: payload.bank_name ?? current.bank_name, bank_clabe: payload.bank_clabe ?? current.bank_clabe, bank_beneficiary: payload.bank_beneficiary ?? current.bank_beneficiary });
       generalSettings.card_terminal = payload.card_terminal ?? generalSettings.card_terminal ?? "";
       generalSettings.card_bank = payload.card_bank ?? generalSettings.card_bank ?? "";
       generalSettings.card_instructions = payload.card_instructions ?? generalSettings.card_instructions ?? "";
       generalSettings.card_commission = payload.card_commission ?? generalSettings.card_commission ?? null;
     }
-
-    if (section === "fiscal") {
-      updates.fiscal_rfc = payload.fiscal_rfc ?? current.fiscal_rfc;
-      updates.fiscal_business_name = payload.fiscal_business_name ?? current.fiscal_business_name;
-      updates.fiscal_regime = payload.fiscal_regime ?? current.fiscal_regime;
-      updates.fiscal_address = payload.fiscal_address ?? current.fiscal_address;
-    }
-
-    if (section === "stamps") {
-      updates.fiscal_rfc = payload.fiscal_rfc ?? current.fiscal_rfc;
-      updates.stamps_available = payload.stamps_available ?? updates.stamps_available;
-      updates.stamps_used = payload.stamps_used ?? updates.stamps_used;
-      updates.stamp_alert_threshold = payload.stamp_alert_threshold ?? updates.stamp_alert_threshold;
-      updates.pac_provider = payload.pac_provider ?? current.pac_provider;
-      updates.pac_mode = payload.pac_mode ?? current.pac_mode;
-    }
+    if (section === "fiscal") Object.assign(updates, { fiscal_rfc: payload.fiscal_rfc ?? current.fiscal_rfc, fiscal_business_name: payload.fiscal_business_name ?? current.fiscal_business_name, fiscal_regime: payload.fiscal_regime ?? current.fiscal_regime, fiscal_address: payload.fiscal_address ?? current.fiscal_address });
+    if (section === "stamps") Object.assign(updates, { fiscal_rfc: payload.fiscal_rfc ?? current.fiscal_rfc, stamps_available: payload.stamps_available ?? current.stamps_available, stamps_used: payload.stamps_used ?? current.stamps_used, stamp_alert_threshold: payload.stamp_alert_threshold ?? current.stamp_alert_threshold, pac_provider: payload.pac_provider ?? current.pac_provider, pac_mode: payload.pac_mode ?? current.pac_mode });
 
     const { rows } = await client.query(
       `UPDATE company_profiles
-       SET owner_name = $1,
-           company_name = $2,
-           phone = $3,
-           email = $4,
-           address = $5,
-           bank_name = $6,
-           bank_clabe = $7,
-           bank_beneficiary = $8,
-           general_settings = $9,
-           fiscal_rfc = $10,
-           fiscal_business_name = $11,
-           fiscal_regime = $12,
-           fiscal_address = $13,
-           pac_provider = $14,
-           pac_mode = $15,
-           stamps_available = $16,
-           stamps_used = $17,
-           stamp_alert_threshold = $18,
-           updated_by = $19,
-           updated_at = NOW()
-       WHERE id = $20
+       SET owner_name = $1, company_name = $2, phone = $3, email = $4, address = $5, bank_name = $6, bank_clabe = $7, bank_beneficiary = $8,
+           general_settings = $9, fiscal_rfc = $10, fiscal_business_name = $11, fiscal_regime = $12, fiscal_address = $13, pac_provider = $14,
+           pac_mode = $15, stamps_available = $16, stamps_used = $17, stamp_alert_threshold = $18, updated_by = $19, updated_at = NOW()
+       WHERE id = $20 AND business_id = $21
        RETURNING *`,
-      [
-        updates.owner_name,
-        updates.company_name,
-        updates.phone,
-        updates.email,
-        updates.address,
-        updates.bank_name,
-        updates.bank_clabe,
-        updates.bank_beneficiary,
-        JSON.stringify(generalSettings),
-        updates.fiscal_rfc,
-        updates.fiscal_business_name,
-        updates.fiscal_regime,
-        updates.fiscal_address,
-        updates.pac_provider,
-        updates.pac_mode,
-        updates.stamps_available,
-        updates.stamps_used,
-        updates.stamp_alert_threshold,
-        actor.id,
-        current.id
-      ]
+      [updates.owner_name, updates.company_name, updates.phone, updates.email, updates.address, updates.bank_name, updates.bank_clabe, updates.bank_beneficiary, JSON.stringify(generalSettings), updates.fiscal_rfc, updates.fiscal_business_name, updates.fiscal_regime, updates.fiscal_address, updates.pac_provider, updates.pac_mode, updates.stamps_available, updates.stamps_used, updates.stamp_alert_threshold, actor.id, current.id, current.business_id]
     );
-
-    const updated = rows[0];
-
-    await saveAuditLog({
-      usuario_id: actor.id,
-      modulo: "profile",
-      accion: `update_${section}`,
-      entidad_tipo: "company_profile",
-      entidad_id: updated.id,
-      detalle_anterior: {
-        entity: "company_profile",
-        entity_id: current.id,
-        snapshot: mapProfile(current),
-        source: "profileService.updateProfileSection",
-        version: 1
-      },
-      detalle_nuevo: {
-        entity: "company_profile",
-        entity_id: updated.id,
-        snapshot: mapProfile(updated),
-        source: "profileService.updateProfileSection",
-        version: 1
-      },
-      motivo: payload.reason || "",
-      metadata: { section }
-    }, { client });
-
+    await saveAuditLog({ business_id: current.business_id, usuario_id: actor.id, modulo: "profile", accion: `update_${section}`, entidad_tipo: "company_profile", entidad_id: current.id, detalle_anterior: { entity: "company_profile", entity_id: current.id, snapshot: mapProfile(current), version: 1 }, detalle_nuevo: { entity: "company_profile", entity_id: current.id, snapshot: mapProfile(rows[0]), version: 1 }, motivo: payload.reason || "", metadata: { section } }, { client });
     await client.query("COMMIT");
-    return mapProfile(updated);
+    return mapProfile(rows[0]);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -235,7 +117,4 @@ async function updateProfileSection(payload, actor, section) {
   }
 }
 
-module.exports = {
-  getProfile,
-  updateProfileSection
-};
+module.exports = { getProfile, updateProfileSection };

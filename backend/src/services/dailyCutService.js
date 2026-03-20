@@ -1,5 +1,6 @@
 const ExcelJS = require("exceljs");
 const pool = require("../db/pool");
+const { canBypassBusinessScope, requireActorBusinessId } = require("../utils/tenant");
 
 function getLocalIsoDate() {
   const now = new Date();
@@ -8,62 +9,29 @@ function getLocalIsoDate() {
 }
 
 function normalizeMonthRange(month) {
-  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
-    return null;
-  }
-
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) return null;
   const [year, monthNumber] = month.split("-").map(Number);
   const start = new Date(Date.UTC(year, monthNumber - 1, 1));
   const end = new Date(Date.UTC(year, monthNumber, 0));
-
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10)
-  };
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
-function buildSalesFilters(filters = {}, { alias = "sales" } = {}) {
+function buildSalesFilters(filters = {}, actor, alias = "sales") {
   const conditions = [];
   const values = [];
-
-  const addCondition = (sql, value) => {
-    values.push(value);
-    conditions.push(sql.replace("?", `$${values.length}`));
-  };
-
-  if (filters.date) {
-    addCondition(`${alias}.sale_date = ?::date`, filters.date);
-  }
-
-  if (filters.date_from) {
-    addCondition(`${alias}.sale_date >= ?::date`, filters.date_from);
-  }
-
-  if (filters.date_to) {
-    addCondition(`${alias}.sale_date <= ?::date`, filters.date_to);
-  }
-
+  const add = (sql, value) => { values.push(value); conditions.push(sql.replace("?", `$${values.length}`)); };
+  if (!canBypassBusinessScope(actor)) add(`${alias}.business_id = ?`, requireActorBusinessId(actor));
+  if (filters.date) add(`${alias}.sale_date = ?::date`, filters.date);
+  if (filters.date_from) add(`${alias}.sale_date >= ?::date`, filters.date_from);
+  if (filters.date_to) add(`${alias}.sale_date <= ?::date`, filters.date_to);
   const monthRange = normalizeMonthRange(filters.month);
-  if (monthRange) {
-    addCondition(`${alias}.sale_date >= ?::date`, monthRange.start);
-    addCondition(`${alias}.sale_date <= ?::date`, monthRange.end);
-  }
-
-  if (filters.user_id) {
-    addCondition(`${alias}.user_id = ?`, Number(filters.user_id));
-  }
-
-  return {
-    whereClause: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "",
-    values
-  };
+  if (monthRange) { add(`${alias}.sale_date >= ?::date`, monthRange.start); add(`${alias}.sale_date <= ?::date`, monthRange.end); }
+  if (filters.user_id) add(`${alias}.user_id = ?`, Number(filters.user_id));
+  return { whereClause: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "", values };
 }
 
 function mapCutRow(row) {
-  if (!row) {
-    return null;
-  }
-
+  if (!row) return null;
   return {
     ...row,
     total_day: Number(row.total_day || 0),
@@ -80,7 +48,8 @@ function mapCutRow(row) {
   };
 }
 
-async function recomputeDailyCut(date = getLocalIsoDate()) {
+async function recomputeDailyCut(date = getLocalIsoDate(), actor) {
+  const businessId = requireActorBusinessId(actor);
   const { rows } = await pool.query(
     `SELECT
        COALESCE(SUM(total), 0) AS total_day,
@@ -93,15 +62,14 @@ async function recomputeDailyCut(date = getLocalIsoDate()) {
        COALESCE(SUM(total - total_cost), 0) AS gross_profit,
        CASE WHEN COALESCE(SUM(total), 0) = 0 THEN 0 ELSE (COALESCE(SUM(total - total_cost), 0) / SUM(total)) * 100 END AS gross_margin
      FROM sales
-     WHERE sale_date = $1`,
-    [date]
+     WHERE sale_date = $1 AND business_id = $2`,
+    [date, businessId]
   );
-
   const current = rows[0];
   const { rows: upserted } = await pool.query(
-    `INSERT INTO daily_cuts (cut_date, total_day, cash_total, card_total, credit_total, transfer_total, invoice_count, ticket_count, gross_profit, gross_margin, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-     ON CONFLICT (cut_date)
+    `INSERT INTO daily_cuts (cut_date, business_id, total_day, cash_total, card_total, credit_total, transfer_total, invoice_count, ticket_count, gross_profit, gross_margin, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+     ON CONFLICT (business_id, cut_date)
      DO UPDATE SET
        total_day = EXCLUDED.total_day,
        cash_total = EXCLUDED.cash_total,
@@ -114,25 +82,13 @@ async function recomputeDailyCut(date = getLocalIsoDate()) {
        gross_margin = EXCLUDED.gross_margin,
        updated_at = NOW()
      RETURNING *`,
-    [
-      date,
-      current.total_day,
-      current.cash_total,
-      current.card_total,
-      current.credit_total,
-      current.transfer_total,
-      current.invoice_count,
-      current.ticket_count,
-      current.gross_profit,
-      current.gross_margin
-    ]
+    [date, businessId, current.total_day, current.cash_total, current.card_total, current.credit_total, current.transfer_total, current.invoice_count, current.ticket_count, current.gross_profit, current.gross_margin]
   );
-
   return upserted[0];
 }
 
-async function listDailyCuts(filters = {}) {
-  const { whereClause, values } = buildSalesFilters(filters);
+async function listDailyCuts(filters = {}, actor) {
+  const { whereClause, values } = buildSalesFilters(filters, actor);
   const { rows } = await pool.query(
     `SELECT
        sales.sale_date AS cut_date,
@@ -144,20 +100,9 @@ async function listDailyCuts(filters = {}) {
        COALESCE(SUM(CASE WHEN sales.sale_type = 'invoice' THEN 1 ELSE 0 END), 0) AS invoice_count,
        COALESCE(SUM(CASE WHEN sales.sale_type = 'ticket' THEN 1 ELSE 0 END), 0) AS ticket_count,
        COALESCE(SUM(sales.total - sales.total_cost), 0) AS gross_profit,
-       CASE
-         WHEN COALESCE(SUM(sales.total), 0) = 0 THEN 0
-         ELSE (COALESCE(SUM(sales.total - sales.total_cost), 0) / SUM(sales.total)) * 100
-       END AS gross_margin,
+       CASE WHEN COALESCE(SUM(sales.total), 0) = 0 THEN 0 ELSE (COALESCE(SUM(sales.total - sales.total_cost), 0) / SUM(sales.total)) * 100 END AS gross_margin,
        COALESCE(SUM(CASE WHEN sales.sale_type = 'invoice' AND sales.stamp_status = 'consumed' THEN 1 ELSE 0 END), 0) AS timbres_usados,
-       COALESCE(
-         MAX(
-           COALESCE(
-             NULLIF(sales.stamp_snapshot->>'available_after', '')::INTEGER,
-             company_profiles.stamps_available
-           )
-         ),
-         0
-       ) AS timbres_restantes,
+       COALESCE(MAX(COALESCE(NULLIF(sales.stamp_snapshot->>'available_after', '')::INTEGER, company_profiles.stamps_available)), 0) AS timbres_restantes,
        COALESCE(STRING_AGG(DISTINCT users.full_name, ', '), '') AS cashier_names
      FROM sales
      INNER JOIN users ON users.id = sales.user_id
@@ -167,33 +112,18 @@ async function listDailyCuts(filters = {}) {
      ORDER BY sales.sale_date DESC`,
     values
   );
-
   return rows.map(mapCutRow);
 }
 
-async function getTodayDailyCut() {
+async function getTodayDailyCut(actor) {
   const today = getLocalIsoDate();
-  await recomputeDailyCut(today);
-  const rows = await listDailyCuts({ date: today });
-  return rows[0] || {
-    cut_date: today,
-    total_day: 0,
-    cash_total: 0,
-    card_total: 0,
-    credit_total: 0,
-    transfer_total: 0,
-    invoice_count: 0,
-    ticket_count: 0,
-    gross_profit: 0,
-    gross_margin: 0,
-    timbres_usados: 0,
-    timbres_restantes: 0,
-    cashier_names: ""
-  };
+  await recomputeDailyCut(today, actor);
+  const rows = await listDailyCuts({ date: today }, actor);
+  return rows[0] || { cut_date: today, total_day: 0, cash_total: 0, card_total: 0, credit_total: 0, transfer_total: 0, invoice_count: 0, ticket_count: 0, gross_profit: 0, gross_margin: 0, timbres_usados: 0, timbres_restantes: 0, cashier_names: "" };
 }
 
-async function listMonthlyCuts(filters = {}) {
-  const { whereClause, values } = buildSalesFilters(filters);
+async function listMonthlyCuts(filters = {}, actor) {
+  const { whereClause, values } = buildSalesFilters(filters, actor);
   const { rows } = await pool.query(
     `SELECT
        TO_CHAR(DATE_TRUNC('month', sales.sale_date::timestamp), 'YYYY-MM') AS month,
@@ -207,20 +137,9 @@ async function listMonthlyCuts(filters = {}) {
        COALESCE(SUM(CASE WHEN sales.sale_type = 'invoice' THEN 1 ELSE 0 END), 0) AS invoice_count,
        COALESCE(SUM(CASE WHEN sales.sale_type = 'ticket' THEN 1 ELSE 0 END), 0) AS ticket_count,
        COALESCE(SUM(sales.total - sales.total_cost), 0) AS gross_profit,
-       CASE
-         WHEN COALESCE(SUM(sales.total), 0) = 0 THEN 0
-         ELSE (COALESCE(SUM(sales.total - sales.total_cost), 0) / SUM(sales.total)) * 100
-       END AS gross_margin,
+       CASE WHEN COALESCE(SUM(sales.total), 0) = 0 THEN 0 ELSE (COALESCE(SUM(sales.total - sales.total_cost), 0) / SUM(sales.total)) * 100 END AS gross_margin,
        COALESCE(SUM(CASE WHEN sales.sale_type = 'invoice' AND sales.stamp_status = 'consumed' THEN 1 ELSE 0 END), 0) AS timbres_usados,
-       COALESCE(
-         MAX(
-           COALESCE(
-             NULLIF(sales.stamp_snapshot->>'available_after', '')::INTEGER,
-             company_profiles.stamps_available
-           )
-         ),
-         0
-       ) AS timbres_restantes
+       COALESCE(MAX(COALESCE(NULLIF(sales.stamp_snapshot->>'available_after', '')::INTEGER, company_profiles.stamps_available)), 0) AS timbres_restantes
      FROM sales
      LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id
      ${whereClause}
@@ -228,15 +147,13 @@ async function listMonthlyCuts(filters = {}) {
      ORDER BY DATE_TRUNC('month', sales.sale_date::timestamp) DESC`,
     values
   );
-
   return rows.map(mapCutRow);
 }
 
-async function buildWorkbook(period, filters = {}) {
+async function buildWorkbook(period, filters = {}, actor) {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet(period === "monthly" ? "Cortes mensuales" : "Cortes diarios");
-  const rows = period === "monthly" ? await listMonthlyCuts(filters) : await listDailyCuts(filters);
-
+  const rows = period === "monthly" ? await listMonthlyCuts(filters, actor) : await listDailyCuts(filters, actor);
   worksheet.columns = [
     { header: period === "monthly" ? "Mes" : "Fecha", key: "label", width: 18 },
     { header: "Total", key: "total_day", width: 16 },
@@ -251,34 +168,16 @@ async function buildWorkbook(period, filters = {}) {
     { header: "Ganancia", key: "gross_profit", width: 16 },
     { header: "Margen %", key: "gross_margin", width: 12 }
   ];
-
-  rows.forEach((row) => {
-    worksheet.addRow({
-      label: period === "monthly" ? row.month : row.cut_date,
-      ...row
-    });
-  });
-
+  rows.forEach((row) => worksheet.addRow({ label: period === "monthly" ? row.month : row.cut_date, ...row }));
   worksheet.getRow(1).font = { bold: true };
-
   return workbook;
 }
 
-async function exportDailyCutsExcel(period = "daily", filters = {}) {
-  const workbook = await buildWorkbook(period, filters);
+async function exportDailyCutsExcel(period = "daily", filters = {}, actor) {
+  const workbook = await buildWorkbook(period, filters, actor);
   const buffer = await workbook.xlsx.writeBuffer();
   const suffix = period === "monthly" ? "mensual" : "diario";
-  const dateSuffix = getLocalIsoDate();
-
-  return {
-    buffer,
-    filename: `corte-${suffix}-${dateSuffix}.xlsx`
-  };
+  return { buffer, filename: `corte-${suffix}-${getLocalIsoDate()}.xlsx` };
 }
 
-module.exports = {
-  recomputeDailyCut,
-  listDailyCuts,
-  getTodayDailyCut,
-  exportDailyCutsExcel
-};
+module.exports = { recomputeDailyCut, listDailyCuts, getTodayDailyCut, exportDailyCutsExcel };

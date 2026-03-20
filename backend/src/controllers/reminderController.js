@@ -31,27 +31,27 @@ const webhookValidation = [
 ];
 
 const listReminders = asyncHandler(async (req, res) => {
-  res.json(await reminderService.listReminders());
+  res.json(await reminderService.listReminders(req.user));
 });
 
 const createReminder = asyncHandler(async (req, res) => {
-  res.status(201).json(await reminderService.createReminder({ ...req.body, created_by: req.user.id }));
+  res.status(201).json(await reminderService.createReminder({ ...req.body, created_by: req.user.id }, req.user));
 });
 
 const updateReminder = asyncHandler(async (req, res) => {
-  res.json(await reminderService.updateReminder(Number(req.params.id), req.body));
+  res.json(await reminderService.updateReminder(Number(req.params.id), req.body, req.user));
 });
 
 const completeReminder = asyncHandler(async (req, res) => {
-  res.json(await reminderService.completeReminder(Number(req.params.id)));
+  res.json(await reminderService.completeReminder(Number(req.params.id), req.user));
 });
 
 const deleteReminder = asyncHandler(async (req, res) => {
-  res.json(await reminderService.deleteReminder(Number(req.params.id)));
+  res.json(await reminderService.deleteReminder(Number(req.params.id), req.user));
 });
 
 const sendReminder = asyncHandler(async (req, res) => {
-  res.json(await reminderService.sendReminder(req.body));
+  res.json(await reminderService.sendReminder(req.body, req.user));
 });
 
 const receiveAutomationWebhook = asyncHandler(async (req, res) => {

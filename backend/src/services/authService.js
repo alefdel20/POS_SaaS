@@ -8,7 +8,8 @@ function signToken(user) {
   return jwt.sign(
     {
       userId: user.id,
-      role: user.role
+      role: user.role,
+      businessId: user.business_id
     },
     jwtSecret,
     { expiresIn: "12h" }

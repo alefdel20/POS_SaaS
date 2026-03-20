@@ -36,19 +36,19 @@ const createValidation = [
 ];
 
 const listSales = asyncHandler(async (req, res) => {
-  res.json(await saleService.listSales(req.query));
+  res.json(await saleService.listSales(req.query, req.user));
 });
 
 const listRecentSales = asyncHandler(async (req, res) => {
-  res.json(await saleService.listRecentSales());
+  res.json(await saleService.listRecentSales(req.user));
 });
 
 const getSaleDetail = asyncHandler(async (req, res) => {
-  res.json(await saleService.getSaleDetail(Number(req.params.id)));
+  res.json(await saleService.getSaleDetail(Number(req.params.id), req.user));
 });
 
 const getSalesTrends = asyncHandler(async (req, res) => {
-  res.json(await saleService.getSalesTrends(req.query.period));
+  res.json(await saleService.getSalesTrends(req.query.period, req.user));
 });
 
 const createSale = asyncHandler(async (req, res) => {

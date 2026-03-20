@@ -9,7 +9,7 @@ const createValidation = [
   body("email").isEmail(),
   body("full_name").trim().notEmpty(),
   body("role").isIn(["superusuario", "superadmin", "admin", "cajero", "cashier", "user", "soporte", "support"]),
-  body("pos_type").optional({ values: "falsy" }).isIn(["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"]),
+  body("business_id").optional({ values: "falsy" }).isInt(),
   body("password").isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
   body("must_change_password").optional().isBoolean(),
@@ -20,7 +20,7 @@ const updateValidation = [
   body("email").optional().isEmail(),
   body("full_name").optional().trim().notEmpty(),
   body("role").optional().isIn(["superusuario", "superadmin", "admin", "cajero", "cashier", "user", "soporte", "support"]),
-  body("pos_type").optional({ values: "falsy" }).isIn(["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"]),
+  body("business_id").optional({ values: "falsy" }).isInt(),
   body("password").optional().isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
   body("must_change_password").optional().isBoolean(),
@@ -44,8 +44,8 @@ const supportModeValidation = [
   validateRequest
 ];
 
-const listUsers = asyncHandler(async (_req, res) => {
-  res.json(await userService.listUsers());
+const listUsers = asyncHandler(async (req, res) => {
+  res.json(await userService.listUsers(req.user));
 });
 
 const createUser = asyncHandler(async (req, res) => {

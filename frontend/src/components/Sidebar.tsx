@@ -4,18 +4,19 @@ import { useAuth } from "../context/AuthContext";
 import { canViewUsers, isManagementRole, normalizeRole } from "../utils/roles";
 
 const links = [
-  { to: "/dashboard", label: "Resumen", managementOnly: true },
-  { to: "/sales", label: "Ventas", salesOnly: true },
-  { to: "/profile", label: "Perfil", managementOnly: true },
-  { to: "/products", label: "Productos", managementOnly: true },
-  { to: "/suppliers", label: "Proveedores", managementOnly: true },
-  { to: "/remate", label: "Remate", managementOnly: true },
-  { to: "/finances", label: "Finanzas", managementOnly: true },
-  { to: "/users", label: "Usuarios", managementOnly: false, usersOnly: true },
-  { to: "/sales-history", label: "Historial", managementOnly: true },
+  { to: "/profile", label: "Perfil", managementOnly: true, pinned: true },
+  { to: "/businesses", label: "Negocios", superuserOnly: true },
   { to: "/credit-collections", label: "Credito y Cobranza", managementOnly: true },
   { to: "/daily-cut", label: "Corte Diario", managementOnly: true },
-  { to: "/reminders", label: "Recordatorios" }
+  { to: "/finances", label: "Finanzas", managementOnly: true },
+  { to: "/sales-history", label: "Historial", managementOnly: true },
+  { to: "/products", label: "Productos", managementOnly: true },
+  { to: "/remate", label: "Remate", managementOnly: true },
+  { to: "/reminders", label: "Recordatorios" },
+  { to: "/dashboard", label: "Resumen", managementOnly: true },
+  { to: "/suppliers", label: "Proveedores", managementOnly: true },
+  { to: "/users", label: "Usuarios", usersOnly: true },
+  { to: "/sales", label: "Ventas", salesOnly: true }
 ];
 
 export function Sidebar() {
@@ -37,6 +38,9 @@ export function Sidebar() {
         {links
           .filter((link) => {
             if (!role) return false;
+            if (link.superuserOnly) {
+              return role === "superusuario";
+            }
             if (link.usersOnly) {
               return usersViewer;
             }
@@ -44,6 +48,11 @@ export function Sidebar() {
               return role === "superusuario" || role === "admin" || role === "cajero";
             }
             return !link.managementOnly || managementUser;
+          })
+          .sort((left, right) => {
+            if (left.pinned) return -1;
+            if (right.pinned) return 1;
+            return left.label.localeCompare(right.label, "es");
           })
           .map((link) => (
             <NavLink

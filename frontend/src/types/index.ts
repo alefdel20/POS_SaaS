@@ -7,10 +7,22 @@ export interface User {
   email: string;
   full_name: string;
   role: Role;
+  business_id?: number;
+  business_name?: string;
+  business_slug?: string;
   pos_type?: PosType;
   is_active: boolean;
   must_change_password?: boolean;
   support_mode_active?: boolean;
+}
+
+export interface Business {
+  id: number;
+  name: string;
+  slug: string;
+  pos_type: PosType;
+  is_active: boolean;
+  user_count?: number;
 }
 
 export interface Supplier {

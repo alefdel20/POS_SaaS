@@ -23,15 +23,15 @@ const exportValidation = [
 ];
 
 const listDailyCuts = asyncHandler(async (req, res) => {
-  res.json(await dailyCutService.listDailyCuts(req.query));
+  res.json(await dailyCutService.listDailyCuts(req.query, req.user));
 });
 
 const getTodayDailyCut = asyncHandler(async (req, res) => {
-  res.json(await dailyCutService.getTodayDailyCut());
+  res.json(await dailyCutService.getTodayDailyCut(req.user));
 });
 
 const exportDailyCuts = asyncHandler(async (req, res) => {
-  const { buffer, filename } = await dailyCutService.exportDailyCutsExcel(req.query.period || "daily", req.query);
+  const { buffer, filename } = await dailyCutService.exportDailyCutsExcel(req.query.period || "daily", req.query, req.user);
 
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

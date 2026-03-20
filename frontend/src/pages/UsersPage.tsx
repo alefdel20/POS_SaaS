@@ -1,11 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { PosType, Role, User } from "../types";
+import type { Business, Role, User } from "../types";
 import { getRoleLabel } from "../utils/uiLabels";
 import { canViewUsers, normalizeRole } from "../utils/roles";
-
-const POS_TYPES: PosType[] = ["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"];
 
 const emptyUser = {
   username: "",
@@ -13,7 +11,7 @@ const emptyUser = {
   full_name: "",
   password: "",
   role: "cajero" as Role,
-  pos_type: "Otro" as PosType
+  business_id: undefined as number | undefined
 };
 
 function generatePassword() {
@@ -23,6 +21,7 @@ function generatePassword() {
 export function UsersPage() {
   const { token, user: currentUser, refreshUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
   const [form, setForm] = useState(emptyUser);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -43,11 +42,19 @@ export function UsersPage() {
     }
 
     if (currentRole === "admin") {
-      return ["cajero"] as const;
+      return ["admin", "cajero"] as const;
     }
 
     return [] as const;
   }, [currentRole]);
+
+  const selectedBusiness = useMemo(() => {
+    if (currentRole !== "superusuario") {
+      return null;
+    }
+
+    return businesses.find((business) => business.id === form.business_id) || null;
+  }, [businesses, currentRole, form.business_id]);
 
   function loadUsers() {
     if (!token || !canViewUsers(currentRole)) return;
@@ -58,8 +65,24 @@ export function UsersPage() {
       });
   }
 
+  function loadBusinesses() {
+    if (!token || currentRole !== "superusuario") return;
+    apiRequest<Business[]>("/businesses", { token })
+      .then((items) => {
+        setBusinesses(items);
+        setForm((current) => ({ ...current, business_id: current.business_id ?? items[0]?.id }));
+      })
+      .catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar negocios");
+      });
+  }
+
   useEffect(() => {
     loadUsers();
+  }, [token, currentRole]);
+
+  useEffect(() => {
+    loadBusinesses();
   }, [token, currentRole]);
 
   useEffect(() => {
@@ -80,7 +103,7 @@ export function UsersPage() {
         token,
         body: JSON.stringify(form)
       });
-      setForm({ ...emptyUser, role: roleOptions[0] || "cajero" });
+      setForm({ ...emptyUser, role: roleOptions[0] || "cajero", business_id: businesses[0]?.id });
       loadUsers();
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible crear el usuario");
@@ -116,7 +139,7 @@ export function UsersPage() {
           email: user.email,
           full_name: user.full_name,
           role,
-          pos_type: user.pos_type || "Otro",
+          business_id: user.business_id,
           is_active: user.is_active
         })
       });
@@ -212,14 +235,26 @@ export function UsersPage() {
             ))}
           </select>
         </label>
-        <label>
-          Tipo de POS *
-          <select disabled={!canCreateUsers || currentRole !== "superusuario"} value={form.pos_type} onChange={(event) => setForm({ ...form, pos_type: event.target.value as PosType })}>
-            {POS_TYPES.map((posType) => (
-              <option key={posType} value={posType}>{posType}</option>
-            ))}
-          </select>
-        </label>
+        {currentRole === "superusuario" ? (
+          <>
+            <label>
+              Negocio *
+              <select
+                disabled={!canCreateUsers || !businesses.length}
+                value={form.business_id ?? ""}
+                onChange={(event) => setForm({ ...form, business_id: Number(event.target.value) })}
+              >
+                {businesses.map((business) => (
+                  <option key={business.id} value={business.id}>{business.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Tipo de POS
+              <input value={selectedBusiness?.pos_type || ""} readOnly />
+            </label>
+          </>
+        ) : null}
         <button className="button" disabled={!canCreateUsers || !roleOptions.length} type="submit">Crear usuario</button>
       </form>
 
@@ -239,6 +274,7 @@ export function UsersPage() {
                 <th>Nombre</th>
                 <th>Usuario</th>
                 <th>Rol</th>
+                <th>Negocio</th>
                 <th>POS</th>
                 <th>Estado</th>
                 <th>Seguridad</th>
@@ -265,6 +301,7 @@ export function UsersPage() {
                       getRoleLabel(user.role)
                     )}
                   </td>
+                  <td>{user.business_name || "-"}</td>
                   <td>{user.pos_type || "Otro"}</td>
                   <td>{user.is_active ? "Activo" : "Inactivo"}</td>
                   <td>{user.must_change_password ? "Cambio requerido" : "Normal"}</td>

@@ -75,8 +75,8 @@ const updateFixedExpenseValidation = [
   validateRequest
 ];
 
-const listExpenses = asyncHandler(async (_req, res) => {
-  res.json(await financeService.listExpenses());
+const listExpenses = asyncHandler(async (req, res) => {
+  res.json(await financeService.listExpenses(req.user));
 });
 
 const createExpense = asyncHandler(async (req, res) => {
@@ -91,8 +91,8 @@ const voidExpense = asyncHandler(async (req, res) => {
   res.json(await financeService.voidExpense(Number(req.params.id), req.body, req.user));
 });
 
-const listOwnerLoans = asyncHandler(async (_req, res) => {
-  res.json(await financeService.listOwnerLoans());
+const listOwnerLoans = asyncHandler(async (req, res) => {
+  res.json(await financeService.listOwnerLoans(req.user));
 });
 
 const createOwnerLoan = asyncHandler(async (req, res) => {
@@ -103,8 +103,8 @@ const voidOwnerLoan = asyncHandler(async (req, res) => {
   res.json(await financeService.voidOwnerLoan(Number(req.params.id), req.body, req.user));
 });
 
-const listFixedExpenses = asyncHandler(async (_req, res) => {
-  res.json(await financeService.listFixedExpenses());
+const listFixedExpenses = asyncHandler(async (req, res) => {
+  res.json(await financeService.listFixedExpenses(req.user));
 });
 
 const createFixedExpense = asyncHandler(async (req, res) => {
@@ -115,8 +115,8 @@ const updateFixedExpense = asyncHandler(async (req, res) => {
   res.json(await financeService.updateFixedExpense(Number(req.params.id), req.body, req.user));
 });
 
-const getDashboard = asyncHandler(async (_req, res) => {
-  res.json(await financeService.getDashboard());
+const getDashboard = asyncHandler(async (req, res) => {
+  res.json(await financeService.getDashboard(req.user));
 });
 
 module.exports = {

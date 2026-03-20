@@ -15,6 +15,7 @@ const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 const financeRoutes = require("./routes/financeRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const supplierRoutes = require("./routes/supplierRoutes");
+const businessRoutes = require("./routes/businessRoutes");
 
 const app = express();
 
@@ -88,6 +89,7 @@ app.use(["/dashboard", "/api/dashboard"], requireAuth, dashboardRoutes);
 app.use(["/finances", "/api/finances"], requireAuth, financeRoutes);
 app.use(["/profile", "/api/profile"], requireAuth, profileRoutes);
 app.use(["/suppliers", "/api/suppliers"], requireAuth, supplierRoutes);
+app.use(["/businesses", "/api/businesses"], requireAuth, businessRoutes);
 
 app.use(errorHandler);
 

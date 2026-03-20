@@ -23,7 +23,16 @@ async function requireAuth(req, res, next) {
       return next(new ApiError(401, "Invalid session"));
     }
 
+    if (payload.businessId && Number(payload.businessId) !== Number(user.business_id)) {
+      return next(new ApiError(401, "Session business context is invalid"));
+    }
+
     req.user = userService.sanitizeUser(user);
+    req.auth = {
+      user_id: payload.userId,
+      role: payload.role,
+      business_id: payload.businessId
+    };
     next();
   } catch (error) {
     next(error.statusCode ? error : new ApiError(401, "Invalid or expired token"));

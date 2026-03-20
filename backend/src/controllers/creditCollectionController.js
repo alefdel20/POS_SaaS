@@ -18,20 +18,20 @@ const reminderPreferenceValidation = [
   validateRequest
 ];
 
-const listDebtors = asyncHandler(async (_req, res) => {
-  res.json(await creditCollectionService.listDebtors());
+const listDebtors = asyncHandler(async (req, res) => {
+  res.json(await creditCollectionService.listDebtors(req.user));
 });
 
 const listPaymentsBySale = asyncHandler(async (req, res) => {
-  res.json(await creditCollectionService.listPaymentsBySale(Number(req.params.saleId)));
+  res.json(await creditCollectionService.listPaymentsBySale(Number(req.params.saleId), req.user));
 });
 
 const createPayment = asyncHandler(async (req, res) => {
-  res.status(201).json(await creditCollectionService.createPayment(Number(req.params.saleId), req.body));
+  res.status(201).json(await creditCollectionService.createPayment(Number(req.params.saleId), req.body, req.user));
 });
 
 const updateReminderPreference = asyncHandler(async (req, res) => {
-  res.json(await creditCollectionService.updateReminderPreference(Number(req.params.saleId), req.body.send_reminder));
+  res.json(await creditCollectionService.updateReminderPreference(Number(req.params.saleId), req.body.send_reminder, req.user));
 });
 
 module.exports = {

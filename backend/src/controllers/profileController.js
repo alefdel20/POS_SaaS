@@ -45,8 +45,8 @@ const stampsValidation = [
   validateRequest
 ];
 
-const getProfile = asyncHandler(async (_req, res) => {
-  res.json(await profileService.getProfile());
+const getProfile = asyncHandler(async (req, res) => {
+  res.json(await profileService.getProfile(req.user));
 });
 
 const updateGeneral = asyncHandler(async (req, res) => {

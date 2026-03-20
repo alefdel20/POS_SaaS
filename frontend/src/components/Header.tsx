@@ -8,7 +8,9 @@ export function Header() {
     <header className="header">
       <div className="header-brand-block">
         <p className="header-title">POS APP</p>
-        <p className="header-subtitle">{user?.full_name} | {getRoleLabel(user?.role)}</p>
+        <p className="header-subtitle">
+          {user?.full_name} | {getRoleLabel(user?.role)}{user?.business_name ? ` | ${user.business_name}` : ""}
+        </p>
       </div>
       <button className="button ghost" onClick={logout}>
         Cerrar sesion

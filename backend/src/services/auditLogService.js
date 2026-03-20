@@ -16,6 +16,7 @@ async function saveAuditLog(payload, options = {}) {
   try {
     const { rows } = await client.query(
       `INSERT INTO audit_logs (
+        business_id,
         usuario_id,
         modulo,
         accion,
@@ -26,9 +27,10 @@ async function saveAuditLog(payload, options = {}) {
         motivo,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`,
       [
+        payload.business_id || null,
         payload.usuario_id || null,
         payload.modulo,
         payload.accion,
