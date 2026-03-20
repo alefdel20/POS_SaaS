@@ -65,7 +65,7 @@ function pickSkuSegments(payload) {
 
 async function ensureUniqueSku(baseSku, excludeProductId = null, client = pool) {
   const normalizedBase = sanitizeManualSku(baseSku).replace(/^-+|-+$/g, "");
-  const compactBase = normalizedBase.slice(0, 12) || "PRD000";
+  const compactBase = normalizedBase.slice(0, 12) || "ITEM000";
 
   const { rows } = await client.query(
     `SELECT sku
@@ -114,7 +114,7 @@ async function resolveSku(payload, currentProduct = null, client = pool) {
     ...currentProduct,
     ...payload
   });
-  const baseSku = skuSegments.join("-").slice(0, 12) || normalizeGeneratedSkuSegment(payload.name || currentProduct?.name || "PRD", 8);
+  const baseSku = skuSegments.join("-").slice(0, 12) || normalizeGeneratedSkuSegment(payload.name || currentProduct?.name || "ITEM", 8);
   return ensureUniqueSku(baseSku, currentProduct?.id || null, client);
 }
 

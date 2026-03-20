@@ -19,6 +19,7 @@ type ProductSupplierFormState = {
 type ProductFormState = {
   name: string;
   sku: string;
+  sku_manually_edited: boolean;
   barcode: string;
   category: string;
   description: string;
@@ -51,6 +52,7 @@ const emptySupplier: ProductSupplierFormState = {
 const emptyProduct: ProductFormState = {
   name: "",
   sku: "",
+  sku_manually_edited: false,
   barcode: "",
   category: "",
   description: "",
@@ -91,7 +93,7 @@ function normalizeTextForSku(value: string) {
 }
 
 function buildSkuSuggestion(name: string, category: string, supplierName: string) {
-  const supplierSegment = normalizeTextForSku(supplierName || category)
+  const supplierSegment = normalizeTextForSku(supplierName)
     .replace(/\b(DE|DEL|LA|LAS|LOS|PARA|CON|SIN|Y|EN)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -99,7 +101,7 @@ function buildSkuSuggestion(name: string, category: string, supplierName: string
     .replace(/[OI]/g, (character) => (character === "O" ? "0" : "1"))
     .slice(0, 4);
   const nameTokens = normalizeTextForSku(name).split(" ").filter(Boolean);
-  const typeSegment = (normalizeTextForSku(category).replace(/ /g, "").slice(0, 4) || nameTokens[0] || "PRD")
+  const typeSegment = (normalizeTextForSku(category).replace(/ /g, "").slice(0, 4) || nameTokens[0] || "")
     .replace(/[OI]/g, (character) => (character === "O" ? "0" : "1"));
   const attrSegment = ((nameTokens[1] || nameTokens[0] || "").replace(/[OI]/g, (character) => (character === "O" ? "0" : "1"))).slice(0, 4);
 
@@ -123,6 +125,7 @@ function productToForm(product: Product): ProductFormState {
   return {
     name: product.name,
     sku: product.sku,
+    sku_manually_edited: false,
     barcode: product.barcode,
     category: product.category || "",
     description: product.description || "",
@@ -175,7 +178,7 @@ export function ProductsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const editProductIdFromQuery = Number(searchParams.get("edit") || 0) || null;
   const searchFromQuery = searchParams.get("search") || "";
-  const skuSuggestion = buildSkuSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || "");
+  const skuSuggestion = buildSkuSuggestion(form.name, form.category, "");
 
   async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize) {
     if (!token) return;
@@ -243,12 +246,26 @@ export function ProductsPage() {
   }, [search, pageSize, token]);
 
   useEffect(() => {
-    if (form.sku.trim() || !skuSuggestion) {
+    if (form.sku_manually_edited) {
       return;
     }
 
-    setForm((current) => current.sku.trim() ? current : { ...current, sku: skuSuggestion });
-  }, [form.sku, skuSuggestion]);
+    setForm((current) => {
+      if (current.sku_manually_edited) {
+        return current;
+      }
+
+      const nextSku = skuSuggestion || "";
+      if (current.sku === nextSku) {
+        return current;
+      }
+
+      return {
+        ...current,
+        sku: nextSku
+      };
+    });
+  }, [form.sku_manually_edited, skuSuggestion]);
 
   useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
@@ -403,6 +420,7 @@ export function ProductsPage() {
       ...form,
       name: form.name.trim(),
       sku: form.sku.trim(),
+      sku_manually_edited: form.sku_manually_edited,
       barcode: form.barcode.trim(),
       category: form.category.trim(),
       description: form.description.trim(),
@@ -592,9 +610,9 @@ export function ProductsPage() {
           <label>
             SKU
             <input
-              placeholder={skuSuggestion || "Se generara automaticamente"}
+              placeholder="Se generará automáticamente"
               value={form.sku}
-              onChange={(event) => setForm({ ...form, sku: event.target.value })}
+              onChange={(event) => setForm({ ...form, sku: event.target.value, sku_manually_edited: true })}
             />
           </label>
           <label>

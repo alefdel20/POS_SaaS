@@ -25,6 +25,13 @@ interface QuickProductFormState {
   supplier_observations: string;
 }
 
+interface QuickSupplierTouchedState {
+  supplier_phone: boolean;
+  supplier_whatsapp: boolean;
+  supplier_email: boolean;
+  supplier_observations: boolean;
+}
+
 const emptyInvoiceData = {
   company_rfc: "",
   company_name: "",
@@ -52,6 +59,13 @@ const emptyQuickProduct: QuickProductFormState = {
   supplier_observations: ""
 };
 
+const emptyQuickSupplierTouched: QuickSupplierTouchedState = {
+  supplier_phone: false,
+  supplier_whatsapp: false,
+  supplier_email: false,
+  supplier_observations: false
+};
+
 export function SalesPage() {
   const { token, user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
@@ -74,6 +88,7 @@ export function SalesPage() {
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [quickProductForm, setQuickProductForm] = useState<QuickProductFormState>(emptyQuickProduct);
   const [quickSupplierOptions, setQuickSupplierOptions] = useState<Supplier[]>([]);
+  const [quickSupplierTouched, setQuickSupplierTouched] = useState<QuickSupplierTouchedState>(emptyQuickSupplierTouched);
   const [quickProductError, setQuickProductError] = useState("");
   const [quickProductSaving, setQuickProductSaving] = useState(false);
 
@@ -211,12 +226,12 @@ export function SalesPage() {
     setQuickProductForm((current) => ({
       ...current,
       supplier_name: matchedSupplier.name,
-      supplier_email: matchedSupplier.email || "",
-      supplier_phone: matchedSupplier.phone || "",
-      supplier_whatsapp: matchedSupplier.whatsapp || "",
-      supplier_observations: matchedSupplier.observations || ""
+      supplier_email: quickSupplierTouched.supplier_email ? current.supplier_email : matchedSupplier.email || "",
+      supplier_phone: quickSupplierTouched.supplier_phone ? current.supplier_phone : matchedSupplier.phone || "",
+      supplier_whatsapp: quickSupplierTouched.supplier_whatsapp ? current.supplier_whatsapp : matchedSupplier.whatsapp || "",
+      supplier_observations: quickSupplierTouched.supplier_observations ? current.supplier_observations : matchedSupplier.observations || ""
     }));
-  }, [quickProductForm.supplier_name, quickSupplierOptions]);
+  }, [quickProductForm.supplier_name, quickSupplierOptions, quickSupplierTouched]);
 
   function addToCart(product: Product) {
     if (product.status === "inactivo" || !product.is_active) {
@@ -240,6 +255,7 @@ export function SalesPage() {
       ...emptyQuickProduct,
       name: search.trim()
     });
+    setQuickSupplierTouched(emptyQuickSupplierTouched);
     loadSupplierOptions().catch(() => setQuickSupplierOptions([]));
     setQuickProductError("");
     setShowQuickAddModal(true);
@@ -249,6 +265,7 @@ export function SalesPage() {
     setShowQuickAddModal(false);
     setQuickProductForm(emptyQuickProduct);
     setQuickSupplierOptions([]);
+    setQuickSupplierTouched(emptyQuickSupplierTouched);
     setQuickProductError("");
     setQuickProductSaving(false);
   }
@@ -257,10 +274,10 @@ export function SalesPage() {
     setQuickProductForm((current) => ({
       ...current,
       supplier_name: value,
-      supplier_email: "",
-      supplier_phone: "",
-      supplier_whatsapp: "",
-      supplier_observations: ""
+      supplier_email: quickSupplierTouched.supplier_email ? current.supplier_email : "",
+      supplier_phone: quickSupplierTouched.supplier_phone ? current.supplier_phone : "",
+      supplier_whatsapp: quickSupplierTouched.supplier_whatsapp ? current.supplier_whatsapp : "",
+      supplier_observations: quickSupplierTouched.supplier_observations ? current.supplier_observations : ""
     }));
 
     loadSupplierOptions(value).catch(() => setQuickSupplierOptions([]));
@@ -272,10 +289,10 @@ export function SalesPage() {
     setQuickProductForm((current) => ({
       ...current,
       supplier_name: matchedSupplier.name,
-      supplier_email: matchedSupplier.email || "",
-      supplier_phone: matchedSupplier.phone || "",
-      supplier_whatsapp: matchedSupplier.whatsapp || "",
-      supplier_observations: matchedSupplier.observations || ""
+      supplier_email: quickSupplierTouched.supplier_email ? current.supplier_email : matchedSupplier.email || "",
+      supplier_phone: quickSupplierTouched.supplier_phone ? current.supplier_phone : matchedSupplier.phone || "",
+      supplier_whatsapp: quickSupplierTouched.supplier_whatsapp ? current.supplier_whatsapp : matchedSupplier.whatsapp || "",
+      supplier_observations: quickSupplierTouched.supplier_observations ? current.supplier_observations : matchedSupplier.observations || ""
     }));
   }
 
@@ -443,12 +460,17 @@ export function SalesPage() {
             <h2>Ventas retail</h2>
             <p className="muted">Busca por nombre, SKU, código de barras o proveedor.</p>
           </div>
-          <input
-            className="search-input"
-            placeholder="Buscar por nombre, SKU o proveedor"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
+          <div className="inline-actions">
+            {canQuickCreateProduct ? (
+              <button className="button" onClick={openQuickAddModal} type="button">Alta Rápida</button>
+            ) : null}
+            <input
+              className="search-input"
+              placeholder="Buscar por nombre, SKU o proveedor"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
         <div className="product-grid">
@@ -481,9 +503,6 @@ export function SalesPage() {
               <p className="muted">
                 {search.trim() ? "No se encontraron coincidencias para esta busqueda." : "No hay productos activos para mostrar."}
               </p>
-              {search.trim() && canQuickCreateProduct ? (
-                <button className="button" onClick={openQuickAddModal} type="button">Alta Rapida</button>
-              ) : null}
             </div>
           ) : null}
         </div>
@@ -824,14 +843,20 @@ export function SalesPage() {
                 WhatsApp proveedor
                 <input
                   value={quickProductForm.supplier_whatsapp}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, supplier_whatsapp: event.target.value })}
+                  onChange={(event) => {
+                    setQuickSupplierTouched((current) => ({ ...current, supplier_whatsapp: true }));
+                    setQuickProductForm({ ...quickProductForm, supplier_whatsapp: event.target.value });
+                  }}
                 />
               </label>
               <label>
                 Teléfono proveedor
                 <input
                   value={quickProductForm.supplier_phone}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, supplier_phone: event.target.value })}
+                  onChange={(event) => {
+                    setQuickSupplierTouched((current) => ({ ...current, supplier_phone: true }));
+                    setQuickProductForm({ ...quickProductForm, supplier_phone: event.target.value });
+                  }}
                 />
               </label>
               <label>
@@ -839,14 +864,20 @@ export function SalesPage() {
                 <input
                   type="email"
                   value={quickProductForm.supplier_email}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, supplier_email: event.target.value })}
+                  onChange={(event) => {
+                    setQuickSupplierTouched((current) => ({ ...current, supplier_email: true }));
+                    setQuickProductForm({ ...quickProductForm, supplier_email: event.target.value });
+                  }}
                 />
               </label>
               <label className="form-span-2">
                 Observaciones proveedor
                 <textarea
                   value={quickProductForm.supplier_observations}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, supplier_observations: event.target.value })}
+                  onChange={(event) => {
+                    setQuickSupplierTouched((current) => ({ ...current, supplier_observations: true }));
+                    setQuickProductForm({ ...quickProductForm, supplier_observations: event.target.value });
+                  }}
                 />
               </label>
             </div>
