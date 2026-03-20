@@ -184,6 +184,37 @@ async function ensureAutomaticReminders() {
   }
 }
 
+async function ensureLowStockRemindersForProductIds(productIds = []) {
+  const normalizedIds = [...new Set(productIds.map(Number).filter(Boolean))];
+  if (!normalizedIds.length) {
+    return [];
+  }
+
+  const { rows } = await pool.query(
+    `SELECT id, name, sku, stock, stock_minimo
+     FROM products
+     WHERE id = ANY($1::int[])
+       AND is_active = TRUE
+       AND status = 'activo'
+       AND stock_minimo >= 0
+       AND stock <= stock_minimo`,
+    [normalizedIds]
+  );
+
+  const today = getTodayLocalDate();
+  const reminders = [];
+  for (const product of rows) {
+    reminders.push(await upsertAutomaticReminder({
+      source_key: `auto:stock-low:${product.id}`,
+      title: `STOCK BAJO: ${product.name}`,
+      notes: `El producto con SKU: ${product.sku || "-"} ha llegado a su nivel minimo (${Number(product.stock_minimo)}). Stock actual: ${Number(product.stock)}.`,
+      due_date: today
+    }));
+  }
+
+  return reminders;
+}
+
 function buildCollectionMessage(context) {
   const totalPaid = Number(context.initial_payment || 0) + Number(context.total_paid || 0);
   return `Recuerda que debes pagar ${context.product_names}. Debes ${Number(context.total).toFixed(2)}, llevas pagado ${totalPaid.toFixed(2)}`;
@@ -265,5 +296,6 @@ module.exports = {
   deleteReminder,
   sendReminder,
   ensureAutomaticReminders,
+  ensureLowStockRemindersForProductIds,
   receiveAutomationWebhook
 };

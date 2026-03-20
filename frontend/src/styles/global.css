@@ -642,6 +642,25 @@ td {
   padding-right: 0.2rem;
 }
 
+.quick-product-modal {
+  width: min(760px, 94vw);
+}
+
+.modal-actions-end {
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.empty-state-card {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: flex-start;
+  padding: 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .table-row-active {
   background: rgba(88, 212, 179, 0.08);
 }

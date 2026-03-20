@@ -80,10 +80,12 @@ CREATE TABLE IF NOT EXISTS products (
   discount_end TIMESTAMP,
   stock NUMERIC(12, 2) NOT NULL DEFAULT 0,
   stock_minimo NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  stock_maximo NUMERIC(12, 2) NOT NULL DEFAULT 0,
   expires_at DATE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  CONSTRAINT products_stock_maximo_check CHECK (stock_maximo >= 0 AND stock_maximo >= stock_minimo)
 );
 
 CREATE TABLE IF NOT EXISTS product_suppliers (
@@ -329,8 +331,28 @@ ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS void_reason TEXT NOT NULL DEFAU
 ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
 ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo NUMERIC(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_maximo NUMERIC(12, 2);
+UPDATE products SET stock_maximo = GREATEST(COALESCE(stock, 0), COALESCE(stock_minimo, 0)) WHERE stock_maximo IS NULL;
+ALTER TABLE products ALTER COLUMN stock_maximo SET DEFAULT 0;
+UPDATE products SET stock_maximo = 0 WHERE stock_maximo IS NULL;
+ALTER TABLE products ALTER COLUMN stock_maximo SET NOT NULL;
+UPDATE products SET stock_maximo = stock_minimo WHERE stock_maximo < stock_minimo;
 ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS purchase_cost NUMERIC(12, 2);
 ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS cost_updated_at TIMESTAMP;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'products_stock_maximo_check'
+      AND conrelid = 'products'::regclass
+  ) THEN
+    ALTER TABLE products
+    ADD CONSTRAINT products_stock_maximo_check
+    CHECK (stock_maximo >= 0 AND stock_maximo >= stock_minimo);
+  END IF;
+END $$;
 
 DO $$
 BEGIN
@@ -382,6 +404,7 @@ CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
 CREATE INDEX IF NOT EXISTS idx_products_stock_minimo ON products(stock_minimo);
+CREATE INDEX IF NOT EXISTS idx_products_stock_maximo ON products(stock_maximo);
 CREATE INDEX IF NOT EXISTS idx_product_suppliers_product_id ON product_suppliers(product_id);
 CREATE INDEX IF NOT EXISTS idx_product_suppliers_supplier_id ON product_suppliers(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_suppliers_name_lower ON suppliers ((LOWER(name)));

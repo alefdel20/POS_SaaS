@@ -4,10 +4,20 @@ import { useAuth } from "../context/AuthContext";
 import type { CompanyProfile, Product, Sale, SaleReceipt } from "../types";
 import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
+import { isManagementRole } from "../utils/roles";
 
 interface CartItem {
   product: Product;
   quantity: number;
+}
+
+interface QuickProductFormState {
+  name: string;
+  price: string;
+  cost_price: string;
+  stock: string;
+  category: string;
+  barcode: string;
 }
 
 const emptyInvoiceData = {
@@ -23,8 +33,17 @@ const emptyInvoiceData = {
   client_tax_regime: ""
 };
 
+const emptyQuickProduct: QuickProductFormState = {
+  name: "",
+  price: "",
+  cost_price: "",
+  stock: "",
+  category: "",
+  barcode: ""
+};
+
 export function SalesPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
@@ -42,6 +61,10 @@ export function SalesPage() {
   const [lastReceipt, setLastReceipt] = useState<SaleReceipt | null>(null);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [invoiceData, setInvoiceData] = useState(emptyInvoiceData);
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [quickProductForm, setQuickProductForm] = useState<QuickProductFormState>(emptyQuickProduct);
+  const [quickProductError, setQuickProductError] = useState("");
+  const [quickProductSaving, setQuickProductSaving] = useState(false);
 
   async function loadProducts(term = "") {
     if (!token) return;
@@ -135,6 +158,7 @@ export function SalesPage() {
     instructions: profile?.card_instructions || "",
     commission: profile?.card_commission ?? null
   };
+  const canQuickCreateProduct = isManagementRole(user?.role);
 
   useEffect(() => {
     setInvoiceData((current) => ({
@@ -169,6 +193,22 @@ export function SalesPage() {
     });
   }
 
+  function openQuickAddModal() {
+    setQuickProductForm({
+      ...emptyQuickProduct,
+      name: search.trim()
+    });
+    setQuickProductError("");
+    setShowQuickAddModal(true);
+  }
+
+  function closeQuickAddModal() {
+    setShowQuickAddModal(false);
+    setQuickProductForm(emptyQuickProduct);
+    setQuickProductError("");
+    setQuickProductSaving(false);
+  }
+
   function updateQuantity(productId: number, quantity: number) {
     if (quantity <= 0) {
       setCart((current) => current.filter((item) => item.product.id !== productId));
@@ -177,6 +217,67 @@ export function SalesPage() {
     setCart((current) =>
       current.map((item) => (item.product.id === productId ? { ...item, quantity } : item))
     );
+  }
+
+  async function handleQuickProductSubmit() {
+    if (!token) return;
+
+    const price = Number(quickProductForm.price);
+    const costPrice = Number(quickProductForm.cost_price);
+    const stock = Number(quickProductForm.stock);
+    const sanitizedBarcode = quickProductForm.barcode.replace(/[^A-Za-z0-9]/g, "");
+
+    if (!quickProductForm.name.trim()) {
+      setQuickProductError("El nombre es obligatorio");
+      return;
+    }
+    if (!quickProductForm.category.trim()) {
+      setQuickProductError("La categoria es obligatoria");
+      return;
+    }
+    if (Number.isNaN(price) || price <= 0) {
+      setQuickProductError("El precio de venta debe ser mayor a cero");
+      return;
+    }
+    if (Number.isNaN(costPrice) || costPrice < 0) {
+      setQuickProductError("El costo debe ser cero o mayor");
+      return;
+    }
+    if (Number.isNaN(stock) || stock < 0) {
+      setQuickProductError("El stock inicial debe ser cero o mayor");
+      return;
+    }
+
+    try {
+      setQuickProductSaving(true);
+      setQuickProductError("");
+      const createdProduct = await apiRequest<Product>("/products", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          name: quickProductForm.name.trim(),
+          sku: "",
+          price,
+          cost_price: costPrice,
+          stock,
+          stock_minimo: 0,
+          stock_maximo: stock,
+          category: quickProductForm.category.trim(),
+          barcode: sanitizedBarcode || undefined,
+          status: "activo",
+          is_active: true
+        })
+      });
+
+      addToCart(createdProduct);
+      closeQuickAddModal();
+      setSearch(createdProduct.name);
+      await loadProducts(createdProduct.name);
+    } catch (quickAddError) {
+      setQuickProductError(quickAddError instanceof Error ? quickAddError.message : "No fue posible dar de alta el producto");
+    } finally {
+      setQuickProductSaving(false);
+    }
   }
 
   async function confirmSale() {
@@ -300,7 +401,16 @@ export function SalesPage() {
               <small>Stock: {product.stock}</small>
             </button>
           ))}
-          {products.length === 0 ? <p className="muted">No hay productos activos para mostrar.</p> : null}
+          {products.length === 0 ? (
+            <div className="empty-state-card">
+              <p className="muted">
+                {search.trim() ? "No se encontraron coincidencias para esta busqueda." : "No hay productos activos para mostrar."}
+              </p>
+              {search.trim() && canQuickCreateProduct ? (
+                <button className="button" onClick={openQuickAddModal} type="button">Alta Rapida</button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -562,6 +672,80 @@ export function SalesPage() {
           </table>
         </div>
       </div>
+
+      {showQuickAddModal ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card quick-product-modal">
+            <div className="panel-header">
+              <div>
+                <h3>Alta Rapida</h3>
+                <p className="muted">Registra el producto sin salir de ventas.</p>
+              </div>
+              <button className="button ghost" onClick={closeQuickAddModal} type="button">Cerrar</button>
+            </div>
+            {quickProductError ? <p className="error-text">{quickProductError}</p> : null}
+            <div className="product-form-grid product-form-grid-wide">
+              <label>
+                Nombre *
+                <input
+                  value={quickProductForm.name}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, name: event.target.value })}
+                />
+              </label>
+              <label>
+                Precio de venta *
+                <input
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  value={quickProductForm.price}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, price: event.target.value })}
+                />
+              </label>
+              <label>
+                Costo *
+                <input
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  value={quickProductForm.cost_price}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, cost_price: event.target.value })}
+                />
+              </label>
+              <label>
+                Stock inicial *
+                <input
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  value={quickProductForm.stock}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, stock: event.target.value })}
+                />
+              </label>
+              <label>
+                Categoria *
+                <input
+                  value={quickProductForm.category}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, category: event.target.value })}
+                />
+              </label>
+              <label>
+                Codigo de barras
+                <input
+                  value={quickProductForm.barcode}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, barcode: event.target.value.replace(/[^A-Za-z0-9]/g, "") })}
+                />
+              </label>
+            </div>
+            <div className="inline-actions modal-actions-end">
+              <button className="button ghost" onClick={closeQuickAddModal} type="button">Cancelar</button>
+              <button className="button" disabled={quickProductSaving} onClick={handleQuickProductSubmit} type="button">
+                {quickProductSaving ? "Guardando..." : "Guardar y agregar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

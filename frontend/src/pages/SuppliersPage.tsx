@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { SupplierDetail } from "../types";
@@ -16,6 +17,7 @@ type SupplierSummary = {
 
 export function SuppliersPage() {
   const { token } = useAuth();
+  const navigate = useNavigate();
   const [suppliers, setSuppliers] = useState<SupplierSummary[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(null);
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierDetail | null>(null);
@@ -116,14 +118,14 @@ export function SuppliersPage() {
         <div className="panel-header">
           <div>
             <h2>{selectedSupplier?.name || "Detalle del proveedor"}</h2>
-            <p className="muted">Compara productos por SKU, costo de compra y actualización más reciente.</p>
+            <p className="muted">Compara productos por SKU, costo de compra y actualizacion mas reciente.</p>
           </div>
         </div>
         {selectedSupplier ? (
           <>
             <div className="info-card">
               <p>Correo: {selectedSupplier.email || "-"}</p>
-              <p>Teléfono: {selectedSupplier.phone || "-"}</p>
+              <p>Telefono: {selectedSupplier.phone || "-"}</p>
               <p>WhatsApp: {selectedSupplier.whatsapp || "-"}</p>
               <p>Observaciones: {selectedSupplier.observations || "-"}</p>
             </div>
@@ -134,7 +136,8 @@ export function SuppliersPage() {
                     <th>Producto</th>
                     <th>SKU</th>
                     <th>Costo de compra</th>
-                    <th>Actualización costo</th>
+                    <th>Actualizacion costo</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -144,11 +147,20 @@ export function SuppliersPage() {
                       <td>{product.sku}</td>
                       <td>{currency(product.purchase_cost)}</td>
                       <td>{shortDateTime(product.cost_updated_at || product.product_updated_at)}</td>
+                      <td>
+                        <button
+                          className="button ghost"
+                          onClick={() => navigate(`/products?edit=${product.product_id}&search=${encodeURIComponent(product.product_name)}`)}
+                          type="button"
+                        >
+                          Editar producto
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {selectedSupplier.products.length === 0 ? (
                     <tr>
-                      <td className="muted" colSpan={4}>Este proveedor aún no tiene productos asociados.</td>
+                      <td className="muted" colSpan={5}>Este proveedor aun no tiene productos asociados.</td>
                     </tr>
                   ) : null}
                 </tbody>

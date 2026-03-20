@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { PaginatedProductsResponse, Product, Supplier } from "../types";
@@ -25,6 +26,7 @@ type ProductFormState = {
   cost_price: string;
   stock: string;
   stock_minimo: string;
+  stock_maximo: string;
   expires_at: string;
   is_active: boolean;
   status: "activo" | "inactivo";
@@ -56,6 +58,7 @@ const emptyProduct: ProductFormState = {
   cost_price: "",
   stock: "",
   stock_minimo: "",
+  stock_maximo: "",
   expires_at: "",
   is_active: true,
   status: "activo",
@@ -75,6 +78,32 @@ function toDateTimeLocal(value?: string | null) {
   const timezoneOffset = date.getTimezoneOffset();
   const localDate = new Date(date.getTime() - timezoneOffset * 60000);
   return localDate.toISOString().slice(0, 16);
+}
+
+function normalizeTextForSku(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildSkuSuggestion(name: string, category: string, supplierName: string) {
+  const supplierSegment = normalizeTextForSku(supplierName || category)
+    .replace(/\b(DE|DEL|LA|LAS|LOS|PARA|CON|SIN|Y|EN)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/ /g, "")
+    .replace(/[OI]/g, (character) => (character === "O" ? "0" : "1"))
+    .slice(0, 4);
+  const nameTokens = normalizeTextForSku(name).split(" ").filter(Boolean);
+  const typeSegment = (normalizeTextForSku(category).replace(/ /g, "").slice(0, 4) || nameTokens[0] || "PRD")
+    .replace(/[OI]/g, (character) => (character === "O" ? "0" : "1"));
+  const attrSegment = ((nameTokens[1] || nameTokens[0] || "").replace(/[OI]/g, (character) => (character === "O" ? "0" : "1"))).slice(0, 4);
+
+  return [supplierSegment, typeSegment, attrSegment].filter(Boolean).join("-").slice(0, 12);
 }
 
 function supplierToForm(supplier?: Supplier | null): ProductSupplierFormState {
@@ -101,6 +130,7 @@ function productToForm(product: Product): ProductFormState {
     cost_price: String(product.cost_price ?? ""),
     stock: String(product.stock ?? ""),
     stock_minimo: String(product.stock_minimo ?? ""),
+    stock_maximo: String(product.stock_maximo ?? ""),
     expires_at: product.expires_at?.slice(0, 10) || "",
     is_active: product.is_active,
     status: product.status || (product.is_active ? "activo" : "inactivo"),
@@ -127,6 +157,7 @@ function requiredLabel(text: string) {
 
 export function ProductsPage() {
   const { token } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -142,6 +173,9 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const editProductIdFromQuery = Number(searchParams.get("edit") || 0) || null;
+  const searchFromQuery = searchParams.get("search") || "";
+  const skuSuggestion = buildSkuSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || "");
 
   async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize) {
     if (!token) return;
@@ -189,6 +223,15 @@ export function ProductsPage() {
   }, [token, page, pageSize]);
 
   useEffect(() => {
+    if (!searchFromQuery || search === searchFromQuery) {
+      return;
+    }
+
+    setSearch(searchFromQuery);
+    setPage(1);
+  }, [search, searchFromQuery]);
+
+  useEffect(() => {
     const timeout = setTimeout(() => {
       setPage(1);
       loadProducts(search, 1, pageSize).catch((loadError) => {
@@ -198,6 +241,27 @@ export function ProductsPage() {
 
     return () => clearTimeout(timeout);
   }, [search, pageSize, token]);
+
+  useEffect(() => {
+    if (form.sku.trim() || !skuSuggestion) {
+      return;
+    }
+
+    setForm((current) => current.sku.trim() ? current : { ...current, sku: skuSuggestion });
+  }, [form.sku, skuSuggestion]);
+
+  useEffect(() => {
+    if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
+      return;
+    }
+
+    const productToEdit = products.find((product) => product.id === editProductIdFromQuery);
+    if (!productToEdit) {
+      return;
+    }
+
+    handleEdit(productToEdit);
+  }, [editProductIdFromQuery, editingId, products]);
 
   function updateSupplier(index: number, nextSupplier: ProductSupplierFormState) {
     setForm((current) => ({
@@ -253,15 +317,26 @@ export function ProductsPage() {
     const price = Number(form.price);
     const stock = Number(form.stock);
     const stockMinimo = Number(form.stock_minimo);
+    const stockMaximo = Number(form.stock_maximo);
     const costPrice = form.cost_price === "" ? 0 : Number(form.cost_price);
     const discountValue = form.discount_value === "" ? null : Number(form.discount_value);
 
-    if (!form.name.trim() || !form.sku.trim()) {
-      setError("Nombre y SKU son obligatorios");
+    if (!form.name.trim() || !form.category.trim()) {
+      setError("Nombre y categoria son obligatorios");
       return;
     }
-    if (Number.isNaN(price) || price < 0 || Number.isNaN(stock) || stock < 0 || Number.isNaN(costPrice) || costPrice < 0 || Number.isNaN(stockMinimo) || stockMinimo < 0) {
+    if (
+      Number.isNaN(price) || price <= 0
+      || Number.isNaN(stock) || stock < 0
+      || Number.isNaN(costPrice) || costPrice < 0
+      || Number.isNaN(stockMinimo) || stockMinimo < 0
+      || Number.isNaN(stockMaximo) || stockMaximo < 0
+    ) {
       setError("Precio, costo, stock y stock mínimo deben ser numéricos válidos");
+      return;
+    }
+    if (stockMaximo < stockMinimo) {
+      setError("El stock maximo no puede ser menor al stock minimo");
       return;
     }
     if (form.discount_type && (discountValue === null || Number.isNaN(discountValue) || discountValue < 0)) {
@@ -329,12 +404,13 @@ export function ProductsPage() {
       name: form.name.trim(),
       sku: form.sku.trim(),
       barcode: form.barcode.trim(),
-      category: form.category.trim() || null,
+      category: form.category.trim(),
       description: form.description.trim(),
       price,
       cost_price: costPrice,
       stock,
       stock_minimo: stockMinimo,
+      stock_maximo: stockMaximo,
       expires_at: form.expires_at || null,
       supplier_id: primarySupplier?.supplier_id ?? null,
       supplier_name: primarySupplier?.supplier_name || null,
@@ -369,6 +445,12 @@ export function ProductsPage() {
       }
       setForm(emptyProduct);
       setEditingId(null);
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("edit");
+        next.delete("search");
+        return next;
+      });
       setSupplierDrafts([]);
       setShowSuppliersModal(false);
       await loadProducts(search, page, pageSize);
@@ -384,6 +466,12 @@ export function ProductsPage() {
   function handleEdit(product: Product) {
     setEditingId(product.id);
     setForm(productToForm(product));
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("edit", String(product.id));
+      next.set("search", search || product.name);
+      return next;
+    });
     setSupplierDrafts([]);
     setShowSuppliersModal(false);
     setError("");
@@ -478,6 +566,12 @@ export function ProductsPage() {
               onClick={() => {
                 setEditingId(null);
                 setForm(emptyProduct);
+                setSearchParams((current) => {
+                  const next = new URLSearchParams(current);
+                  next.delete("edit");
+                  next.delete("search");
+                  return next;
+                });
                 setSupplierDrafts([]);
                 setShowSuppliersModal(false);
               }}
@@ -493,8 +587,12 @@ export function ProductsPage() {
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
           </label>
           <label>
-            {requiredLabel("SKU")}
-            <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
+            SKU
+            <input
+              placeholder={skuSuggestion || "Se generara automaticamente"}
+              value={form.sku}
+              onChange={(event) => setForm({ ...form, sku: event.target.value })}
+            />
           </label>
           <label>
             Categoría
@@ -505,6 +603,7 @@ export function ProductsPage() {
                 setForm({ ...form, category: event.target.value });
                 loadCategories(event.target.value).catch(console.error);
               }}
+              required
             />
           </label>
           <datalist id="product-category-options">
@@ -542,6 +641,10 @@ export function ProductsPage() {
           <label>
             {requiredLabel("Stock mínimo")}
             <input type="number" min="0" step="0.01" value={form.stock_minimo} onChange={(event) => setForm({ ...form, stock_minimo: event.target.value })} required />
+          </label>
+          <label>
+            {requiredLabel("Stock maximo")}
+            <input type="number" min="0" step="0.01" value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
           </label>
           <label>
             Fecha de vencimiento

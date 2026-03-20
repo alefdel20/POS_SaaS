@@ -1,7 +1,7 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
-const { ensureAutomaticReminders } = require("./reminderService");
+const { ensureAutomaticReminders, ensureLowStockRemindersForProductIds } = require("./reminderService");
 
 function computeDiscountedPrice(product) {
   if (
@@ -601,6 +601,7 @@ async function createSale(payload, user) {
 
     await client.query("COMMIT");
     await recomputeDailyCut(sale.sale_date);
+    await ensureLowStockRemindersForProductIds(normalizedItems.map((item) => item.productId));
     await ensureAutomaticReminders();
 
     return {

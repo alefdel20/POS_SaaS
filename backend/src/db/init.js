@@ -52,6 +52,27 @@ async function ensureDatabaseCompatibility() {
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS liquidation_price NUMERIC(12, 2)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS expires_at DATE");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo NUMERIC(12, 2) NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_maximo NUMERIC(12, 2)");
+  await pool.query("UPDATE products SET stock_maximo = GREATEST(COALESCE(stock, 0), COALESCE(stock_minimo, 0)) WHERE stock_maximo IS NULL");
+  await pool.query("ALTER TABLE products ALTER COLUMN stock_maximo SET DEFAULT 0");
+  await pool.query("UPDATE products SET stock_maximo = 0 WHERE stock_maximo IS NULL");
+  await pool.query("ALTER TABLE products ALTER COLUMN stock_maximo SET NOT NULL");
+  await pool.query("UPDATE products SET stock_maximo = stock_minimo WHERE stock_maximo < stock_minimo");
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'products_stock_maximo_check'
+          AND conrelid = 'products'::regclass
+      ) THEN
+        ALTER TABLE products
+        ADD CONSTRAINT products_stock_maximo_check
+        CHECK (stock_maximo >= 0 AND stock_maximo >= stock_minimo);
+      END IF;
+    END $$;
+  `);
   await pool.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_name VARCHAR(150)");
   await pool.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(40)");
   await pool.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS initial_payment NUMERIC(12, 2) NOT NULL DEFAULT 0");
@@ -242,6 +263,7 @@ async function ensureDatabaseCompatibility() {
   await pool.query("CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_products_stock_minimo ON products(stock_minimo)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_products_stock_maximo ON products(stock_maximo)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales(sale_date)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_sales_user_id ON sales(user_id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON sales(payment_method)");

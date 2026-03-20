@@ -56,6 +56,7 @@ export interface Product {
   price: number;
   cost_price: number;
   stock_minimo?: number;
+  stock_maximo?: number;
   supplier_id?: number | null;
   supplier_name?: string | null;
   supplier_email?: string | null;

@@ -1,6 +1,188 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 
+const SKU_CONFUSING_CHARACTERS = {
+  O: "0",
+  I: "1"
+};
+
+function stripAccents(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeAlphaNumeric(value) {
+  return stripAccents(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeGeneratedSkuSegment(value, maxLength = 4) {
+  const compact = normalizeAlphaNumeric(value)
+    .replace(/\b(DE|DEL|LA|LAS|LOS|PARA|CON|SIN|Y|EN)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/ /g, "");
+
+  return compact
+    .replace(/[OI]/g, (character) => SKU_CONFUSING_CHARACTERS[character] || character)
+    .slice(0, maxLength);
+}
+
+function sanitizeBarcode(value) {
+  return stripAccents(value)
+    .replace(/[^A-Za-z0-9]/g, "")
+    .trim();
+}
+
+function sanitizeManualSku(value) {
+  return normalizeAlphaNumeric(value)
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 60);
+}
+
+function pickSkuSegments(payload) {
+  const brandSource = payload.brand || payload.marca || payload.supplier_name || payload.category || "";
+  const normalizedName = normalizeAlphaNumeric(payload.name);
+  const nameTokens = normalizedName.split(" ").filter(Boolean);
+  const categorySegment = normalizeGeneratedSkuSegment(payload.category, 4);
+  const brandSegment = normalizeGeneratedSkuSegment(brandSource, 4);
+  const primaryNameSegment = normalizeGeneratedSkuSegment(nameTokens[0] || payload.name, 4);
+  const attributeCandidates = [
+    nameTokens.find((token) => /NEGRO|NEGRA|BLANCO|BLANCA|ROJO|ROJA|AZUL|VERDE|AMARILLO|GRIS|MARRON|CAF[EÉ]|PINK|ROSA|XL|L|M|S/.test(token)),
+    nameTokens[1],
+    nameTokens[2]
+  ];
+  const attributeSegment = normalizeGeneratedSkuSegment(attributeCandidates.find(Boolean) || "", 4);
+
+  return [brandSegment, categorySegment || primaryNameSegment, attributeSegment || primaryNameSegment]
+    .filter(Boolean);
+}
+
+async function ensureUniqueSku(baseSku, excludeProductId = null, client = pool) {
+  const normalizedBase = sanitizeManualSku(baseSku).replace(/^-+|-+$/g, "");
+  const compactBase = normalizedBase.slice(0, 12) || "PRD000";
+
+  const { rows } = await client.query(
+    `SELECT sku
+     FROM products
+     WHERE UPPER(sku) LIKE UPPER($1)
+       AND ($2::int IS NULL OR id <> $2)`,
+    [`${compactBase}%`, excludeProductId]
+  );
+
+  const existing = new Set(rows.map((row) => String(row.sku || "").toUpperCase()));
+  if (!existing.has(compactBase.toUpperCase())) {
+    return compactBase;
+  }
+
+  for (let sequence = 1; sequence <= 99; sequence += 1) {
+    const suffix = String(sequence).padStart(2, "0");
+    const candidate = `${compactBase.slice(0, Math.max(12 - suffix.length, 6))}${suffix}`;
+    if (!existing.has(candidate.toUpperCase())) {
+      return candidate;
+    }
+  }
+
+  throw new ApiError(409, "Unable to generate unique SKU");
+}
+
+async function resolveSku(payload, currentProduct = null, client = pool) {
+  const manualSku = sanitizeManualSku(payload.sku || "");
+  if (manualSku) {
+    const { rows } = await client.query(
+      `SELECT id
+       FROM products
+       WHERE UPPER(sku) = UPPER($1)
+         AND ($2::int IS NULL OR id <> $2)
+       LIMIT 1`,
+      [manualSku, currentProduct?.id || null]
+    );
+
+    if (rows[0]) {
+      throw new ApiError(409, "SKU already exists");
+    }
+
+    return manualSku;
+  }
+
+  const skuSegments = pickSkuSegments({
+    ...currentProduct,
+    ...payload
+  });
+  const baseSku = skuSegments.join("-").slice(0, 12) || normalizeGeneratedSkuSegment(payload.name || currentProduct?.name || "PRD", 8);
+  return ensureUniqueSku(baseSku, currentProduct?.id || null, client);
+}
+
+async function ensureUniqueBarcode(barcode, excludeProductId = null, client = pool) {
+  const normalizedBarcode = sanitizeBarcode(barcode);
+  const { rows } = await client.query(
+    `SELECT id
+     FROM products
+     WHERE UPPER(barcode) = UPPER($1)
+       AND ($2::int IS NULL OR id <> $2)
+     LIMIT 1`,
+    [normalizedBarcode, excludeProductId]
+  );
+
+  if (rows[0]) {
+    throw new ApiError(409, "Barcode already exists");
+  }
+
+  return normalizedBarcode;
+}
+
+function validateCoreProductData(payload, currentProduct = null) {
+  const name = payload.name ?? currentProduct?.name;
+  const category = payload.category ?? currentProduct?.category;
+  const price = payload.price ?? currentProduct?.price;
+  const costPrice = payload.cost_price ?? currentProduct?.cost_price ?? 0;
+  const stock = payload.stock ?? currentProduct?.stock ?? 0;
+  const stockMinimo = payload.stock_minimo ?? currentProduct?.stock_minimo ?? 0;
+  const fallbackStockMaximo = Math.max(Number(stock || 0), Number(stockMinimo || 0), Number(currentProduct?.stock_maximo || 0));
+  const stockMaximo = payload.stock_maximo ?? currentProduct?.stock_maximo ?? fallbackStockMaximo;
+
+  if (!String(name || "").trim()) {
+    throw new ApiError(400, "Product name is required");
+  }
+
+  if (!String(category || "").trim()) {
+    throw new ApiError(400, "Product category is required");
+  }
+
+  if (Number(price) <= 0) {
+    throw new ApiError(400, "Product price must be greater than zero");
+  }
+
+  if (Number(costPrice) < 0) {
+    throw new ApiError(400, "Product cost cannot be negative");
+  }
+
+  if (Number(stock) < 0) {
+    throw new ApiError(400, "Product stock cannot be negative");
+  }
+
+  if (Number(stockMinimo) < 0) {
+    throw new ApiError(400, "Product minimum stock cannot be negative");
+  }
+
+  if (Number(stockMaximo) < 0) {
+    throw new ApiError(400, "Product maximum stock cannot be negative");
+  }
+
+  if (Number(stockMaximo) < Number(stockMinimo)) {
+    throw new ApiError(400, "Product maximum stock cannot be lower than minimum stock");
+  }
+
+  return {
+    stockMaximo: Number(stockMaximo)
+  };
+}
+
 function normalizeDiscountFields(payload) {
   return {
     discount_type: payload.discount_type || null,
@@ -435,6 +617,9 @@ async function createProduct(payload) {
 
   try {
     await client.query("BEGIN");
+    const { stockMaximo } = validateCoreProductData(payload);
+    const resolvedSku = await resolveSku(payload, null, client);
+    const resolvedBarcode = await ensureUniqueBarcode(sanitizeBarcode(barcode || resolvedSku) || resolvedSku, null, client);
     const primarySupplierId = await ensureSupplierReference(payload, client);
     const { rows } = await client.query(
       `INSERT INTO products (
@@ -455,14 +640,15 @@ async function createProduct(payload) {
       discount_value,
       discount_start,
       discount_end,
-      stock_minimo
+      stock_minimo,
+      stock_maximo
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
      RETURNING *`,
       [
-        payload.name,
-        payload.sku,
-        barcode,
+        payload.name.trim(),
+        resolvedSku,
+        resolvedBarcode,
         payload.category || null,
         payload.description || "",
         payload.price,
@@ -477,7 +663,8 @@ async function createProduct(payload) {
         discountFields.discount_value,
         discountFields.discount_start,
         discountFields.discount_end,
-        payload.stock_minimo ?? 0
+        payload.stock_minimo ?? 0,
+        stockMaximo
       ]
     );
     const created = rows[0];
@@ -504,6 +691,18 @@ async function updateProduct(id, payload) {
       throw new ApiError(404, "Product not found");
     }
 
+    const { stockMaximo } = validateCoreProductData(payload, current);
+    const resolvedSku = payload.sku !== undefined
+      ? await resolveSku(payload, current, client)
+      : current.sku;
+    const nextBarcodeSource = payload.barcode !== undefined
+      ? payload.barcode
+      : current.barcode;
+    const resolvedBarcode = await ensureUniqueBarcode(
+      sanitizeBarcode(nextBarcodeSource || resolvedSku) || resolvedSku,
+      id,
+      client
+    );
     const supplierId = payload.supplier_id !== undefined || payload.supplier_name !== undefined || payload.suppliers !== undefined
       ? await ensureSupplierReference(payload, client)
       : current.supplier_id;
@@ -535,13 +734,14 @@ async function updateProduct(id, payload) {
          discount_start = $16,
          discount_end = $17,
          stock_minimo = $18,
+         stock_maximo = $19,
          updated_at = NOW()
-     WHERE id = $19
+     WHERE id = $20
      RETURNING *`,
       [
         payload.name ?? current.name,
-        payload.sku ?? current.sku,
-        payload.barcode?.trim() || current.barcode,
+        resolvedSku,
+        resolvedBarcode,
         payload.category ?? current.category,
         payload.description ?? current.description,
         payload.price ?? current.price,
@@ -557,6 +757,7 @@ async function updateProduct(id, payload) {
         clearDiscountData || payload.discount_start !== undefined ? discountFields.discount_start : current.discount_start,
         clearDiscountData || payload.discount_end !== undefined ? discountFields.discount_end : current.discount_end,
         payload.stock_minimo ?? current.stock_minimo ?? 0,
+        stockMaximo,
         id
       ]
     );
