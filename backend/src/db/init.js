@@ -265,15 +265,19 @@ async function ensureDatabaseCompatibility() {
       product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
       supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
       is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+      purchase_cost NUMERIC(12, 2),
+      cost_updated_at TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       UNIQUE(product_id, supplier_id)
     )
   `);
+  await pool.query("ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS purchase_cost NUMERIC(12, 2)");
+  await pool.query("ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS cost_updated_at TIMESTAMP");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_product_suppliers_product_id ON product_suppliers(product_id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_product_suppliers_supplier_id ON product_suppliers(supplier_id)");
   await pool.query(`
-    INSERT INTO product_suppliers (product_id, supplier_id, is_primary)
-    SELECT id, supplier_id, TRUE
+    INSERT INTO product_suppliers (product_id, supplier_id, is_primary, purchase_cost, cost_updated_at)
+    SELECT id, supplier_id, TRUE, cost_price, updated_at
     FROM products
     WHERE supplier_id IS NOT NULL
     ON CONFLICT (product_id, supplier_id) DO NOTHING

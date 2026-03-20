@@ -23,6 +23,9 @@ function normalizeSupplierEntries(payload) {
         supplier_phone: supplier?.supplier_phone?.trim() || null,
         supplier_whatsapp: supplier?.supplier_whatsapp?.trim() || null,
         supplier_observations: supplier?.supplier_observations?.trim() || "",
+        purchase_cost: supplier?.purchase_cost === undefined || supplier?.purchase_cost === null || supplier?.purchase_cost === ""
+          ? null
+          : Number(supplier.purchase_cost),
         is_primary: Boolean(supplier?.is_primary) || index === 0
       }))
       .filter((supplier) => supplier.supplier_id || supplier.supplier_name);
@@ -36,6 +39,9 @@ function normalizeSupplierEntries(payload) {
       supplier_phone: payload.supplier_phone?.trim() || null,
       supplier_whatsapp: payload.supplier_whatsapp?.trim() || null,
       supplier_observations: payload.supplier_observations?.trim() || "",
+      purchase_cost: payload.cost_price === undefined || payload.cost_price === null || payload.cost_price === ""
+        ? null
+        : Number(payload.cost_price),
       is_primary: true
     }];
   }
@@ -148,7 +154,26 @@ async function syncProductSuppliers(productId, payload, client = pool) {
   }
 
   const resolvedSupplierIds = [];
+  const seenKeys = new Set();
+  const seenNames = new Set();
+  const seenWhatsapps = new Set();
   for (const [index, supplierEntry] of supplierEntries.entries()) {
+    const normalizedName = supplierEntry.supplier_name.toLowerCase();
+    const normalizedWhatsapp = (supplierEntry.supplier_whatsapp || "").replace(/\D/g, "");
+    const duplicateKey = supplierEntry.supplier_id
+      ? `id:${supplierEntry.supplier_id}`
+      : `meta:${normalizedName}|${normalizedWhatsapp}`;
+    if (
+      seenKeys.has(duplicateKey)
+      || (normalizedName && seenNames.has(normalizedName))
+      || (normalizedWhatsapp && seenWhatsapps.has(normalizedWhatsapp))
+    ) {
+      throw new ApiError(409, "Duplicate supplier assignment");
+    }
+    seenKeys.add(duplicateKey);
+    if (normalizedName) seenNames.add(normalizedName);
+    if (normalizedWhatsapp) seenWhatsapps.add(normalizedWhatsapp);
+
     const supplierId = await ensureSupplierReference({
       ...supplierEntry,
       supplier_id: supplierEntry.supplier_id || undefined
@@ -160,11 +185,17 @@ async function syncProductSuppliers(productId, payload, client = pool) {
 
     resolvedSupplierIds.push(supplierId);
     await client.query(
-      `INSERT INTO product_suppliers (product_id, supplier_id, is_primary)
-       VALUES ($1, $2, $3)
+      `INSERT INTO product_suppliers (product_id, supplier_id, is_primary, purchase_cost, cost_updated_at)
+       VALUES ($1, $2, $3, $4, CASE WHEN $4 IS NULL THEN NULL ELSE NOW() END)
        ON CONFLICT (product_id, supplier_id)
-       DO UPDATE SET is_primary = EXCLUDED.is_primary`,
-      [productId, supplierId, index === 0]
+       DO UPDATE SET
+         is_primary = EXCLUDED.is_primary,
+         purchase_cost = EXCLUDED.purchase_cost,
+         cost_updated_at = CASE
+           WHEN EXCLUDED.purchase_cost IS NULL THEN product_suppliers.cost_updated_at
+           ELSE NOW()
+         END`,
+      [productId, supplierId, index === 0, supplierEntry.purchase_cost ?? payload.cost_price ?? null]
     );
   }
 
@@ -258,7 +289,9 @@ function buildProductSelect(effectivePriceCase) {
             'supplier_phone', suppliers.phone,
             'supplier_whatsapp', suppliers.whatsapp,
             'supplier_observations', suppliers.observations,
-            'is_primary', product_suppliers.is_primary
+            'is_primary', product_suppliers.is_primary,
+            'purchase_cost', product_suppliers.purchase_cost,
+            'cost_updated_at', product_suppliers.cost_updated_at
           )
           ORDER BY product_suppliers.is_primary DESC, suppliers.name ASC
         ) AS suppliers_json,

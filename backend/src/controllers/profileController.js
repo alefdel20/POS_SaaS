@@ -17,6 +17,10 @@ const bankingValidation = [
   body("bank_name").optional({ values: "falsy" }).trim(),
   body("bank_clabe").optional({ values: "falsy" }).trim().isLength({ min: 10, max: 32 }),
   body("bank_beneficiary").optional({ values: "falsy" }).trim(),
+  body("card_terminal").optional({ values: "falsy" }).trim(),
+  body("card_bank").optional({ values: "falsy" }).trim(),
+  body("card_instructions").optional({ values: "falsy" }).trim(),
+  body("card_commission").optional({ values: "falsy" }).isFloat({ min: 0 }),
   body("reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];

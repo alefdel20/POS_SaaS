@@ -78,12 +78,12 @@ export function CreditCollectionsPage() {
     }
   }
 
-  async function updateReminderPreference(sendReminder: boolean) {
-    if (!token || !selectedSaleId) return;
+  async function updateReminderPreference(saleId: number, sendReminder: boolean) {
+    if (!token) return;
 
     try {
       setError("");
-      await apiRequest(`/credit-collections/${selectedSaleId}/reminder`, {
+      await apiRequest(`/credit-collections/${saleId}/reminder`, {
         method: "PATCH",
         token,
         body: JSON.stringify({ send_reminder: sendReminder })
@@ -134,8 +134,9 @@ export function CreditCollectionsPage() {
             <thead>
               <tr>
                 <th>Persona</th>
-                <th>Telefono</th>
+                <th>Teléfono</th>
                 <th>Saldo pendiente</th>
+                <th>Recordatorio</th>
               </tr>
             </thead>
             <tbody>
@@ -147,27 +148,25 @@ export function CreditCollectionsPage() {
                 >
                   <td>{debtor.person}</td>
                   <td>{debtor.phone}</td>
+                  <td>{currency(debtor.balance_due)}</td>
                   <td>
-                    <div className="credit-balance-cell">
-                      <span>{currency(debtor.balance_due)}</span>
-                      {debtor.sale_id === selectedSaleId ? (
-                        <label className="checkbox-row credit-reminder-toggle">
-                          <input
-                            checked={Boolean(selectedDebtor?.send_reminder)}
-                            disabled={!selectedSaleId}
-                            onChange={(event) => updateReminderPreference(event.target.checked)}
-                            type="checkbox"
-                          />
-                          <span>Recordatorio activo para esta cuenta</span>
-                        </label>
-                      ) : null}
-                    </div>
+                    <label className="checkbox-row credit-reminder-toggle">
+                      <input
+                        checked={Boolean(debtor.send_reminder)}
+                        onChange={(event) => {
+                          setSelectedSaleId(debtor.sale_id);
+                          updateReminderPreference(debtor.sale_id, event.target.checked).catch(() => undefined);
+                        }}
+                        type="checkbox"
+                      />
+                      <span>{debtor.send_reminder ? "Activo" : "Inactivo"}</span>
+                    </label>
                   </td>
                 </tr>
               ))}
               {debtors.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={3}>No hay ventas pendientes.</td>
+                  <td className="muted" colSpan={4}>No hay ventas pendientes.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -180,15 +179,15 @@ export function CreditCollectionsPage() {
           <div className="panel-header">
             <div>
               <h2>Registrar abono</h2>
-              <p className="muted">{selectedDebtor ? `${selectedDebtor.person} | venta #${selectedDebtor.sale_id}` : "Selecciona una venta a credito"}</p>
+              <p className="muted">{selectedDebtor ? `${selectedDebtor.person} | venta #${selectedDebtor.sale_id}` : "Selecciona una venta a crédito"}</p>
             </div>
           </div>
           <label>
-            Monto
+            Monto *
             <input min="0" step="0.01" required type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
           </label>
           <label>
-            Metodo de pago
+            Método de pago *
             <select value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value as CreditPayment["payment_method"] })}>
               <option value="cash">Efectivo</option>
               <option value="card">Tarjeta</option>
@@ -197,7 +196,7 @@ export function CreditCollectionsPage() {
             </select>
           </label>
           <label>
-            Fecha
+            Fecha *
             <input type="date" value={form.payment_date} onChange={(event) => setForm({ ...form, payment_date: event.target.value })} />
           </label>
           <label>

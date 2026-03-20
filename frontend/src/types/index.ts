@@ -10,6 +10,7 @@ export interface User {
   pos_type?: PosType;
   is_active: boolean;
   must_change_password?: boolean;
+  support_mode_active?: boolean;
 }
 
 export interface Supplier {
@@ -22,6 +23,27 @@ export interface Supplier {
   whatsapp?: string | null;
   observations?: string | null;
   is_primary?: boolean;
+  purchase_cost?: number | null;
+  cost_updated_at?: string | null;
+}
+
+export interface SupplierProductItem {
+  product_id: number;
+  product_name: string;
+  sku: string;
+  purchase_cost: number;
+  cost_updated_at: string | null;
+  product_updated_at: string | null;
+}
+
+export interface SupplierDetail {
+  id: number;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  observations?: string | null;
+  products: SupplierProductItem[];
 }
 
 export interface Product {
@@ -140,9 +162,14 @@ export interface CompanyProfile {
   phone?: string | null;
   email?: string | null;
   address: string;
+  general_settings?: Record<string, unknown>;
   bank_name?: string | null;
   bank_clabe?: string | null;
   bank_beneficiary?: string | null;
+  card_terminal?: string | null;
+  card_bank?: string | null;
+  card_instructions?: string | null;
+  card_commission?: number | null;
   fiscal_rfc?: string | null;
   fiscal_business_name?: string | null;
   fiscal_regime?: string | null;

@@ -6,6 +6,7 @@ const { ensureDatabaseCompatibility } = require("./db/init");
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
+const supplierRoutes = require("./routes/supplierRoutes");
 const saleRoutes = require("./routes/saleRoutes");
 const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
@@ -69,6 +70,7 @@ const routes = [
   { path: "/automation", router: automationRoutes, auth: false },
   { path: "/users", router: userRoutes, auth: true },
   { path: "/products", router: productRoutes, auth: true },
+  { path: "/suppliers", router: supplierRoutes, auth: true },
   { path: "/sales", router: saleRoutes, auth: true },
   { path: "/daily-cuts", router: dailyCutRoutes, auth: true },
   { path: "/credit-collections", router: creditCollectionRoutes, auth: true },

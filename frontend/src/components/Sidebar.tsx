@@ -8,6 +8,7 @@ const links = [
   { to: "/sales", label: "Ventas", salesOnly: true },
   { to: "/profile", label: "Perfil", managementOnly: true },
   { to: "/products", label: "Productos", managementOnly: true },
+  { to: "/suppliers", label: "Proveedores", managementOnly: true },
   { to: "/remate", label: "Remate", managementOnly: true },
   { to: "/finances", label: "Finanzas", managementOnly: true },
   { to: "/users", label: "Usuarios", managementOnly: false, usersOnly: true },

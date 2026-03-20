@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS product_suppliers (
   product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
   is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  purchase_cost NUMERIC(12, 2),
+  cost_updated_at TIMESTAMP,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   UNIQUE(product_id, supplier_id)
 );
@@ -327,6 +329,8 @@ ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS void_reason TEXT NOT NULL DEFAU
 ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
 ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo NUMERIC(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS purchase_cost NUMERIC(12, 2);
+ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS cost_updated_at TIMESTAMP;
 
 DO $$
 BEGIN
@@ -399,8 +403,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_usuario_id ON audit_logs(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_modulo ON audit_logs(modulo);
 CREATE INDEX IF NOT EXISTS idx_company_stamp_movements_profile ON company_stamp_movements(company_profile_id);
 
-INSERT INTO product_suppliers (product_id, supplier_id, is_primary)
-SELECT id, supplier_id, TRUE
+INSERT INTO product_suppliers (product_id, supplier_id, is_primary, purchase_cost, cost_updated_at)
+SELECT id, supplier_id, TRUE, cost_price, updated_at
 FROM products
 WHERE supplier_id IS NOT NULL
 ON CONFLICT (product_id, supplier_id) DO NOTHING;

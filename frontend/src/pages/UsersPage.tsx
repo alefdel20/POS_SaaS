@@ -21,7 +21,7 @@ function generatePassword() {
 }
 
 export function UsersPage() {
-  const { token, user: currentUser } = useAuth();
+  const { token, user: currentUser, refreshUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [form, setForm] = useState(emptyUser);
   const [error, setError] = useState("");
@@ -149,20 +149,26 @@ export function UsersPage() {
     }
   }
 
-  async function openSupportMode(targetUser: User) {
+  async function toggleSupportMode(targetUser: User) {
     if (!token) return;
+    const targetRole = normalizeRole(targetUser.role);
+    if (targetRole !== "soporte") return;
+    const nextAction = targetUser.support_mode_active ? "deactivate" : "activate";
 
     try {
       setError("");
       setInfo("");
-      await apiRequest(`/users/${targetUser.id}/support-access`, {
+      await apiRequest(`/users/${targetUser.id}/support-mode/${nextAction}`, {
         method: "POST",
         token,
         body: JSON.stringify({ reason: "Revision operativa" })
       });
-      setInfo(`Acceso de soporte registrado para ${targetUser.username}`);
+      if (currentUser?.id === targetUser.id) {
+        await refreshUser();
+      }
+      loadUsers();
     } catch (supportError) {
-      setError(supportError instanceof Error ? supportError.message : "No fue posible registrar modo soporte");
+      setError(supportError instanceof Error ? supportError.message : "No fue posible actualizar el modo soporte");
     }
   }
 
@@ -173,19 +179,19 @@ export function UsersPage() {
           <h2>Nuevo usuario</h2>
         </div>
         <label>
-          Nombre completo
+          Nombre completo *
           <input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required />
         </label>
         <label>
-          Usuario
+          Usuario *
           <input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required />
         </label>
         <label>
-          Correo electronico
+          Correo electrónico *
           <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
         </label>
         <label>
-          Contrasena
+          Contraseña *
           <div className="input-with-action">
             <input
               type={showCreatePassword ? "text" : "password"}
@@ -199,7 +205,7 @@ export function UsersPage() {
           </div>
         </label>
         <label>
-          Rol
+          Rol *
           <select disabled={!canCreateUsers} value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as Role })}>
             {roleOptions.map((role) => (
               <option key={role} value={role}>{getRoleLabel(role)}</option>
@@ -207,7 +213,7 @@ export function UsersPage() {
           </select>
         </label>
         <label>
-          Tipo de POS
+          Tipo de POS *
           <select disabled={!canCreateUsers || currentRole !== "superusuario"} value={form.pos_type} onChange={(event) => setForm({ ...form, pos_type: event.target.value as PosType })}>
             {POS_TYPES.map((posType) => (
               <option key={posType} value={posType}>{posType}</option>
@@ -221,7 +227,7 @@ export function UsersPage() {
         <div className="panel-header">
           <div>
             <h2>Usuarios retail</h2>
-            <p className="muted">Soporte solo puede ver y registrar accesos. Reset y cambio de roles solo para superusuario.</p>
+            <p className="muted">Soporte solo puede consultar. Reset y cambio de roles solo para superusuario.</p>
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
@@ -272,9 +278,13 @@ export function UsersPage() {
                       {canResetPasswords ? (
                         <button className="button ghost" onClick={() => setResetTarget(user)} type="button">Resetear contrasena</button>
                       ) : null}
-                      {(currentRole === "superusuario" || currentRole === "soporte") ? (
-                        <button className="button ghost" onClick={() => openSupportMode(user)} type="button">Modo soporte</button>
-                      ) : null}
+                      {(currentRole === "superusuario" || currentRole === "soporte") && normalizeRole(user.role) === "soporte"
+                        ? (
+                            <button className="button ghost" onClick={() => toggleSupportMode(user)} type="button">
+                              {user.support_mode_active ? "Desactivar soporte" : "Activar soporte"}
+                            </button>
+                          )
+                        : null}
                     </div>
                   </td>
                 </tr>
@@ -287,16 +297,16 @@ export function UsersPage() {
       {resetTarget ? (
         <div className="modal-backdrop" role="presentation">
           <div className="modal-card">
-            <h3>Resetear contrasena</h3>
-            <p>Asigna una contrasena manual o genera una temporal para {resetTarget.username}.</p>
+            <h3>Resetear contraseña</h3>
+            <p>Asigna una contraseña manual o genera una temporal para {resetTarget.username}.</p>
             <label>
-              Nueva contrasena
+              Nueva contraseña
               <div className="input-with-action">
                 <input
                   type={showResetPassword ? "text" : "password"}
                   value={resetPassword}
                   onChange={(event) => setResetPassword(event.target.value)}
-                  placeholder="Dejar vacio para generar"
+                  placeholder="Dejar vacío para generar"
                 />
                 <button className="button ghost input-action-button" onClick={() => setShowResetPassword((current) => !current)} type="button">
                   {showResetPassword ? "Ocultar" : "Mostrar"}

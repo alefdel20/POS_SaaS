@@ -1,6 +1,7 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
+const { ensureAutomaticReminders } = require("./reminderService");
 
 function computeDiscountedPrice(product) {
   if (
@@ -342,6 +343,15 @@ async function createSale(payload, user) {
       throw new ApiError(400, "Initial payment is required for credit sales");
     }
   }
+  if (payload.payment_method === "cash") {
+    const cashReceived = Number(payload.cash_received);
+    if (!payload.cash_received && payload.cash_received !== 0) {
+      throw new ApiError(400, "Cash received is required for cash sales");
+    }
+    if (Number.isNaN(cashReceived) || cashReceived <= 0) {
+      throw new ApiError(400, "Cash received must be greater than zero");
+    }
+  }
 
   const client = await pool.connect();
 
@@ -420,6 +430,10 @@ async function createSale(payload, user) {
     const saleType = payload.sale_type || "ticket";
     const subtotal = total;
     const initialPayment = Number(payload.initial_payment || 0);
+    const cashReceived = payload.payment_method === "cash" ? Number(payload.cash_received) : null;
+    if (payload.payment_method === "cash" && cashReceived < total) {
+      throw new ApiError(400, "Cash received must cover the sale total");
+    }
     const balanceDue = payload.payment_method === "credit" ? Math.max(total - initialPayment, 0) : 0;
     const customerName = payload.customer?.name?.trim() || null;
     const customerPhone = payload.customer?.phone?.trim() || null;
@@ -587,6 +601,7 @@ async function createSale(payload, user) {
 
     await client.query("COMMIT");
     await recomputeDailyCut(sale.sale_date);
+    await ensureAutomaticReminders();
 
     return {
       sale,

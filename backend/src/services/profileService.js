@@ -8,6 +8,8 @@ function mapProfile(profile) {
     return null;
   }
 
+  const generalSettings = profile.general_settings || {};
+
   return {
     id: profile.id,
     profile_key: profile.profile_key,
@@ -16,10 +18,16 @@ function mapProfile(profile) {
     phone: profile.phone,
     email: profile.email,
     address: profile.address,
-    general_settings: profile.general_settings || {},
+    general_settings: generalSettings,
     bank_name: profile.bank_name,
     bank_clabe: profile.bank_clabe,
     bank_beneficiary: profile.bank_beneficiary,
+    card_terminal: generalSettings.card_terminal || null,
+    card_bank: generalSettings.card_bank || null,
+    card_instructions: generalSettings.card_instructions || null,
+    card_commission: generalSettings.card_commission === undefined || generalSettings.card_commission === null
+      ? null
+      : Number(generalSettings.card_commission),
     fiscal_rfc: profile.fiscal_rfc,
     fiscal_business_name: profile.fiscal_business_name,
     fiscal_regime: profile.fiscal_regime,
@@ -62,9 +70,13 @@ async function ensureDefaultProfile(client = pool) {
   return rows[0];
 }
 
-function ensureProfileManagementAccess(actor) {
+function ensureProfileManagementAccess(actor, section) {
   const actorRole = normalizeRole(actor?.role);
   if (!["superusuario", "admin"].includes(actorRole || "")) {
+    throw new ApiError(403, "Forbidden");
+  }
+
+  if (section === "stamps" && actorRole !== "superusuario") {
     throw new ApiError(403, "Forbidden");
   }
 }
@@ -74,7 +86,7 @@ async function getProfile() {
 }
 
 async function updateProfileSection(payload, actor, section) {
-  ensureProfileManagementAccess(actor);
+  ensureProfileManagementAccess(actor, section);
 
   const client = await pool.connect();
 
@@ -101,6 +113,9 @@ async function updateProfileSection(payload, actor, section) {
       stamps_used: Number(current.stamps_used || 0),
       stamp_alert_threshold: Number(current.stamp_alert_threshold || 10)
     };
+    const generalSettings = {
+      ...(current.general_settings || {})
+    };
 
     if (section === "general") {
       updates.owner_name = payload.owner_name ?? current.owner_name;
@@ -114,6 +129,10 @@ async function updateProfileSection(payload, actor, section) {
       updates.bank_name = payload.bank_name ?? current.bank_name;
       updates.bank_clabe = payload.bank_clabe ?? current.bank_clabe;
       updates.bank_beneficiary = payload.bank_beneficiary ?? current.bank_beneficiary;
+      generalSettings.card_terminal = payload.card_terminal ?? generalSettings.card_terminal ?? "";
+      generalSettings.card_bank = payload.card_bank ?? generalSettings.card_bank ?? "";
+      generalSettings.card_instructions = payload.card_instructions ?? generalSettings.card_instructions ?? "";
+      generalSettings.card_commission = payload.card_commission ?? generalSettings.card_commission ?? null;
     }
 
     if (section === "fiscal") {
@@ -142,18 +161,19 @@ async function updateProfileSection(payload, actor, section) {
            bank_name = $6,
            bank_clabe = $7,
            bank_beneficiary = $8,
-           fiscal_rfc = $9,
-           fiscal_business_name = $10,
-           fiscal_regime = $11,
-           fiscal_address = $12,
-           pac_provider = $13,
-           pac_mode = $14,
-           stamps_available = $15,
-           stamps_used = $16,
-           stamp_alert_threshold = $17,
-           updated_by = $18,
+           general_settings = $9,
+           fiscal_rfc = $10,
+           fiscal_business_name = $11,
+           fiscal_regime = $12,
+           fiscal_address = $13,
+           pac_provider = $14,
+           pac_mode = $15,
+           stamps_available = $16,
+           stamps_used = $17,
+           stamp_alert_threshold = $18,
+           updated_by = $19,
            updated_at = NOW()
-       WHERE id = $19
+       WHERE id = $20
        RETURNING *`,
       [
         updates.owner_name,
@@ -164,6 +184,7 @@ async function updateProfileSection(payload, actor, section) {
         updates.bank_name,
         updates.bank_clabe,
         updates.bank_beneficiary,
+        JSON.stringify(generalSettings),
         updates.fiscal_rfc,
         updates.fiscal_business_name,
         updates.fiscal_regime,

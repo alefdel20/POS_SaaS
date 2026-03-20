@@ -86,7 +86,7 @@ export function SalesPage() {
 
   useEffect(() => {
     loadProducts().catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el catalogo");
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el catálogo");
     });
     loadRecentSales().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar las ventas recientes");
@@ -99,7 +99,7 @@ export function SalesPage() {
   useEffect(() => {
     const delay = setTimeout(() => {
       loadProducts(search).catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : "No fue posible filtrar el catalogo");
+        setError(loadError instanceof Error ? loadError.message : "No fue posible filtrar el catálogo");
       });
     }, 250);
     return () => clearTimeout(delay);
@@ -122,10 +122,18 @@ export function SalesPage() {
   const hasAvailableStamps = Number(profile?.stamps_available || 0) > 0;
   const canUseInvoice = hasFiscalProfile;
   const invoiceBlockedByStamps = canUseInvoice && !hasAvailableStamps;
+  const hasValidCashReceived = paymentMethod !== "cash"
+    || (cashReceived.trim() !== "" && cashReceivedAmount > 0 && cashReceivedAmount >= total);
   const transferDetails = {
     bank: profile?.bank_name || "-",
     clabe: profile?.bank_clabe || "-",
     beneficiary: profile?.bank_beneficiary || "-"
+  };
+  const cardDetails = {
+    terminal: profile?.card_terminal || "",
+    bank: profile?.card_bank || "",
+    instructions: profile?.card_instructions || "",
+    commission: profile?.card_commission ?? null
   };
 
   useEffect(() => {
@@ -173,7 +181,15 @@ export function SalesPage() {
 
   async function confirmSale() {
     if (!token || cart.length === 0) return;
-    if (paymentMethod === "cash" && cashReceived.trim() !== "" && cashReceivedAmount < total) {
+    if (paymentMethod === "cash" && cashReceived.trim() === "") {
+      setError("Debes capturar el dinero recibido");
+      return;
+    }
+    if (paymentMethod === "cash" && cashReceivedAmount <= 0) {
+      setError("El dinero recibido debe ser mayor a cero");
+      return;
+    }
+    if (paymentMethod === "cash" && cashReceivedAmount < total) {
       setError("El dinero recibido no cubre el total");
       return;
     }
@@ -193,6 +209,7 @@ export function SalesPage() {
         token,
         body: JSON.stringify({
           payment_method: paymentMethod,
+          cash_received: paymentMethod === "cash" ? cashReceivedAmount : undefined,
           sale_type: saleType,
           customer: paymentMethod === "credit" ? {
             name: customerName,
@@ -248,7 +265,7 @@ export function SalesPage() {
         <div className="panel-header">
           <div>
             <h2>Ventas retail</h2>
-            <p className="muted">Busca por nombre, SKU, codigo de barras o proveedor.</p>
+            <p className="muted">Busca por nombre, SKU, código de barras o proveedor.</p>
           </div>
           <input
             className="search-input"
@@ -359,11 +376,11 @@ export function SalesPage() {
           </div>
           <button
             className="button"
-            disabled={saleType === "invoice" && (!canUseInvoice || invoiceBlockedByStamps)}
+            disabled={(saleType === "invoice" && (!canUseInvoice || invoiceBlockedByStamps)) || !hasValidCashReceived || cart.length === 0}
             onClick={confirmSale}
             type="button"
           >
-            Confirmar venta
+            Finalizar venta
           </button>
         </div>
 
@@ -375,8 +392,8 @@ export function SalesPage() {
 
         {invoiceBlockedByStamps ? (
           <div className="warning-box">
-            <p>No es posible emitir factura en este momento.</p>
-            <p>El saldo de timbres esta en cero. Recarga timbres en Configuracion &gt; Facturacion para continuar.</p>
+            <p>Facturación no disponible (sin timbres).</p>
+            <p>El saldo de timbres está en cero. Recarga timbres en Configuración &gt; Facturación para continuar.</p>
             <p>Timbres restantes: {profile?.stamps_available || 0}</p>
           </div>
         ) : null}
@@ -395,13 +412,30 @@ export function SalesPage() {
               <strong>{currency(total)}</strong>
             </div>
             <label>
-              Dinero recibido
+              Dinero recibido *
               <input min="0" step="0.01" type="number" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} />
             </label>
+            {!hasValidCashReceived ? <p className="error-text">Captura un monto igual o mayor al total para finalizar la venta.</p> : null}
             <div className="total-box secondary">
               <span>Cambio</span>
               <strong>{currency(cashChange)}</strong>
             </div>
+          </div>
+        ) : null}
+
+        {paymentMethod === "card" ? (
+          <div className="info-card">
+            <h3>Cobro con tarjeta</h3>
+            {cardDetails.terminal || cardDetails.bank || cardDetails.instructions || cardDetails.commission !== null ? (
+              <>
+                <p>Terminal: {cardDetails.terminal || "-"}</p>
+                <p>Banco: {cardDetails.bank || "-"}</p>
+                <p>Comisión: {cardDetails.commission !== null ? `${Number(cardDetails.commission).toFixed(2)}%` : "-"}</p>
+                <p>Instrucciones: {cardDetails.instructions || "-"}</p>
+              </>
+            ) : (
+              <p>No hay información de cobro con tarjeta configurada.</p>
+            )}
           </div>
         ) : null}
 
@@ -417,11 +451,11 @@ export function SalesPage() {
         {paymentMethod === "credit" ? (
           <div className="form-section-grid">
             <label>
-              Nombre del comprador
+              Nombre del comprador *
               <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
             </label>
             <label>
-              Telefono
+              Teléfono *
               <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
             </label>
             <label>
@@ -444,15 +478,15 @@ export function SalesPage() {
                 <input value={invoiceData.client_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, client_rfc: event.target.value })} />
               </label>
               <label>
-                Nombre o razon social
+                Nombre o razón social
                 <input value={invoiceData.client_name} onChange={(event) => setInvoiceData({ ...invoiceData, client_name: event.target.value })} />
               </label>
               <label>
-                Correo electronico
+                Correo electrónico
                 <input value={invoiceData.client_email} onChange={(event) => setInvoiceData({ ...invoiceData, client_email: event.target.value })} />
               </label>
               <label>
-                Telefono
+                Teléfono
                 <input value={invoiceData.client_phone} onChange={(event) => setInvoiceData({ ...invoiceData, client_phone: event.target.value })} />
               </label>
               <label>
@@ -460,7 +494,7 @@ export function SalesPage() {
                 <input value={invoiceData.cfdi_use} onChange={(event) => setInvoiceData({ ...invoiceData, cfdi_use: event.target.value })} />
               </label>
               <label>
-                Regimen fiscal receptor
+                Régimen fiscal receptor
                 <input value={invoiceData.client_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, client_tax_regime: event.target.value })} />
               </label>
             </div>

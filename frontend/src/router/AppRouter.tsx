@@ -15,6 +15,7 @@ import { RemindersPage } from "../pages/RemindersPage";
 import { SalesHistoryPage } from "../pages/SalesHistoryPage";
 import { SalesPage } from "../pages/SalesPage";
 import { UsersPage } from "../pages/UsersPage";
+import { SuppliersPage } from "../pages/SuppliersPage";
 import { getDefaultRouteForRole } from "../utils/roles";
 import { Navigate } from "react-router-dom";
 
@@ -43,6 +44,7 @@ export function AppRouter() {
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/products" element={<ProductsPage />} />
+              <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/remate" element={<RematePage />} />
               <Route path="/sales-history" element={<SalesHistoryPage />} />
               <Route path="/credit-collections" element={<CreditCollectionsPage />} />

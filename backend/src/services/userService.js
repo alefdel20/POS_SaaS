@@ -479,6 +479,10 @@ async function setSupportMode(targetUserId, actor, nextState, reason = "") {
     throw new ApiError(403, "Support users can only manage their own support mode");
   }
 
+  if (nextState && !target.is_active) {
+    throw new ApiError(409, "Support mode requires an active user");
+  }
+
   if (target.support_mode_active === nextState) {
     return sanitizeUser(target);
   }

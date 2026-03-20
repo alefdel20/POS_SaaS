@@ -11,6 +11,8 @@ type ProductSupplierFormState = {
   supplier_phone: string;
   supplier_whatsapp: string;
   supplier_observations: string;
+  purchase_cost: string;
+  cost_updated_at: string | null;
 };
 
 type ProductFormState = {
@@ -39,7 +41,9 @@ const emptySupplier: ProductSupplierFormState = {
   supplier_email: "",
   supplier_phone: "",
   supplier_whatsapp: "",
-  supplier_observations: ""
+  supplier_observations: "",
+  purchase_cost: "",
+  cost_updated_at: null
 };
 
 const emptyProduct: ProductFormState = {
@@ -80,7 +84,9 @@ function supplierToForm(supplier?: Supplier | null): ProductSupplierFormState {
     supplier_email: supplier?.email || "",
     supplier_phone: supplier?.phone || "",
     supplier_whatsapp: supplier?.whatsapp || "",
-    supplier_observations: supplier?.observations || ""
+    supplier_observations: supplier?.observations || "",
+    purchase_cost: supplier?.purchase_cost === null || supplier?.purchase_cost === undefined ? "" : String(supplier.purchase_cost),
+    cost_updated_at: supplier?.cost_updated_at || null
   };
 }
 
@@ -217,11 +223,11 @@ export function ProductsPage() {
       return;
     }
     if (Number.isNaN(price) || price < 0 || Number.isNaN(stock) || stock < 0 || Number.isNaN(costPrice) || costPrice < 0 || Number.isNaN(stockMinimo) || stockMinimo < 0) {
-      setError("Precio, costo, stock y stock minimo deben ser numericos validos");
+      setError("Precio, costo, stock y stock mínimo deben ser numéricos válidos");
       return;
     }
     if (form.discount_type && (discountValue === null || Number.isNaN(discountValue) || discountValue < 0)) {
-      setError("El valor del remate debe ser numerico y valido");
+      setError("El valor del remate debe ser numérico y válido");
       return;
     }
     if ((form.discount_start && !form.discount_end) || (!form.discount_start && form.discount_end)) {
@@ -232,6 +238,8 @@ export function ProductsPage() {
     const normalizedSuppliers = form.suppliers
       .map((supplier) => {
         const matchedSupplier = resolveSupplierByName(supplier.supplier_name);
+        const purchaseCost = supplier.purchase_cost.trim() === "" ? null : Number(supplier.purchase_cost);
+
         return {
           supplier_id: supplier.supplier_id ? Number(supplier.supplier_id) : matchedSupplier?.id ?? undefined,
           supplier_name: supplier.supplier_name.trim(),
@@ -239,13 +247,40 @@ export function ProductsPage() {
           supplier_phone: supplier.supplier_phone.trim() || null,
           supplier_whatsapp: supplier.supplier_whatsapp.trim() || null,
           supplier_observations: supplier.supplier_observations.trim() || "",
+          purchase_cost: purchaseCost,
           is_primary: false
         };
       })
       .filter((supplier) => supplier.supplier_id || supplier.supplier_name);
 
+    const seenSupplierNames = new Set<string>();
+    const seenSupplierWhatsapps = new Set<string>();
+    for (const supplier of normalizedSuppliers) {
+      const normalizedName = supplier.supplier_name.toLowerCase();
+      const normalizedWhatsapp = String(supplier.supplier_whatsapp || "").replace(/\D/g, "");
+      if ((normalizedName && seenSupplierNames.has(normalizedName)) || (normalizedWhatsapp && seenSupplierWhatsapps.has(normalizedWhatsapp))) {
+        setError("No puedes asignar proveedores duplicados al mismo producto");
+        return;
+      }
+      if (supplier.purchase_cost !== null && (Number.isNaN(supplier.purchase_cost) || supplier.purchase_cost < 0)) {
+        setError("El costo de compra por proveedor debe ser numérico y válido");
+        return;
+      }
+      if (normalizedName) seenSupplierNames.add(normalizedName);
+      if (normalizedWhatsapp) seenSupplierWhatsapps.add(normalizedWhatsapp);
+    }
+
     if (!normalizedSuppliers.length) {
-      normalizedSuppliers.push({ ...emptySupplier, supplier_name: "", is_primary: true });
+      normalizedSuppliers.push({
+        supplier_id: undefined,
+        supplier_name: "",
+        supplier_email: null,
+        supplier_phone: null,
+        supplier_whatsapp: null,
+        supplier_observations: "",
+        purchase_cost: null,
+        is_primary: true
+      });
     } else {
       normalizedSuppliers[0].is_primary = true;
     }
@@ -346,7 +381,7 @@ export function ProductsPage() {
         <div className="panel-header">
           <div>
             <h2>Resumen de remate</h2>
-            <p className="muted">Productos con baja rotacion, proximos a vencer o con remate activo.</p>
+            <p className="muted">Productos con baja rotación, próximos a vencer o con remate activo.</p>
           </div>
         </div>
         <div className="table-wrap">
@@ -369,9 +404,9 @@ export function ProductsPage() {
                   <td>
                     {product.has_active_discount ? "Remate activo" : ""}
                     {product.has_active_discount && (product.is_low_rotation || product.is_near_expiry) ? " + " : ""}
-                    {product.is_low_rotation ? "Baja rotacion" : ""}
+                    {product.is_low_rotation ? "Baja rotación" : ""}
                     {product.is_low_rotation && product.is_near_expiry ? " + " : ""}
-                    {product.is_near_expiry ? "Proximo a vencer" : ""}
+                    {product.is_near_expiry ? "Próximo a vencer" : ""}
                   </td>
                   <td>{currency(product.price)}</td>
                   <td>{currency(product.effective_price ?? product.price)}</td>
@@ -418,7 +453,7 @@ export function ProductsPage() {
             <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required />
           </label>
           <label>
-            Categoria
+            Categoría
             <input
               list="product-category-options"
               value={form.category}
@@ -434,7 +469,7 @@ export function ProductsPage() {
             ))}
           </datalist>
           <label>
-            Codigo de barras
+            Código de barras
             <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
           </label>
           <label>
@@ -445,7 +480,7 @@ export function ProductsPage() {
             </select>
           </label>
           <label className="form-span-2">
-            Descripcion
+            Descripción
             <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
           </label>
           <label>
@@ -461,7 +496,7 @@ export function ProductsPage() {
             <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
           </label>
           <label>
-            {requiredLabel("Stock minimo")}
+            {requiredLabel("Stock mínimo")}
             <input type="number" min="0" step="0.01" value={form.stock_minimo} onChange={(event) => setForm({ ...form, stock_minimo: event.target.value })} required />
           </label>
           <label>
@@ -512,7 +547,7 @@ export function ProductsPage() {
             onClick={() => setForm((current) => ({ ...current, suppliers: [...current.suppliers, { ...emptySupplier }] }))}
             type="button"
           >
-            Agregar proveedor
+            Agregar otro proveedor
           </button>
         </div>
         <div className="product-form-grid product-form-grid-wide">
@@ -550,7 +585,9 @@ export function ProductsPage() {
                         supplier_email: matchedSupplier?.email || "",
                         supplier_phone: matchedSupplier?.phone || "",
                         supplier_whatsapp: matchedSupplier?.whatsapp || "",
-                        supplier_observations: matchedSupplier?.observations || ""
+                        supplier_observations: matchedSupplier?.observations || "",
+                        purchase_cost: supplier.purchase_cost,
+                        cost_updated_at: supplier.cost_updated_at
                       });
                       loadSuppliers(value).catch(console.error);
                     }}
@@ -558,21 +595,36 @@ export function ProductsPage() {
                   />
                 </label>
                 <label>
+                  WhatsApp proveedor
+                  <input value={supplier.supplier_whatsapp} onChange={(event) => updateSupplier(index, { ...supplier, supplier_whatsapp: event.target.value })} />
+                </label>
+                <label>
                   Correo proveedor
                   <input type="email" value={supplier.supplier_email} onChange={(event) => updateSupplier(index, { ...supplier, supplier_email: event.target.value })} />
                 </label>
                 <label>
-                  Telefono proveedor
+                  Teléfono proveedor
                   <input value={supplier.supplier_phone} onChange={(event) => updateSupplier(index, { ...supplier, supplier_phone: event.target.value })} />
                 </label>
                 <label>
-                  WhatsApp proveedor
-                  <input value={supplier.supplier_whatsapp} onChange={(event) => updateSupplier(index, { ...supplier, supplier_whatsapp: event.target.value })} />
+                  Costo de compra
+                  <input
+                    min="0"
+                    step="0.01"
+                    type="number"
+                    value={supplier.purchase_cost}
+                    onChange={(event) => updateSupplier(index, { ...supplier, purchase_cost: event.target.value })}
+                  />
                 </label>
                 <label className="form-span-2">
                   Observaciones proveedor
                   <textarea value={supplier.supplier_observations} onChange={(event) => updateSupplier(index, { ...supplier, supplier_observations: event.target.value })} />
                 </label>
+                {supplier.cost_updated_at ? (
+                  <p className="muted form-span-2">
+                    Última actualización de costo: {shortDateTime(supplier.cost_updated_at)}
+                  </p>
+                ) : null}
               </div>
             </div>
           ))}
@@ -591,13 +643,13 @@ export function ProductsPage() {
       <div className="panel">
         <div className="panel-header product-catalog-header">
           <div>
-            <h2>Catalogo administrativo</h2>
-            <p className="muted">Buscador, paginacion y alertas por stock minimo.</p>
+            <h2>Catálogo administrativo</h2>
+            <p className="muted">Buscador, paginación y alertas por stock mínimo.</p>
           </div>
           <div className="inline-actions">
             <input
               className="search-input"
-              placeholder="Buscar por nombre, SKU, categoria o proveedor"
+              placeholder="Buscar por nombre, SKU, categoría o proveedor"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -615,7 +667,7 @@ export function ProductsPage() {
                 <th>Nombre</th>
                 <th>Proveedores</th>
                 <th>SKU</th>
-                <th>Categoria</th>
+                <th>Categoría</th>
                 <th>Precio</th>
                 <th>Stock</th>
                 <th>Estado</th>
