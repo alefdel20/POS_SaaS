@@ -200,17 +200,17 @@ async function syncProductSuppliers(productId, payload, client = pool) {
   }
 
   await client.query(
-    `DELETE FROM product_suppliers
-     WHERE product_id = $1
-       AND supplier_id <> ALL($2::int[])`,
-    [productId, resolvedSupplierIds]
+      `DELETE FROM product_suppliers 
+      WHERE product_id = $1 
+        AND supplier_id <> ALL($2::int[])`,
+    [productId, resolvedSupplierIds.length > 0 ? resolvedSupplierIds : []]
   );
 
   await client.query(
     `UPDATE product_suppliers
      SET is_primary = supplier_id = $2
      WHERE product_id = $1`,
-    [productId, resolvedSupplierIds[0]]
+    [productId, resolvedSupplierIds[0] || null]
   );
 
   return resolvedSupplierIds[0] || null;
