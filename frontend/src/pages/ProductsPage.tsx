@@ -477,6 +477,20 @@ export function ProductsPage() {
     setError("");
   }
 
+  function resetProductEditor() {
+    setEditingId(null);
+    setForm(emptyProduct);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("edit");
+      next.delete("search");
+      return next;
+    });
+    setSupplierDrafts([]);
+    setShowSuppliersModal(false);
+    setError("");
+  }
+
   async function toggleProductStatus(product: Product) {
     if (!token) return;
 
@@ -563,18 +577,7 @@ export function ProductsPage() {
           {editingId ? (
             <button
               className="button ghost"
-              onClick={() => {
-                setEditingId(null);
-                setForm(emptyProduct);
-                setSearchParams((current) => {
-                  const next = new URLSearchParams(current);
-                  next.delete("edit");
-                  next.delete("search");
-                  return next;
-                });
-                setSupplierDrafts([]);
-                setShowSuppliersModal(false);
-              }}
+              onClick={resetProductEditor}
               type="button"
             >
               Cancelar
@@ -698,13 +701,7 @@ export function ProductsPage() {
           </button>
         </div>
         <div className="product-form-grid product-form-grid-wide">
-          <div className="info-card form-span-2">
-            <div className="panel-header">
-              <div>
-                <h3>Proveedor principal</h3>
-              </div>
-            </div>
-            <div className="product-form-grid product-form-grid-wide">
+          
               <label>
                 Nombre proveedor
                 <input
@@ -772,8 +769,8 @@ export function ProductsPage() {
                   Última actualización de costo: {shortDateTime(form.suppliers[0]?.cost_updated_at)}
                 </p>
               ) : null}
-            </div>
-          </div>
+          
+          
           <datalist id="supplier-options">
             {suppliers.map((supplier) => (
               <option key={supplier.id} value={supplier.name} />
@@ -897,6 +894,7 @@ export function ProductsPage() {
             <p className="muted">Buscador, paginación y alertas por stock mínimo.</p>
           </div>
           <div className="inline-actions">
+            <button className="button" onClick={resetProductEditor} type="button">Nuevo producto</button>
             <input
               className="search-input"
               placeholder="Buscar por nombre, SKU, categoría o proveedor"

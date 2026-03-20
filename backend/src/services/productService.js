@@ -336,36 +336,24 @@ async function syncProductSuppliers(productId, payload, client = pool) {
   }
 
   const resolvedSupplierIds = [];
-  const seenKeys = new Set();
-  const seenNames = new Set();
-  const seenWhatsapps = new Set();
   for (const [index, supplierEntry] of supplierEntries.entries()) {
-    const normalizedName = supplierEntry.supplier_name.toLowerCase();
-    const normalizedWhatsapp = (supplierEntry.supplier_whatsapp || "").replace(/\D/g, "");
-    const duplicateKey = supplierEntry.supplier_id
-      ? `id:${supplierEntry.supplier_id}`
-      : `meta:${normalizedName}|${normalizedWhatsapp}`;
-    if (
-      seenKeys.has(duplicateKey)
-      || (normalizedName && seenNames.has(normalizedName))
-      || (normalizedWhatsapp && seenWhatsapps.has(normalizedWhatsapp))
-    ) {
-      throw new ApiError(409, "Duplicate supplier assignment");
-    }
-    seenKeys.add(duplicateKey);
-    if (normalizedName) seenNames.add(normalizedName);
-    if (normalizedWhatsapp) seenWhatsapps.add(normalizedWhatsapp);
-
     const supplierId = await ensureSupplierReference({
       ...supplierEntry,
       supplier_id: supplierEntry.supplier_id || undefined
     }, client);
 
-    if (!supplierId || resolvedSupplierIds.includes(supplierId)) {
+    if (!supplierId) {
       continue;
     }
 
-    resolvedSupplierIds.push(supplierId);
+    if (resolvedSupplierIds.includes(supplierId)) {
+      throw new ApiError(409, "Duplicate supplier assignment");
+    }
+
+    if (!resolvedSupplierIds.includes(supplierId)) {
+      resolvedSupplierIds.push(supplierId);
+    }
+
     await client.query(
       `INSERT INTO product_suppliers (product_id, supplier_id, is_primary, purchase_cost, cost_updated_at)
        VALUES ($1, $2, $3, $4::numeric, CASE WHEN $4::numeric IS NULL THEN NULL ELSE NOW() END)
@@ -381,21 +369,26 @@ async function syncProductSuppliers(productId, payload, client = pool) {
     );
   }
 
+  if (!resolvedSupplierIds.length) {
+    await client.query("DELETE FROM product_suppliers WHERE product_id = $1", [productId]);
+    return null;
+  }
+
   await client.query(
       `DELETE FROM product_suppliers 
       WHERE product_id = $1 
         AND supplier_id <> ALL($2::int[])`,
-    [productId, resolvedSupplierIds.length > 0 ? resolvedSupplierIds : []]
+    [productId, resolvedSupplierIds]
   );
 
   await client.query(
     `UPDATE product_suppliers
      SET is_primary = supplier_id = $2
      WHERE product_id = $1`,
-    [productId, resolvedSupplierIds[0] || null]
+    [productId, resolvedSupplierIds[0]]
   );
 
-  return resolvedSupplierIds[0] || null;
+  return resolvedSupplierIds[0];
 }
 
 function buildEffectivePriceCase() {

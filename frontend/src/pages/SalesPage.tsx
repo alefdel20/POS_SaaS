@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { CompanyProfile, Product, Sale, SaleReceipt } from "../types";
+import type { CompanyProfile, Product, Sale, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { isManagementRole } from "../utils/roles";
@@ -18,6 +18,11 @@ interface QuickProductFormState {
   stock: string;
   category: string;
   barcode: string;
+  supplier_name: string;
+  supplier_phone: string;
+  supplier_whatsapp: string;
+  supplier_email: string;
+  supplier_observations: string;
 }
 
 const emptyInvoiceData = {
@@ -39,7 +44,12 @@ const emptyQuickProduct: QuickProductFormState = {
   cost_price: "",
   stock: "",
   category: "",
-  barcode: ""
+  barcode: "",
+  supplier_name: "",
+  supplier_phone: "",
+  supplier_whatsapp: "",
+  supplier_email: "",
+  supplier_observations: ""
 };
 
 export function SalesPage() {
@@ -63,6 +73,7 @@ export function SalesPage() {
   const [invoiceData, setInvoiceData] = useState(emptyInvoiceData);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [quickProductForm, setQuickProductForm] = useState<QuickProductFormState>(emptyQuickProduct);
+  const [quickSupplierOptions, setQuickSupplierOptions] = useState<Supplier[]>([]);
   const [quickProductError, setQuickProductError] = useState("");
   const [quickProductSaving, setQuickProductSaving] = useState(false);
 
@@ -86,6 +97,16 @@ export function SalesPage() {
     if (!token) return;
     const response = await apiRequest<CompanyProfile>("/profile", { token });
     setProfile(response);
+  }
+
+  async function loadSupplierOptions(term = "") {
+    if (!token) return;
+    const params = new URLSearchParams();
+    if (term.trim()) {
+      params.set("search", term.trim());
+    }
+    const response = await apiRequest<Supplier[]>(`/products/suppliers?${params.toString()}`, { token });
+    setQuickSupplierOptions(response);
   }
 
   function resetSaleForm() {
@@ -176,6 +197,27 @@ export function SalesPage() {
     }
   }, [canUseInvoice, invoiceBlockedByStamps, saleType]);
 
+  useEffect(() => {
+    const supplierName = quickProductForm.supplier_name.trim().toLowerCase();
+    if (!supplierName) {
+      return;
+    }
+
+    const matchedSupplier = quickSupplierOptions.find((supplier) => supplier.name.toLowerCase() === supplierName);
+    if (!matchedSupplier) {
+      return;
+    }
+
+    setQuickProductForm((current) => ({
+      ...current,
+      supplier_name: matchedSupplier.name,
+      supplier_email: matchedSupplier.email || "",
+      supplier_phone: matchedSupplier.phone || "",
+      supplier_whatsapp: matchedSupplier.whatsapp || "",
+      supplier_observations: matchedSupplier.observations || ""
+    }));
+  }, [quickProductForm.supplier_name, quickSupplierOptions]);
+
   function addToCart(product: Product) {
     if (product.status === "inactivo" || !product.is_active) {
       setError("Producto inactivo, contactar proveedor");
@@ -198,6 +240,7 @@ export function SalesPage() {
       ...emptyQuickProduct,
       name: search.trim()
     });
+    loadSupplierOptions().catch(() => setQuickSupplierOptions([]));
     setQuickProductError("");
     setShowQuickAddModal(true);
   }
@@ -205,8 +248,35 @@ export function SalesPage() {
   function closeQuickAddModal() {
     setShowQuickAddModal(false);
     setQuickProductForm(emptyQuickProduct);
+    setQuickSupplierOptions([]);
     setQuickProductError("");
     setQuickProductSaving(false);
+  }
+
+  function handleQuickSupplierNameChange(value: string) {
+    setQuickProductForm((current) => ({
+      ...current,
+      supplier_name: value,
+      supplier_email: "",
+      supplier_phone: "",
+      supplier_whatsapp: "",
+      supplier_observations: ""
+    }));
+
+    loadSupplierOptions(value).catch(() => setQuickSupplierOptions([]));
+    const matchedSupplier = quickSupplierOptions.find((supplier) => supplier.name.toLowerCase() === value.trim().toLowerCase());
+    if (!matchedSupplier) {
+      return;
+    }
+
+    setQuickProductForm((current) => ({
+      ...current,
+      supplier_name: matchedSupplier.name,
+      supplier_email: matchedSupplier.email || "",
+      supplier_phone: matchedSupplier.phone || "",
+      supplier_whatsapp: matchedSupplier.whatsapp || "",
+      supplier_observations: matchedSupplier.observations || ""
+    }));
   }
 
   function updateQuantity(productId: number, quantity: number) {
@@ -264,6 +334,11 @@ export function SalesPage() {
           stock_maximo: stock,
           category: quickProductForm.category.trim(),
           barcode: sanitizedBarcode || undefined,
+          supplier_name: quickProductForm.supplier_name.trim() || undefined,
+          supplier_email: quickProductForm.supplier_email.trim() || undefined,
+          supplier_phone: quickProductForm.supplier_phone.trim() || undefined,
+          supplier_whatsapp: quickProductForm.supplier_whatsapp.trim() || undefined,
+          supplier_observations: quickProductForm.supplier_observations.trim() || undefined,
           status: "activo",
           is_active: true
         })
@@ -730,13 +805,56 @@ export function SalesPage() {
                 />
               </label>
               <label>
+                Nombre del proveedor
+                <input
+                  list="quick-supplier-options"
+                  value={quickProductForm.supplier_name}
+                  onChange={(event) => handleQuickSupplierNameChange(event.target.value)}
+                  placeholder="Selecciona o escribe un proveedor"
+                />
+              </label>
+              <label>
                 Codigo de barras
                 <input
                   value={quickProductForm.barcode}
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, barcode: event.target.value.replace(/[^A-Za-z0-9]/g, "") })}
                 />
               </label>
+              <label>
+                WhatsApp proveedor
+                <input
+                  value={quickProductForm.supplier_whatsapp}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, supplier_whatsapp: event.target.value })}
+                />
+              </label>
+              <label>
+                Teléfono proveedor
+                <input
+                  value={quickProductForm.supplier_phone}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, supplier_phone: event.target.value })}
+                />
+              </label>
+              <label>
+                Correo proveedor
+                <input
+                  type="email"
+                  value={quickProductForm.supplier_email}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, supplier_email: event.target.value })}
+                />
+              </label>
+              <label className="form-span-2">
+                Observaciones proveedor
+                <textarea
+                  value={quickProductForm.supplier_observations}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, supplier_observations: event.target.value })}
+                />
+              </label>
             </div>
+            <datalist id="quick-supplier-options">
+              {quickSupplierOptions.map((supplier) => (
+                <option key={supplier.id} value={supplier.name} />
+              ))}
+            </datalist>
             <div className="inline-actions modal-actions-end">
               <button className="button ghost" onClick={closeQuickAddModal} type="button">Cancelar</button>
               <button className="button" disabled={quickProductSaving} onClick={handleQuickProductSubmit} type="button">
