@@ -186,7 +186,7 @@ async function syncProductSuppliers(productId, payload, client = pool) {
     resolvedSupplierIds.push(supplierId);
     await client.query(
       `INSERT INTO product_suppliers (product_id, supplier_id, is_primary, purchase_cost, cost_updated_at)
-       VALUES ($1, $2, $3, $4, CASE WHEN $4 IS NULL THEN NULL ELSE NOW() END)
+       VALUES ($1, $2, $3, $4::numeric, CASE WHEN $4::numeric IS NULL THEN NULL ELSE NOW() END)
        ON CONFLICT (product_id, supplier_id)
        DO UPDATE SET
          is_primary = EXCLUDED.is_primary,
