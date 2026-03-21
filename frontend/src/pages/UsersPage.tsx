@@ -18,6 +18,21 @@ function generatePassword() {
   return Math.random().toString(36).slice(2, 8) + "A9!";
 }
 
+function isProtectedSupportUser(user: User) {
+  const role = normalizeRole(user.role);
+  const username = user.username.toLowerCase();
+  const email = user.email.toLowerCase();
+  const fullName = user.full_name.toLowerCase();
+
+  return role === "soporte"
+    && (
+      username.startsWith("soporte")
+      || email.startsWith("soporte+")
+      || email.endsWith("@ankode.local")
+      || fullName.startsWith("soporte")
+    );
+}
+
 export function UsersPage() {
   const { token, user: currentUser, refreshUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
@@ -287,7 +302,7 @@ export function UsersPage() {
                   <td>{user.full_name}</td>
                   <td>{user.username}</td>
                   <td>
-                    {canEditRoles ? (
+                    {canEditRoles && !isProtectedSupportUser(user) ? (
                       <select
                         value={normalizeRole(user.role) || "cajero"}
                         onChange={(event) => updateRole(user, event.target.value as Role)}
@@ -304,15 +319,15 @@ export function UsersPage() {
                   <td>{user.business_name || "-"}</td>
                   <td>{user.pos_type || "Otro"}</td>
                   <td>{user.is_active ? "Activo" : "Inactivo"}</td>
-                  <td>{user.must_change_password ? "Cambio requerido" : "Normal"}</td>
+                  <td>{isProtectedSupportUser(user) ? "Protegido" : user.must_change_password ? "Cambio requerido" : "Normal"}</td>
                   <td>
                     <div className="inline-actions">
-                      {currentRole !== "soporte" ? (
+                      {currentRole !== "soporte" && !isProtectedSupportUser(user) ? (
                         <button className="button ghost" onClick={() => toggleUserStatus(user)} type="button">
                           {user.is_active ? "Desactivar" : "Activar"}
                         </button>
                       ) : null}
-                      {canResetPasswords ? (
+                      {canResetPasswords && !isProtectedSupportUser(user) ? (
                         <button className="button ghost" onClick={() => setResetTarget(user)} type="button">Resetear contrasena</button>
                       ) : null}
                       {(currentRole === "superusuario" || currentRole === "soporte") && normalizeRole(user.role) === "soporte"

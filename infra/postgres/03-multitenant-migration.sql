@@ -12,6 +12,48 @@ CREATE TABLE IF NOT EXISTS businesses (
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS import_jobs (
+  id SERIAL PRIMARY KEY,
+  job_type VARCHAR(40) NOT NULL CHECK (job_type IN ('google_sheets', 'excel', 'n8n_sync')),
+  source_name VARCHAR(140) NOT NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'pending',
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  result JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS clients (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  email VARCHAR(120),
+  phone VARCHAR(40),
+  tax_id VARCHAR(60),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+  id SERIAL PRIMARY KEY,
+  report_type VARCHAR(60) NOT NULL,
+  report_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sync_logs (
+  id SERIAL PRIMARY KEY,
+  provider VARCHAR(40) NOT NULL CHECK (provider IN ('google_sheets', 'excel', 'n8n')),
+  direction VARCHAR(20) NOT NULL DEFAULT 'outbound',
+  status VARCHAR(30) NOT NULL DEFAULT 'pending',
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  response JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
 INSERT INTO businesses (name, slug, pos_type, is_active)
 SELECT 'Negocio Semilla', 'default', COALESCE((SELECT pos_type FROM users ORDER BY id ASC LIMIT 1), 'Otro'), TRUE
 WHERE NOT EXISTS (SELECT 1 FROM businesses WHERE slug = 'default');
@@ -33,6 +75,10 @@ ALTER TABLE company_stamp_movements ADD COLUMN IF NOT EXISTS business_id INTEGER
 ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS business_id INTEGER;
 ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS target_business_id INTEGER;
 ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS business_id INTEGER;
+ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS business_id INTEGER;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS business_id INTEGER;
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS business_id INTEGER;
+ALTER TABLE sync_logs ADD COLUMN IF NOT EXISTS business_id INTEGER;
 
 WITH seed AS (SELECT id FROM businesses WHERE slug = 'default')
 UPDATE users SET business_id = (SELECT id FROM seed) WHERE business_id IS NULL;
@@ -103,12 +149,6 @@ WHERE actor.id = support_access_logs.actor_user_id
   AND target.id = support_access_logs.target_user_id
   AND (support_access_logs.business_id IS NULL OR support_access_logs.target_business_id IS NULL);
 
-WITH seed AS (SELECT id FROM businesses WHERE slug = 'default')
-UPDATE audit_logs
-SET business_id = COALESCE(audit_logs.business_id, users.business_id, (SELECT id FROM seed))
-FROM users
-WHERE users.id = audit_logs.usuario_id AND audit_logs.business_id IS NULL;
-
 ALTER TABLE users ALTER COLUMN business_id SET NOT NULL;
 ALTER TABLE suppliers ALTER COLUMN business_id SET NOT NULL;
 ALTER TABLE products ALTER COLUMN business_id SET NOT NULL;
@@ -125,7 +165,6 @@ ALTER TABLE company_profiles ALTER COLUMN business_id SET NOT NULL;
 ALTER TABLE company_stamp_movements ALTER COLUMN business_id SET NOT NULL;
 ALTER TABLE support_access_logs ALTER COLUMN business_id SET NOT NULL;
 ALTER TABLE support_access_logs ALTER COLUMN target_business_id SET NOT NULL;
-ALTER TABLE audit_logs ALTER COLUMN business_id SET NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_cuts_business_cut_date ON daily_cuts(business_id, cut_date);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_products_business_sku ON products(business_id, UPPER(sku));

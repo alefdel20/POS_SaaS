@@ -37,6 +37,28 @@ function sanitizeUser(user) {
   return mapUser(safe);
 }
 
+function isProtectedSupportUser(user) {
+  if (!user) return false;
+  const role = normalizeRole(user.role);
+  const username = String(user.username || "").toLowerCase();
+  const email = String(user.email || "").toLowerCase();
+  const fullName = String(user.full_name || "").toLowerCase();
+
+  return role === "soporte"
+    && (
+      username.startsWith("soporte")
+      || email.startsWith("soporte+")
+      || email.endsWith("@ankode.local")
+      || fullName.startsWith("soporte")
+    );
+}
+
+function assertMutableUser(target, action = "modify") {
+  if (isProtectedSupportUser(target)) {
+    throw new ApiError(403, `Protected support user cannot be ${action}`);
+  }
+}
+
 async function getBusinessById(id, client = pool) {
   const { rows } = await client.query("SELECT * FROM businesses WHERE id = $1", [id]);
   return rows[0] || null;
@@ -202,6 +224,7 @@ async function createUser(payload, actor) {
 async function updateUser(id, payload, actor) {
   const current = await getScopedUser(id, actor);
   if (!current) throw new ApiError(404, "User not found");
+  assertMutableUser(current, "updated");
 
   const actorRole = normalizeRole(actor?.role);
   const nextRole = payload.role ? normalizeRole(payload.role) : current.role;
@@ -275,6 +298,7 @@ async function updateUser(id, payload, actor) {
 async function updateUserStatus(id, isActive, actor) {
   const current = await getScopedUser(id, actor);
   if (!current) throw new ApiError(404, "User not found");
+  assertMutableUser(current, "deactivated");
   if (!isSuperUser(actor) && current.role === "superusuario") throw new ApiError(403, "Forbidden");
 
   const client = await pool.connect();
@@ -312,6 +336,7 @@ async function resetUserPassword(targetUserId, payload, actor) {
   if (!isSuperUser(actor)) throw new ApiError(403, "Forbidden");
   const target = await getUserById(targetUserId);
   if (!target) throw new ApiError(404, "User not found");
+  assertMutableUser(target, "reset");
 
   const generatedPassword = payload.new_password?.trim() || crypto.randomBytes(6).toString("base64url");
   if (generatedPassword.length < 8) throw new ApiError(400, "Password must be at least 8 characters");
@@ -409,6 +434,7 @@ async function setSupportMode(targetUserId, actor, nextState, reason = "") {
   const target = await getScopedUser(targetUserId, actor);
   if (!target) throw new ApiError(404, "User not found");
   if (target.role !== "soporte") throw new ApiError(409, "Support mode is only available for soporte users");
+  if (!isProtectedSupportUser(target)) throw new ApiError(409, "Support mode is only available for protected support users");
   if (actorRole === "soporte" && actor.id !== targetUserId) throw new ApiError(403, "Support users can only manage their own support mode");
   if (nextState && !target.is_active) throw new ApiError(409, "Support mode requires an active user");
   if (target.support_mode_active === nextState) return sanitizeUser(target);

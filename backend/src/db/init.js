@@ -219,9 +219,50 @@ async function ensureSchema(client) {
     )`,
     "ALTER TABLE company_stamp_movements ADD COLUMN IF NOT EXISTS business_id INTEGER",
 
+    `CREATE TABLE IF NOT EXISTS import_jobs (
+      id SERIAL PRIMARY KEY,
+      job_type VARCHAR(40) NOT NULL CHECK (job_type IN ('google_sheets', 'excel', 'n8n_sync')),
+      source_name VARCHAR(140) NOT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      result JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
     "ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
+    `CREATE TABLE IF NOT EXISTS clients (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(150) NOT NULL,
+      email VARCHAR(120),
+      phone VARCHAR(40),
+      tax_id VARCHAR(60),
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
+    `CREATE TABLE IF NOT EXISTS reports (
+      id SERIAL PRIMARY KEY,
+      report_type VARCHAR(60) NOT NULL,
+      report_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
+    `CREATE TABLE IF NOT EXISTS sync_logs (
+      id SERIAL PRIMARY KEY,
+      provider VARCHAR(40) NOT NULL CHECK (provider IN ('google_sheets', 'excel', 'n8n')),
+      direction VARCHAR(20) NOT NULL DEFAULT 'outbound',
+      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      response JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
     "ALTER TABLE sync_logs ADD COLUMN IF NOT EXISTS business_id INTEGER"
   ]);
 }
@@ -536,7 +577,7 @@ async function ensureConstraints(client) {
 
 async function ensureSupportUsers(client) {
   const { rows } = await client.query(
-    `SELECT id, slug
+    `SELECT id, slug, name, pos_type
      FROM businesses
      WHERE NOT EXISTS (
        SELECT 1
@@ -559,12 +600,13 @@ async function ensureSupportUsers(client) {
         is_active,
         must_change_password,
         password_changed_at
-      ) VALUES ($1, $2, $3, $4, 'soporte', 'Otro', $5, TRUE, TRUE, NOW())`,
+      ) VALUES ($1, $2, $3, $4, 'soporte', $5, $6, TRUE, TRUE, NOW())`,
       [
         `soporte_${business.slug}`,
         `soporte+${business.slug}@ankode.local`,
-        `Soporte ${business.slug}`,
+        `Soporte ${business.name}`,
         crypto.randomBytes(16).toString("hex"),
+        business.pos_type || "Otro",
         business.id
       ]
     );
