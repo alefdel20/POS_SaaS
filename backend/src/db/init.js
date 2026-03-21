@@ -261,10 +261,13 @@ async function backfillBusinessIds(client) {
   );
   await client.query(
     `UPDATE reminders
-     SET business_id = COALESCE(reminders.business_id, creator.business_id, assignee.business_id, $1)
-     FROM users creator
-     LEFT JOIN users assignee ON assignee.id = reminders.assigned_to
-     WHERE creator.id = reminders.created_by AND reminders.business_id IS NULL`,
+     SET business_id = COALESCE(
+       reminders.business_id,
+       (SELECT u.business_id FROM users u WHERE u.id = reminders.created_by),
+       (SELECT u.business_id FROM users u WHERE u.id = reminders.assigned_to),
+       $1
+     )
+     WHERE reminders.business_id IS NULL`,
     [businessId]
   );
   await client.query(
