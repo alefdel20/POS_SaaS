@@ -1,9 +1,11 @@
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
+
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
 const { ensureDatabaseCompatibility } = require("./db/init");
+
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
@@ -19,6 +21,7 @@ const businessRoutes = require("./routes/businessRoutes");
 
 const app = express();
 
+// DB
 const pool = new Pool({
   host: process.env.PGHOST || "chatbots-postgressql-pos-b8rlox",
   user: process.env.PGUSER,
@@ -32,25 +35,16 @@ pool.query("SELECT NOW()", (err) => {
   else console.log("✅ CONEXIÓN A POSTGRES EXITOSA");
 });
 
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
-}));
-
-app.options("*", (req, res) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  return res.sendStatus(204);
-});
-
+// CORS
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
+// Health
 app.get(["/health", "/api/health"], (req, res) => {
   res.json({ status: "ok" });
 });
 
+// Routes
 app.use(["/auth", "/api/auth"], authRoutes);
 app.use(["/users", "/api/users"], requireAuth, userRoutes);
 app.use(["/products", "/api/products"], requireAuth, productRoutes);
@@ -66,6 +60,7 @@ app.use(["/businesses", "/api/businesses"], requireAuth, businessRoutes);
 
 app.use(errorHandler);
 
+// 🔥 IMPORTANTE: puerto dinámico
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
@@ -75,17 +70,18 @@ async function startServer() {
     try {
       console.log("🛠️ Ejecutando ensureDatabaseCompatibility...");
       await ensureDatabaseCompatibility();
-      console.log("✅ ensureDatabaseCompatibility completado");
+      console.log("✅ DB OK");
     } catch (error) {
-      console.error("❌ DB compatibility error:", error);
-      console.error("⚠️ El servidor iniciará de todas formas para diagnóstico");
+      console.error("❌ DB compatibility error:", error.message);
+      console.error("⚠️ Continúa para diagnóstico");
     }
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`>>> SERVIDOR FUNCIONANDO EN PUERTO ${PORT} <<<`);
     });
+
   } catch (error) {
-    console.error("❌ Error fatal al iniciar servidor:", error);
+    console.error("❌ Error fatal:", error);
     process.exit(1);
   }
 }
