@@ -319,13 +319,6 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
   await client.query(
-    `UPDATE audit_logs
-     SET business_id = COALESCE(audit_logs.business_id, users.business_id, $1)
-     FROM users
-     WHERE users.id = audit_logs.usuario_id AND audit_logs.business_id IS NULL`,
-    [businessId]
-  );
-  await client.query(
     `UPDATE import_jobs
      SET business_id = COALESCE(import_jobs.business_id, users.business_id, $1)
      FROM users
@@ -367,7 +360,7 @@ async function backfillBusinessIds(client) {
     `UPDATE credit_payments SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE company_stamp_movements SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE support_access_logs SET business_id = ${businessId}, target_business_id = ${businessId} WHERE business_id IS NULL OR target_business_id IS NULL`,
-    `UPDATE audit_logs SET business_id = ${businessId} WHERE business_id IS NULL`
+    `SELECT 1`
   ]);
 }
 
@@ -382,7 +375,7 @@ async function ensureConstraints(client) {
   await client.query("ALTER TABLE sales DROP CONSTRAINT IF EXISTS fk_sales_stamp_movement");
   await client.query("ALTER TABLE sales ADD CONSTRAINT fk_sales_stamp_movement FOREIGN KEY (stamp_movement_id) REFERENCES company_stamp_movements(id)").catch(() => {});
 
-  const fks = ["users","suppliers","products","product_suppliers","sales","sale_items","credit_payments","daily_cuts","reminders","expenses","owner_loans","fixed_expenses","company_profiles","company_stamp_movements","audit_logs"];
+  const fks = ["users","suppliers","products","product_suppliers","sales","sale_items","credit_payments","daily_cuts","reminders","expenses","owner_loans","fixed_expenses","company_profiles","company_stamp_movements"];
   for (const table of fks) {
     await client.query(`ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`);
     await client.query(`ALTER TABLE ${table} ADD CONSTRAINT fk_${table}_business FOREIGN KEY (business_id) REFERENCES businesses(id)`).catch(() => {});
@@ -436,7 +429,6 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_company_profiles_business_id ON company_profiles(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_company_stamp_movements_business_id ON company_stamp_movements(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_support_access_logs_business_id ON support_access_logs(business_id)",
-    "CREATE INDEX IF NOT EXISTS idx_audit_logs_business_id ON audit_logs(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_support_access_logs_actor ON support_access_logs(actor_user_id)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_usuario_id ON audit_logs(usuario_id)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_modulo ON audit_logs(modulo)",
