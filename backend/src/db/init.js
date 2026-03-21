@@ -221,17 +221,17 @@ async function ensureSeedBusiness(client) {
   await client.query("UPDATE products SET stock_maximo = stock_minimo WHERE stock_maximo < stock_minimo");
   await client.query(
     `INSERT INTO businesses (name, slug, pos_type, is_active)
-     SELECT $1, $2,
+     SELECT $1::varchar, $2::varchar,
             COALESCE((
               SELECT pos_type
               FROM users
-              WHERE pos_type = ANY($3::text[])
+              WHERE pos_type = ANY($3::varchar[])
               GROUP BY pos_type
               ORDER BY COUNT(*) DESC, pos_type ASC
               LIMIT 1
             ), 'Otro'),
             TRUE
-     WHERE NOT EXISTS (SELECT 1 FROM businesses WHERE slug = $2)`,
+     WHERE NOT EXISTS (SELECT 1 FROM businesses WHERE slug = $2::varchar)`,
     [SEED_BUSINESS.name, SEED_BUSINESS.slug, POS_TYPES]
   );
 }
