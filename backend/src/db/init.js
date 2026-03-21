@@ -404,9 +404,10 @@ async function backfillBusinessIds(client) {
 async function ensureConstraints(client) {
   await run(client, [
     "ALTER TABLE daily_cuts DROP CONSTRAINT IF EXISTS daily_cuts_cut_date_key",
+    "ALTER TABLE products DROP CONSTRAINT IF EXISTS products_sku_key",
+    "ALTER TABLE products DROP CONSTRAINT IF EXISTS products_barcode_key",
+    "ALTER TABLE company_profiles DROP CONSTRAINT IF EXISTS uq_company_profiles_profile_key",
     "DROP INDEX IF EXISTS uq_company_profiles_profile_key",
-    "DROP INDEX IF EXISTS products_sku_key",
-    "DROP INDEX IF EXISTS products_barcode_key",
     "DROP INDEX IF EXISTS uq_reminders_source_key"
   ]);
 
@@ -433,12 +434,12 @@ async function ensureConstraints(client) {
   ];
 
   for (const table of fks) {
-    await client.query(`ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`);
+    await client.query(`ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`).catch(() => {});
     await client.query(`ALTER TABLE ${table} ADD CONSTRAINT fk_${table}_business FOREIGN KEY (business_id) REFERENCES businesses(id)`).catch(() => {});
   }
 
-  await client.query("ALTER TABLE support_access_logs ALTER COLUMN business_id SET NOT NULL");
-  await client.query("ALTER TABLE support_access_logs ALTER COLUMN target_business_id SET NOT NULL");
+  await client.query("ALTER TABLE support_access_logs ALTER COLUMN business_id SET NOT NULL").catch(() => {});
+  await client.query("ALTER TABLE support_access_logs ALTER COLUMN target_business_id SET NOT NULL").catch(() => {});
   await client.query("ALTER TABLE support_access_logs ADD CONSTRAINT fk_support_access_logs_business FOREIGN KEY (business_id) REFERENCES businesses(id)").catch(() => {});
   await client.query("ALTER TABLE support_access_logs ADD CONSTRAINT fk_support_access_logs_target_business FOREIGN KEY (target_business_id) REFERENCES businesses(id)").catch(() => {});
 
@@ -501,8 +502,8 @@ async function ensureConstraints(client) {
   await run(client, [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_company_profiles_business_profile_key ON company_profiles(business_id, profile_key)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_cuts_business_cut_date ON daily_cuts(business_id, cut_date)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_products_business_sku ON products(business_id, UPPER(sku))",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_products_business_barcode ON products(business_id, UPPER(barcode))",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_products_business_sku ON products(business_id, UPPER(sku)) WHERE sku IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_products_business_barcode ON products(business_id, UPPER(barcode)) WHERE barcode IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_reminders_business_source_key ON reminders(business_id, source_key) WHERE source_key IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_users_business_id ON users(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_suppliers_business_id ON suppliers(business_id)",
