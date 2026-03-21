@@ -33,10 +33,12 @@ async function ensureSchema(client) {
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_activated_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_deactivated_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_updated_by INTEGER REFERENCES users(id)",
+
     "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(40)",
     "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS observations TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'activo'",
@@ -49,6 +51,7 @@ async function ensureSchema(client) {
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS expires_at DATE",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo NUMERIC(12, 2) NOT NULL DEFAULT 0",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_maximo NUMERIC(12, 2)",
+
     `CREATE TABLE IF NOT EXISTS product_suppliers (
       id SERIAL PRIMARY KEY,
       product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -60,6 +63,7 @@ async function ensureSchema(client) {
       UNIQUE(product_id, supplier_id)
     )`,
     "ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS send_reminder BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_name VARCHAR(150)",
@@ -74,8 +78,10 @@ async function ensureSchema(client) {
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_status VARCHAR(30) NOT NULL DEFAULT 'not_applicable'",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_movement_id BIGINT",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb",
+
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0",
+
     `CREATE TABLE IF NOT EXISTS credit_payments (
       id SERIAL PRIMARY KEY,
       sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
@@ -86,9 +92,12 @@ async function ensureSchema(client) {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE credit_payments ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
     "ALTER TABLE daily_cuts ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
     "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS source_key VARCHAR(160)",
+
     `CREATE TABLE IF NOT EXISTS expenses (
       id SERIAL PRIMARY KEY,
       concept VARCHAR(180) NOT NULL,
@@ -107,6 +116,7 @@ async function ensureSchema(client) {
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS void_reason TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+
     `CREATE TABLE IF NOT EXISTS owner_loans (
       id SERIAL PRIMARY KEY,
       amount NUMERIC(12, 2) NOT NULL,
@@ -123,6 +133,7 @@ async function ensureSchema(client) {
     "ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS void_reason TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
     "ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+
     `CREATE TABLE IF NOT EXISTS fixed_expenses (
       id SERIAL PRIMARY KEY,
       name VARCHAR(180) NOT NULL,
@@ -139,6 +150,7 @@ async function ensureSchema(client) {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE fixed_expenses ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
     `CREATE TABLE IF NOT EXISTS support_access_logs (
       id SERIAL PRIMARY KEY,
       actor_user_id INTEGER NOT NULL REFERENCES users(id),
@@ -148,6 +160,7 @@ async function ensureSchema(client) {
     )`,
     "ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS target_business_id INTEGER",
+
     `CREATE TABLE IF NOT EXISTS audit_logs (
       id BIGSERIAL PRIMARY KEY,
       usuario_id INTEGER REFERENCES users(id),
@@ -162,6 +175,7 @@ async function ensureSchema(client) {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
     `CREATE TABLE IF NOT EXISTS company_profiles (
       id SERIAL PRIMARY KEY,
       profile_key VARCHAR(50) NOT NULL DEFAULT 'default',
@@ -190,6 +204,7 @@ async function ensureSchema(client) {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
     `CREATE TABLE IF NOT EXISTS company_stamp_movements (
       id BIGSERIAL PRIMARY KEY,
       company_profile_id INTEGER NOT NULL REFERENCES company_profiles(id),
@@ -203,6 +218,7 @@ async function ensureSchema(client) {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE company_stamp_movements ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
     "ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS business_id INTEGER",
@@ -219,6 +235,7 @@ async function ensureSeedBusiness(client) {
   await client.query("UPDATE products SET stock_maximo = 0 WHERE stock_maximo IS NULL");
   await client.query("ALTER TABLE products ALTER COLUMN stock_maximo SET NOT NULL");
   await client.query("UPDATE products SET stock_maximo = stock_minimo WHERE stock_maximo < stock_minimo");
+
   await client.query(
     `INSERT INTO businesses (name, slug, pos_type, is_active)
      SELECT $1::varchar, $2::varchar,
@@ -237,7 +254,11 @@ async function ensureSeedBusiness(client) {
 }
 
 async function backfillBusinessIds(client) {
-  const { rows } = await client.query("SELECT id FROM businesses WHERE slug = $1 LIMIT 1", [SEED_BUSINESS.slug]);
+  const { rows } = await client.query(
+    "SELECT id FROM businesses WHERE slug = $1 LIMIT 1",
+    [SEED_BUSINESS.slug]
+  );
+
   const businessId = rows[0].id;
 
   await run(client, [
@@ -256,9 +277,11 @@ async function backfillBusinessIds(client) {
     `UPDATE sales
      SET business_id = COALESCE(sales.business_id, users.business_id, $1)
      FROM users
-     WHERE users.id = sales.user_id AND sales.business_id IS NULL`,
+     WHERE users.id = sales.user_id
+       AND sales.business_id IS NULL`,
     [businessId]
   );
+
   await client.query(
     `UPDATE reminders
      SET business_id = COALESCE(
@@ -270,13 +293,16 @@ async function backfillBusinessIds(client) {
      WHERE reminders.business_id IS NULL`,
     [businessId]
   );
+
   await client.query(
     `UPDATE fixed_expenses
      SET business_id = COALESCE(fixed_expenses.business_id, users.business_id, $1)
      FROM users
-     WHERE users.id = fixed_expenses.created_by AND fixed_expenses.business_id IS NULL`,
+     WHERE users.id = fixed_expenses.created_by
+       AND fixed_expenses.business_id IS NULL`,
     [businessId]
   );
+
   await client.query(
     `UPDATE product_suppliers
      SET business_id = COALESCE(product_suppliers.business_id, products.business_id, suppliers.business_id, $1)
@@ -286,20 +312,25 @@ async function backfillBusinessIds(client) {
        AND product_suppliers.business_id IS NULL`,
     [businessId]
   );
+
   await client.query(
     `UPDATE sale_items
      SET business_id = COALESCE(sale_items.business_id, sales.business_id, $1)
      FROM sales
-     WHERE sales.id = sale_items.sale_id AND sale_items.business_id IS NULL`,
+     WHERE sales.id = sale_items.sale_id
+       AND sale_items.business_id IS NULL`,
     [businessId]
   );
+
   await client.query(
     `UPDATE credit_payments
      SET business_id = COALESCE(credit_payments.business_id, sales.business_id, $1)
      FROM sales
-     WHERE sales.id = credit_payments.sale_id AND credit_payments.business_id IS NULL`,
+     WHERE sales.id = credit_payments.sale_id
+       AND credit_payments.business_id IS NULL`,
     [businessId]
   );
+
   await client.query(
     `UPDATE company_stamp_movements
      SET business_id = COALESCE(company_stamp_movements.business_id, company_profiles.business_id, $1)
@@ -308,6 +339,7 @@ async function backfillBusinessIds(client) {
        AND company_stamp_movements.business_id IS NULL`,
     [businessId]
   );
+
   await client.query(
     `UPDATE support_access_logs
      SET business_id = COALESCE(support_access_logs.business_id, actor.business_id, target.business_id, $1),
@@ -315,23 +347,25 @@ async function backfillBusinessIds(client) {
      FROM users actor, users target
      WHERE actor.id = support_access_logs.actor_user_id
        AND target.id = support_access_logs.target_user_id
-       AND (support_access_logs.business_id IS NULL OR support_access_logs.target_business_id IS NULL)`,
+       AND (
+         support_access_logs.business_id IS NULL
+         OR support_access_logs.target_business_id IS NULL
+       )`,
     [businessId]
   );
-  await client.query(
-    `UPDATE import_jobs
-     SET business_id = COALESCE(import_jobs.business_id, users.business_id, $1)
-     FROM users
-     WHERE users.id = import_jobs.created_by AND import_jobs.business_id IS NULL`,
-    [businessId]
-  );
+
+  // import_jobs backfill omitido temporalmente:
+  // la base actual no garantiza que exista import_jobs.created_by
+
   await client.query(
     `UPDATE reports
      SET business_id = COALESCE(reports.business_id, users.business_id, $1)
      FROM users
-     WHERE users.id = reports.created_by AND reports.business_id IS NULL`,
+     WHERE users.id = reports.created_by
+       AND reports.business_id IS NULL`,
     [businessId]
   );
+
   await client.query(
     `INSERT INTO company_profiles (business_id, profile_key, general_settings, is_active)
      SELECT businesses.id, 'default', '{}'::jsonb, TRUE
@@ -343,6 +377,7 @@ async function backfillBusinessIds(client) {
          AND company_profiles.profile_key = 'default'
      )`
   );
+
   await client.query(
     `INSERT INTO product_suppliers (product_id, supplier_id, is_primary, purchase_cost, cost_updated_at, business_id)
      SELECT id, supplier_id, TRUE, cost_price, updated_at, business_id
@@ -350,16 +385,18 @@ async function backfillBusinessIds(client) {
      WHERE supplier_id IS NOT NULL
      ON CONFLICT (product_id, supplier_id) DO NOTHING`
   );
+
   await run(client, [
     `UPDATE reminders SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE fixed_expenses SET business_id = ${businessId} WHERE business_id IS NULL`,
-    `UPDATE import_jobs SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE reports SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE product_suppliers SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE sale_items SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE credit_payments SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE company_stamp_movements SET business_id = ${businessId} WHERE business_id IS NULL`,
-    `UPDATE support_access_logs SET business_id = ${businessId}, target_business_id = ${businessId} WHERE business_id IS NULL OR target_business_id IS NULL`,
+    `UPDATE support_access_logs
+       SET business_id = ${businessId}, target_business_id = ${businessId}
+     WHERE business_id IS NULL OR target_business_id IS NULL`,
     `SELECT 1`
   ]);
 }
@@ -372,14 +409,34 @@ async function ensureConstraints(client) {
     "DROP INDEX IF EXISTS products_barcode_key",
     "DROP INDEX IF EXISTS uq_reminders_source_key"
   ]);
-  await client.query("ALTER TABLE sales DROP CONSTRAINT IF EXISTS fk_sales_stamp_movement");
-  await client.query("ALTER TABLE sales ADD CONSTRAINT fk_sales_stamp_movement FOREIGN KEY (stamp_movement_id) REFERENCES company_stamp_movements(id)").catch(() => {});
 
-  const fks = ["users","suppliers","products","product_suppliers","sales","sale_items","credit_payments","daily_cuts","reminders","expenses","owner_loans","fixed_expenses","company_profiles","company_stamp_movements"];
+  await client.query("ALTER TABLE sales DROP CONSTRAINT IF EXISTS fk_sales_stamp_movement");
+  await client
+    .query("ALTER TABLE sales ADD CONSTRAINT fk_sales_stamp_movement FOREIGN KEY (stamp_movement_id) REFERENCES company_stamp_movements(id)")
+    .catch(() => {});
+
+  const fks = [
+    "users",
+    "suppliers",
+    "products",
+    "product_suppliers",
+    "sales",
+    "sale_items",
+    "credit_payments",
+    "daily_cuts",
+    "reminders",
+    "expenses",
+    "owner_loans",
+    "fixed_expenses",
+    "company_profiles",
+    "company_stamp_movements"
+  ];
+
   for (const table of fks) {
     await client.query(`ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`);
     await client.query(`ALTER TABLE ${table} ADD CONSTRAINT fk_${table}_business FOREIGN KEY (business_id) REFERENCES businesses(id)`).catch(() => {});
   }
+
   await client.query("ALTER TABLE support_access_logs ALTER COLUMN business_id SET NOT NULL");
   await client.query("ALTER TABLE support_access_logs ALTER COLUMN target_business_id SET NOT NULL");
   await client.query("ALTER TABLE support_access_logs ADD CONSTRAINT fk_support_access_logs_business FOREIGN KEY (business_id) REFERENCES businesses(id)").catch(() => {});
@@ -388,25 +445,58 @@ async function ensureConstraints(client) {
   await client.query(`
     DO $$
     BEGIN
-      IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_role_check' AND conrelid = 'users'::regclass) THEN
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'users_role_check'
+          AND conrelid = 'users'::regclass
+      ) THEN
         ALTER TABLE users DROP CONSTRAINT users_role_check;
       END IF;
-      ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'cajero', 'soporte'));
+
+      ALTER TABLE users
+      ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'cajero', 'soporte'));
     EXCEPTION WHEN duplicate_object THEN NULL;
-    END $$;`);
+    END $$;
+  `);
+
   await client.query(`
     DO $$
     BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'products_stock_maximo_check' AND conrelid = 'products'::regclass) THEN
-        ALTER TABLE products ADD CONSTRAINT products_stock_maximo_check CHECK (stock_maximo >= 0 AND stock_maximo >= stock_minimo);
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'products_stock_maximo_check'
+          AND conrelid = 'products'::regclass
+      ) THEN
+        ALTER TABLE products
+        ADD CONSTRAINT products_stock_maximo_check
+        CHECK (stock_maximo >= 0 AND stock_maximo >= stock_minimo);
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'company_profiles_pac_mode_check' AND conrelid = 'company_profiles'::regclass) THEN
-        ALTER TABLE company_profiles ADD CONSTRAINT company_profiles_pac_mode_check CHECK (pac_mode IN ('test', 'production'));
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'company_profiles_pac_mode_check'
+          AND conrelid = 'company_profiles'::regclass
+      ) THEN
+        ALTER TABLE company_profiles
+        ADD CONSTRAINT company_profiles_pac_mode_check
+        CHECK (pac_mode IN ('test', 'production'));
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'company_stamp_movements_type_check' AND conrelid = 'company_stamp_movements'::regclass) THEN
-        ALTER TABLE company_stamp_movements ADD CONSTRAINT company_stamp_movements_type_check CHECK (movement_type IN ('load', 'consume', 'adjustment', 'rollback', 'expire'));
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'company_stamp_movements_type_check'
+          AND conrelid = 'company_stamp_movements'::regclass
+      ) THEN
+        ALTER TABLE company_stamp_movements
+        ADD CONSTRAINT company_stamp_movements_type_check
+        CHECK (movement_type IN ('load', 'consume', 'adjustment', 'rollback', 'expire'));
       END IF;
-    END $$;`);
+    END $$;
+  `);
 
   await run(client, [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_company_profiles_business_profile_key ON company_profiles(business_id, profile_key)",
@@ -448,14 +538,26 @@ async function ensureSupportUsers(client) {
     `SELECT id, slug
      FROM businesses
      WHERE NOT EXISTS (
-       SELECT 1 FROM users WHERE users.business_id = businesses.id AND users.role = 'soporte'
+       SELECT 1
+       FROM users
+       WHERE users.business_id = businesses.id
+         AND users.role = 'soporte'
      )`
   );
 
   for (const business of rows) {
     await client.query(
       `INSERT INTO users (
-        username, email, full_name, password_hash, role, pos_type, business_id, is_active, must_change_password, password_changed_at
+        username,
+        email,
+        full_name,
+        password_hash,
+        role,
+        pos_type,
+        business_id,
+        is_active,
+        must_change_password,
+        password_changed_at
       ) VALUES ($1, $2, $3, $4, 'soporte', 'Otro', $5, TRUE, TRUE, NOW())`,
       [
         `soporte_${business.slug}`,
@@ -469,7 +571,8 @@ async function ensureSupportUsers(client) {
 
   await client.query(
     `UPDATE businesses
-     SET pos_type = source.pos_type, updated_at = NOW()
+     SET pos_type = source.pos_type,
+         updated_at = NOW()
      FROM (
        SELECT business_id, MAX(pos_type) AS pos_type
        FROM users
@@ -483,6 +586,7 @@ async function ensureSupportUsers(client) {
 
 async function ensureDatabaseCompatibility() {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
     await ensureSchema(client);
