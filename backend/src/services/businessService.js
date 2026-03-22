@@ -29,16 +29,31 @@ function resolveBusinessPayload(payload) {
 }
 
 async function listBusinesses(actor) {
-  const businessId = requireActorBusinessId(actor);
-  const { rows } = await pool.query(
-    `SELECT businesses.*, COUNT(users.id)::int AS user_count
-     FROM businesses
-     LEFT JOIN users ON users.business_id = businesses.id
-     WHERE businesses.id = $1
-     GROUP BY businesses.id
-     ORDER BY businesses.name ASC`,
-    [businessId]
-  );
+  let query;
+  let params = [];
+
+  // Si es superusuario, no filtramos por ID, traemos todos
+  if (isSuperUser(actor)) {
+    query = `
+      SELECT businesses.*, COUNT(users.id)::int AS user_count
+      FROM businesses
+      LEFT JOIN users ON users.business_id = businesses.id
+      GROUP BY businesses.id
+      ORDER BY businesses.name ASC`;
+  } else {
+    // Si no es superusuario, aplicamos el filtro de seguridad
+    const businessId = requireActorBusinessId(actor);
+    query = `
+      SELECT businesses.*, COUNT(users.id)::int AS user_count
+      FROM businesses
+      LEFT JOIN users ON users.business_id = businesses.id
+      WHERE businesses.id = $1
+      GROUP BY businesses.id
+      ORDER BY businesses.name ASC`;
+    params = [businessId];
+  }
+
+  const { rows } = await pool.query(query, params);
   return rows;
 }
 
