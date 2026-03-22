@@ -6,7 +6,7 @@ const poolConfig = {
   user: process.env.PGUSER,
   password: process.env.PGPASSWORD,
   database: process.env.PGDATABASE,
-  port: process.env.PGPORT || 5432,
+  port: Number(process.env.PGPORT || 5432),
 };
 
 const pool = new Pool(poolConfig);
@@ -31,7 +31,7 @@ const TENANT_TABLES = [
   "clients",
   "reports",
   "sync_logs",
-  "import_jobs"
+  "import_jobs",
 ];
 
 function normalizeSql(text) {
@@ -44,8 +44,24 @@ function touchesTenantTable(sql) {
 
 function shouldWarnMissingBusinessId(sql) {
   const normalized = normalizeSql(sql);
+
   if (!/^(select|insert|update|delete)\b/.test(normalized)) return false;
   if (!touchesTenantTable(normalized)) return false;
+
+  // Excluir algunas consultas técnicas de bootstrap/migración donde business_id
+  // puede no aparecer explícitamente todavía.
+  if (
+    normalized.includes("information_schema") ||
+    normalized.includes("pg_catalog") ||
+    normalized.includes("create table") ||
+    normalized.includes("alter table") ||
+    normalized.includes("create index") ||
+    normalized.includes("drop index") ||
+    normalized.includes("add constraint")
+  ) {
+    return false;
+  }
+
   return !/\bbusiness_id\b|\btarget_business_id\b/.test(normalized);
 }
 
@@ -55,7 +71,10 @@ function extractQueryPayload(text, params) {
   }
 
   if (text && typeof text === "object" && typeof text.text === "string") {
-    return { sql: text.text, values: Array.isArray(text.values) ? text.values : [] };
+    return {
+      sql: text.text,
+      values: Array.isArray(text.values) ? text.values : [],
+    };
   }
 
   return { sql: "", values: [] };
@@ -63,6 +82,7 @@ function extractQueryPayload(text, params) {
 
 function logQuery(source, sql, values) {
   if (!sql) return;
+
   console.log(`[SQL:${source}] ${sql}`);
   console.log(`[SQL:${source}:params] ${JSON.stringify(values)}`);
 
@@ -72,27 +92,23 @@ function logQuery(source, sql, values) {
 }
 
 function wrapQueryMethod(queryFn, source) {
-  return function wrappedQuery(...args) {
+  return async function wrappedQuery(...args) {
     const { sql, values } = extractQueryPayload(args[0], args[1]);
     logQuery(source, sql, values);
-    return queryFn(...args);
+
+    try {
+      return await queryFn(...args);
+    } catch (error) {
+      console.error(`[SQL:${source}:error] ${error.message}`);
+      throw error;
+    }
   };
 }
 
+// Solo envolvemos pool.query.
+// NO envolvemos pool.connect() ni mutamos client.query, porque eso fue lo que
+// probablemente rompió el backend en producción.
 const rawPoolQuery = pool.query.bind(pool);
 pool.query = wrapQueryMethod(rawPoolQuery, "pool");
-
-const rawPoolConnect = pool.connect.bind(pool);
-pool.connect = async function wrappedConnect(...args) {
-  const client = await rawPoolConnect(...args);
-  if (!client || typeof client.query !== "function") {
-    throw new Error("Failed to acquire database client");
-  }
-  if (!client.__tenantQueryWrapped) {
-    client.query = wrapQueryMethod(client.query.bind(client), "client");
-    client.__tenantQueryWrapped = true;
-  }
-  return client;
-};
 
 module.exports = pool;
