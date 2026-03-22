@@ -137,7 +137,11 @@ async function listUsers(actor) {
 }
 
 async function resolveTargetBusiness(payload, actor, client = pool) {
-  const businessId = requireActorBusinessId(actor);
+  // CORRECCIÓN: Si el payload trae business_id y eres SuperUser, se respeta ese ID.
+  // De lo contrario, se usa el ID del actor (comportamiento multi-tenant normal).
+  const businessId = (isSuperUser(actor) && payload.business_id) 
+    ? payload.business_id 
+    : requireActorBusinessId(actor);
 
   const business = await getBusinessById(businessId, client);
   if (!business) {
@@ -165,7 +169,8 @@ async function createUser(payload, actor) {
 
   try {
     await client.query("BEGIN");
-    const business = await resolveTargetBusiness({}, actor, client);
+    // CORRECCIÓN: Pasamos el payload completo para que resolveTargetBusiness sepa a qué negocio va el usuario
+    const business = await resolveTargetBusiness(payload, actor, client);
     const { rows } = await client.query(
       `INSERT INTO users (
         username, email, full_name, password_hash, role, pos_type, business_id,
@@ -225,7 +230,8 @@ async function updateUser(id, payload, actor) {
   try {
     await client.query("BEGIN");
     await ensureSuperuserRemains(current, nextRole, nextIsActive, client);
-    const business = await resolveTargetBusiness({}, actor, client);
+    // CORRECCIÓN: También permitimos cambio de negocio en actualización si es SuperUser
+    const business = await resolveTargetBusiness(payload, actor, client);
     const passwordHash = payload.password ? await bcrypt.hash(payload.password, 10) : current.password_hash;
 
     const { rows } = await client.query(
