@@ -32,6 +32,12 @@ const roleLabels: Record<Role, string> = {
 const errorTranslations: Record<string, string> = {
   "Request failed": "La solicitud falló",
   "Invalid credentials": "Credenciales inválidas",
+  "Business already exists": "El negocio ya existe",
+  "Business name is required": "El nombre del negocio es obligatorio",
+  "Business type is required": "El tipo de negocio es obligatorio",
+  "Business POS type is required": "El tipo de POS es obligatorio",
+  "POS type is required when business type is Otro": "Debes especificar el tipo de POS cuando el negocio es Otro",
+  "Invalid onboarding role": "Rol inválido para onboarding",
   "Authentication required": "Debes iniciar sesión",
   Forbidden: "No tienes permisos para entrar aqui",
   "Invalid session": "La sesión ya no es válida",

@@ -1,5 +1,6 @@
 export type Role = "superusuario" | "superadmin" | "admin" | "soporte" | "support" | "cajero" | "cashier" | "user";
-export type PosType = "Tlapaleria" | "Tienda" | "Farmacia" | "Papeleria" | "Otro";
+export type BusinessType = "Tienda" | "Tlapaleria" | "Farmacia" | "Veterinaria" | "Otro";
+export type PosType = string;
 
 export interface User {
   id: number;
@@ -296,6 +297,17 @@ export interface FinanceDashboard {
 export interface AuthResponse {
   token: string;
   user: User;
+}
+
+export interface RegisterBusinessPayload {
+  full_name: string;
+  business_name: string;
+  username: string;
+  email: string;
+  password: string;
+  role: "admin" | "superusuario";
+  business_type: BusinessType;
+  pos_type: string;
 }
 
 export interface PaginatedProductsResponse {

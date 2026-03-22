@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { AnkodeLogo } from "../components/AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
 import { getDefaultRouteForRole } from "../utils/roles";
@@ -64,6 +64,10 @@ export function LoginPage() {
             {loading ? "Entrando..." : "Iniciar sesion"}
           </button>
         </form>
+        <div className="auth-footer-links">
+          <span className="muted">Necesitas registrar un negocio nuevo?</span>
+          <Link className="auth-text-link" to="/register-business">Registrar negocio</Link>
+        </div>
       </div>
     </div>
   );

@@ -2,11 +2,14 @@ const { body } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const businessService = require("../services/businessService");
+const { BUSINESS_TYPE_OPTIONS, POS_TYPE_OPTIONS } = require("../utils/business");
 
 const createValidation = [
   body("name").trim().notEmpty(),
   body("slug").optional({ values: "falsy" }).trim(),
-  body("pos_type").isIn(["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"]),
+  body("business_type").optional({ values: "falsy" }).isIn(BUSINESS_TYPE_OPTIONS),
+  body("pos_type").optional({ values: "falsy" }).isIn(POS_TYPE_OPTIONS),
+  body("pos_type_manual").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
 

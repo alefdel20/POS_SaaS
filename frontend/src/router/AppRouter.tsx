@@ -10,6 +10,7 @@ import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { ProductsPage } from "../pages/ProductsPage";
+import { RegisterBusinessPage } from "../pages/RegisterBusinessPage";
 import { RematePage } from "../pages/RematePage";
 import { RemindersPage } from "../pages/RemindersPage";
 import { SalesHistoryPage } from "../pages/SalesHistoryPage";
@@ -31,6 +32,7 @@ export function AppRouter() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register-business" element={<RegisterBusinessPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<RoleHomeRedirect />} />

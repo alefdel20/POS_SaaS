@@ -303,6 +303,27 @@ td {
   background: rgba(15, 23, 42, 0.88);
 }
 
+.auth-card-wide {
+  width: min(760px, 100%);
+}
+
+.auth-grid-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.auth-footer-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.auth-text-link {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .login-branding {
   display: grid;
   justify-items: center;
@@ -733,6 +754,10 @@ td {
   .login-card {
     padding: 1.1rem;
     border-radius: 18px;
+  }
+
+  .auth-grid-form {
+    grid-template-columns: 1fr;
   }
 
   .login-brand-tagline {

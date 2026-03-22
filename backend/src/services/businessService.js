@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { isSuperUser, requireActorBusinessId } = require("../utils/tenant");
+const { resolveBusinessClassification } = require("../utils/business");
 
 function slugify(value) {
   return String(value || "")
@@ -11,6 +12,20 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
+}
+
+function resolveBusinessPayload(payload) {
+  const name = payload.name?.trim();
+  const classification = resolveBusinessClassification(payload);
+  const businessType = classification.business_type;
+  const posType = classification.pos_type?.trim();
+
+  if (!name) throw new ApiError(400, "Business name is required");
+  if (!businessType) throw new ApiError(400, "Business type is required");
+  if (businessType === "Otro" && !posType) throw new ApiError(400, "POS type is required when business type is Otro");
+  if (!posType) throw new ApiError(400, "Business POS type is required");
+
+  return { name, businessType, posType };
 }
 
 async function listBusinesses(actor) {
@@ -29,10 +44,7 @@ async function listBusinesses(actor) {
 
 async function createBusiness(payload, actor) {
   if (!isSuperUser(actor)) throw new ApiError(403, "Forbidden");
-  const name = payload.name?.trim();
-  const posType = payload.pos_type?.trim();
-  if (!name) throw new ApiError(400, "Business name is required");
-  if (!posType) throw new ApiError(400, "Business POS type is required");
+  const { name, businessType, posType } = resolveBusinessPayload(payload);
 
   const slugBase = slugify(payload.slug || name) || "negocio";
   const client = await pool.connect();
@@ -48,10 +60,10 @@ async function createBusiness(payload, actor) {
     }
 
     const { rows } = await client.query(
-      `INSERT INTO businesses (name, slug, pos_type, is_active, created_by, updated_by)
-       VALUES ($1, $2, $3, TRUE, $4, $4)
+      `INSERT INTO businesses (name, slug, business_type, pos_type, is_active, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, TRUE, $5, $5)
        RETURNING *`,
-      [name, slug, posType, actor.id]
+      [name, slug, businessType, posType, actor.id]
     );
     const business = rows[0];
     await client.query(

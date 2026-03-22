@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const pool = require("./pool");
 
-const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Papeleria", "Otro"];
+const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Otro"];
 const SEED_BUSINESS = { name: "Negocio Semilla", slug: "default" };
 
 async function run(client, statements) {
@@ -16,13 +16,14 @@ async function ensureSchema(client) {
       id SERIAL PRIMARY KEY,
       name VARCHAR(180) NOT NULL UNIQUE,
       slug VARCHAR(80) NOT NULL UNIQUE,
-      pos_type VARCHAR(40) NOT NULL CHECK (pos_type IN ('Tlapaleria', 'Tienda', 'Farmacia', 'Papeleria', 'Otro')),
+      pos_type VARCHAR(40) NOT NULL CHECK (pos_type IN ('Tlapaleria', 'Tienda', 'Farmacia', 'Veterinaria', 'Papeleria', 'Otro')),
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       created_by INTEGER REFERENCES users(id),
       updated_by INTEGER REFERENCES users(id),
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
+    "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS business_type VARCHAR(80)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
@@ -276,6 +277,7 @@ async function ensureSeedBusiness(client) {
   await client.query("UPDATE products SET stock_maximo = 0 WHERE stock_maximo IS NULL");
   await client.query("ALTER TABLE products ALTER COLUMN stock_maximo SET NOT NULL");
   await client.query("UPDATE products SET stock_maximo = stock_minimo WHERE stock_maximo < stock_minimo");
+  await client.query("UPDATE businesses SET business_type = COALESCE(business_type, pos_type) WHERE business_type IS NULL");
 
   await client.query(
     `INSERT INTO businesses (name, slug, pos_type, is_active)
@@ -487,6 +489,18 @@ async function ensureConstraints(client) {
   await client.query(`
     DO $$
     BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'businesses_pos_type_check'
+          AND conrelid = 'businesses'::regclass
+      ) THEN
+        ALTER TABLE businesses DROP CONSTRAINT businesses_pos_type_check;
+      END IF;
+
+      ALTER TABLE businesses
+      ADD CONSTRAINT businesses_pos_type_check CHECK (pos_type IN ('Tlapaleria', 'Tienda', 'Farmacia', 'Veterinaria', 'Papeleria', 'Otro'));
+
       IF EXISTS (
         SELECT 1
         FROM pg_constraint
