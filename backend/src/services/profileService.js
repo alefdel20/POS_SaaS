@@ -2,7 +2,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
-const { canBypassBusinessScope, requireActorBusinessId } = require("../utils/tenant");
+const { requireActorBusinessId } = require("../utils/tenant");
 
 function mapProfile(profile) {
   if (!profile) return null;
@@ -46,7 +46,7 @@ function ensureProfileManagementAccess(actor, section) {
 }
 
 function getTargetBusinessId(actor) {
-  return canBypassBusinessScope(actor) ? Number(actor?.business_id) : requireActorBusinessId(actor);
+  return requireActorBusinessId(actor);
 }
 
 async function getDefaultProfile(actor, client = pool) {

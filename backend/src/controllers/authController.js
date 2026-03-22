@@ -24,7 +24,7 @@ const me = asyncHandler(async (req, res) => {
 });
 
 const changePassword = asyncHandler(async (req, res) => {
-  res.json(await userService.changeOwnPassword(req.user.id, req.body));
+  res.json(await userService.changeOwnPassword(req.user.id, { ...req.body, actor: req.user }));
 });
 
 module.exports = {

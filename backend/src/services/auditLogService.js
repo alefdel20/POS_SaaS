@@ -12,6 +12,11 @@ function normalizeAuditDetail(detail) {
 async function saveAuditLog(payload, options = {}) {
   const client = options.client || pool;
   const strict = options.strict !== false;
+  const businessId = Number(payload?.business_id);
+
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new ApiError(500, "Audit log requires business context");
+  }
 
   try {
     const { rows } = await client.query(
@@ -30,7 +35,7 @@ async function saveAuditLog(payload, options = {}) {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`,
       [
-        payload.business_id || null,
+        businessId,
         payload.usuario_id || null,
         payload.modulo,
         payload.accion,

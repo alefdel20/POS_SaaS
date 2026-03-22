@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
-const { isSuperUser } = require("../utils/tenant");
+const { isSuperUser, requireActorBusinessId } = require("../utils/tenant");
 
 function slugify(value) {
   return String(value || "")
@@ -14,18 +14,16 @@ function slugify(value) {
 }
 
 async function listBusinesses(actor) {
-  if (isSuperUser(actor)) {
-    const { rows } = await pool.query(
-      `SELECT businesses.*, COUNT(users.id)::int AS user_count
-       FROM businesses
-       LEFT JOIN users ON users.business_id = businesses.id
-       GROUP BY businesses.id
-       ORDER BY businesses.name ASC`
-    );
-    return rows;
-  }
-
-  const { rows } = await pool.query("SELECT * FROM businesses WHERE id = $1", [actor.business_id]);
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await pool.query(
+    `SELECT businesses.*, COUNT(users.id)::int AS user_count
+     FROM businesses
+     LEFT JOIN users ON users.business_id = businesses.id
+     WHERE businesses.id = $1
+     GROUP BY businesses.id
+     ORDER BY businesses.name ASC`,
+    [businessId]
+  );
   return rows;
 }
 

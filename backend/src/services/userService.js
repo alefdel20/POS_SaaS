@@ -64,9 +64,10 @@ async function getBusinessById(id, client = pool) {
   return rows[0] || null;
 }
 
-async function countActiveSuperusers(client = pool) {
+async function countActiveSuperusers(businessId, client = pool) {
   const { rows } = await client.query(
-    "SELECT COUNT(*)::int AS total FROM users WHERE role = 'superusuario' AND is_active = TRUE"
+    "SELECT COUNT(*)::int AS total FROM users WHERE role = 'superusuario' AND is_active = TRUE AND business_id = $1",
+    [businessId]
   );
   return Number(rows[0]?.total || 0);
 }
@@ -74,18 +75,19 @@ async function countActiveSuperusers(client = pool) {
 async function ensureSuperuserRemains(currentUser, nextRole, nextIsActive, client = pool) {
   if (currentUser.role !== "superusuario") return;
   if (nextRole === "superusuario" && nextIsActive) return;
-  if (currentUser.is_active && (await countActiveSuperusers(client)) <= 1) {
+  if (currentUser.is_active && (await countActiveSuperusers(currentUser.business_id, client)) <= 1) {
     throw new ApiError(409, "At least one active superusuario must remain");
   }
 }
 
-async function getUserById(id) {
+async function getUserById(id, businessId) {
+  const scopedBusinessId = requireActorBusinessId({ business_id: businessId });
   const { rows } = await pool.query(
     `SELECT ${USER_FIELDS}
      FROM users u
      LEFT JOIN businesses b ON b.id = u.business_id
-     WHERE u.id = $1`,
-    [id]
+     WHERE u.id = $1 AND u.business_id = $2`,
+    [id, scopedBusinessId]
   );
   return mapUser(rows[0] || null);
 }
@@ -95,19 +97,16 @@ async function getUserByLogin(identifier) {
     `SELECT ${USER_FIELDS}
      FROM users u
      LEFT JOIN businesses b ON b.id = u.business_id
-     WHERE u.username = $1 OR u.email = $1`,
+     WHERE (u.username = $1 OR u.email = $1)
+       AND u.business_id IS NOT NULL`,
     [identifier]
   );
   return mapUser(rows[0] || null);
 }
 
 async function getScopedUser(id, actor, client = pool) {
-  const params = [id];
-  let where = "u.id = $1";
-  if (!isSuperUser(actor)) {
-    params.push(requireActorBusinessId(actor));
-    where += ` AND u.business_id = $${params.length}`;
-  }
+  const params = [id, requireActorBusinessId(actor)];
+  const where = "u.id = $1 AND u.business_id = $2";
 
   const { rows } = await client.query(
     `SELECT ${USER_FIELDS}
@@ -120,14 +119,8 @@ async function getScopedUser(id, actor, client = pool) {
 }
 
 async function listUsers(actor) {
-  const params = [];
-  const where = isSuperUser(actor)
-    ? ""
-    : "WHERE u.business_id = $1";
-
-  if (!isSuperUser(actor)) {
-    params.push(requireActorBusinessId(actor));
-  }
+  const params = [requireActorBusinessId(actor)];
+  const where = "WHERE u.business_id = $1";
 
   const { rows } = await pool.query(
     `SELECT
@@ -144,13 +137,7 @@ async function listUsers(actor) {
 }
 
 async function resolveTargetBusiness(payload, actor, client = pool) {
-  const businessId = isSuperUser(actor)
-    ? Number(payload.business_id || actor?.business_id)
-    : requireActorBusinessId(actor);
-
-  if (!businessId) {
-    throw new ApiError(400, "Business is required");
-  }
+  const businessId = requireActorBusinessId(actor);
 
   const business = await getBusinessById(businessId, client);
   if (!business) {
@@ -178,7 +165,7 @@ async function createUser(payload, actor) {
 
   try {
     await client.query("BEGIN");
-    const business = await resolveTargetBusiness(payload, actor, client);
+    const business = await resolveTargetBusiness({}, actor, client);
     const { rows } = await client.query(
       `INSERT INTO users (
         username, email, full_name, password_hash, role, pos_type, business_id,
@@ -238,9 +225,7 @@ async function updateUser(id, payload, actor) {
   try {
     await client.query("BEGIN");
     await ensureSuperuserRemains(current, nextRole, nextIsActive, client);
-    const business = payload.business_id || current.business_id
-      ? await resolveTargetBusiness({ business_id: payload.business_id || current.business_id }, actor, client)
-      : await resolveTargetBusiness({}, actor, client);
+    const business = await resolveTargetBusiness({}, actor, client);
     const passwordHash = payload.password ? await bcrypt.hash(payload.password, 10) : current.password_hash;
 
     const { rows } = await client.query(
@@ -256,7 +241,7 @@ async function updateUser(id, payload, actor) {
            must_change_password = $9,
            password_changed_at = CASE WHEN $10::boolean THEN NOW() ELSE password_changed_at END,
            updated_at = NOW()
-       WHERE id = $11
+       WHERE id = $11 AND business_id = $12
        RETURNING *`,
       [
         payload.username ?? current.username,
@@ -269,7 +254,8 @@ async function updateUser(id, payload, actor) {
         nextIsActive,
         payload.must_change_password ?? current.must_change_password ?? false,
         Boolean(payload.password),
-        id
+        id,
+        current.business_id
       ]
     );
 
@@ -307,9 +293,9 @@ async function updateUserStatus(id, isActive, actor) {
     await ensureSuperuserRemains(current, current.role, isActive, client);
     const { rows } = await client.query(
       `UPDATE users SET is_active = $1, updated_at = NOW()
-       WHERE id = $2
+       WHERE id = $2 AND business_id = $3
        RETURNING *`,
-      [isActive, id]
+      [isActive, id, current.business_id]
     );
     await saveAuditLog({
       business_id: current.business_id,
@@ -334,7 +320,7 @@ async function updateUserStatus(id, isActive, actor) {
 
 async function resetUserPassword(targetUserId, payload, actor) {
   if (!isSuperUser(actor)) throw new ApiError(403, "Forbidden");
-  const target = await getUserById(targetUserId);
+  const target = await getScopedUser(targetUserId, actor);
   if (!target) throw new ApiError(404, "User not found");
   assertMutableUser(target, "reset");
 
@@ -347,8 +333,8 @@ async function resetUserPassword(targetUserId, payload, actor) {
     await client.query(
       `UPDATE users
        SET password_hash = $1, must_change_password = $2, password_reset_by = $3, password_reset_at = NOW(), updated_at = NOW()
-       WHERE id = $4`,
-      [await bcrypt.hash(generatedPassword, 10), payload.force_change ?? true, actor.id, targetUserId]
+       WHERE id = $4 AND business_id = $5`,
+      [await bcrypt.hash(generatedPassword, 10), payload.force_change ?? true, actor.id, targetUserId, target.business_id]
     );
     await saveAuditLog({
       business_id: target.business_id,
@@ -374,7 +360,7 @@ async function resetUserPassword(targetUserId, payload, actor) {
 }
 
 async function changeOwnPassword(userId, payload) {
-  const user = await getUserById(userId);
+  const user = await getUserById(userId, payload.actor.business_id);
   if (!user) throw new ApiError(404, "User not found");
   if (!(await bcrypt.compare(payload.current_password, user.password_hash))) {
     throw new ApiError(401, "Invalid credentials");
@@ -382,14 +368,15 @@ async function changeOwnPassword(userId, payload) {
   await pool.query(
     `UPDATE users
      SET password_hash = $1, must_change_password = FALSE, password_changed_at = NOW(), updated_at = NOW()
-     WHERE id = $2`,
-    [await bcrypt.hash(payload.new_password, 10), userId]
+     WHERE id = $2 AND business_id = $3`,
+    [await bcrypt.hash(payload.new_password, 10), userId, user.business_id]
   );
   return { success: true };
 }
 
 async function logSupportAccess(targetUserId, actor, reason = "") {
   const actorRole = normalizeRole(actor?.role);
+  const actorBusinessId = requireActorBusinessId(actor);
   if (!["superusuario", "soporte"].includes(actorRole || "")) throw new ApiError(403, "Forbidden");
   if (actorRole === "soporte" && !actor?.support_mode_active) throw new ApiError(403, "Support mode must be active");
 
@@ -403,7 +390,7 @@ async function logSupportAccess(targetUserId, actor, reason = "") {
       `INSERT INTO support_access_logs (actor_user_id, target_user_id, business_id, target_business_id, reason)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [actor.id, targetUserId, actor.business_id, target.business_id, reason || ""]
+      [actor.id, targetUserId, actorBusinessId, target.business_id, reason || ""]
     );
     await saveAuditLog({
       business_id: target.business_id,
@@ -429,6 +416,7 @@ async function logSupportAccess(targetUserId, actor, reason = "") {
 
 async function setSupportMode(targetUserId, actor, nextState, reason = "") {
   const actorRole = normalizeRole(actor?.role);
+  const actorBusinessId = requireActorBusinessId(actor);
   if (!["superusuario", "soporte"].includes(actorRole || "")) throw new ApiError(403, "Forbidden");
 
   const target = await getScopedUser(targetUserId, actor);
@@ -449,14 +437,14 @@ async function setSupportMode(targetUserId, actor, nextState, reason = "") {
            support_mode_deactivated_at = CASE WHEN $1::boolean THEN support_mode_deactivated_at ELSE NOW() END,
            support_mode_updated_by = $2,
            updated_at = NOW()
-       WHERE id = $3
+       WHERE id = $3 AND business_id = $4
        RETURNING *`,
-      [nextState, actor.id, targetUserId]
+      [nextState, actor.id, targetUserId, target.business_id]
     );
     await client.query(
       `INSERT INTO support_access_logs (actor_user_id, target_user_id, business_id, target_business_id, reason)
        VALUES ($1, $2, $3, $4, $5)`,
-      [actor.id, targetUserId, actor.business_id, target.business_id, reason || (nextState ? "Support mode activated" : "Support mode deactivated")]
+      [actor.id, targetUserId, actorBusinessId, target.business_id, reason || (nextState ? "Support mode activated" : "Support mode deactivated")]
     );
     await saveAuditLog({
       business_id: target.business_id,

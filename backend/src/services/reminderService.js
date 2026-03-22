@@ -2,7 +2,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { n8nWebhookUrl } = require("../config/env");
 const { getReminderContext } = require("./creditCollectionService");
-const { canBypassBusinessScope, requireActorBusinessId } = require("../utils/tenant");
+const { requireActorBusinessId } = require("../utils/tenant");
 
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
@@ -21,7 +21,7 @@ function getTodayLocalDate() {
 }
 
 function getBusinessId(actor) {
-  return canBypassBusinessScope(actor) ? Number(actor?.business_id) : requireActorBusinessId(actor);
+  return requireActorBusinessId(actor);
 }
 
 async function listReminders(actor) {
@@ -30,7 +30,7 @@ async function listReminders(actor) {
   const { rows } = await pool.query(
     `SELECT reminders.*, users.full_name AS assigned_to_name
      FROM reminders
-     LEFT JOIN users ON users.id = reminders.assigned_to
+     LEFT JOIN users ON users.id = reminders.assigned_to AND users.business_id = reminders.business_id
      WHERE reminders.business_id = $1
      ORDER BY reminders.is_completed ASC, reminders.due_date ASC NULLS LAST, reminders.created_at DESC`,
     [businessId]

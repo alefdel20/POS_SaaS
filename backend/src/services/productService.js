@@ -1,6 +1,6 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
-const { canBypassBusinessScope, requireActorBusinessId } = require("../utils/tenant");
+const { requireActorBusinessId } = require("../utils/tenant");
 
 const SKU_CONFUSING_CHARACTERS = { O: "0", I: "1" };
 
@@ -280,7 +280,6 @@ async function syncProductSuppliers(productId, businessId, payload, client = poo
 }
 
 function buildSearchFilter(actor, alias = "product_data") {
-  if (canBypassBusinessScope(actor)) return { clause: "", params: [] };
   return { clause: `WHERE ${alias}.business_id = $1`, params: [requireActorBusinessId(actor)] };
 }
 
@@ -403,7 +402,8 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
     WITH sales_30 AS (
       SELECT si.product_id, COALESCE(SUM(si.quantity), 0) AS recent_units_sold
       FROM sale_items si
-      INNER JOIN sales s ON s.id = si.sale_id
+      INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
+      WHERE s.business_id = $1
       GROUP BY si.product_id
     )
     ${buildProductSelect(effectivePriceCase)}
@@ -424,12 +424,8 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
 
 async function listSuppliers(search, actor) {
   const term = search?.trim() || "";
-  const params = [];
-  const conditions = [];
-  if (!canBypassBusinessScope(actor)) {
-    params.push(requireActorBusinessId(actor));
-    conditions.push(`business_id = $${params.length}`);
-  }
+  const params = [requireActorBusinessId(actor)];
+  const conditions = [`business_id = $${params.length}`];
   if (term) {
     params.push(`%${term}%`);
     conditions.push(`name ILIKE $${params.length}`);
@@ -448,12 +444,8 @@ async function listSuppliers(search, actor) {
 
 async function listCategories(search, actor) {
   const term = search?.trim();
-  const params = [];
-  const conditions = ["category IS NOT NULL", "category <> ''"];
-  if (!canBypassBusinessScope(actor)) {
-    params.push(requireActorBusinessId(actor));
-    conditions.push(`business_id = $${params.length}`);
-  }
+  const params = [requireActorBusinessId(actor)];
+  const conditions = ["category IS NOT NULL", "category <> ''", `business_id = $${params.length}`];
   if (term) {
     params.push(`%${term}%`);
     conditions.push(`category ILIKE $${params.length}`);
@@ -509,12 +501,8 @@ async function createProduct(payload, actor) {
 }
 
 async function getOwnedProduct(id, actor, client = pool) {
-  const params = [id];
-  let where = "id = $1";
-  if (!canBypassBusinessScope(actor)) {
-    params.push(requireActorBusinessId(actor));
-    where += ` AND business_id = $${params.length}`;
-  }
+  const params = [id, requireActorBusinessId(actor)];
+  const where = "id = $1 AND business_id = $2";
   const { rows } = await client.query(`SELECT * FROM products WHERE ${where}`, params);
   return rows[0] || null;
 }

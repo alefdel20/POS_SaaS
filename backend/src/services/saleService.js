@@ -2,7 +2,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
 const { ensureAutomaticReminders, ensureLowStockRemindersForProductIds } = require("./reminderService");
-const { canBypassBusinessScope, requireActorBusinessId } = require("../utils/tenant");
+const { requireActorBusinessId } = require("../utils/tenant");
 
 function computeDiscountedPrice(product) {
   if (product.status !== "activo" || !product.discount_type || product.discount_value === null || !product.discount_start || !product.discount_end) return null;
@@ -36,7 +36,6 @@ function mapSaleRow(row) {
 }
 
 function appendBusinessScope(filters, actor, alias = "sales") {
-  if (canBypassBusinessScope(actor)) return;
   filters.values.push(requireActorBusinessId(actor));
   filters.conditions.push(`${alias}.business_id = $${filters.values.length}`);
 }
@@ -61,13 +60,14 @@ function buildSaleFilters(filters = {}, actor) {
 }
 
 async function getActiveCompanyProfile(actor, client = pool) {
-  const params = [];
-  let where = "profile_key = 'default' AND is_active = TRUE";
-  if (!canBypassBusinessScope(actor)) {
-    params.push(requireActorBusinessId(actor));
-    where += ` AND business_id = $${params.length}`;
-  }
-  const { rows } = await client.query(`SELECT * FROM company_profiles WHERE ${where} LIMIT 1`, params);
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await client.query(
+    `SELECT *
+     FROM company_profiles
+     WHERE profile_key = 'default' AND is_active = TRUE AND business_id = $1
+     LIMIT 1`,
+    [businessId]
+  );
   return rows[0] || null;
 }
 
@@ -80,7 +80,7 @@ async function listSales(filters = {}, actor) {
   const { rows } = await pool.query(
     `SELECT sales.*, users.full_name AS cashier_name
      FROM sales
-     INNER JOIN users ON users.id = sales.user_id
+     INNER JOIN users ON users.id = sales.user_id AND users.business_id = sales.business_id
      ${whereClause}
      ORDER BY sales.created_at DESC`,
     values
@@ -93,18 +93,13 @@ async function listRecentSales(actor) {
 }
 
 async function getSaleDetail(saleId, actor) {
-  const params = [saleId];
-  let where = "sales.id = $1";
-  if (!canBypassBusinessScope(actor)) {
-    params.push(requireActorBusinessId(actor));
-    where += ` AND sales.business_id = $${params.length}`;
-  }
+  const businessId = requireActorBusinessId(actor);
   const { rows } = await pool.query(
     `SELECT sales.*, users.full_name AS cashier_name, users.username AS cashier_username
      FROM sales
-     INNER JOIN users ON users.id = sales.user_id
-     WHERE ${where}`,
-    params
+     INNER JOIN users ON users.id = sales.user_id AND users.business_id = sales.business_id
+     WHERE sales.id = $1 AND sales.business_id = $2`,
+    [saleId, businessId]
   );
   const sale = mapSaleRow(rows[0]);
   if (!sale) throw new ApiError(404, "Sale not found");
@@ -112,7 +107,7 @@ async function getSaleDetail(saleId, actor) {
   const { rows: itemRows } = await pool.query(
     `SELECT sale_items.id, sale_items.product_id, products.name AS product_name, products.sku, sale_items.quantity, sale_items.unit_price, sale_items.subtotal
      FROM sale_items
-     INNER JOIN products ON products.id = sale_items.product_id
+     INNER JOIN products ON products.id = sale_items.product_id AND products.business_id = sale_items.business_id
      WHERE sale_items.sale_id = $1 AND sale_items.business_id = $2
      ORDER BY sale_items.id ASC`,
     [saleId, sale.business_id]
@@ -151,12 +146,7 @@ async function getSalesTrends(period, actor) {
   const periods = { week: { label: "week", trunc: "week", interval: "12 weeks" }, month: { label: "month", trunc: "month", interval: "12 months" }, year: { label: "year", trunc: "year", interval: "5 years" } };
   const selected = periods[period];
   if (!selected) throw new ApiError(400, "Invalid trend period");
-  const params = [];
-  let businessWhere = "";
-  if (!canBypassBusinessScope(actor)) {
-    params.push(requireActorBusinessId(actor));
-    businessWhere = `AND sales.business_id = $${params.length}`;
-  }
+  const params = [requireActorBusinessId(actor)];
   const { rows } = await pool.query(
     `WITH aggregated AS (
        SELECT DATE_TRUNC('${selected.trunc}', sales.sale_date::timestamp)::date AS period_start,
@@ -166,10 +156,10 @@ async function getSalesTrends(period, actor) {
               SUM(sale_items.quantity) AS units_sold,
               SUM(sale_items.subtotal) AS revenue
        FROM sale_items
-       INNER JOIN sales ON sales.id = sale_items.sale_id
-       INNER JOIN products ON products.id = sale_items.product_id
+       INNER JOIN sales ON sales.id = sale_items.sale_id AND sales.business_id = sale_items.business_id
+       INNER JOIN products ON products.id = sale_items.product_id AND products.business_id = sale_items.business_id
        WHERE sales.sale_date >= CURRENT_DATE - INTERVAL '${selected.interval}'
-         ${businessWhere}
+         AND sales.business_id = $1
        GROUP BY DATE_TRUNC('${selected.trunc}', sales.sale_date::timestamp)::date, sale_items.product_id, products.name, products.sku
      ),
      ranked AS (
@@ -201,7 +191,7 @@ async function createSale(payload, user) {
       `WITH sales_30 AS (
          SELECT si.product_id, COALESCE(SUM(si.quantity), 0) AS recent_units_sold
          FROM sale_items si
-         INNER JOIN sales s ON s.id = si.sale_id
+         INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
          WHERE s.business_id = $2
          GROUP BY si.product_id
        )

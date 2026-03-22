@@ -1,6 +1,6 @@
 const ExcelJS = require("exceljs");
 const pool = require("../db/pool");
-const { canBypassBusinessScope, requireActorBusinessId } = require("../utils/tenant");
+const { requireActorBusinessId } = require("../utils/tenant");
 
 function getLocalIsoDate() {
   const now = new Date();
@@ -20,7 +20,7 @@ function buildSalesFilters(filters = {}, actor, alias = "sales") {
   const conditions = [];
   const values = [];
   const add = (sql, value) => { values.push(value); conditions.push(sql.replace("?", `$${values.length}`)); };
-  if (!canBypassBusinessScope(actor)) add(`${alias}.business_id = ?`, requireActorBusinessId(actor));
+  add(`${alias}.business_id = ?`, requireActorBusinessId(actor));
   if (filters.date) add(`${alias}.sale_date = ?::date`, filters.date);
   if (filters.date_from) add(`${alias}.sale_date >= ?::date`, filters.date_from);
   if (filters.date_to) add(`${alias}.sale_date <= ?::date`, filters.date_to);
@@ -105,8 +105,8 @@ async function listDailyCuts(filters = {}, actor) {
        COALESCE(MAX(COALESCE(NULLIF(sales.stamp_snapshot->>'available_after', '')::INTEGER, company_profiles.stamps_available)), 0) AS timbres_restantes,
        COALESCE(STRING_AGG(DISTINCT users.full_name, ', '), '') AS cashier_names
      FROM sales
-     INNER JOIN users ON users.id = sales.user_id
-     LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id
+     INNER JOIN users ON users.id = sales.user_id AND users.business_id = sales.business_id
+     LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id AND company_profiles.business_id = sales.business_id
      ${whereClause}
      GROUP BY sales.sale_date
      ORDER BY sales.sale_date DESC`,
@@ -141,7 +141,7 @@ async function listMonthlyCuts(filters = {}, actor) {
        COALESCE(SUM(CASE WHEN sales.sale_type = 'invoice' AND sales.stamp_status = 'consumed' THEN 1 ELSE 0 END), 0) AS timbres_usados,
        COALESCE(MAX(COALESCE(NULLIF(sales.stamp_snapshot->>'available_after', '')::INTEGER, company_profiles.stamps_available)), 0) AS timbres_restantes
      FROM sales
-     LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id
+     LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id AND company_profiles.business_id = sales.business_id
      ${whereClause}
      GROUP BY DATE_TRUNC('month', sales.sale_date::timestamp)
      ORDER BY DATE_TRUNC('month', sales.sale_date::timestamp) DESC`,

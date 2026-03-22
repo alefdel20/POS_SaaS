@@ -1,12 +1,7 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
-const { canBypassBusinessScope, requireActorBusinessId } = require("../utils/tenant");
-
-function businessScope(actor, alias = "sales") {
-  if (canBypassBusinessScope(actor)) return { clause: "", params: [] };
-  return { clause: `AND ${alias}.business_id = $2`, params: [requireActorBusinessId(actor)] };
-}
+const { requireActorBusinessId } = require("../utils/tenant");
 
 async function listDebtors(actor) {
   const businessId = requireActorBusinessId(actor);
@@ -47,12 +42,7 @@ async function updateReminderPreference(saleId, sendReminder, actor) {
 }
 
 async function getReminderContext(saleId, actor) {
-  const params = [saleId];
-  let scope = "";
-  if (!canBypassBusinessScope(actor)) {
-    params.push(requireActorBusinessId(actor));
-    scope = "AND sales.business_id = $2";
-  }
+  const businessId = requireActorBusinessId(actor);
   const { rows } = await pool.query(
     `SELECT
        sales.id AS sale_id,
@@ -68,9 +58,9 @@ async function getReminderContext(saleId, actor) {
      LEFT JOIN credit_payments ON credit_payments.sale_id = sales.id AND credit_payments.business_id = sales.business_id
      LEFT JOIN sale_items ON sale_items.sale_id = sales.id AND sale_items.business_id = sales.business_id
      LEFT JOIN products ON products.id = sale_items.product_id AND products.business_id = sales.business_id
-     WHERE sales.id = $1 AND sales.payment_method = 'credit' ${scope}
+     WHERE sales.id = $1 AND sales.payment_method = 'credit' AND sales.business_id = $2
      GROUP BY sales.id`,
-    params
+    [saleId, businessId]
   );
   if (!rows[0]) throw new ApiError(404, "Credit sale not found");
   return rows[0];

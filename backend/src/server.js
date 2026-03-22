@@ -1,7 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const { Pool } = require("pg");
-
+const pool = require("./db/pool");
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
 const { ensureDatabaseCompatibility } = require("./db/init");
@@ -21,19 +20,13 @@ const businessRoutes = require("./routes/businessRoutes");
 
 const app = express();
 
-// DB
-const pool = new Pool({
-  host: process.env.PGHOST || "chatbots-postgressql-pos-b8rlox",
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-  port: process.env.PGPORT || 5432,
-});
-
-pool.query("SELECT NOW()", (err) => {
-  if (err) console.error("❌ ERROR DB:", err.message);
-  else console.log("✅ CONEXIÓN A POSTGRES EXITOSA");
-});
+pool.query("SELECT NOW()")
+  .then(() => {
+    console.log("DB OK");
+  })
+  .catch((err) => {
+    console.error("ERROR DB:", err.message);
+  });
 
 // CORS
 app.use(cors({ origin: "*" }));

@@ -1,3 +1,4 @@
+const ApiError = require("./ApiError");
 const { normalizeRole } = require("./roles");
 
 function isSuperUser(actor) {
@@ -5,31 +6,24 @@ function isSuperUser(actor) {
 }
 
 function getActorBusinessId(actor) {
-  return actor?.business_id ? Number(actor.business_id) : null;
-}
-
-function requireActorBusinessId(actor) {
-  const businessId = getActorBusinessId(actor);
-  if (!businessId) {
-    throw new Error("Authenticated user is missing business context");
+  const businessId = Number(actor?.business_id);
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    return null;
   }
 
   return businessId;
 }
 
-function canBypassBusinessScope(actor) {
-  return isSuperUser(actor);
+function requireActorBusinessId(actor) {
+  const businessId = getActorBusinessId(actor);
+  if (!businessId) {
+    throw new ApiError(401, "Authenticated user is missing business context");
+  }
+
+  return businessId;
 }
 
 function scopedWhere(alias, actor, startIndex = 1, column = "business_id") {
-  if (canBypassBusinessScope(actor)) {
-    return {
-      clause: "",
-      params: [],
-      nextIndex: startIndex
-    };
-  }
-
   return {
     clause: `WHERE ${alias}.${column} = $${startIndex}`,
     params: [requireActorBusinessId(actor)],
@@ -38,14 +32,6 @@ function scopedWhere(alias, actor, startIndex = 1, column = "business_id") {
 }
 
 function scopedAnd(alias, actor, startIndex = 1, column = "business_id") {
-  if (canBypassBusinessScope(actor)) {
-    return {
-      clause: "",
-      params: [],
-      nextIndex: startIndex
-    };
-  }
-
   return {
     clause: `AND ${alias}.${column} = $${startIndex}`,
     params: [requireActorBusinessId(actor)],
@@ -57,7 +43,6 @@ module.exports = {
   isSuperUser,
   getActorBusinessId,
   requireActorBusinessId,
-  canBypassBusinessScope,
   scopedWhere,
   scopedAnd
 };

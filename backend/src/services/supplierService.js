@@ -1,9 +1,8 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
-const { canBypassBusinessScope, requireActorBusinessId } = require("../utils/tenant");
+const { requireActorBusinessId } = require("../utils/tenant");
 
 function scope(actor, alias = "suppliers") {
-  if (canBypassBusinessScope(actor)) return { clause: "", params: [] };
   return { clause: `${alias}.business_id = $1`, params: [requireActorBusinessId(actor)] };
 }
 
@@ -62,7 +61,7 @@ async function getSupplierDetail(id, actor) {
        product_suppliers.cost_updated_at,
        products.updated_at AS product_updated_at
      FROM product_suppliers
-     INNER JOIN products ON products.id = product_suppliers.product_id
+     INNER JOIN products ON products.id = product_suppliers.product_id AND products.business_id = product_suppliers.business_id
      WHERE product_suppliers.supplier_id = $1
        AND product_suppliers.business_id = $2
        AND products.business_id = $2
