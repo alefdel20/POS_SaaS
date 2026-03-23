@@ -3,6 +3,8 @@ const cors = require("cors");
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
 const { ensureDatabaseCompatibility } = require("./db/init");
+
+// Rutas
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
@@ -10,7 +12,7 @@ const supplierRoutes = require("./routes/supplierRoutes");
 const saleRoutes = require("./routes/saleRoutes");
 const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
-const automationRoutes = require("./routes/automationRoutes");
+const automationRoutes = require("./role/automationRoutes"); // Revisa si es 'routes' o 'role' en tu carpeta
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 const financeRoutes = require("./routes/financeRoutes");
@@ -19,53 +21,23 @@ const businessRoutes = require("./routes/businessRoutes");
 
 const app = express();
 
-// CORS
+// --- CONFIGURACIÓN DE CORS (UNIFICADA) ---
 app.use(cors({
-  origin: "*",
+  origin: true, // Detecta y permite automáticamente el origen de tu frontend
+  credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
 }));
 
-app.options("*", (req, res) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-  );
-  return res.sendStatus(204);
-});
-
+// Middleware para parsear JSON
 app.use(express.json());
 
-// Cabeceras extra por compatibilidad
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-  );
-
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(204);
-  }
-
-  next();
-});
-
-// Ruta de salud con y sin /api
+// Ruta de salud
 app.get(["/health", "/api/health"], (req, res) => {
   res.json({ status: "ok", message: "Servidor vivo" });
 });
 
-// Rutas con y sin /api
+// Configuración de rutas (con y sin prefijo /api)
 const routes = [
   { path: "/auth", router: authRoutes, auth: false },
   { path: "/automation", router: automationRoutes, auth: false },
@@ -88,11 +60,13 @@ routes.forEach((route) => {
   app.use("/api" + route.path, ...handlers);
 });
 
+// Manejador de errores global
 app.use(errorHandler);
 
-// Puerto fijo para Dokploy
+// Puerto para Dokploy
 const PORT = 3002;
 
+// Inicialización de DB y Servidor
 ensureDatabaseCompatibility()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
