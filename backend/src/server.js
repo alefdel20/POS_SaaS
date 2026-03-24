@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const pool = require("./db/pool");
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
@@ -18,6 +19,7 @@ const profileRoutes = require("./routes/profileRoutes");
 const supplierRoutes = require("./routes/supplierRoutes");
 const businessRoutes = require("./routes/businessRoutes");
 const adminInvoiceRoutes = require("./routes/adminInvoiceRoutes");
+const { ensureUploadsDirectory } = require("./utils/productImages");
 
 const app = express();
 
@@ -32,6 +34,8 @@ pool.query("SELECT NOW()")
 // CORS
 app.use(cors({ origin: "*" }));
 app.use(express.json());
+app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
+app.use("/api/uploads", express.static(path.resolve(__dirname, "../uploads")));
 
 // Health
 app.get(["/health", "/api/health"], (req, res) => {
@@ -65,6 +69,7 @@ async function startServer() {
     try {
       console.log("🛠️ Ejecutando ensureDatabaseCompatibility...");
       await ensureDatabaseCompatibility();
+      await ensureUploadsDirectory();
       console.log("✅ DB OK");
     } catch (error) {
       console.error("❌ DB compatibility error:", error.message);

@@ -5,6 +5,7 @@ import type { CompanyProfile, Product, Sale, SaleReceipt, Supplier } from "../ty
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { isManagementRole } from "../utils/roles";
+import { resolveProductImageUrl } from "../utils/assets";
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
@@ -648,7 +649,14 @@ export function SalesPage() {
               onClick={() => addToCart(product)}
               type="button"
             >
-              <strong>{product.name}</strong>
+              <div className="catalog-card-header">
+                {product.image_path ? (
+                  <img alt={product.name} className="catalog-thumb" src={resolveProductImageUrl(product.image_path) || ""} />
+                ) : (
+                  <div className="catalog-thumb catalog-thumb-placeholder" aria-hidden="true">IMG</div>
+                )}
+                <strong>{product.name}</strong>
+              </div>
               <span>{product.sku}</span>
               <span>{product.barcode}</span>
               <span>{product.supplier_name || product.category || "-"}</span>

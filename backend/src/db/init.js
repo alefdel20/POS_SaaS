@@ -54,6 +54,7 @@ async function ensureSchema(client) {
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_maximo NUMERIC(12, 3)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS unidad_de_venta VARCHAR(20)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS porcentaje_ganancia NUMERIC(7, 3)",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS image_path TEXT",
     "ALTER TABLE products ALTER COLUMN stock TYPE NUMERIC(12, 3)",
     "ALTER TABLE products ALTER COLUMN stock_minimo TYPE NUMERIC(12, 3)",
     "ALTER TABLE products ALTER COLUMN stock_maximo TYPE NUMERIC(12, 3)",
@@ -86,6 +87,10 @@ async function ensureSchema(client) {
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS requires_administrative_invoice BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS administrative_invoice_id BIGINT",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS status VARCHAR(20)",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS cancellation_reason TEXT",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP",
 
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0",
@@ -307,6 +312,7 @@ async function ensureSeedBusiness(client) {
   await client.query("UPDATE users SET role = 'superusuario' WHERE role = 'superadmin'");
   await client.query("UPDATE users SET role = 'cajero' WHERE role IN ('user', 'cashier')");
   await client.query("UPDATE products SET status = 'activo' WHERE status IS NULL");
+  await client.query("UPDATE sales SET status = 'completed' WHERE status IS NULL OR BTRIM(status) = ''");
   await client.query("UPDATE products SET unidad_de_venta = 'pieza' WHERE unidad_de_venta IS NULL OR unidad_de_venta = ''");
   await client.query("UPDATE products SET stock_maximo = GREATEST(COALESCE(stock, 0), COALESCE(stock_minimo, 0)) WHERE stock_maximo IS NULL");
   await client.query("ALTER TABLE products ALTER COLUMN stock_maximo SET DEFAULT 0");
@@ -595,6 +601,17 @@ async function ensureConstraints(client) {
       IF NOT EXISTS (
         SELECT 1
         FROM pg_constraint
+        WHERE conname = 'sales_status_check'
+          AND conrelid = 'sales'::regclass
+      ) THEN
+        ALTER TABLE sales
+        ADD CONSTRAINT sales_status_check
+        CHECK (status IS NULL OR status IN ('completed', 'cancelled'));
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
         WHERE conname = 'company_profiles_pac_mode_check'
           AND conrelid = 'company_profiles'::regclass
       ) THEN
@@ -625,8 +642,10 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_users_business_id ON users(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_suppliers_business_id ON suppliers(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_products_business_id ON products(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_products_business_image_path ON products(business_id) WHERE image_path IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_product_suppliers_business_id ON product_suppliers(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_sales_business_id ON sales(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sales_business_sale_date_status ON sales(business_id, sale_date, status)",
     "CREATE INDEX IF NOT EXISTS idx_sale_items_business_id ON sale_items(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_credit_payments_business_id ON credit_payments(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_daily_cuts_business_id ON daily_cuts(business_id)",

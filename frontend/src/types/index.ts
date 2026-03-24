@@ -64,6 +64,7 @@ export interface Product {
   name: string;
   sku: string;
   barcode: string;
+  image_path?: string | null;
   unidad_de_venta?: "pieza" | "kg" | "litro" | "caja" | null;
   porcentaje_ganancia?: number | null;
   category?: string | null;
@@ -102,6 +103,10 @@ export interface Product {
 export interface Sale {
   id: number;
   user_id: number;
+  status?: "completed" | "cancelled" | null;
+  cancellation_reason?: string | null;
+  cancelled_by?: number | null;
+  cancelled_at?: string | null;
   cashier_name?: string;
   payment_method: "cash" | "card" | "credit" | "transfer";
   sale_type: "ticket" | "invoice";

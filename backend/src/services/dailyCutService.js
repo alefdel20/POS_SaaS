@@ -3,6 +3,8 @@ const pool = require("../db/pool");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate, getMonthRange } = require("../utils/timezone");
 
+const VALID_SALE_STATUS_SQL = "COALESCE(sales.status, 'completed') <> 'cancelled'";
+
 function getLocalIsoDate() {
   return getMexicoCityDate();
 }
@@ -57,7 +59,8 @@ async function recomputeDailyCut(date = getLocalIsoDate(), actor) {
        COALESCE(SUM(total - total_cost), 0) AS gross_profit,
        CASE WHEN COALESCE(SUM(total), 0) = 0 THEN 0 ELSE (COALESCE(SUM(total - total_cost), 0) / SUM(total)) * 100 END AS gross_margin
      FROM sales
-     WHERE sale_date = $1 AND business_id = $2`,
+     WHERE sale_date = $1 AND business_id = $2
+       AND ${VALID_SALE_STATUS_SQL}`,
     [date, businessId]
   );
   const current = rows[0];
@@ -103,6 +106,7 @@ async function listDailyCuts(filters = {}, actor) {
      INNER JOIN users ON users.id = sales.user_id AND users.business_id = sales.business_id
      LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id AND company_profiles.business_id = sales.business_id
      ${whereClause}
+     ${whereClause ? `AND ${VALID_SALE_STATUS_SQL}` : `WHERE ${VALID_SALE_STATUS_SQL}`}
      GROUP BY sales.sale_date
      ORDER BY sales.sale_date DESC`,
     values
@@ -138,6 +142,7 @@ async function listMonthlyCuts(filters = {}, actor) {
      FROM sales
      LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id AND company_profiles.business_id = sales.business_id
      ${whereClause}
+     ${whereClause ? `AND ${VALID_SALE_STATUS_SQL}` : `WHERE ${VALID_SALE_STATUS_SQL}`}
      GROUP BY DATE_TRUNC('month', sales.sale_date::timestamp)
      ORDER BY DATE_TRUNC('month', sales.sale_date::timestamp) DESC`,
     values

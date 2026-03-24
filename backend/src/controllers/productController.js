@@ -139,6 +139,14 @@ const updateProduct = asyncHandler(async (req, res) => {
   res.json(await productService.updateProduct(Number(req.params.id), req.body, req.user));
 });
 
+const uploadProductImage = asyncHandler(async (req, res) => {
+  res.json(await productService.uploadProductImage(Number(req.params.id), req.file, req.user));
+});
+
+const removeProductImage = asyncHandler(async (req, res) => {
+  res.json(await productService.removeProductImage(Number(req.params.id), req.user));
+});
+
 const updateProductStatus = asyncHandler(async (req, res) => {
   res.json(await productService.updateProductStatus(Number(req.params.id), req.body.is_active, req.body.status, req.user));
 });
@@ -167,6 +175,8 @@ module.exports = {
   getProductBarcode,
   createProduct,
   updateProduct,
+  uploadProductImage,
+  removeProductImage,
   updateProductStatus,
   deleteProduct,
   applyBulkDiscount

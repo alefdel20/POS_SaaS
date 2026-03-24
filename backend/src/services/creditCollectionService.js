@@ -4,6 +4,8 @@ const { recomputeDailyCut } = require("./dailyCutService");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
 
+const VALID_SALE_STATUS_SQL = "COALESCE(sales.status, 'completed') <> 'cancelled'";
+
 async function listDebtors(actor) {
   const businessId = requireActorBusinessId(actor);
   const { rows } = await pool.query(
@@ -21,6 +23,7 @@ async function listDebtors(actor) {
      LEFT JOIN credit_payments ON credit_payments.sale_id = sales.id AND credit_payments.business_id = sales.business_id
      WHERE sales.payment_method = 'credit'
        AND sales.business_id = $1
+       AND ${VALID_SALE_STATUS_SQL}
      GROUP BY sales.id
      HAVING sales.balance_due > 0
      ORDER BY sales.sale_date DESC, sales.id DESC`,
@@ -35,6 +38,7 @@ async function updateReminderPreference(saleId, sendReminder, actor) {
     `UPDATE sales
      SET send_reminder = $1
      WHERE id = $2 AND payment_method = 'credit' AND business_id = $3
+       AND ${VALID_SALE_STATUS_SQL}
      RETURNING id AS sale_id, send_reminder`,
     [sendReminder, saleId, businessId]
   );
@@ -60,6 +64,7 @@ async function getReminderContext(saleId, actor) {
      LEFT JOIN sale_items ON sale_items.sale_id = sales.id AND sale_items.business_id = sales.business_id
      LEFT JOIN products ON products.id = sale_items.product_id AND products.business_id = sales.business_id
      WHERE sales.id = $1 AND sales.payment_method = 'credit' AND sales.business_id = $2
+       AND ${VALID_SALE_STATUS_SQL}
      GROUP BY sales.id`,
     [saleId, businessId]
   );
@@ -85,7 +90,7 @@ async function createPayment(saleId, payload, actor) {
   try {
     await client.query("BEGIN");
     const { rows: saleRows } = await client.query(
-      "SELECT * FROM sales WHERE id = $1 AND payment_method = 'credit' AND business_id = $2",
+      "SELECT * FROM sales WHERE id = $1 AND payment_method = 'credit' AND business_id = $2 AND COALESCE(status, 'completed') <> 'cancelled'",
       [saleId, businessId]
     );
     const sale = saleRows[0];

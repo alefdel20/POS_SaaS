@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import type { PaginatedProductsResponse, Product, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { dateTimeLocalToIsoString, getMexicoCityDateTimeLocalValue } from "../utils/timezone";
+import { resolveProductImageUrl } from "../utils/assets";
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
@@ -212,6 +213,16 @@ function requiredLabel(text: string) {
   return `${text} *`;
 }
 
+function validateImageFile(file: File) {
+  const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+  if (!allowedTypes.has(file.type)) {
+    throw new Error("La imagen debe ser jpg, jpeg, png o webp");
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error("La imagen no puede superar 2MB");
+  }
+}
+
 export function ProductsPage() {
   const { token } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -230,6 +241,10 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [currentImagePath, setCurrentImagePath] = useState<string | null>(null);
+  const [removeImageRequested, setRemoveImageRequested] = useState(false);
   const editProductIdFromQuery = Number(searchParams.get("edit") || 0) || null;
   const searchFromQuery = searchParams.get("search") || "";
   const skuSuggestion = buildSkuSuggestion(form.name, form.category, "");
@@ -351,6 +366,19 @@ export function ProductsPage() {
     handleEdit(productToEdit);
   }, [editProductIdFromQuery, editingId, products]);
 
+  useEffect(() => {
+    if (!imageFile) {
+      return undefined;
+    }
+
+    const previewUrl = URL.createObjectURL(imageFile);
+    setImagePreview(previewUrl);
+
+    return () => {
+      URL.revokeObjectURL(previewUrl);
+    };
+  }, [imageFile]);
+
   function updateSupplier(index: number, nextSupplier: ProductSupplierFormState) {
     setForm((current) => ({
       ...current,
@@ -396,6 +424,54 @@ export function ProductsPage() {
     }));
     setShowSuppliersModal(false);
     setSupplierDrafts([]);
+  }
+
+  async function syncProductImage(productId: number) {
+    if (!token) return null;
+
+    if (imageFile) {
+      const formData = new FormData();
+      formData.append("image", imageFile);
+      const updatedProduct = await apiRequest<Product>(`/products/${productId}/image`, {
+        method: "POST",
+        token,
+        body: formData
+      });
+      setCurrentImagePath(updatedProduct.image_path || null);
+      setRemoveImageRequested(false);
+      return updatedProduct;
+    }
+
+    if (removeImageRequested && currentImagePath) {
+      const updatedProduct = await apiRequest<Product>(`/products/${productId}/image`, {
+        method: "DELETE",
+        token
+      });
+      setCurrentImagePath(null);
+      setImagePreview(null);
+      setRemoveImageRequested(false);
+      return updatedProduct;
+    }
+
+    return null;
+  }
+
+  function handleImageSelection(file: File | null) {
+    if (!file) {
+      setImageFile(null);
+      setImagePreview(removeImageRequested ? null : resolveProductImageUrl(currentImagePath));
+      return;
+    }
+
+    validateImageFile(file);
+    setImageFile(file);
+    setRemoveImageRequested(false);
+  }
+
+  function handleRemoveImage() {
+    setImageFile(null);
+    setImagePreview(null);
+    setRemoveImageRequested(true);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -452,6 +528,15 @@ export function ProductsPage() {
     } catch (validationError) {
       setError(validationError instanceof Error ? validationError.message : "No fue posible validar cantidades");
       return;
+    }
+
+    if (imageFile) {
+      try {
+        validateImageFile(imageFile);
+      } catch (validationError) {
+        setError(validationError instanceof Error ? validationError.message : "No fue posible validar la imagen");
+        return;
+      }
     }
 
     const normalizedSuppliers = form.suppliers
@@ -537,23 +622,29 @@ export function ProductsPage() {
 
     setSaving(true);
     setError("");
+    let savedProduct: Product | null = null;
 
     try {
       if (editingId) {
-        await apiRequest<Product>(`/products/${editingId}`, {
+        savedProduct = await apiRequest<Product>(`/products/${editingId}`, {
           method: "PUT",
           token,
           body: JSON.stringify(payload)
         });
       } else {
-        await apiRequest<Product>("/products", {
+        savedProduct = await apiRequest<Product>("/products", {
           method: "POST",
           token,
           body: JSON.stringify(payload)
         });
       }
+      await syncProductImage(savedProduct.id);
       setForm(emptyProduct);
       setEditingId(null);
+      setImageFile(null);
+      setImagePreview(null);
+      setCurrentImagePath(null);
+      setRemoveImageRequested(false);
       setSearchParams((current) => {
         const next = new URLSearchParams(current);
         next.delete("edit");
@@ -566,6 +657,11 @@ export function ProductsPage() {
       await loadSuppliers();
       await loadCategories();
     } catch (submissionError) {
+      if (savedProduct) {
+        setEditingId(savedProduct.id);
+        setForm(productToForm(savedProduct));
+        setCurrentImagePath(savedProduct.image_path || null);
+      }
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el producto");
     } finally {
       setSaving(false);
@@ -575,6 +671,10 @@ export function ProductsPage() {
   function handleEdit(product: Product) {
     setEditingId(product.id);
     setForm(productToForm(product));
+    setImageFile(null);
+    setCurrentImagePath(product.image_path || null);
+    setImagePreview(resolveProductImageUrl(product.image_path));
+    setRemoveImageRequested(false);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set("edit", String(product.id));
@@ -589,6 +689,10 @@ export function ProductsPage() {
   function resetProductEditor() {
     setEditingId(null);
     setForm(emptyProduct);
+    setImageFile(null);
+    setImagePreview(null);
+    setCurrentImagePath(null);
+    setRemoveImageRequested(false);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.delete("edit");
@@ -751,6 +855,44 @@ export function ProductsPage() {
           </div>
         </div>
         <div className="product-form-grid product-form-grid-wide">
+          <div className="form-span-2 product-image-panel">
+            <div className="product-image-preview-frame">
+              {imagePreview && !removeImageRequested ? (
+                <img alt="Vista previa del producto" className="product-image-preview" src={imagePreview} />
+              ) : (
+                <div className="product-image-placeholder">
+                  <span>Sin imagen</span>
+                </div>
+              )}
+            </div>
+            <div className="product-image-actions">
+              <label className="product-image-upload">
+                Imagen del producto
+                <input
+                  accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                  onChange={(event) => {
+                    try {
+                      handleImageSelection(event.target.files?.[0] || null);
+                      setError("");
+                    } catch (imageError) {
+                      setError(imageError instanceof Error ? imageError.message : "No fue posible procesar la imagen");
+                      event.currentTarget.value = "";
+                    }
+                  }}
+                  type="file"
+                />
+              </label>
+              <p className="muted">Formatos permitidos: jpg, jpeg, png y webp. Tamaño máximo: 2MB.</p>
+              {currentImagePath && !imageFile && !removeImageRequested ? <p className="muted">Imagen actual cargada en servidor.</p> : null}
+              {imageFile ? <p className="muted">Nueva imagen lista para subir: {imageFile.name}</p> : null}
+              {(currentImagePath || imageFile) && !removeImageRequested ? (
+                <button className="button ghost danger" onClick={handleRemoveImage} type="button">
+                  Remover imagen
+                </button>
+              ) : null}
+              {removeImageRequested ? <p className="muted">La imagen se eliminará al guardar.</p> : null}
+            </div>
+          </div>
           <label>
             {requiredLabel("Nombre")}
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
@@ -1106,8 +1248,17 @@ export function ProductsPage() {
               {products.map((product) => (
                 <tr key={product.id}>
                   <td>
-                    <div>{product.name}</div>
-                    {product.is_low_stock ? <small className="error-text">Stock bajo</small> : null}
+                    <div className="product-name-cell">
+                      {product.image_path ? (
+                        <img alt={product.name} className="product-table-thumb" src={resolveProductImageUrl(product.image_path) || ""} />
+                      ) : (
+                        <div className="product-table-thumb product-table-thumb-placeholder" aria-hidden="true">IMG</div>
+                      )}
+                      <div>
+                        <div>{product.name}</div>
+                        {product.is_low_stock ? <small className="error-text">Stock bajo</small> : null}
+                      </div>
+                    </div>
                   </td>
                   <td>
                     <div>{product.supplier_names?.join(", ") || product.supplier_name || "-"}</div>

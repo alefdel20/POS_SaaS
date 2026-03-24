@@ -4,6 +4,8 @@ const { saveAuditLog } = require("./auditLogService");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
 
+const VALID_SALE_STATUS_SQL = "COALESCE(status, 'completed') <> 'cancelled'";
+
 function mapExpense(expense) {
   return expense ? { ...expense, amount: Number(expense.amount || 0), is_voided: Boolean(expense.is_voided) } : null;
 }
@@ -247,6 +249,7 @@ async function getDashboard(actor) {
        SELECT COALESCE(SUM(total), 0) AS ingresos, COALESCE(SUM(total_cost), 0) AS costo
        FROM sales
        WHERE business_id = $1 AND sale_date >= $2::date - INTERVAL '30 days'
+         AND ${VALID_SALE_STATUS_SQL}
      ),
      expenses_totals AS (
        SELECT COALESCE(SUM(amount), 0) AS gastos

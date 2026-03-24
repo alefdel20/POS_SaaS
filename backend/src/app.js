@@ -1,8 +1,10 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
 const { ensureDatabaseCompatibility } = require("./db/init");
+const { ensureUploadsDirectory } = require("./utils/productImages");
 
 // Rutas
 const authRoutes = require("./routes/authRoutes");
@@ -32,6 +34,8 @@ app.use(cors({
 
 // Middleware para parsear JSON
 app.use(express.json());
+app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
+app.use("/api/uploads", express.static(path.resolve(__dirname, "../uploads")));
 
 // Ruta de salud
 app.get(["/health", "/api/health"], (req, res) => {
@@ -70,6 +74,9 @@ const PORT = 3002;
 
 // Inicialización de DB y Servidor
 ensureDatabaseCompatibility()
+  .then(() => {
+    return ensureUploadsDirectory();
+  })
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`>>> SERVIDOR POS CORRIENDO EN PUERTO ${PORT} <<<`);

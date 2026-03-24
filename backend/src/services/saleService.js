@@ -5,6 +5,7 @@ const { ensureAutomaticReminders, ensureLowStockRemindersForProductIds } = requi
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate, getMexicoCityTime } = require("../utils/timezone");
 const { createAdministrativeInvoiceFromSale } = require("./adminInvoiceService");
+const { saveAuditLog } = require("./auditLogService");
 
 const INTEGER_UNITS = new Set(["pieza", "caja"]);
 const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
@@ -34,12 +35,20 @@ function mapSaleRow(row) {
   if (!row) return null;
   return {
     ...row,
+    status: row.status || "completed",
+    cancellation_reason: row.cancellation_reason || null,
+    cancelled_by: row.cancelled_by || null,
+    cancelled_at: row.cancelled_at || null,
     transfer_snapshot: row.transfer_snapshot || parseTransferNotes(row.notes),
     invoice_data: row.invoice_data || {},
     stamp_snapshot: row.stamp_snapshot || {},
     requires_administrative_invoice: Boolean(row.requires_administrative_invoice),
     items_summary: row.items_summary || ""
   };
+}
+
+function buildValidSaleStatusClause(alias = "sales") {
+  return `COALESCE(${alias}.status, 'completed') <> 'cancelled'`;
 }
 
 function normalizeSaleUnit(value) {
@@ -154,7 +163,39 @@ async function listSales(filters = {}, actor) {
 }
 
 async function listRecentSales(actor) {
-  return listSales({}, actor).then((rows) => rows.slice(0, 20));
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await pool.query(
+    `SELECT sales.*, users.full_name AS cashier_name,
+            COALESCE(items_summary.summary, '') AS items_summary
+     FROM sales
+     INNER JOIN users ON users.id = sales.user_id AND users.business_id = sales.business_id
+     LEFT JOIN LATERAL (
+       SELECT STRING_AGG(
+         CONCAT(
+           CASE
+             WHEN COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza') IN ('pieza', 'caja')
+               THEN TRUNC(si.quantity)::text
+             ELSE TO_CHAR(si.quantity, 'FM999999990.000')
+           END,
+           ' ',
+           COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza'),
+           ' ',
+           p.name
+         ),
+         ', '
+         ORDER BY si.id
+       ) AS summary
+       FROM sale_items si
+       INNER JOIN products p ON p.id = si.product_id AND p.business_id = si.business_id
+       WHERE si.sale_id = sales.id AND si.business_id = sales.business_id
+     ) items_summary ON TRUE
+     WHERE sales.business_id = $1
+       AND ${buildValidSaleStatusClause("sales")}
+     ORDER BY sales.created_at DESC
+     LIMIT 20`,
+    [businessId]
+  );
+  return rows.map(mapSaleRow);
 }
 
 async function getSaleDetail(saleId, actor) {
@@ -233,6 +274,7 @@ async function getSalesTrends(period, actor) {
        INNER JOIN products ON products.id = sale_items.product_id AND products.business_id = sale_items.business_id
        WHERE sales.sale_date >= CURRENT_DATE - INTERVAL '${selected.interval}'
          AND sales.business_id = $1
+         AND ${buildValidSaleStatusClause("sales")}
        GROUP BY DATE_TRUNC('${selected.trunc}', sales.sale_date::timestamp)::date, sale_items.product_id, products.name, products.sku
      ),
      ranked AS (
@@ -266,6 +308,7 @@ async function createSale(payload, user) {
          FROM sale_items si
          INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
          WHERE s.business_id = $2
+           AND COALESCE(s.status, 'completed') <> 'cancelled'
          GROUP BY si.product_id
        )
        SELECT products.*, COALESCE(sales_30.recent_units_sold, 0) AS recent_units_sold
@@ -350,9 +393,9 @@ async function createSale(payload, user) {
       `INSERT INTO sales (
         user_id, business_id, payment_method, sale_type, subtotal, total, total_cost, customer_name, customer_phone,
         initial_payment, balance_due, invoice_data, notes, company_profile_id, transfer_snapshot, invoice_status,
-        stamp_status, stamp_movement_id, stamp_snapshot, sale_date, sale_time, created_at, requires_administrative_invoice
+        stamp_status, stamp_movement_id, stamp_snapshot, sale_date, sale_time, created_at, requires_administrative_invoice, status
       )
-      VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21)
+      VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed')
       RETURNING *`,
       [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), getMexicoCityTime(), requiresAdministrativeInvoice]
     );
@@ -417,4 +460,96 @@ async function createSale(payload, user) {
   }
 }
 
-module.exports = { listSales, listRecentSales, getSaleDetail, getSalesTrends, createSale };
+async function cancelSale(saleId, reason, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const trimmedReason = String(reason || "").trim();
+  if (!trimmedReason) throw new ApiError(400, "Cancellation reason is required");
+
+  const today = getMexicoCityDate();
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const { rows: saleRows } = await client.query(
+      `SELECT *
+       FROM sales
+       WHERE id = $1 AND business_id = $2
+       FOR UPDATE`,
+      [saleId, businessId]
+    );
+    const sale = saleRows[0];
+    if (!sale) throw new ApiError(404, "Sale not found");
+    if ((sale.status || "completed") === "cancelled") throw new ApiError(409, "Sale is already cancelled");
+    if (sale.sale_date !== today) {
+      throw new ApiError(409, "Only current day sales can be cancelled");
+    }
+
+    const { rows: paymentRows } = await client.query(
+      `SELECT COUNT(*)::int AS total
+       FROM credit_payments
+       WHERE sale_id = $1 AND business_id = $2`,
+      [saleId, businessId]
+    );
+    if (Number(paymentRows[0]?.total || 0) > 0) {
+      throw new ApiError(409, "Sale already has credit payments and cannot be cancelled");
+    }
+
+    const { rows: itemRows } = await client.query(
+      `SELECT id, product_id, quantity, unidad_de_venta
+       FROM sale_items
+       WHERE sale_id = $1 AND business_id = $2
+       ORDER BY id ASC`,
+      [saleId, businessId]
+    );
+
+    for (const item of itemRows) {
+      await client.query(
+        `UPDATE products
+         SET stock = stock + $1, updated_at = NOW()
+         WHERE id = $2 AND business_id = $3`,
+        [item.quantity, item.product_id, businessId]
+      );
+    }
+
+    const { rows: updatedRows } = await client.query(
+      `UPDATE sales
+       SET status = 'cancelled',
+           cancellation_reason = $1,
+           cancelled_by = $2,
+           cancelled_at = NOW()
+       WHERE id = $3
+         AND business_id = $4
+         AND COALESCE(status, 'completed') <> 'cancelled'
+       RETURNING *`,
+      [trimmedReason, actor.id, saleId, businessId]
+    );
+    const updatedSale = updatedRows[0];
+    if (!updatedSale) {
+      throw new ApiError(409, "Sale could not be cancelled");
+    }
+
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "sales",
+      accion: "cancel_sale",
+      entidad_tipo: "sale",
+      entidad_id: saleId,
+      detalle_anterior: { entity: "sale", entity_id: saleId, snapshot: mapSaleRow(sale), version: 1 },
+      detalle_nuevo: { entity: "sale", entity_id: saleId, snapshot: mapSaleRow(updatedSale), restored_items: itemRows, version: 1 },
+      motivo: trimmedReason,
+      metadata: { restored_stock_items: itemRows.length }
+    }, { client });
+
+    await client.query("COMMIT");
+    await recomputeDailyCut(updatedSale.sale_date, actor);
+    return mapSaleRow(updatedSale);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { listSales, listRecentSales, getSaleDetail, getSalesTrends, createSale, cancelSale, buildValidSaleStatusClause };

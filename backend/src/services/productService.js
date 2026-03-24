@@ -1,6 +1,7 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { buildStoredImagePath, deleteStoredImage } = require("../utils/productImages");
 
 const SKU_CONFUSING_CHARACTERS = { O: "0", I: "1" };
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"];
@@ -446,6 +447,7 @@ function mapProductRow(row) {
   if (!row) return null;
   return {
     ...row,
+    image_path: row.image_path || null,
     unidad_de_venta: normalizeSaleUnit(row.unidad_de_venta)
   };
 }
@@ -489,6 +491,7 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
       FROM sale_items si
       INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
       WHERE s.business_id = $1
+        AND COALESCE(s.status, 'completed') <> 'cancelled'
       GROUP BY si.product_id
     )
     ${buildProductSelect(effectivePriceCase)}
@@ -669,6 +672,72 @@ async function updateProduct(id, payload, actor) {
   }
 }
 
+async function uploadProductImage(id, file, actor) {
+  if (!file) throw new ApiError(400, "Product image file is required");
+
+  const client = await pool.connect();
+  let previousImagePath = null;
+
+  try {
+    await client.query("BEGIN");
+    const current = await getOwnedProduct(id, actor, client);
+    if (!current) throw new ApiError(404, "Product not found");
+
+    previousImagePath = current.image_path || null;
+    const nextImagePath = buildStoredImagePath(file.filename);
+    const { rows } = await client.query(
+      `UPDATE products
+       SET image_path = $1, updated_at = NOW()
+       WHERE id = $2 AND business_id = $3
+       RETURNING *`,
+      [nextImagePath, id, current.business_id]
+    );
+
+    await client.query("COMMIT");
+    if (previousImagePath && previousImagePath !== nextImagePath) {
+      await deleteStoredImage(previousImagePath).catch(() => {});
+    }
+    return mapProductRow(rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    await deleteStoredImage(buildStoredImagePath(file.filename)).catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function removeProductImage(id, actor) {
+  const client = await pool.connect();
+  let previousImagePath = null;
+
+  try {
+    await client.query("BEGIN");
+    const current = await getOwnedProduct(id, actor, client);
+    if (!current) throw new ApiError(404, "Product not found");
+
+    previousImagePath = current.image_path || null;
+    const { rows } = await client.query(
+      `UPDATE products
+       SET image_path = NULL, updated_at = NOW()
+       WHERE id = $1 AND business_id = $2
+       RETURNING *`,
+      [id, current.business_id]
+    );
+
+    await client.query("COMMIT");
+    if (previousImagePath) {
+      await deleteStoredImage(previousImagePath).catch(() => {});
+    }
+    return mapProductRow(rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function updateProductStatus(id, isActive, status, actor) {
   const current = await getOwnedProduct(id, actor);
   if (!current) throw new ApiError(404, "Product not found");
@@ -732,6 +801,8 @@ module.exports = {
   listCategories,
   createProduct,
   updateProduct,
+  uploadProductImage,
+  removeProductImage,
   updateProductStatus,
   deleteProduct,
   applyBulkDiscount

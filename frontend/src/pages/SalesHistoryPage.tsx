@@ -5,6 +5,7 @@ import type { Sale, SaleDetail } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel } from "../utils/uiLabels";
 import { getMexicoCityDateInputValue } from "../utils/timezone";
+import { isManagementRole } from "../utils/roles";
 
 type RangeFilter = "day" | "week" | "month";
 
@@ -37,7 +38,7 @@ function getRangeDates(range: RangeFilter, selectedDate: string) {
 }
 
 export function SalesHistoryPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [sales, setSales] = useState<Sale[]>([]);
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
   const [saleDetail, setSaleDetail] = useState<SaleDetail | null>(null);
@@ -49,8 +50,13 @@ export function SalesHistoryPage() {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [cashier, setCashier] = useState("");
   const [total, setTotal] = useState("");
+  const [cancelTarget, setCancelTarget] = useState<Sale | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelLoading, setCancelLoading] = useState(false);
 
   const activeRange = useMemo(() => getRangeDates(range, selectedDate), [range, selectedDate]);
+  const today = getMexicoCityDateInputValue(new Date());
+  const canCancelSales = isManagementRole(user?.role);
 
   async function loadSales() {
     if (!token) return;
@@ -121,6 +127,39 @@ export function SalesHistoryPage() {
     }
 
     setSelectedSaleId(saleId);
+  }
+
+  function canCancelSale(sale: Sale) {
+    return canCancelSales && sale.sale_date === today && (sale.status || "completed") !== "cancelled";
+  }
+
+  async function handleCancelSale() {
+    if (!token || !cancelTarget) return;
+    if (!cancelReason.trim()) {
+      setError("Debes capturar un motivo de anulación");
+      return;
+    }
+
+    try {
+      setCancelLoading(true);
+      setError("");
+      const updatedSale = await apiRequest<Sale>(`/sales/${cancelTarget.id}/cancel`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({ reason: cancelReason.trim() })
+      });
+      setSales((current) => current.map((sale) => sale.id === updatedSale.id ? { ...sale, ...updatedSale } : sale));
+      if (saleDetail?.id === updatedSale.id) {
+        setSaleDetail((current) => current ? { ...current, ...updatedSale } : current);
+      }
+      setCancelTarget(null);
+      setCancelReason("");
+      await loadSales();
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : "No fue posible anular la venta");
+    } finally {
+      setCancelLoading(false);
+    }
   }
 
   const invoiceData = saleDetail?.invoice_info?.invoice_data || {};
@@ -201,7 +240,10 @@ export function SalesHistoryPage() {
                     <td>{sale.cashier_name}</td>
                     <td>{getPaymentMethodLabel(sale.payment_method)}</td>
                     <td>{getSaleTypeLabel(sale.sale_type)}</td>
-                    <td>{sale.items_summary || "-"}</td>
+                    <td>
+                      <div>{sale.items_summary || "-"}</div>
+                      {(sale.status || "completed") === "cancelled" ? <span className="status-badge cancelled">ANULADA</span> : null}
+                    </td>
                     <td>{currency(sale.total)}</td>
                   </tr>
                   {sale.id === selectedSaleId ? (
@@ -232,6 +274,23 @@ export function SalesHistoryPage() {
                             </div>
                             <p>Metodo de pago: {getPaymentMethodLabel(saleDetail.payment_method)}</p>
                             <p>Tipo de salida: {getSaleTypeLabel(saleDetail.sale_type)}</p>
+                            <p>Estado: {(saleDetail.status || "completed") === "cancelled" ? "Anulada" : "Completada"}</p>
+                            {saleDetail.cancellation_reason ? <p>Motivo de anulación: {saleDetail.cancellation_reason}</p> : null}
+                            {saleDetail.cancelled_at ? <p>Fecha de anulación: {shortDateTime(saleDetail.cancelled_at)}</p> : null}
+                            {canCancelSale(saleDetail) ? (
+                              <div className="inline-actions">
+                                <button
+                                  className="button ghost danger"
+                                  onClick={() => {
+                                    setCancelTarget(saleDetail);
+                                    setCancelReason("");
+                                  }}
+                                  type="button"
+                                >
+                                  Anular venta
+                                </button>
+                              </div>
+                            ) : null}
                             <div className="table-wrap">
                               <table>
                                 <thead>
@@ -303,6 +362,30 @@ export function SalesHistoryPage() {
           </table>
         </div>
       </div>
+
+      {cancelTarget ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card">
+            <div className="panel-header">
+              <div>
+                <h3>Anular venta #{cancelTarget.id}</h3>
+                <p className="muted">Esta acción revertirá stock y marcará la venta como cancelada.</p>
+              </div>
+              <button className="button ghost" onClick={() => { setCancelTarget(null); setCancelReason(""); }} type="button">Cerrar</button>
+            </div>
+            <label>
+              Motivo obligatorio
+              <textarea value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
+            </label>
+            <div className="inline-actions modal-actions-end">
+              <button className="button ghost" onClick={() => { setCancelTarget(null); setCancelReason(""); }} type="button">Cancelar</button>
+              <button className="button ghost danger" disabled={cancelLoading || !cancelReason.trim()} onClick={handleCancelSale} type="button">
+                {cancelLoading ? "Anulando..." : "Confirmar anulación"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -8,7 +8,11 @@ type RequestOptions = RequestInit & {
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
-  headers.set("Content-Type", "application/json");
+  const isFormDataBody = typeof FormData !== "undefined" && options.body instanceof FormData;
+
+  if (!isFormDataBody) {
+    headers.set("Content-Type", "application/json");
+  }
 
   if (options.token) {
     headers.set("Authorization", `Bearer ${options.token}`);

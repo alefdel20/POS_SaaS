@@ -21,6 +21,11 @@ const trendsValidation = [
   query("period").isIn(["week", "month", "year"]),
   validateRequest
 ];
+const cancelValidation = [
+  param("id").isInt(),
+  body("reason").trim().notEmpty(),
+  validateRequest
+];
 const createValidation = [
   body("payment_method").isIn(["cash", "card", "credit", "transfer"]),
   body("sale_type").optional().isIn(["ticket", "invoice"]),
@@ -56,14 +61,20 @@ const createSale = asyncHandler(async (req, res) => {
   res.status(201).json(await saleService.createSale(req.body, req.user));
 });
 
+const cancelSale = asyncHandler(async (req, res) => {
+  res.json(await saleService.cancelSale(Number(req.params.id), req.body.reason, req.user));
+});
+
 module.exports = {
   listValidation,
   saleIdValidation,
   trendsValidation,
+  cancelValidation,
   createValidation,
   listSales,
   listRecentSales,
   getSaleDetail,
   getSalesTrends,
-  createSale
+  createSale,
+  cancelSale
 };
