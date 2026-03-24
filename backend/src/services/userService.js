@@ -119,8 +119,15 @@ async function getScopedUser(id, actor, client = pool) {
 }
 
 async function listUsers(actor) {
-  const params = [requireActorBusinessId(actor)];
-  const where = "WHERE u.business_id = $1";
+  let params = [];
+  let where = "";
+
+  // CORRECCIÓN: Si eres superusuario, ves la matrix completa (sin filtro WHERE)
+  // Si no eres superusuario, te encerramos en tu sucursal.
+  if (!isSuperUser(actor)) {
+    params.push(requireActorBusinessId(actor));
+    where = "WHERE u.business_id = $1";
+  }
 
   const { rows } = await pool.query(
     `SELECT
@@ -130,7 +137,7 @@ async function listUsers(actor) {
      FROM users u
      LEFT JOIN businesses b ON b.id = u.business_id
      ${where}
-     ORDER BY u.created_at DESC`,
+     ORDER BY u.business_id ASC, u.created_at DESC`,
     params
   );
   return rows.map(mapUser);
