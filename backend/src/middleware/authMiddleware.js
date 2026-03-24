@@ -6,18 +6,25 @@ const { normalizeRole } = require("../utils/roles");
 const { requireActorBusinessId } = require("../utils/tenant");
 
 async function requireAuth(req, res, next) {
-    if (req.method === "OPTIONS") {
+  if (req.method === "OPTIONS") {
     return res.sendStatus(204);
   }
-  const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+
+  if (!authHeader) {
+    return next(new ApiError(401, "Authentication required"));
+  }
+
+  const [scheme, token] = String(authHeader).trim().split(/\s+/);
+
+  if (!scheme || !token || scheme.toLowerCase() !== "bearer") {
     return next(new ApiError(401, "Authentication required"));
   }
 
   try {
-    const token = authHeader.split(" ")[1];
     const payload = jwt.verify(token, jwtSecret);
+
     if (payload.businessId === null || payload.businessId === undefined) {
       return next(new ApiError(401, "Session business context is missing"));
     }
@@ -38,8 +45,9 @@ async function requireAuth(req, res, next) {
     req.auth = {
       user_id: payload.userId,
       role: payload.role,
-      business_id: userBusinessId
+      business_id: userBusinessId,
     };
+
     next();
   } catch (error) {
     next(error.statusCode ? error : new ApiError(401, "Invalid or expired token"));
@@ -65,5 +73,5 @@ function requireRole(roles) {
 
 module.exports = {
   requireAuth,
-  requireRole
+  requireRole,
 };
