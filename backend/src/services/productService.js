@@ -442,6 +442,14 @@ function buildProductSelect(effectivePriceCase) {
   `;
 }
 
+function mapProductRow(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    unidad_de_venta: normalizeSaleUnit(row.unidad_de_venta)
+  };
+}
+
 async function listProducts(search, activeOnlyOrOptions = false, actor) {
   const options = normalizeListOptions(search, activeOnlyOrOptions);
   const baseFilter = buildSearchFilter(actor);
@@ -489,14 +497,22 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
 
   if (!page) {
     const { rows } = await pool.query(baseQuery, filters);
-    return rows;
+    return rows.map(mapProductRow);
   }
 
   const [{ rows: countRows }, { rows }] = await Promise.all([
     pool.query(`SELECT COUNT(*)::int AS total FROM (${baseQuery}) AS product_count`, filters),
     pool.query(`${baseQuery} LIMIT $${filters.length + 1} OFFSET $${filters.length + 2}`, [...filters, pageSize, offset])
   ]);
-  return { items: rows, pagination: { page, pageSize, total: Number(countRows[0]?.total || 0), totalPages: Math.max(Math.ceil(Number(countRows[0]?.total || 0) / pageSize), 1) } };
+  return {
+    items: rows.map(mapProductRow),
+    pagination: {
+      page,
+      pageSize,
+      total: Number(countRows[0]?.total || 0),
+      totalPages: Math.max(Math.ceil(Number(countRows[0]?.total || 0) / pageSize), 1)
+    }
+  };
 }
 
 async function listSuppliers(search, actor) {
@@ -570,7 +586,7 @@ async function createProduct(payload, actor) {
     );
     await syncProductSuppliers(rows[0].id, businessId, payload, client);
     await client.query("COMMIT");
-    return rows[0];
+    return mapProductRow(rows[0]);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -644,7 +660,7 @@ async function updateProduct(id, payload, actor) {
     }
 
     await client.query("COMMIT");
-    return rows[0];
+    return mapProductRow(rows[0]);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -664,7 +680,7 @@ async function updateProductStatus(id, isActive, status, actor) {
      RETURNING *`,
     [resolvedIsActive, nextStatus, id, current.business_id]
   );
-  return rows[0];
+  return mapProductRow(rows[0]);
 }
 
 async function deleteProduct(id, action, actor) {
@@ -677,7 +693,7 @@ async function deleteProduct(id, action, actor) {
      RETURNING *`,
     [id, current.business_id]
   );
-  return { mode: "soft", product: rows[0], requested_action: action || "deactivate" };
+  return { mode: "soft", product: mapProductRow(rows[0]), requested_action: action || "deactivate" };
 }
 
 async function applyBulkDiscount(productIds, payload, actor) {
@@ -694,7 +710,7 @@ async function applyBulkDiscount(productIds, payload, actor) {
        RETURNING *`,
       [businessId, normalizedIds]
     );
-    return rows;
+    return rows.map(mapProductRow);
   }
 
   if (!discountFields.discount_type || discountFields.discount_value === null) throw new ApiError(400, "Discount configuration is incomplete");
@@ -707,7 +723,7 @@ async function applyBulkDiscount(productIds, payload, actor) {
      RETURNING *`,
     [discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end, businessId, normalizedIds]
   );
-  return rows;
+  return rows.map(mapProductRow);
 }
 
 module.exports = {
