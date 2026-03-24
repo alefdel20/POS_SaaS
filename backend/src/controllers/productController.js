@@ -2,6 +2,7 @@ const { body, param, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const productService = require("../services/productService");
+const { getProductBarcodeSvg } = require("../services/adminInvoiceService");
 
 const listValidation = [
   query("search").optional().trim(),
@@ -15,8 +16,10 @@ const idValidation = [param("id").isInt(), validateRequest];
 const createValidation = [
   body("name").trim().notEmpty(),
   body("sku").optional().trim(),
-  body("barcode").optional({ values: "falsy" }).trim(),
+  body("barcode").optional({ values: "falsy" }).trim().matches(/^\d+$/),
   body("category").optional({ values: "falsy" }).trim(),
+  body("unidad_de_venta").optional({ values: "falsy" }).isIn(["pieza", "kg", "litro", "caja"]),
+  body("porcentaje_ganancia").optional({ values: "falsy" }).isFloat(),
   body("stock_minimo").isFloat({ min: 0 }),
   body("stock_maximo").optional().isFloat({ min: 0 }),
   body("supplier_id").optional({ values: "falsy" }).isInt(),
@@ -50,8 +53,10 @@ const createValidation = [
 const updateValidation = [
   body("name").optional().trim().notEmpty(),
   body("sku").optional().trim(),
-  body("barcode").optional({ values: "falsy" }).trim(),
+  body("barcode").optional({ values: "falsy" }).trim().matches(/^\d+$/),
   body("category").optional({ values: "falsy" }).trim(),
+  body("unidad_de_venta").optional({ values: "falsy" }).isIn(["pieza", "kg", "litro", "caja"]),
+  body("porcentaje_ganancia").optional({ values: "falsy" }).isFloat(),
   body("stock_minimo").optional().isFloat({ min: 0 }),
   body("stock_maximo").optional().isFloat({ min: 0 }),
   body("supplier_id").optional({ values: "falsy" }).isInt(),
@@ -120,6 +125,12 @@ const listCategories = asyncHandler(async (req, res) => {
   res.json(await productService.listCategories(req.query.search, req.user));
 });
 
+const getProductBarcode = asyncHandler(async (req, res) => {
+  const result = await getProductBarcodeSvg(Number(req.params.id), req.user);
+  res.setHeader("Content-Type", "image/svg+xml");
+  res.send(result.svg);
+});
+
 const createProduct = asyncHandler(async (req, res) => {
   res.status(201).json(await productService.createProduct(req.body, req.user));
 });
@@ -153,6 +164,7 @@ module.exports = {
   listProducts,
   listSuppliers,
   listCategories,
+  getProductBarcode,
   createProduct,
   updateProduct,
   updateProductStatus,

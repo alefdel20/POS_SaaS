@@ -18,6 +18,7 @@ import { SalesPage } from "../pages/SalesPage";
 import { UsersPage } from "../pages/UsersPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { BusinessesPage } from "../pages/BusinessesPage";
+import { InvoicesPage } from "../pages/InvoicesPage";
 import { getDefaultRouteForRole } from "../utils/roles";
 import { Navigate } from "react-router-dom";
 
@@ -43,6 +44,9 @@ export function AppRouter() {
             <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin", "soporte"]} />}>
               <Route path="/users" element={<UsersPage />} />
             </Route>
+            <Route element={<ProtectedRoute roles={["superadmin", "admin", "cajero"]} />}>
+              <Route path="/daily-cut" element={<DailyCutPage />} />
+            </Route>
             <Route element={<ProtectedRoute roles={["superadmin", "admin"]} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/profile" element={<ProfilePage />} />
@@ -51,8 +55,10 @@ export function AppRouter() {
               <Route path="/remate" element={<RematePage />} />
               <Route path="/sales-history" element={<SalesHistoryPage />} />
               <Route path="/credit-collections" element={<CreditCollectionsPage />} />
-              <Route path="/daily-cut" element={<DailyCutPage />} />
               <Route path="/finances" element={<FinancesPage />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin", "soporte"]} />}>
+              <Route path="/invoices" element={<InvoicesPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={["superusuario", "superadmin"]} />}>
               <Route path="/businesses" element={<BusinessesPage />} />

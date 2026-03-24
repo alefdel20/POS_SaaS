@@ -27,6 +27,7 @@ const createValidation = [
   body("customer.name").optional({ values: "falsy" }).trim(),
   body("customer.phone").optional({ values: "falsy" }).trim(),
   body("initial_payment").optional().isFloat({ min: 0 }),
+  body("requires_administrative_invoice").optional().isBoolean(),
   body("invoice_data").optional().isObject(),
   body("items").isArray({ min: 1 }),
   body("items.*.product_id").isInt(),

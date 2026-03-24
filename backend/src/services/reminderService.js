@@ -3,21 +3,20 @@ const ApiError = require("../utils/ApiError");
 const { n8nWebhookUrl } = require("../config/env");
 const { getReminderContext } = require("./creditCollectionService");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { TIME_ZONE, getMexicoCityDate, getMexicoCityDateTime } = require("../utils/timezone");
 
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
 }
 
 function addDays(dateString, days) {
-  const baseDate = new Date(`${dateString}T00:00:00`);
+  const baseDate = new Date(`${dateString}T12:00:00`);
   baseDate.setDate(baseDate.getDate() + days);
-  return baseDate.toISOString().slice(0, 10);
+  return getMexicoCityDate(baseDate);
 }
 
 function getTodayLocalDate() {
-  const now = new Date();
-  const offset = now.getTimezoneOffset() * 60000;
-  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+  return getMexicoCityDate();
 }
 
 function getBusinessId(actor) {
@@ -215,7 +214,7 @@ async function sendReminder(payload, actor) {
 
 async function receiveAutomationWebhook(payload) {
   if (!payload || typeof payload !== "object") throw new ApiError(400, "Payload invalido");
-  return { received: true, event: payload.event || payload.type || "unknown", timestamp: new Date().toISOString(), payload };
+  return { received: true, event: payload.event || payload.type || "unknown", timestamp: getMexicoCityDateTime(), timezone: TIME_ZONE, payload };
 }
 
 module.exports = {

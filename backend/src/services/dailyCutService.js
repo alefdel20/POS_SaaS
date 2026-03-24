@@ -1,19 +1,14 @@
 const ExcelJS = require("exceljs");
 const pool = require("../db/pool");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { getMexicoCityDate, getMonthRange } = require("../utils/timezone");
 
 function getLocalIsoDate() {
-  const now = new Date();
-  const offset = now.getTimezoneOffset() * 60000;
-  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+  return getMexicoCityDate();
 }
 
 function normalizeMonthRange(month) {
-  if (!month || !/^\d{4}-\d{2}$/.test(month)) return null;
-  const [year, monthNumber] = month.split("-").map(Number);
-  const start = new Date(Date.UTC(year, monthNumber - 1, 1));
-  const end = new Date(Date.UTC(year, monthNumber, 0));
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+  return getMonthRange(month);
 }
 
 function buildSalesFilters(filters = {}, actor, alias = "sales") {

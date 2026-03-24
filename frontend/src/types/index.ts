@@ -64,6 +64,8 @@ export interface Product {
   name: string;
   sku: string;
   barcode: string;
+  unidad_de_venta?: "pieza" | "kg" | "litro" | "caja" | null;
+  porcentaje_ganancia?: number | null;
   category?: string | null;
   description: string;
   price: number;
@@ -111,6 +113,9 @@ export interface Sale {
   initial_payment?: number;
   balance_due?: number;
   invoice_data?: Record<string, unknown>;
+  requires_administrative_invoice?: boolean;
+  administrative_invoice_id?: number | null;
+  items_summary?: string;
   sale_date: string;
   sale_time: string;
   created_at: string;
@@ -122,6 +127,7 @@ export interface SaleDetailItem {
   product_name: string;
   sku?: string | null;
   quantity: number;
+  unidad_de_venta?: string | null;
   unit_price: number;
   subtotal: number;
 }
@@ -330,4 +336,41 @@ export interface FixedExpense {
   due_day?: number | null;
   notes: string;
   is_active: boolean;
+}
+
+export interface AdministrativeInvoice {
+  id: number;
+  sale_id: number;
+  sale_folio: string;
+  sale_date: string;
+  cashier_name?: string | null;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+  customer_name?: string | null;
+  rfc?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  fiscal_regime?: string | null;
+  fiscal_data?: Record<string, unknown>;
+  cantidad_clave: string;
+  observations: string;
+  sale_snapshot?: {
+    sale_id?: number;
+    folio?: number | string;
+    sale_date?: string;
+    cashier_name?: string;
+    payment_method?: string;
+    sale_type?: string;
+    total?: number;
+    items?: Array<{
+      product_id: number;
+      product_name: string;
+      quantity: number;
+      unidad_de_venta?: string;
+      unit_price: number;
+      subtotal: number;
+    }>;
+  };
+  total: number;
+  created_at: string;
+  updated_at: string;
 }

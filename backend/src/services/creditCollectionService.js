@@ -2,6 +2,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { getMexicoCityDate } = require("../utils/timezone");
 
 async function listDebtors(actor) {
   const businessId = requireActorBusinessId(actor);
@@ -96,7 +97,7 @@ async function createPayment(saleId, payload, actor) {
       `INSERT INTO credit_payments (sale_id, business_id, payment_date, amount, payment_method, notes)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [saleId, businessId, payload.payment_date || new Date().toISOString().slice(0, 10), amount, payload.payment_method, payload.notes || ""]
+      [saleId, businessId, payload.payment_date || getMexicoCityDate(), amount, payload.payment_method, payload.notes || ""]
     );
     const { rows: totalsRows } = await client.query(
       "SELECT COALESCE(SUM(amount), 0) AS paid FROM credit_payments WHERE sale_id = $1 AND business_id = $2",

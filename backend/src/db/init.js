@@ -50,15 +50,20 @@ async function ensureSchema(client) {
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_end TIMESTAMP",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS liquidation_price NUMERIC(12, 2)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS expires_at DATE",
-    "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo NUMERIC(12, 2) NOT NULL DEFAULT 0",
-    "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_maximo NUMERIC(12, 2)",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo NUMERIC(12, 3) NOT NULL DEFAULT 0",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_maximo NUMERIC(12, 3)",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS unidad_de_venta VARCHAR(20)",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS porcentaje_ganancia NUMERIC(7, 3)",
+    "ALTER TABLE products ALTER COLUMN stock TYPE NUMERIC(12, 3)",
+    "ALTER TABLE products ALTER COLUMN stock_minimo TYPE NUMERIC(12, 3)",
+    "ALTER TABLE products ALTER COLUMN stock_maximo TYPE NUMERIC(12, 3)",
 
     `CREATE TABLE IF NOT EXISTS product_suppliers (
       id SERIAL PRIMARY KEY,
       product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
       supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
       is_primary BOOLEAN NOT NULL DEFAULT FALSE,
-      purchase_cost NUMERIC(12, 2),
+      purchase_cost NUMERIC(12, 3),
       cost_updated_at TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       UNIQUE(product_id, supplier_id)
@@ -79,9 +84,15 @@ async function ensureSchema(client) {
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_status VARCHAR(30) NOT NULL DEFAULT 'not_applicable'",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_movement_id BIGINT",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS stamp_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS requires_administrative_invoice BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS administrative_invoice_id BIGINT",
 
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0",
+    "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unidad_de_venta VARCHAR(20)",
+    "ALTER TABLE sale_items ALTER COLUMN quantity TYPE NUMERIC(12, 3)",
+
+    "ALTER TABLE product_suppliers ALTER COLUMN purchase_cost TYPE NUMERIC(12, 3)",
 
     `CREATE TABLE IF NOT EXISTS credit_payments (
       id SERIAL PRIMARY KEY,
@@ -220,6 +231,30 @@ async function ensureSchema(client) {
     )`,
     "ALTER TABLE company_stamp_movements ADD COLUMN IF NOT EXISTS business_id INTEGER",
 
+    `CREATE TABLE IF NOT EXISTS administrative_invoices (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER,
+      sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+      requested_by_user_id INTEGER REFERENCES users(id),
+      assigned_to_user_id INTEGER REFERENCES users(id),
+      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      sale_folio VARCHAR(50) NOT NULL,
+      sale_date DATE NOT NULL,
+      cashier_name VARCHAR(150),
+      sale_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+      customer_name VARCHAR(180),
+      rfc VARCHAR(20),
+      email VARCHAR(150),
+      phone VARCHAR(40),
+      fiscal_regime VARCHAR(120),
+      fiscal_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      cantidad_clave TEXT NOT NULL DEFAULT '',
+      observations TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE administrative_invoices ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
     `CREATE TABLE IF NOT EXISTS import_jobs (
       id SERIAL PRIMARY KEY,
       job_type VARCHAR(40) NOT NULL CHECK (job_type IN ('google_sheets', 'excel', 'n8n_sync')),
@@ -272,6 +307,7 @@ async function ensureSeedBusiness(client) {
   await client.query("UPDATE users SET role = 'superusuario' WHERE role = 'superadmin'");
   await client.query("UPDATE users SET role = 'cajero' WHERE role IN ('user', 'cashier')");
   await client.query("UPDATE products SET status = 'activo' WHERE status IS NULL");
+  await client.query("UPDATE products SET unidad_de_venta = 'pieza' WHERE unidad_de_venta IS NULL OR unidad_de_venta = ''");
   await client.query("UPDATE products SET stock_maximo = GREATEST(COALESCE(stock, 0), COALESCE(stock_minimo, 0)) WHERE stock_maximo IS NULL");
   await client.query("ALTER TABLE products ALTER COLUMN stock_maximo SET DEFAULT 0");
   await client.query("UPDATE products SET stock_maximo = 0 WHERE stock_maximo IS NULL");
@@ -384,6 +420,15 @@ async function backfillBusinessIds(client) {
   );
 
   await client.query(
+    `UPDATE administrative_invoices
+     SET business_id = COALESCE(administrative_invoices.business_id, sales.business_id, $1)
+     FROM sales
+     WHERE sales.id = administrative_invoices.sale_id
+       AND administrative_invoices.business_id IS NULL`,
+    [businessId]
+  );
+
+  await client.query(
     `UPDATE support_access_logs
      SET business_id = COALESCE(support_access_logs.business_id, actor.business_id, target.business_id, $1),
          target_business_id = COALESCE(support_access_logs.target_business_id, target.business_id, $1)
@@ -437,6 +482,7 @@ async function backfillBusinessIds(client) {
     `UPDATE sale_items SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE credit_payments SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE company_stamp_movements SET business_id = ${businessId} WHERE business_id IS NULL`,
+    `UPDATE administrative_invoices SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE support_access_logs
        SET business_id = ${businessId}, target_business_id = ${businessId}
      WHERE business_id IS NULL OR target_business_id IS NULL`,
@@ -458,6 +504,10 @@ async function ensureConstraints(client) {
   await client
     .query("ALTER TABLE sales ADD CONSTRAINT fk_sales_stamp_movement FOREIGN KEY (stamp_movement_id) REFERENCES company_stamp_movements(id)")
     .catch(() => {});
+  await client.query("ALTER TABLE sales DROP CONSTRAINT IF EXISTS fk_sales_administrative_invoice");
+  await client
+    .query("ALTER TABLE sales ADD CONSTRAINT fk_sales_administrative_invoice FOREIGN KEY (administrative_invoice_id) REFERENCES administrative_invoices(id)")
+    .catch(() => {});
 
   const fks = [
     "users",
@@ -473,7 +523,8 @@ async function ensureConstraints(client) {
     "owner_loans",
     "fixed_expenses",
     "company_profiles",
-    "company_stamp_movements"
+    "company_stamp_movements",
+    "administrative_invoices"
   ];
 
   for (const table of fks) {
@@ -533,6 +584,17 @@ async function ensureConstraints(client) {
       IF NOT EXISTS (
         SELECT 1
         FROM pg_constraint
+        WHERE conname = 'products_unidad_de_venta_check'
+          AND conrelid = 'products'::regclass
+      ) THEN
+        ALTER TABLE products
+        ADD CONSTRAINT products_unidad_de_venta_check
+        CHECK (unidad_de_venta IS NULL OR unidad_de_venta IN ('pieza', 'kg', 'litro', 'caja'));
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
         WHERE conname = 'company_profiles_pac_mode_check'
           AND conrelid = 'company_profiles'::regclass
       ) THEN
@@ -574,6 +636,9 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_fixed_expenses_business_id ON fixed_expenses(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_company_profiles_business_id ON company_profiles(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_company_stamp_movements_business_id ON company_stamp_movements(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_administrative_invoices_business_id ON administrative_invoices(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_administrative_invoices_sale_id ON administrative_invoices(sale_id)",
+    "CREATE INDEX IF NOT EXISTS idx_administrative_invoices_status ON administrative_invoices(business_id, status)",
     "CREATE INDEX IF NOT EXISTS idx_support_access_logs_business_id ON support_access_logs(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_support_access_logs_actor ON support_access_logs(actor_user_id)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_usuario_id ON audit_logs(usuario_id)",
@@ -646,6 +711,7 @@ async function ensureDatabaseCompatibility() {
 
   try {
     await client.query("BEGIN");
+    await client.query("SET TIME ZONE 'America/Mexico_City'");
     await ensureSchema(client);
     await ensureSeedBusiness(client);
     await backfillBusinessIds(client);

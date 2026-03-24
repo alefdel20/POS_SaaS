@@ -4,13 +4,12 @@ import { useAuth } from "../context/AuthContext";
 import type { Sale, SaleDetail } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel } from "../utils/uiLabels";
+import { getMexicoCityDateInputValue } from "../utils/timezone";
 
 type RangeFilter = "day" | "week" | "month";
 
 function toDateInputValue(date: Date) {
-  const timezoneOffset = date.getTimezoneOffset();
-  const localDate = new Date(date.getTime() - timezoneOffset * 60000);
-  return localDate.toISOString().slice(0, 10);
+  return getMexicoCityDateInputValue(date);
 }
 
 function getRangeDates(range: RangeFilter, selectedDate: string) {
@@ -186,6 +185,7 @@ export function SalesHistoryPage() {
                 <th>Cajero</th>
                 <th>Pago</th>
                 <th>Tipo</th>
+                <th>Resumen</th>
                 <th>Total</th>
               </tr>
             </thead>
@@ -201,11 +201,12 @@ export function SalesHistoryPage() {
                     <td>{sale.cashier_name}</td>
                     <td>{getPaymentMethodLabel(sale.payment_method)}</td>
                     <td>{getSaleTypeLabel(sale.sale_type)}</td>
+                    <td>{sale.items_summary || "-"}</td>
                     <td>{currency(sale.total)}</td>
                   </tr>
                   {sale.id === selectedSaleId ? (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={7}>
                         {loadingDetail && !saleDetail ? <p className="muted">Cargando detalle...</p> : null}
                         {saleDetail && saleDetail.id === sale.id ? (
                           <div className="info-card">
@@ -237,6 +238,7 @@ export function SalesHistoryPage() {
                                   <tr>
                                     <th>Producto</th>
                                     <th>Cantidad</th>
+                                    <th>Unidad</th>
                                     <th>Precio unitario</th>
                                     <th>Subtotal</th>
                                   </tr>
@@ -246,6 +248,7 @@ export function SalesHistoryPage() {
                                     <tr key={item.id}>
                                       <td>{item.product_name}</td>
                                       <td>{item.quantity}</td>
+                                      <td>{item.unidad_de_venta || "pieza"}</td>
                                       <td>{currency(item.unit_price)}</td>
                                       <td>{currency(item.subtotal)}</td>
                                     </tr>
@@ -293,7 +296,7 @@ export function SalesHistoryPage() {
               ))}
               {sales.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={6}>No hay ventas para los filtros seleccionados.</td>
+                  <td className="muted" colSpan={7}>No hay ventas para los filtros seleccionados.</td>
                 </tr>
               ) : null}
             </tbody>

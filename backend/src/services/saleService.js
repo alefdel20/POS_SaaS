@@ -3,6 +3,11 @@ const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
 const { ensureAutomaticReminders, ensureLowStockRemindersForProductIds } = require("./reminderService");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { getMexicoCityDate, getMexicoCityTime } = require("../utils/timezone");
+const { createAdministrativeInvoiceFromSale } = require("./adminInvoiceService");
+
+const INTEGER_UNITS = new Set(["pieza", "caja"]);
+const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
 
 function computeDiscountedPrice(product) {
   if (product.status !== "activo" || !product.discount_type || product.discount_value === null || !product.discount_start || !product.discount_end) return null;
@@ -31,8 +36,47 @@ function mapSaleRow(row) {
     ...row,
     transfer_snapshot: row.transfer_snapshot || parseTransferNotes(row.notes),
     invoice_data: row.invoice_data || {},
-    stamp_snapshot: row.stamp_snapshot || {}
+    stamp_snapshot: row.stamp_snapshot || {},
+    requires_administrative_invoice: Boolean(row.requires_administrative_invoice),
+    items_summary: row.items_summary || ""
   };
+}
+
+function normalizeSaleUnit(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || "pieza";
+}
+
+function hasMoreThanThreeDecimals(value) {
+  return Math.abs(Number(value) * 1000 - Math.round(Number(value) * 1000)) > 1e-9;
+}
+
+function formatQuantity(quantity, unit) {
+  const numericValue = Number(quantity || 0);
+  if (INTEGER_UNITS.has(unit)) {
+    return String(Math.trunc(numericValue));
+  }
+  return numericValue.toFixed(3);
+}
+
+function buildItemsSummary(items = []) {
+  return items
+    .map((item) => `${formatQuantity(item.quantity, item.unidad_de_venta || "pieza")} ${item.unidad_de_venta || "pieza"} ${item.product_name}`)
+    .join(", ");
+}
+
+function validateSaleQuantity(quantity, unit) {
+  const numericValue = Number(quantity);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    throw new ApiError(400, "Quantity must be greater than zero");
+  }
+  if (INTEGER_UNITS.has(unit) && !Number.isInteger(numericValue)) {
+    throw new ApiError(400, `Quantity must be an integer for ${unit}`);
+  }
+  if (FRACTIONAL_UNITS.has(unit) && hasMoreThanThreeDecimals(numericValue)) {
+    throw new ApiError(400, `Quantity cannot exceed 3 decimals for ${unit}`);
+  }
+  return Number(numericValue.toFixed(3));
 }
 
 function appendBusinessScope(filters, actor, alias = "sales") {
@@ -78,9 +122,30 @@ function hasCompleteFiscalProfile(profile) {
 async function listSales(filters = {}, actor) {
   const { whereClause, values } = buildSaleFilters(filters, actor);
   const { rows } = await pool.query(
-    `SELECT sales.*, users.full_name AS cashier_name
+    `SELECT sales.*, users.full_name AS cashier_name,
+            COALESCE(items_summary.summary, '') AS items_summary
      FROM sales
      INNER JOIN users ON users.id = sales.user_id AND users.business_id = sales.business_id
+     LEFT JOIN LATERAL (
+       SELECT STRING_AGG(
+         CONCAT(
+           CASE
+             WHEN COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza') IN ('pieza', 'caja')
+               THEN TRUNC(si.quantity)::text
+             ELSE TO_CHAR(si.quantity, 'FM999999990.000')
+           END,
+           ' ',
+           COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza'),
+           ' ',
+           p.name
+         ),
+         ', '
+         ORDER BY si.id
+       ) AS summary
+       FROM sale_items si
+       INNER JOIN products p ON p.id = si.product_id AND p.business_id = si.business_id
+       WHERE si.sale_id = sales.id AND si.business_id = sales.business_id
+     ) items_summary ON TRUE
      ${whereClause}
      ORDER BY sales.created_at DESC`,
     values
@@ -105,7 +170,8 @@ async function getSaleDetail(saleId, actor) {
   if (!sale) throw new ApiError(404, "Sale not found");
 
   const { rows: itemRows } = await pool.query(
-    `SELECT sale_items.id, sale_items.product_id, products.name AS product_name, products.sku, sale_items.quantity, sale_items.unit_price, sale_items.subtotal
+    `SELECT sale_items.id, sale_items.product_id, products.name AS product_name, products.sku, sale_items.quantity, sale_items.unit_price, sale_items.subtotal,
+            COALESCE(sale_items.unidad_de_venta, products.unidad_de_venta, 'pieza') AS unidad_de_venta
      FROM sale_items
      INNER JOIN products ON products.id = sale_items.product_id AND products.business_id = sale_items.business_id
      WHERE sale_items.sale_id = $1 AND sale_items.business_id = $2
@@ -138,7 +204,14 @@ async function getSaleDetail(saleId, actor) {
       stamp_snapshot: sale.stamp_snapshot,
       invoice_data: sale.invoice_data
     } : null,
-    items: itemRows.map((item) => ({ ...item, quantity: Number(item.quantity), unit_price: Number(item.unit_price), subtotal: Number(item.subtotal) }))
+    items_summary: buildItemsSummary(itemRows),
+    items: itemRows.map((item) => ({
+      ...item,
+      unidad_de_venta: item.unidad_de_venta || "pieza",
+      quantity: Number(item.quantity),
+      unit_price: Number(item.unit_price),
+      subtotal: Number(item.subtotal)
+    }))
   };
 }
 
@@ -211,8 +284,8 @@ async function createSale(payload, user) {
       const product = productsMap.get(item.product_id);
       if (!product) throw new ApiError(404, `Product ${item.product_id} not found`);
       if (!product.is_active || product.status !== "activo") throw new ApiError(409, "Producto inactivo, contactar proveedor");
-      const quantity = Number(item.quantity);
-      if (quantity <= 0) throw new ApiError(400, "Quantity must be greater than zero");
+      const unit = normalizeSaleUnit(product.unidad_de_venta);
+      const quantity = validateSaleQuantity(item.quantity, unit);
       if (Number(product.stock) < quantity) warnings.push(`Insufficient stock for ${product.name}. Current stock: ${product.stock}`);
 
       const nearExpiry = Boolean(product.expires_at) && new Date(product.expires_at) <= new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
@@ -227,10 +300,11 @@ async function createSale(payload, user) {
       const subtotal = unitPrice * quantity;
       total += subtotal;
       totalCost += unitCost * quantity;
-      normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal });
+      normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: unit, productName: product.name });
     }
 
     const saleType = payload.sale_type || "ticket";
+    const requiresAdministrativeInvoice = Boolean(payload.requires_administrative_invoice);
     const initialPayment = Number(payload.initial_payment || 0);
     const cashReceived = payload.payment_method === "cash" ? Number(payload.cash_received) : null;
     if (payload.payment_method === "cash" && cashReceived < total) throw new ApiError(400, "Cash received must cover the sale total");
@@ -249,7 +323,7 @@ async function createSale(payload, user) {
       companyProfile = await getActiveCompanyProfile(user, client);
       transferSnapshot = companyProfile ? { bank: companyProfile.bank_name || null, clabe: companyProfile.bank_clabe || null, beneficiary: companyProfile.bank_beneficiary || null } : {};
     }
-    if (saleType === "invoice") {
+    if (saleType === "invoice" && !requiresAdministrativeInvoice) {
       companyProfile = companyProfile || await getActiveCompanyProfile(user, client);
       if (!hasCompleteFiscalProfile(companyProfile)) throw new ApiError(409, "Fiscal profile is incomplete");
       if (Number(companyProfile.stamps_available || 0) <= 0) throw new ApiError(409, "No invoice stamps available");
@@ -276,11 +350,11 @@ async function createSale(payload, user) {
       `INSERT INTO sales (
         user_id, business_id, payment_method, sale_type, subtotal, total, total_cost, customer_name, customer_phone,
         initial_payment, balance_due, invoice_data, notes, company_profile_id, transfer_snapshot, invoice_status,
-        stamp_status, stamp_movement_id, stamp_snapshot, sale_date, sale_time, created_at
+        stamp_status, stamp_movement_id, stamp_snapshot, sale_date, sale_time, created_at, requires_administrative_invoice
       )
-      VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP)
+      VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21)
       RETURNING *`,
-      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.payment_method === "transfer" ? JSON.stringify(transferSnapshot) : "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot)]
+      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), getMexicoCityTime(), requiresAdministrativeInvoice]
     );
     const sale = mapSaleRow(saleRows[0]);
 
@@ -290,11 +364,42 @@ async function createSale(payload, user) {
 
     for (const item of normalizedItems) {
       await client.query(
-        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal]
+        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta]
       );
       await client.query("UPDATE products SET stock = stock - $1 WHERE id = $2 AND business_id = $3", [item.quantity, item.productId, businessId]);
+    }
+
+    if (requiresAdministrativeInvoice) {
+      const administrativeInvoice = await createAdministrativeInvoiceFromSale({
+        client,
+        actor: user,
+        sale,
+        items: normalizedItems.map((item) => ({
+          product_id: item.productId,
+          product_name: item.productName,
+          quantity: item.quantity,
+          unidad_de_venta: item.unidadDeVenta,
+          unit_price: item.unitPrice,
+          subtotal: item.subtotal
+        })),
+        customer: {
+          customer_name: customerName,
+          rfc: payload.invoice_data?.client?.rfc || "",
+          email: payload.invoice_data?.client?.correo || "",
+          phone: payload.invoice_data?.client?.telefono || customerPhone || "",
+          fiscal_regime: payload.invoice_data?.client?.regimen_fiscal || "",
+          fiscal_data: payload.invoice_data?.client || {},
+          observations: payload.notes || ""
+        }
+      });
+
+      await client.query(
+        "UPDATE sales SET administrative_invoice_id = $1 WHERE id = $2 AND business_id = $3",
+        [administrativeInvoice.id, sale.id, businessId]
+      );
+      sale.administrative_invoice_id = administrativeInvoice.id;
     }
 
     await client.query("COMMIT");
@@ -302,6 +407,7 @@ async function createSale(payload, user) {
     await ensureLowStockRemindersForProductIds(normalizedItems.map((item) => item.productId), user);
     await ensureAutomaticReminders(user);
 
+    sale.requires_administrative_invoice = requiresAdministrativeInvoice;
     return { sale, warnings, receipt: { bank_details: payload.payment_method === "transfer" ? transferSnapshot : null, balance_due: balanceDue, invoice_status: invoiceStatus, stamp_status: stampStatus } };
   } catch (error) {
     await client.query("ROLLBACK");

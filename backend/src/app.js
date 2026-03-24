@@ -18,6 +18,7 @@ const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 const financeRoutes = require("./routes/financeRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const businessRoutes = require("./routes/businessRoutes");
+const adminInvoiceRoutes = require("./routes/adminInvoiceRoutes");
 
 const app = express();
 
@@ -52,6 +53,7 @@ const routes = [
   { path: "/finances", router: financeRoutes, auth: true },
   { path: "/profile", router: profileRoutes, auth: true },
   { path: "/businesses", router: businessRoutes, auth: true },
+  { path: "/admin-invoices", router: adminInvoiceRoutes, auth: true },
 ];
 
 routes.forEach((route) => {

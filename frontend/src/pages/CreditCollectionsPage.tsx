@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import type { CreditPayment, Debtor } from "../types";
 import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel } from "../utils/uiLabels";
+import { getMexicoCityDateInputValue } from "../utils/timezone";
 
 type PaymentFormState = {
   amount: string;
@@ -15,7 +16,7 @@ type PaymentFormState = {
 const emptyPayment: PaymentFormState = {
   amount: "",
   payment_method: "cash",
-  payment_date: new Date().toISOString().slice(0, 10),
+  payment_date: getMexicoCityDateInputValue(),
   notes: ""
 };
 

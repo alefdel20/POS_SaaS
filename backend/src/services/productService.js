@@ -3,6 +3,9 @@ const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 
 const SKU_CONFUSING_CHARACTERS = { O: "0", I: "1" };
+const SALE_UNITS = ["pieza", "kg", "litro", "caja"];
+const INTEGER_UNITS = new Set(["pieza", "caja"]);
+const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
 
 function stripAccents(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -21,7 +24,7 @@ function normalizeGeneratedSkuSegment(value, maxLength = 4) {
 }
 
 function sanitizeBarcode(value) {
-  return stripAccents(value).replace(/[^A-Za-z0-9]/g, "").trim();
+  return stripAccents(value).replace(/\D/g, "").trim();
 }
 
 function sanitizeManualSku(value) {
@@ -45,6 +48,52 @@ function normalizeDiscountFields(payload) {
     discount_start: payload.discount_start || null,
     discount_end: payload.discount_end || null
   };
+}
+
+function normalizeSaleUnit(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "pieza";
+  if (!SALE_UNITS.includes(normalized)) throw new ApiError(400, "Invalid sale unit");
+  return normalized;
+}
+
+function roundToThree(value) {
+  return Number(Number(value || 0).toFixed(3));
+}
+
+function hasMoreThanThreeDecimals(value) {
+  return Math.abs(Number(value) * 1000 - Math.round(Number(value) * 1000)) > 1e-9;
+}
+
+function validateQuantityByUnit(value, unit, fieldLabel) {
+  const numericValue = Number(value);
+  if (Number.isNaN(numericValue) || numericValue < 0) {
+    throw new ApiError(400, `${fieldLabel} must be a valid positive number`);
+  }
+
+  if (INTEGER_UNITS.has(unit) && !Number.isInteger(numericValue)) {
+    throw new ApiError(400, `${fieldLabel} must be an integer for ${unit}`);
+  }
+
+  if (FRACTIONAL_UNITS.has(unit) && hasMoreThanThreeDecimals(numericValue)) {
+    throw new ApiError(400, `${fieldLabel} cannot exceed 3 decimals for ${unit}`);
+  }
+
+  return roundToThree(numericValue);
+}
+
+function normalizeGainPercentage(payload, currentProduct = null) {
+  const rawValue = payload.porcentaje_ganancia ?? currentProduct?.porcentaje_ganancia ?? null;
+  if (rawValue === null || rawValue === undefined || rawValue === "") {
+    return null;
+  }
+
+  const numericValue = Number(rawValue);
+  if (!Number.isFinite(numericValue)) {
+    throw new ApiError(400, "Invalid profit percentage");
+  }
+
+  return roundToThree(numericValue);
 }
 
 function normalizeListOptions(search, options) {
@@ -100,17 +149,28 @@ function validateCoreProductData(payload, currentProduct = null) {
   const stockMinimo = payload.stock_minimo ?? currentProduct?.stock_minimo ?? 0;
   const fallbackStockMaximo = Math.max(Number(stock || 0), Number(stockMinimo || 0), Number(currentProduct?.stock_maximo || 0));
   const stockMaximo = payload.stock_maximo ?? currentProduct?.stock_maximo ?? fallbackStockMaximo;
+  const unidadDeVenta = normalizeSaleUnit(payload.unidad_de_venta ?? currentProduct?.unidad_de_venta);
+  const normalizedStock = validateQuantityByUnit(stock, unidadDeVenta, "Product stock");
+  const normalizedStockMinimo = validateQuantityByUnit(stockMinimo, unidadDeVenta, "Product minimum stock");
+  const normalizedStockMaximo = validateQuantityByUnit(stockMaximo, unidadDeVenta, "Product maximum stock");
+  const porcentajeGanancia = normalizeGainPercentage(payload, currentProduct);
 
   if (!String(name || "").trim()) throw new ApiError(400, "Product name is required");
   if (!String(category || "").trim()) throw new ApiError(400, "Product category is required");
   if (Number(price) <= 0) throw new ApiError(400, "Product price must be greater than zero");
   if (Number(costPrice) < 0) throw new ApiError(400, "Product cost cannot be negative");
-  if (Number(stock) < 0) throw new ApiError(400, "Product stock cannot be negative");
-  if (Number(stockMinimo) < 0) throw new ApiError(400, "Product minimum stock cannot be negative");
-  if (Number(stockMaximo) < 0) throw new ApiError(400, "Product maximum stock cannot be negative");
-  if (Number(stockMaximo) < Number(stockMinimo)) throw new ApiError(400, "Product maximum stock cannot be lower than minimum stock");
+  if (normalizedStock < 0) throw new ApiError(400, "Product stock cannot be negative");
+  if (normalizedStockMinimo < 0) throw new ApiError(400, "Product minimum stock cannot be negative");
+  if (normalizedStockMaximo < 0) throw new ApiError(400, "Product maximum stock cannot be negative");
+  if (normalizedStockMaximo < normalizedStockMinimo) throw new ApiError(400, "Product maximum stock cannot be lower than minimum stock");
 
-  return { stockMaximo: Number(stockMaximo) };
+  return {
+    stock: normalizedStock,
+    stockMinimo: normalizedStockMinimo,
+    stockMaximo: normalizedStockMaximo,
+    unidadDeVenta,
+    porcentajeGanancia
+  };
 }
 
 async function ensureUniqueSku(baseSku, businessId, excludeProductId = null, client = pool) {
@@ -157,6 +217,7 @@ async function resolveSku(payload, businessId, currentProduct = null, client = p
 
 async function ensureUniqueBarcode(barcode, businessId, excludeProductId = null, client = pool) {
   const normalizedBarcode = sanitizeBarcode(barcode);
+  if (!normalizedBarcode) throw new ApiError(400, "Barcode is required");
   const { rows } = await client.query(
     `SELECT id
      FROM products
@@ -168,6 +229,22 @@ async function ensureUniqueBarcode(barcode, businessId, excludeProductId = null,
   );
   if (rows[0]) throw new ApiError(409, "Barcode already exists");
   return normalizedBarcode;
+}
+
+async function generateUniqueBarcode(businessId, excludeProductId = null, client = pool) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const entropy = `${Date.now()}${Math.floor(Math.random() * 1e6).toString().padStart(6, "0")}`;
+    const candidate = entropy.slice(-13);
+    try {
+      return await ensureUniqueBarcode(candidate, businessId, excludeProductId, client);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.statusCode !== 409) {
+        throw error;
+      }
+    }
+  }
+
+  throw new ApiError(409, "Unable to generate unique barcode");
 }
 
 async function ensureSupplierReference(payload, businessId, client = pool) {
@@ -463,30 +540,32 @@ async function listCategories(search, actor) {
 
 async function createProduct(payload, actor) {
   const businessId = requireActorBusinessId(actor);
-  const barcode = payload.barcode?.trim() || payload.sku;
   const discountFields = normalizeDiscountFields(payload);
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    const { stockMaximo } = validateCoreProductData(payload);
+    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia } = validateCoreProductData(payload);
     const resolvedSku = await resolveSku(payload, businessId, null, client);
-    const resolvedBarcode = await ensureUniqueBarcode(sanitizeBarcode(barcode || resolvedSku) || resolvedSku, businessId, null, client);
+    const requestedBarcode = sanitizeBarcode(payload.barcode || "");
+    const resolvedBarcode = requestedBarcode
+      ? await ensureUniqueBarcode(requestedBarcode, businessId, null, client)
+      : await generateUniqueBarcode(businessId, null, client);
     const primarySupplierId = await ensureSupplierReference(payload, businessId, client);
     const { rows } = await client.query(
       `INSERT INTO products (
         name, sku, barcode, category, description, price, cost_price, liquidation_price, stock, expires_at,
         is_active, supplier_id, status, discount_type, discount_value, discount_start, discount_end,
-        stock_minimo, stock_maximo, business_id
+        stock_minimo, stock_maximo, business_id, unidad_de_venta, porcentaje_ganancia
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING *`,
       [
         payload.name.trim(), resolvedSku, resolvedBarcode, payload.category || null, payload.description || "",
-        payload.price, payload.cost_price ?? 0, payload.liquidation_price ?? null, payload.stock ?? 0,
+        payload.price, payload.cost_price ?? 0, payload.liquidation_price ?? null, stock,
         payload.expires_at || null, payload.is_active ?? true, primarySupplierId, payload.status || "activo",
         discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end,
-        payload.stock_minimo ?? 0, stockMaximo, businessId
+        stockMinimo, stockMaximo, businessId, unidadDeVenta, porcentajeGanancia
       ]
     );
     await syncProductSuppliers(rows[0].id, businessId, payload, client);
@@ -515,10 +594,15 @@ async function updateProduct(id, payload, actor) {
     if (!current) throw new ApiError(404, "Product not found");
 
     const businessId = Number(current.business_id);
-    const { stockMaximo } = validateCoreProductData(payload, current);
+    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia } = validateCoreProductData(payload, current);
     const resolvedSku = payload.sku !== undefined ? await resolveSku(payload, businessId, current, client) : current.sku;
     const nextBarcodeSource = payload.barcode !== undefined ? payload.barcode : current.barcode;
-    const resolvedBarcode = await ensureUniqueBarcode(sanitizeBarcode(nextBarcodeSource || resolvedSku) || resolvedSku, businessId, id, client);
+    const normalizedNextBarcode = sanitizeBarcode(nextBarcodeSource || "");
+    const resolvedBarcode = normalizedNextBarcode
+      ? await ensureUniqueBarcode(normalizedNextBarcode, businessId, id, client)
+      : current.barcode
+        ? await ensureUniqueBarcode(current.barcode, businessId, id, client)
+        : await generateUniqueBarcode(businessId, id, client);
     const supplierId = payload.supplier_id !== undefined || payload.supplier_name !== undefined || payload.suppliers !== undefined
       ? await ensureSupplierReference(payload, businessId, client)
       : current.supplier_id;
@@ -531,20 +615,24 @@ async function updateProduct(id, payload, actor) {
        SET name = $1, sku = $2, barcode = $3, category = $4, description = $5, price = $6, cost_price = $7,
            liquidation_price = $8, stock = $9, expires_at = $10, is_active = $11, supplier_id = $12, status = $13,
            discount_type = $14, discount_value = $15, discount_start = $16, discount_end = $17,
-           stock_minimo = $18, stock_maximo = $19, updated_at = NOW()
-       WHERE id = $20 AND business_id = $21
+           stock_minimo = $18, stock_maximo = $19, unidad_de_venta = $20, porcentaje_ganancia = $21, updated_at = NOW()
+       WHERE id = $22 AND business_id = $23
        RETURNING *`,
       [
         payload.name ?? current.name, resolvedSku, resolvedBarcode, payload.category ?? current.category,
         payload.description ?? current.description, payload.price ?? current.price, payload.cost_price ?? current.cost_price,
-        nextLiquidationPrice, payload.stock ?? current.stock,
+        payload.stock !== undefined ? stock : current.stock,
         payload.expires_at !== undefined ? payload.expires_at : current.expires_at,
         payload.is_active ?? current.is_active, supplierId, payload.status ?? current.status ?? "activo",
         clearDiscountData || payload.discount_type !== undefined ? discountFields.discount_type : current.discount_type,
         clearDiscountData || payload.discount_value !== undefined ? discountFields.discount_value : current.discount_value,
         clearDiscountData || payload.discount_start !== undefined ? discountFields.discount_start : current.discount_start,
         clearDiscountData || payload.discount_end !== undefined ? discountFields.discount_end : current.discount_end,
-        payload.stock_minimo ?? current.stock_minimo ?? 0, stockMaximo, id, businessId
+        payload.stock_minimo !== undefined ? stockMinimo : current.stock_minimo ?? 0,
+        payload.stock_maximo !== undefined || payload.stock !== undefined || payload.stock_minimo !== undefined ? stockMaximo : current.stock_maximo,
+        payload.unidad_de_venta !== undefined ? unidadDeVenta : normalizeSaleUnit(current.unidad_de_venta),
+        payload.porcentaje_ganancia !== undefined ? porcentajeGanancia : current.porcentaje_ganancia,
+        id, businessId
       ]
     );
 

@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+const { TIME_ZONE } = require("../utils/timezone");
 
 // Forzamos el uso de variables de entorno de Dokploy o el archivo config si existen
 const poolConfig = {
@@ -10,6 +11,12 @@ const poolConfig = {
 };
 
 const pool = new Pool(poolConfig);
+
+pool.on("connect", (client) => {
+  client.query(`SET TIME ZONE '${TIME_ZONE}'`).catch((error) => {
+    console.error(`[SQL:timezone:error] ${error.message}`);
+  });
+});
 
 const TENANT_TABLES = [
   "users",

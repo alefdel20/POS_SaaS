@@ -3,6 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Product } from "../types";
 import { currency, shortDateTime } from "../utils/format";
+import { dateTimeLocalToIsoString, getMexicoCityDateTimeLocalValue } from "../utils/timezone";
 
 type DiscountForm = {
   discount_type: "" | "percentage" | "fixed";
@@ -19,14 +20,7 @@ const emptyDiscount: DiscountForm = {
 };
 
 function toDateTimeLocal(value?: string | null) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-  const timezoneOffset = date.getTimezoneOffset();
-  const localDate = new Date(date.getTime() - timezoneOffset * 60000);
-  return localDate.toISOString().slice(0, 16);
+  return getMexicoCityDateTimeLocalValue(value);
 }
 
 function productToDiscountForm(product: Product): DiscountForm {
@@ -99,8 +93,8 @@ export function RematePage() {
           product_ids: selectedIds,
           discount_type: form.discount_type || null,
           discount_value: form.discount_value === "" ? null : Number(form.discount_value),
-          discount_start: form.discount_start ? new Date(form.discount_start).toISOString() : null,
-          discount_end: form.discount_end ? new Date(form.discount_end).toISOString() : null
+          discount_start: dateTimeLocalToIsoString(form.discount_start),
+          discount_end: dateTimeLocalToIsoString(form.discount_end)
         })
       });
       setSelectedIds([]);

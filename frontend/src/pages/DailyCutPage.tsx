@@ -3,6 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { DailyCut, User } from "../types";
 import { currency, dateLabel, shortDate } from "../utils/format";
+import { normalizeRole } from "../utils/roles";
 
 type FilterState = {
   date: string;
@@ -34,7 +35,7 @@ function buildQuery(filters: FilterState) {
 }
 
 export function DailyCutPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [today, setToday] = useState<DailyCut | null>(null);
   const [history, setHistory] = useState<DailyCut[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -80,6 +81,7 @@ export function DailyCutPage() {
     if (!filters.user_id) return "Todos";
     return users.find((user) => user.id === Number(filters.user_id))?.full_name || `Usuario #${filters.user_id}`;
   }, [filters.user_id, users]);
+  const isCashier = normalizeRole(user?.role) === "cajero";
 
   async function applyFilters() {
     try {
@@ -172,14 +174,16 @@ export function DailyCutPage() {
             <h2>Historico de cortes</h2>
             <p className="muted">Filtro actual por usuario: {activeUserName}</p>
           </div>
-          <div className="inline-actions">
-            <button className="button ghost" disabled={exporting !== ""} onClick={() => exportExcel("daily")} type="button">
-              {exporting === "daily" ? "Exportando..." : "Exportar corte diario"}
-            </button>
-            <button className="button ghost" disabled={exporting !== ""} onClick={() => exportExcel("monthly")} type="button">
-              {exporting === "monthly" ? "Exportando..." : "Exportar corte mensual"}
-            </button>
-          </div>
+          {!isCashier ? (
+            <div className="inline-actions">
+              <button className="button ghost" disabled={exporting !== ""} onClick={() => exportExcel("daily")} type="button">
+                {exporting === "daily" ? "Exportando..." : "Exportar corte diario"}
+              </button>
+              <button className="button ghost" disabled={exporting !== ""} onClick={() => exportExcel("monthly")} type="button">
+                {exporting === "monthly" ? "Exportando..." : "Exportar corte mensual"}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="grid-form">

@@ -4,6 +4,10 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { PaginatedProductsResponse, Product, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
+import { dateTimeLocalToIsoString, getMexicoCityDateTimeLocalValue } from "../utils/timezone";
+
+const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
+type SaleUnit = typeof SALE_UNITS[number];
 
 type ProductSupplierFormState = {
   supplier_id: string;
@@ -20,11 +24,14 @@ type ProductFormState = {
   name: string;
   sku: string;
   sku_manually_edited: boolean;
+  barcode_manually_edited: boolean;
   barcode: string;
   category: string;
   description: string;
   price: string;
   cost_price: string;
+  porcentaje_ganancia: string;
+  unidad_de_venta: SaleUnit | "";
   stock: string;
   stock_minimo: string;
   stock_maximo: string;
@@ -53,11 +60,14 @@ const emptyProduct: ProductFormState = {
   name: "",
   sku: "",
   sku_manually_edited: false,
+  barcode_manually_edited: false,
   barcode: "",
   category: "",
   description: "",
   price: "",
   cost_price: "",
+  porcentaje_ganancia: "",
+  unidad_de_venta: "",
   stock: "",
   stock_minimo: "",
   stock_maximo: "",
@@ -72,14 +82,55 @@ const emptyProduct: ProductFormState = {
 };
 
 function toDateTimeLocal(value?: string | null) {
-  if (!value) {
+  return getMexicoCityDateTimeLocalValue(value);
+}
+
+function normalizeSaleUnit(value?: string | null) {
+  if (!value) return "";
+  return SALE_UNITS.includes(value as SaleUnit) ? (value as SaleUnit) : "";
+}
+
+function generateNumericBarcode() {
+  const entropy = `${Date.now()}${Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0")}`;
+  return entropy.slice(-13);
+}
+
+function getResolvedSaleUnit(unit?: string | null) {
+  return normalizeSaleUnit(unit) || "pieza";
+}
+
+function hasMoreThanThreeDecimals(value: number) {
+  return Math.abs(value * 1000 - Math.round(value * 1000)) > 1e-9;
+}
+
+function validateQuantityByUnitInput(value: number, unit: SaleUnit, label: string) {
+  if (Number.isNaN(value) || value < 0) {
+    throw new Error(`${label} debe ser numérico y válido`);
+  }
+  if ((unit === "pieza" || unit === "caja") && !Number.isInteger(value)) {
+    throw new Error(`${label} debe ser entero para ${unit}`);
+  }
+  if ((unit === "kg" || unit === "litro") && hasMoreThanThreeDecimals(value)) {
+    throw new Error(`${label} solo acepta hasta 3 decimales para ${unit}`);
+  }
+}
+
+function recalculatePrice(costPrice: string, gainPercentage: string) {
+  const cost = Number(costPrice);
+  const gain = Number(gainPercentage);
+  if (!Number.isFinite(cost) || !Number.isFinite(gain)) {
     return "";
   }
+  return (cost * (1 + gain / 100)).toFixed(2);
+}
 
-  const date = new Date(value);
-  const timezoneOffset = date.getTimezoneOffset();
-  const localDate = new Date(date.getTime() - timezoneOffset * 60000);
-  return localDate.toISOString().slice(0, 16);
+function recalculateGain(costPrice: string, price: string) {
+  const cost = Number(costPrice);
+  const publicPrice = Number(price);
+  if (!Number.isFinite(cost) || cost <= 0 || !Number.isFinite(publicPrice)) {
+    return "";
+  }
+  return (((publicPrice / cost) - 1) * 100).toFixed(3);
 }
 
 function normalizeTextForSku(value: string) {
@@ -126,11 +177,14 @@ function productToForm(product: Product): ProductFormState {
     name: product.name,
     sku: product.sku,
     sku_manually_edited: false,
+    barcode_manually_edited: true,
     barcode: product.barcode,
     category: product.category || "",
     description: product.description || "",
     price: String(product.price ?? ""),
     cost_price: String(product.cost_price ?? ""),
+    porcentaje_ganancia: product.porcentaje_ganancia === null || product.porcentaje_ganancia === undefined ? "" : String(product.porcentaje_ganancia),
+    unidad_de_venta: normalizeSaleUnit(product.unidad_de_venta),
     stock: String(product.stock ?? ""),
     stock_minimo: String(product.stock_minimo ?? ""),
     stock_maximo: String(product.stock_maximo ?? ""),
@@ -179,6 +233,7 @@ export function ProductsPage() {
   const editProductIdFromQuery = Number(searchParams.get("edit") || 0) || null;
   const searchFromQuery = searchParams.get("search") || "";
   const skuSuggestion = buildSkuSuggestion(form.name, form.category, "");
+  const apiBaseUrl = ((import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api");
 
   async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize) {
     if (!token) return;
@@ -268,6 +323,22 @@ export function ProductsPage() {
   }, [form.sku_manually_edited, skuSuggestion]);
 
   useEffect(() => {
+    if (form.barcode_manually_edited || !form.name.trim() || !form.category.trim()) {
+      return;
+    }
+
+    setForm((current) => {
+      if (current.barcode_manually_edited || !current.name.trim() || !current.category.trim() || current.barcode) {
+        return current;
+      }
+      return {
+        ...current,
+        barcode: generateNumericBarcode()
+      };
+    });
+  }, [form.barcode_manually_edited, form.name, form.category, form.barcode]);
+
+  useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
       return;
     }
@@ -336,7 +407,9 @@ export function ProductsPage() {
     const stockMinimo = Number(form.stock_minimo);
     const stockMaximo = Number(form.stock_maximo);
     const costPrice = form.cost_price === "" ? 0 : Number(form.cost_price);
+    const porcentajeGanancia = form.porcentaje_ganancia === "" ? null : Number(form.porcentaje_ganancia);
     const discountValue = form.discount_value === "" ? null : Number(form.discount_value);
+    const resolvedSaleUnit = getResolvedSaleUnit(form.unidad_de_venta);
 
     if (!form.name.trim() || !form.category.trim()) {
       setError("Nombre y categoria son obligatorios");
@@ -352,6 +425,14 @@ export function ProductsPage() {
       setError("Precio, costo, stock y stock mínimo deben ser numéricos válidos");
       return;
     }
+    if (form.barcode.trim() && !/^\d+$/.test(form.barcode.trim())) {
+      setError("El codigo de barras debe ser numerico");
+      return;
+    }
+    if (porcentajeGanancia !== null && (!Number.isFinite(porcentajeGanancia))) {
+      setError("El porcentaje de ganancia debe ser numerico");
+      return;
+    }
     if (stockMaximo < stockMinimo) {
       setError("El stock maximo no puede ser menor al stock minimo");
       return;
@@ -362,6 +443,14 @@ export function ProductsPage() {
     }
     if ((form.discount_start && !form.discount_end) || (!form.discount_start && form.discount_end)) {
       setError("Debes indicar inicio y fin del remate");
+      return;
+    }
+    try {
+      validateQuantityByUnitInput(stock, resolvedSaleUnit, "Stock");
+      validateQuantityByUnitInput(stockMinimo, resolvedSaleUnit, "Stock minimo");
+      validateQuantityByUnitInput(stockMaximo, resolvedSaleUnit, "Stock maximo");
+    } catch (validationError) {
+      setError(validationError instanceof Error ? validationError.message : "No fue posible validar cantidades");
       return;
     }
 
@@ -426,6 +515,8 @@ export function ProductsPage() {
       description: form.description.trim(),
       price,
       cost_price: costPrice,
+      porcentaje_ganancia: porcentajeGanancia,
+      unidad_de_venta: form.unidad_de_venta || null,
       stock,
       stock_minimo: stockMinimo,
       stock_maximo: stockMaximo,
@@ -439,8 +530,8 @@ export function ProductsPage() {
       suppliers: normalizedSuppliers,
       discount_type: form.discount_type || null,
       discount_value: discountValue,
-      discount_start: form.discount_start ? new Date(form.discount_start).toISOString() : null,
-      discount_end: form.discount_end ? new Date(form.discount_end).toISOString() : null,
+      discount_start: dateTimeLocalToIsoString(form.discount_start),
+      discount_end: dateTimeLocalToIsoString(form.discount_end),
       is_active: form.status === "activo"
     };
 
@@ -507,6 +598,52 @@ export function ProductsPage() {
     setSupplierDrafts([]);
     setShowSuppliersModal(false);
     setError("");
+  }
+
+  async function printBarcodeLabel() {
+    if (!editingId || !form.barcode || !token) {
+      return;
+    }
+
+    const response = await fetch(`${apiBaseUrl}/products/${editingId}/barcode.svg`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    if (!response.ok) {
+      throw new Error("No fue posible cargar el código de barras");
+    }
+    const svgBlob = await response.blob();
+    const svgUrl = window.URL.createObjectURL(svgBlob);
+
+    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=520,height=420");
+    if (!printWindow) {
+      window.URL.revokeObjectURL(svgUrl);
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Código ${form.barcode}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; text-align: center; }
+            h1 { font-size: 18px; margin-bottom: 12px; }
+            img { max-width: 100%; height: auto; }
+            p { margin: 6px 0 0; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <h1>${form.name}</h1>
+          <img alt="${form.barcode}" src="${svgUrl}" />
+          <p>${form.barcode}</p>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    setTimeout(() => window.URL.revokeObjectURL(svgUrl), 1000);
   }
 
   async function toggleProductStatus(product: Product) {
@@ -592,15 +729,26 @@ export function ProductsPage() {
       <form className="panel product-form-panel product-form-panel-wide" onSubmit={handleSubmit}>
         <div className="panel-header">
           <h2>{editingId ? "Editar producto" : "Nuevo producto"}</h2>
-          {editingId ? (
-            <button
-              className="button ghost"
-              onClick={resetProductEditor}
-              type="button"
-            >
-              Cancelar
-            </button>
-          ) : null}
+          <div className="inline-actions">
+            {editingId ? (
+              <button
+                className="button ghost"
+                onClick={() => printBarcodeLabel().catch((printError) => setError(printError instanceof Error ? printError.message : "No fue posible imprimir el código de barras"))}
+                type="button"
+              >
+                Imprimir código de barras
+              </button>
+            ) : null}
+            {editingId ? (
+              <button
+                className="button ghost"
+                onClick={resetProductEditor}
+                type="button"
+              >
+                Cancelar
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="product-form-grid product-form-grid-wide">
           <label>
@@ -634,7 +782,16 @@ export function ProductsPage() {
           </datalist>
           <label>
             Código de barras
-            <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
+            <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value.replace(/\D/g, ""), barcode_manually_edited: true })} />
+          </label>
+          <label>
+            Unidad de venta
+            <select value={form.unidad_de_venta} onChange={(event) => setForm({ ...form, unidad_de_venta: event.target.value as SaleUnit | "" })}>
+              <option value="">pieza (default)</option>
+              {SALE_UNITS.map((unit) => (
+                <option key={unit} value={unit}>{unit}</option>
+              ))}
+            </select>
           </label>
           <label>
             Estado
@@ -648,24 +805,28 @@ export function ProductsPage() {
             <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
           </label>
           <label>
-            {requiredLabel("Precio")}
-            <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} required />
+            {requiredLabel("Precio al público")}
+            <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value, porcentaje_ganancia: recalculateGain(form.cost_price, event.target.value) })} required />
           </label>
           <label>
-            Costo
-            <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value })} />
+            Costo del producto
+            <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value, price: form.porcentaje_ganancia === "" ? form.price : recalculatePrice(event.target.value, form.porcentaje_ganancia) })} />
+          </label>
+          <label>
+            % ganancia
+            <input type="number" step="0.001" value={form.porcentaje_ganancia} onChange={(event) => setForm({ ...form, porcentaje_ganancia: event.target.value, price: event.target.value === "" ? form.price : recalculatePrice(form.cost_price, event.target.value) })} />
           </label>
           <label>
             {requiredLabel("Stock")}
-            <input type="number" min="0" step="0.01" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
+            <input type="number" min="0" step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
           </label>
           <label>
             {requiredLabel("Stock mínimo")}
-            <input type="number" min="0" step="0.01" value={form.stock_minimo} onChange={(event) => setForm({ ...form, stock_minimo: event.target.value })} required />
+            <input type="number" min="0" step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_minimo} onChange={(event) => setForm({ ...form, stock_minimo: event.target.value })} required />
           </label>
           <label>
             {requiredLabel("Stock maximo")}
-            <input type="number" min="0" step="0.01" value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
+            <input type="number" min="0" step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
           </label>
           <label>
             Fecha de vencimiento
@@ -934,8 +1095,9 @@ export function ProductsPage() {
                 <th>Proveedores</th>
                 <th>SKU</th>
                 <th>Categoría</th>
-                <th>Precio</th>
+                <th>Precio al público</th>
                 <th>Stock</th>
+                <th>Unidad</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>
@@ -967,6 +1129,7 @@ export function ProductsPage() {
                     {product.stock}
                     <small className="muted"> / min {product.stock_minimo ?? 0}</small>
                   </td>
+                  <td>{product.unidad_de_venta || "pieza"}</td>
                   <td>{product.status || (product.is_active ? "activo" : "inactivo")}</td>
                   <td>
                     <div className="inline-actions">
@@ -989,7 +1152,7 @@ export function ProductsPage() {
               ))}
               {products.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={8}>No se encontraron productos.</td>
+                  <td className="muted" colSpan={9}>No se encontraron productos.</td>
                 </tr>
               ) : null}
             </tbody>

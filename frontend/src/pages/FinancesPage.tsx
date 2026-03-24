@@ -4,12 +4,13 @@ import { useAuth } from "../context/AuthContext";
 import type { Expense, FinanceDashboard, FixedExpense, OwnerLoan } from "../types";
 import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel } from "../utils/uiLabels";
+import { getMexicoCityDateInputValue } from "../utils/timezone";
 
 const emptyExpense = {
   concept: "",
   category: "",
   amount: "",
-  date: new Date().toISOString().slice(0, 10),
+  date: getMexicoCityDateInputValue(),
   notes: "",
   payment_method: "cash" as const,
   fixed_expense_id: ""
@@ -18,7 +19,7 @@ const emptyExpense = {
 const emptyLoan = {
   amount: "",
   type: "entrada" as const,
-  date: new Date().toISOString().slice(0, 10),
+  date: getMexicoCityDateInputValue(),
   notes: ""
 };
 

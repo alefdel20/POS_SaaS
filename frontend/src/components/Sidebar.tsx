@@ -7,8 +7,9 @@ const links = [
   { to: "/profile", label: "Perfil", managementOnly: true, pinned: true },
   { to: "/businesses", label: "Negocios", superuserOnly: true },
   { to: "/credit-collections", label: "Credito y Cobranza", managementOnly: true },
-  { to: "/daily-cut", label: "Corte Diario", managementOnly: true },
+  { to: "/daily-cut", label: "Corte Diario", managementOnly: true, cashierView: true },
   { to: "/finances", label: "Finanzas", managementOnly: true },
+  { to: "/invoices", label: "Facturas", invoiceRoles: true },
   { to: "/sales-history", label: "Historial", managementOnly: true },
   { to: "/products", label: "Productos", managementOnly: true },
   { to: "/remate", label: "Remate", managementOnly: true },
@@ -43,6 +44,12 @@ export function Sidebar() {
             }
             if (link.usersOnly) {
               return usersViewer;
+            }
+            if (link.invoiceRoles) {
+              return role === "superusuario" || role === "admin" || role === "soporte";
+            }
+            if (link.cashierView) {
+              return role === "superusuario" || role === "admin" || role === "cajero";
             }
             if (link.salesOnly) {
               return role === "superusuario" || role === "admin" || role === "cajero";

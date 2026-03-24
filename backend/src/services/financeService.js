@@ -2,6 +2,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { saveAuditLog } = require("./auditLogService");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { getMexicoCityDate } = require("../utils/timezone");
 
 function mapExpense(expense) {
   return expense ? { ...expense, amount: Number(expense.amount || 0), is_voided: Boolean(expense.is_voided) } : null;
@@ -34,7 +35,7 @@ async function createExpense(payload, actor) {
       `INSERT INTO expenses (business_id, concept, category, amount, date, notes, payment_method, fixed_expense_id, updated_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [businessId, payload.concept, payload.category || "General", payload.amount, payload.date || new Date().toISOString().slice(0, 10), payload.notes || "", payload.payment_method || "cash", payload.fixed_expense_id || null, actor.id]
+      [businessId, payload.concept, payload.category || "General", payload.amount, payload.date || getMexicoCityDate(), payload.notes || "", payload.payment_method || "cash", payload.fixed_expense_id || null, actor.id]
     );
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "create_expense", entidad_tipo: "expense", entidad_id: rows[0].id, detalle_nuevo: { entity: "expense", entity_id: rows[0].id, snapshot: mapExpense(rows[0]), version: 1 }, motivo: payload.notes || "", metadata: {} }, { client });
     await client.query("COMMIT");
@@ -140,7 +141,7 @@ async function createOwnerLoan(payload, actor) {
       `INSERT INTO owner_loans (business_id, amount, type, balance, date, notes, updated_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [businessId, amount, payload.type, nextBalance, payload.date || new Date().toISOString().slice(0, 10), note, actor.id]
+      [businessId, amount, payload.type, nextBalance, payload.date || getMexicoCityDate(), note, actor.id]
     );
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "create_owner_loan", entidad_tipo: "owner_loan", entidad_id: rows[0].id, detalle_nuevo: { entity: "owner_loan", entity_id: rows[0].id, snapshot: mapOwnerLoan(rows[0]), version: 1 }, motivo: note, metadata: {} }, { client });
     await client.query("COMMIT");
@@ -240,16 +241,17 @@ async function updateFixedExpense(id, payload, actor) {
 
 async function getDashboard(actor) {
   const businessId = requireActorBusinessId(actor);
+  const today = getMexicoCityDate();
   const { rows } = await pool.query(
     `WITH sales_totals AS (
        SELECT COALESCE(SUM(total), 0) AS ingresos, COALESCE(SUM(total_cost), 0) AS costo
        FROM sales
-       WHERE business_id = $1 AND sale_date >= CURRENT_DATE - INTERVAL '30 days'
+       WHERE business_id = $1 AND sale_date >= $2::date - INTERVAL '30 days'
      ),
      expenses_totals AS (
        SELECT COALESCE(SUM(amount), 0) AS gastos
        FROM expenses
-       WHERE business_id = $1 AND date >= CURRENT_DATE - INTERVAL '30 days' AND is_voided = FALSE
+       WHERE business_id = $1 AND date >= $2::date - INTERVAL '30 days' AND is_voided = FALSE
      ),
      owner_balance AS (
        SELECT COALESCE(balance, 0) AS deuda_dueno
@@ -264,7 +266,7 @@ async function getDashboard(actor) {
             COALESCE(owner_balance.deuda_dueno, 0) AS deuda_dueno
      FROM sales_totals, expenses_totals
      LEFT JOIN owner_balance ON TRUE`,
-    [businessId]
+    [businessId, today]
   );
   return rows[0];
 }

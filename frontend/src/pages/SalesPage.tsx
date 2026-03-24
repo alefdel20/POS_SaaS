@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { CompanyProfile, Product, Sale, SaleReceipt, Supplier } from "../types";
-import { currency, shortDate } from "../utils/format";
+import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { isManagementRole } from "../utils/roles";
+
+const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
+type SaleUnit = typeof SALE_UNITS[number];
 
 interface CartItem {
   product: Product;
@@ -15,9 +18,12 @@ interface QuickProductFormState {
   name: string;
   price: string;
   cost_price: string;
+  porcentaje_ganancia: string;
+  unidad_de_venta: SaleUnit | "";
   stock: string;
   category: string;
   barcode: string;
+  barcode_manually_edited: boolean;
   supplier_name: string;
   supplier_phone: string;
   supplier_whatsapp: string;
@@ -49,9 +55,12 @@ const emptyQuickProduct: QuickProductFormState = {
   name: "",
   price: "",
   cost_price: "",
+  porcentaje_ganancia: "",
+  unidad_de_venta: "",
   stock: "",
   category: "",
   barcode: "",
+  barcode_manually_edited: false,
   supplier_name: "",
   supplier_phone: "",
   supplier_whatsapp: "",
@@ -66,6 +75,57 @@ const emptyQuickSupplierTouched: QuickSupplierTouchedState = {
   supplier_observations: false
 };
 
+function getResolvedSaleUnit(unit?: string | null) {
+  return (unit || "pieza") as SaleUnit;
+}
+
+function generateNumericBarcode() {
+  const entropy = `${Date.now()}${Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0")}`;
+  return entropy.slice(-13);
+}
+
+function hasMoreThanThreeDecimals(value: number) {
+  return Math.abs(value * 1000 - Math.round(value * 1000)) > 1e-9;
+}
+
+function validateQuantityByUnit(value: number, unit: SaleUnit, label: string) {
+  if (Number.isNaN(value) || value < 0) {
+    throw new Error(`${label} debe ser numérico y válido`);
+  }
+  if ((unit === "pieza" || unit === "caja") && !Number.isInteger(value)) {
+    throw new Error(`${label} debe ser entero para ${unit}`);
+  }
+  if ((unit === "kg" || unit === "litro") && hasMoreThanThreeDecimals(value)) {
+    throw new Error(`${label} solo acepta hasta 3 decimales para ${unit}`);
+  }
+}
+
+function recalculatePrice(costPrice: string, gainPercentage: string) {
+  const cost = Number(costPrice);
+  const gain = Number(gainPercentage);
+  if (!Number.isFinite(cost) || !Number.isFinite(gain)) {
+    return "";
+  }
+  return (cost * (1 + gain / 100)).toFixed(2);
+}
+
+function recalculateGain(costPrice: string, price: string) {
+  const cost = Number(costPrice);
+  const publicPrice = Number(price);
+  if (!Number.isFinite(cost) || cost <= 0 || !Number.isFinite(publicPrice)) {
+    return "";
+  }
+  return (((publicPrice / cost) - 1) * 100).toFixed(3);
+}
+
+function formatSaleQuantity(quantity: number, unit?: string | null) {
+  const resolvedUnit = getResolvedSaleUnit(unit);
+  if (resolvedUnit === "pieza" || resolvedUnit === "caja") {
+    return `${Math.trunc(quantity)} ${resolvedUnit}`;
+  }
+  return `${quantity.toFixed(3)} ${resolvedUnit}`;
+}
+
 export function SalesPage() {
   const { token, user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
@@ -75,6 +135,7 @@ export function SalesPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
+  const [requiresAdministrativeInvoice, setRequiresAdministrativeInvoice] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -84,6 +145,7 @@ export function SalesPage() {
   const [saleNotes, setSaleNotes] = useState("");
   const [lastReceipt, setLastReceipt] = useState<SaleReceipt | null>(null);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
+  const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
   const [invoiceData, setInvoiceData] = useState(emptyInvoiceData);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [quickProductForm, setQuickProductForm] = useState<QuickProductFormState>(emptyQuickProduct);
@@ -133,6 +195,7 @@ export function SalesPage() {
     setInitialPayment("0");
     setCashReceived("");
     setSaleNotes("");
+    setRequiresAdministrativeInvoice(false);
     setWarnings([]);
     setInvoiceData({
       ...emptyInvoiceData,
@@ -213,6 +276,34 @@ export function SalesPage() {
   }, [canUseInvoice, invoiceBlockedByStamps, saleType]);
 
   useEffect(() => {
+    if (!showQuickAddModal) {
+      return;
+    }
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [showQuickAddModal]);
+
+  useEffect(() => {
+    if (quickProductForm.barcode_manually_edited || !quickProductForm.name.trim() || !quickProductForm.category.trim() || quickProductForm.barcode) {
+      return;
+    }
+
+    setQuickProductForm((current) => {
+      if (current.barcode_manually_edited || !current.name.trim() || !current.category.trim() || current.barcode) {
+        return current;
+      }
+      return {
+        ...current,
+        barcode: generateNumericBarcode()
+      };
+    });
+  }, [quickProductForm.barcode_manually_edited, quickProductForm.name, quickProductForm.category, quickProductForm.barcode]);
+
+  useEffect(() => {
     const supplierName = quickProductForm.supplier_name.trim().toLowerCase();
     if (!supplierName) {
       return;
@@ -239,14 +330,17 @@ export function SalesPage() {
       return;
     }
 
+    const unit = getResolvedSaleUnit(product.unidad_de_venta);
+    const step = unit === "kg" || unit === "litro" ? 0.001 : 1;
+
     setCart((current) => {
       const existing = current.find((item) => item.product.id === product.id);
       if (existing) {
         return current.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.product.id === product.id ? { ...item, quantity: Number((item.quantity + step).toFixed(3)) } : item
         );
       }
-      return [...current, { product, quantity: 1 }];
+      return [...current, { product, quantity: step }];
     });
   }
 
@@ -297,12 +391,20 @@ export function SalesPage() {
   }
 
   function updateQuantity(productId: number, quantity: number) {
+    if (!Number.isFinite(quantity)) {
+      return;
+    }
     if (quantity <= 0) {
       setCart((current) => current.filter((item) => item.product.id !== productId));
       return;
     }
+    const target = cart.find((item) => item.product.id === productId);
+    const unit = getResolvedSaleUnit(target?.product.unidad_de_venta);
+    if ((unit === "pieza" || unit === "caja") && !Number.isInteger(quantity)) {
+      return;
+    }
     setCart((current) =>
-      current.map((item) => (item.product.id === productId ? { ...item, quantity } : item))
+      current.map((item) => (item.product.id === productId ? { ...item, quantity: Number(quantity.toFixed(3)) } : item))
     );
   }
 
@@ -312,7 +414,9 @@ export function SalesPage() {
     const price = Number(quickProductForm.price);
     const costPrice = Number(quickProductForm.cost_price);
     const stock = Number(quickProductForm.stock);
-    const sanitizedBarcode = quickProductForm.barcode.replace(/[^A-Za-z0-9]/g, "");
+    const porcentajeGanancia = quickProductForm.porcentaje_ganancia === "" ? null : Number(quickProductForm.porcentaje_ganancia);
+    const resolvedSaleUnit = getResolvedSaleUnit(quickProductForm.unidad_de_venta);
+    const sanitizedBarcode = quickProductForm.barcode.replace(/\D/g, "");
 
     if (!quickProductForm.name.trim()) {
       setQuickProductError("El nombre es obligatorio");
@@ -334,6 +438,16 @@ export function SalesPage() {
       setQuickProductError("El stock inicial debe ser cero o mayor");
       return;
     }
+    if (porcentajeGanancia !== null && !Number.isFinite(porcentajeGanancia)) {
+      setQuickProductError("El porcentaje de ganancia debe ser numerico");
+      return;
+    }
+    try {
+      validateQuantityByUnit(stock, resolvedSaleUnit, "El stock inicial");
+    } catch (validationError) {
+      setQuickProductError(validationError instanceof Error ? validationError.message : "No fue posible validar el stock");
+      return;
+    }
 
     try {
       setQuickProductSaving(true);
@@ -346,6 +460,8 @@ export function SalesPage() {
           sku: "",
           price,
           cost_price: costPrice,
+          porcentaje_ganancia: porcentajeGanancia,
+          unidad_de_venta: quickProductForm.unidad_de_venta || null,
           stock,
           stock_minimo: 0,
           stock_maximo: stock,
@@ -390,7 +506,7 @@ export function SalesPage() {
       setError("Faltan datos fiscales en el perfil del negocio");
       return;
     }
-    if (saleType === "invoice" && invoiceBlockedByStamps) {
+    if (saleType === "invoice" && !requiresAdministrativeInvoice && invoiceBlockedByStamps) {
       setError("No hay timbres disponibles para facturar");
       return;
     }
@@ -408,8 +524,9 @@ export function SalesPage() {
             name: customerName,
             phone: customerPhone
           } : undefined,
+          requires_administrative_invoice: requiresAdministrativeInvoice,
           initial_payment: paymentMethod === "credit" ? Number(initialPayment || 0) : 0,
-          invoice_data: saleType === "invoice" ? {
+          invoice_data: (saleType === "invoice" || requiresAdministrativeInvoice) ? {
             company: {
               rfc: invoiceData.company_rfc,
               razon_social: invoiceData.company_name,
@@ -442,6 +559,7 @@ export function SalesPage() {
 
       setWarnings(response.warnings);
       setLastReceipt(response.receipt);
+      setLastSaleItems(cart);
       setLastSale(response.sale);
       resetSaleForm();
       await loadProducts(search);
@@ -450,6 +568,54 @@ export function SalesPage() {
     } catch (saleError) {
       setError(saleError instanceof Error ? saleError.message : "No fue posible confirmar la venta");
     }
+  }
+
+  function printLastTicket() {
+    if (!lastSale) {
+      return;
+    }
+
+    const ticketWindow = window.open("", "_blank", "noopener,noreferrer,width=420,height=720");
+    if (!ticketWindow) {
+      return;
+    }
+
+    const itemsHtml = lastSaleItems.map((item) => `
+      <tr>
+        <td>${item.product.name}</td>
+        <td>${formatSaleQuantity(item.quantity, item.product.unidad_de_venta)}</td>
+        <td>${currency(item.product.effective_price ?? item.product.price)}</td>
+      </tr>
+    `).join("");
+
+    ticketWindow.document.write(`
+      <html>
+        <head>
+          <title>Ticket ${lastSale.id}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 16px; }
+            h1 { font-size: 18px; margin: 0 0 8px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            td, th { font-size: 12px; text-align: left; padding: 4px 0; border-bottom: 1px solid #ddd; }
+          </style>
+        </head>
+        <body>
+          <h1>${profile?.company_name || profile?.fiscal_business_name || "POS APP"}</h1>
+          <p>Folio: ${lastSale.id}</p>
+          <p>Fecha: ${shortDateTime(lastSale.created_at)}</p>
+          <p>Cajero: ${lastSale.cashier_name || user?.full_name || "-"}</p>
+          <p>Pago: ${getPaymentMethodLabel(lastSale.payment_method)}</p>
+          <table>
+            <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio</th></tr></thead>
+            <tbody>${itemsHtml}</tbody>
+          </table>
+          <p><strong>Total: ${currency(lastSale.total)}</strong></p>
+        </body>
+      </html>
+    `);
+    ticketWindow.document.close();
+    ticketWindow.focus();
+    ticketWindow.print();
   }
 
   return (
@@ -495,7 +661,7 @@ export function SalesPage() {
                 <span>{currency(product.effective_price ?? product.price)}</span>
               )}
               {product.is_on_sale ? <span className="offer-badge">Oferta | Remate</span> : null}
-              <small>Stock: {product.stock}</small>
+              <small>Stock: {formatSaleQuantity(Number(product.stock), product.unidad_de_venta)}</small>
             </button>
           ))}
           {products.length === 0 ? (
@@ -534,9 +700,16 @@ export function SalesPage() {
                   </td>
                   <td>
                     <div className="quantity-control">
-                      <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)} type="button">-</button>
-                      <span>{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)} type="button">+</button>
+                      <button onClick={() => updateQuantity(item.product.id, Number((item.quantity - (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)).toFixed(3)))} type="button">-</button>
+                      <input
+                        min="0"
+                        step={getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? "0.001" : "1"}
+                        type="number"
+                        value={item.quantity}
+                        onChange={(event) => updateQuantity(item.product.id, Number(event.target.value))}
+                      />
+                      <span>{getResolvedSaleUnit(item.product.unidad_de_venta)}</span>
+                      <button onClick={() => updateQuantity(item.product.id, Number((item.quantity + (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)).toFixed(3)))} type="button">+</button>
                     </div>
                   </td>
                   <td>
@@ -574,13 +747,17 @@ export function SalesPage() {
               ) : null}
             </select>
           </label>
+          <label className="checkbox-row">
+            <input checked={requiresAdministrativeInvoice} onChange={(event) => setRequiresAdministrativeInvoice(event.target.checked)} type="checkbox" />
+            <span>Requiere factura</span>
+          </label>
           <div className="total-box">
             <span>Total</span>
             <strong>{currency(total)}</strong>
           </div>
           <button
             className="button"
-            disabled={(saleType === "invoice" && (!canUseInvoice || invoiceBlockedByStamps)) || !hasValidCashReceived || cart.length === 0}
+            disabled={(saleType === "invoice" && (!canUseInvoice || (!requiresAdministrativeInvoice && invoiceBlockedByStamps))) || !hasValidCashReceived || cart.length === 0}
             onClick={confirmSale}
             type="button"
           >
@@ -599,6 +776,13 @@ export function SalesPage() {
             <p>Facturación no disponible (sin timbres).</p>
             <p>El saldo de timbres está en cero. Recarga timbres en Configuración &gt; Facturación para continuar.</p>
             <p>Timbres restantes: {profile?.stamps_available || 0}</p>
+          </div>
+        ) : null}
+
+        {requiresAdministrativeInvoice ? (
+          <div className="warning-box">
+            <p>La venta crearÃ¡ una factura administrativa pendiente.</p>
+            <p>Este flujo no consume timbres ni intenta timbrar en caja.</p>
           </div>
         ) : null}
 
@@ -673,7 +857,7 @@ export function SalesPage() {
           </div>
         ) : null}
 
-        {saleType === "invoice" ? (
+        {saleType === "invoice" || requiresAdministrativeInvoice ? (
           <div className="invoice-grid">
             <div className="info-card">
               <h3>Datos cliente</h3>
@@ -721,10 +905,14 @@ export function SalesPage() {
 
         {lastSale ? (
           <div className="info-card">
-            <h3>Ticket / comprobante interno</h3>
-            <p>Venta #{lastSale.id} | {shortDate(lastSale.sale_date)}</p>
+            <div className="panel-header">
+              <h3>Ticket / comprobante interno</h3>
+              <button className="button ghost" onClick={printLastTicket} type="button">Imprimir ticket</button>
+            </div>
+            <p>Venta #{lastSale.id} | {shortDateTime(lastSale.created_at)}</p>
             <p>Total: {currency(lastSale.total)}</p>
             <p>Metodo: {getPaymentMethodLabel(lastSale.payment_method)}</p>
+            {lastSale.requires_administrative_invoice ? <p>Factura administrativa: pendiente</p> : null}
             {lastReceipt?.bank_details ? (
               <>
                 <p>Banco: {lastReceipt.bank_details.bank || "-"}</p>
@@ -732,6 +920,7 @@ export function SalesPage() {
                 <p>Beneficiario: {lastReceipt.bank_details.beneficiary || "-"}</p>
               </>
             ) : null}
+            {lastSaleItems.length ? <p>Productos: {lastSaleItems.map((item) => `${formatSaleQuantity(item.quantity, item.product.unidad_de_venta)} ${item.product.name}`).join(", ")}</p> : null}
             {lastSale.payment_method === "credit" ? <p>Saldo pendiente: {currency(lastReceipt?.balance_due || 0)}</p> : null}
             {lastSale.sale_type === "invoice" && lastReceipt?.invoice_status ? <p>Estado factura: {lastReceipt.invoice_status}</p> : null}
             {lastSale.sale_type === "invoice" && lastReceipt?.stamp_status ? <p>Estado timbre: {lastReceipt.stamp_status}</p> : null}
@@ -787,30 +976,39 @@ export function SalesPage() {
                 />
               </label>
               <label>
-                Precio de venta *
+                Precio al público *
                 <input
                   min="0"
                   step="0.01"
                   type="number"
                   value={quickProductForm.price}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, price: event.target.value })}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, price: event.target.value, porcentaje_ganancia: recalculateGain(quickProductForm.cost_price, event.target.value) })}
                 />
               </label>
               <label>
-                Costo *
+                Costo del producto *
                 <input
                   min="0"
                   step="0.01"
                   type="number"
                   value={quickProductForm.cost_price}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, cost_price: event.target.value })}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, cost_price: event.target.value, price: quickProductForm.porcentaje_ganancia === "" ? quickProductForm.price : recalculatePrice(event.target.value, quickProductForm.porcentaje_ganancia) })}
+                />
+              </label>
+              <label>
+                % ganancia
+                <input
+                  step="0.001"
+                  type="number"
+                  value={quickProductForm.porcentaje_ganancia}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, porcentaje_ganancia: event.target.value, price: event.target.value === "" ? quickProductForm.price : recalculatePrice(quickProductForm.cost_price, event.target.value) })}
                 />
               </label>
               <label>
                 Stock inicial *
                 <input
                   min="0"
-                  step="0.01"
+                  step={getResolvedSaleUnit(quickProductForm.unidad_de_venta) === "kg" || getResolvedSaleUnit(quickProductForm.unidad_de_venta) === "litro" ? "0.001" : "1"}
                   type="number"
                   value={quickProductForm.stock}
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, stock: event.target.value })}
@@ -822,6 +1020,15 @@ export function SalesPage() {
                   value={quickProductForm.category}
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, category: event.target.value })}
                 />
+              </label>
+              <label>
+                Unidad de venta
+                <select value={quickProductForm.unidad_de_venta} onChange={(event) => setQuickProductForm({ ...quickProductForm, unidad_de_venta: event.target.value as SaleUnit | "" })}>
+                  <option value="">pieza (default)</option>
+                  {SALE_UNITS.map((unit) => (
+                    <option key={unit} value={unit}>{unit}</option>
+                  ))}
+                </select>
               </label>
               <label>
                 Nombre del proveedor
@@ -836,7 +1043,7 @@ export function SalesPage() {
                 Codigo de barras
                 <input
                   value={quickProductForm.barcode}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, barcode: event.target.value.replace(/[^A-Za-z0-9]/g, "") })}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, barcode: event.target.value.replace(/\D/g, ""), barcode_manually_edited: true })}
                 />
               </label>
               <label>
