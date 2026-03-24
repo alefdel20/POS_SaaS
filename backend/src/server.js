@@ -17,6 +17,7 @@ const financeRoutes = require("./routes/financeRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const supplierRoutes = require("./routes/supplierRoutes");
 const businessRoutes = require("./routes/businessRoutes");
+const adminInvoiceRoutes = require("./routes/adminInvoiceRoutes");
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use(["/finances", "/api/finances"], requireAuth, financeRoutes);
 app.use(["/profile", "/api/profile"], requireAuth, profileRoutes);
 app.use(["/suppliers", "/api/suppliers"], requireAuth, supplierRoutes);
 app.use(["/businesses", "/api/businesses"], requireAuth, businessRoutes);
+app.use(["/admin-invoices", "/api/admin-invoices"], requireAuth, adminInvoiceRoutes);
 
 app.use(errorHandler);
 
