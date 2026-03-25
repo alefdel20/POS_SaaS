@@ -1,30 +1,35 @@
 import { NavLink } from "react-router-dom";
 import { AnkodeLogo } from "./AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
-import { canViewUsers, isManagementRole, normalizeRole } from "../utils/roles";
+import {
+  canAccessBusinesses,
+  canAccessDailyCut,
+  canAccessInvoices,
+  canAccessSales,
+  canViewUsers,
+  isManagementRole
+} from "../utils/roles";
 
 const links = [
-  { to: "/profile", label: "Perfil", managementOnly: true, pinned: true },
-  { to: "/businesses", label: "Negocios", superuserOnly: true },
-  { to: "/credit-collections", label: "Credito y Cobranza", managementOnly: true },
-  { to: "/daily-cut", label: "Corte Diario", managementOnly: true, cashierView: true },
-  { to: "/finances", label: "Finanzas", managementOnly: true },
-  { to: "/invoices", label: "Facturas", invoiceRoles: true },
-  { to: "/sales-history", label: "Historial", managementOnly: true },
-  { to: "/products", label: "Productos", managementOnly: true },
-  { to: "/remate", label: "Remate", managementOnly: true },
-  { to: "/reminders", label: "Recordatorios" },
-  { to: "/dashboard", label: "Resumen", managementOnly: true },
-  { to: "/suppliers", label: "Proveedores", managementOnly: true },
-  { to: "/users", label: "Usuarios", usersOnly: true },
-  { to: "/sales", label: "Ventas", salesOnly: true }
+  { to: "/profile", label: "Perfil", isVisible: isManagementRole, pinned: true },
+  { to: "/businesses", label: "Negocios", isVisible: canAccessBusinesses },
+  { to: "/credit-collections", label: "Credito y Cobranza", isVisible: isManagementRole },
+  { to: "/daily-cut", label: "Corte Diario", isVisible: canAccessDailyCut },
+  { to: "/finances", label: "Finanzas", isVisible: isManagementRole },
+  { to: "/invoices", label: "Facturas", isVisible: canAccessInvoices },
+  { to: "/sales-history", label: "Historial", isVisible: isManagementRole },
+  { to: "/products", label: "Productos", isVisible: isManagementRole },
+  { to: "/remate", label: "Remate", isVisible: isManagementRole },
+  { to: "/reminders", label: "Recordatorios", isVisible: () => true },
+  { to: "/dashboard", label: "Resumen", isVisible: isManagementRole },
+  { to: "/suppliers", label: "Proveedores", isVisible: isManagementRole },
+  { to: "/users", label: "Usuarios", isVisible: canViewUsers },
+  { to: "/sales", label: "Ventas", isVisible: canAccessSales }
 ];
 
 export function Sidebar() {
   const { user } = useAuth();
-  const managementUser = isManagementRole(user?.role);
-  const usersViewer = canViewUsers(user?.role);
-  const role = normalizeRole(user?.role);
+  const currentRole = user?.role;
 
   return (
     <aside className="sidebar">
@@ -37,25 +42,7 @@ export function Sidebar() {
       </div>
       <nav className="nav-list">
         {links
-          .filter((link) => {
-            if (!role) return false;
-            if (link.superuserOnly) {
-              return role === "superusuario";
-            }
-            if (link.usersOnly) {
-              return usersViewer;
-            }
-            if (link.invoiceRoles) {
-              return role === "superusuario" || role === "admin" || role === "soporte";
-            }
-            if (link.cashierView) {
-              return role === "superusuario" || role === "admin" || role === "cajero";
-            }
-            if (link.salesOnly) {
-              return role === "superusuario" || role === "admin" || role === "cajero";
-            }
-            return !link.managementOnly || managementUser;
-          })
+          .filter((link) => link.isVisible(currentRole))
           .sort((left, right) => {
             if (left.pinned) return -1;
             if (right.pinned) return 1;

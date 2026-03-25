@@ -3,7 +3,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Role } from "../types";
-import { getDefaultRouteForRole, normalizeRole } from "../utils/roles";
+import { getDefaultRouteForRole, hasAnyRole } from "../utils/roles";
 
 function ForcedPasswordChange() {
   const { token, refreshUser, logout } = useAuth();
@@ -80,10 +80,7 @@ export function ProtectedRoute({ roles }: { roles?: Role[] }) {
   }
 
   if (roles) {
-    const userRole = normalizeRole(user.role);
-    const allowedRoles = roles.map((role) => normalizeRole(role));
-
-    if (!userRole || !allowedRoles.includes(userRole)) {
+    if (!hasAnyRole(user.role, roles)) {
       return <Navigate to={getDefaultRouteForRole(user.role)} replace />;
     }
   }

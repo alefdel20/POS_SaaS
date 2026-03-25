@@ -3,7 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { AdministrativeInvoice } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
-import { normalizeRole } from "../utils/roles";
+import { canEditAdministrativeInvoices } from "../utils/roles";
 
 const API_URL = (import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api";
 
@@ -14,7 +14,7 @@ export function InvoicesPage() {
   const [detail, setDetail] = useState<AdministrativeInvoice | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const canEdit = normalizeRole(user?.role) === "superusuario" || normalizeRole(user?.role) === "admin";
+  const canEdit = canEditAdministrativeInvoices(user?.role);
 
   async function loadItems() {
     if (!token) return;

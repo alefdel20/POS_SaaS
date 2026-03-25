@@ -3,7 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { DailyCut, User } from "../types";
 import { currency, dateLabel, shortDate } from "../utils/format";
-import { normalizeRole } from "../utils/roles";
+import { isCashierRole } from "../utils/roles";
 
 type FilterState = {
   date: string;
@@ -81,7 +81,7 @@ export function DailyCutPage() {
     if (!filters.user_id) return "Todos";
     return users.find((user) => user.id === Number(filters.user_id))?.full_name || `Usuario #${filters.user_id}`;
   }, [filters.user_id, users]);
-  const isCashier = normalizeRole(user?.role) === "cajero";
+  const isCashier = isCashierRole(user?.role);
 
   async function applyFilters() {
     try {

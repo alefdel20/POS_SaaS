@@ -19,7 +19,7 @@ import { UsersPage } from "../pages/UsersPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { BusinessesPage } from "../pages/BusinessesPage";
 import { InvoicesPage } from "../pages/InvoicesPage";
-import { getDefaultRouteForRole } from "../utils/roles";
+import { getDefaultRouteForRole, ROUTE_ROLES } from "../utils/roles";
 import { Navigate } from "react-router-dom";
 
 function RoleHomeRedirect() {
@@ -37,17 +37,17 @@ export function AppRouter() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<RoleHomeRedirect />} />
-            <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin", "cajero", "cashier", "user"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.sales]} />}>
               <Route path="/sales" element={<SalesPage />} />
             </Route>
             <Route path="/reminders" element={<RemindersPage />} />
-            <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin", "soporte"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.users]} />}>
               <Route path="/users" element={<UsersPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={["superadmin", "admin", "cajero"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.dailyCut]} />}>
               <Route path="/daily-cut" element={<DailyCutPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={["superadmin", "admin"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management]} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/products" element={<ProductsPage />} />
@@ -57,10 +57,10 @@ export function AppRouter() {
               <Route path="/credit-collections" element={<CreditCollectionsPage />} />
               <Route path="/finances" element={<FinancesPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin", "soporte"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.invoices]} />}>
               <Route path="/invoices" element={<InvoicesPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={["superusuario", "superadmin"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.businesses]} />}>
               <Route path="/businesses" element={<BusinessesPage />} />
             </Route>
           </Route>
