@@ -155,6 +155,18 @@ function buildSkuSuggestion(name: string, category: string, supplierName: string
   return [supplierSegment, typeSegment, attrSegment].filter(Boolean).join("-").slice(0, 12);
 }
 
+function buildBarcodeSuggestion(name: string, category: string, supplierName: string) {
+  const source = normalizeTextForSku(`${name} ${category} ${supplierName}`);
+  if (!source) return "";
+
+  let hash = 7;
+  for (const character of source) {
+    hash = (hash * 31 + character.charCodeAt(0)) % 10000000000000;
+  }
+
+  return String(hash).padStart(13, "0").slice(0, 13);
+}
+
 function supplierToForm(supplier?: Supplier | null): ProductSupplierFormState {
   return {
     supplier_id: supplier?.supplier_id ? String(supplier.supplier_id) : supplier?.id ? String(supplier.id) : "",
@@ -247,8 +259,10 @@ export function ProductsPage() {
   const editProductIdFromQuery = Number(searchParams.get("edit") || 0) || null;
   const searchFromQuery = searchParams.get("search") || "";
   const skuSuggestion = useMemo(() => buildSkuSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
+  const barcodeSuggestion = useMemo(() => buildBarcodeSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
   const apiBaseUrl = ((import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api");
   const hasSuggestedSku = !form.sku.trim() && Boolean(skuSuggestion);
+  const hasSuggestedBarcode = !form.barcode.trim() && Boolean(barcodeSuggestion);
 
   function buildFormSnapshot(state: ProductFormState) {
     return JSON.stringify({
@@ -469,9 +483,48 @@ export function ProductsPage() {
     setRemoveImageRequested(true);
   }
 
+  async function deleteProduct(product: Product) {
+    if (!token) return;
+    if (!window.confirm(`¿Eliminar definitivamente el producto "${product.name}"?`)) {
+      return;
+    }
+
+    try {
+      setError("");
+      await apiRequest(`/products/${product.id}`, {
+        method: "DELETE",
+        token,
+        body: JSON.stringify({ action: "delete" })
+      });
+
+      if (editingId === product.id) {
+        setEditingId(null);
+        setForm(emptyProduct);
+        syncBaseline(emptyProduct);
+        setImageFile(null);
+        setImagePreview(null);
+        setCurrentImagePath(null);
+        setRemoveImageRequested(false);
+      }
+
+      setSearch("");
+      setPage(1);
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("edit");
+        next.delete("search");
+        return next;
+      });
+      await loadProducts("", 1, pageSize);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
+    }
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
+    const wasEditing = Boolean(editingId);
 
     const price = Number(form.price);
     const stock = Number(form.stock);
@@ -646,6 +699,10 @@ export function ProductsPage() {
       setImagePreview(null);
       setCurrentImagePath(null);
       setRemoveImageRequested(false);
+      if (wasEditing) {
+        setSearch("");
+        setPage(1);
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
       setSearchParams((current) => {
         const next = new URLSearchParams(current);
@@ -655,7 +712,7 @@ export function ProductsPage() {
       });
       setSupplierDrafts([]);
       setShowSuppliersModal(false);
-      await loadProducts(search, page, pageSize);
+      await loadProducts(wasEditing ? "" : search, wasEditing ? 1 : page, pageSize);
       await loadSuppliers();
       await loadCategories();
     } catch (submissionError) {
@@ -942,6 +999,7 @@ export function ProductsPage() {
             Código de barras
             <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value.replace(/\D/g, ""), barcode_manually_edited: true })} />
           </label>
+          {hasSuggestedBarcode ? <p className="muted">Codigo de barras sugerido visual: {barcodeSuggestion}. El definitivo se valida y genera en backend al guardar.</p> : null}
           <label>
             Unidad de venta
             <select value={form.unidad_de_venta} onChange={(event) => setForm({ ...form, unidad_de_venta: event.target.value as SaleUnit | "" })}>
@@ -1305,6 +1363,7 @@ export function ProductsPage() {
                   <td>
                     <div className="inline-actions">
                       <button className="button ghost" onClick={() => handleEdit(product)} type="button">Editar</button>
+                      <button className="button ghost danger" onClick={() => deleteProduct(product)} type="button">Eliminar</button>
                       <button
                         className="button ghost"
                         disabled={togglingId === product.id}

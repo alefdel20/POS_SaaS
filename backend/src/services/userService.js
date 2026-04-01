@@ -64,10 +64,14 @@ async function getBusinessById(id, client = pool) {
   return rows[0] || null;
 }
 
-async function countActiveSuperusers(businessId, client = pool) {
+async function countActiveSuperusers(client = pool, excludeUserId = null) {
   const { rows } = await client.query(
-    "SELECT COUNT(*)::int AS total FROM users WHERE role = 'superusuario' AND is_active = TRUE AND business_id = $1",
-    [businessId]
+    `SELECT COUNT(*)::int AS total
+     FROM users
+     WHERE role IN ('superusuario', 'superadmin')
+       AND is_active = TRUE
+       AND ($1::int IS NULL OR id <> $1)`,
+    [excludeUserId]
   );
   return Number(rows[0]?.total || 0);
 }
@@ -75,7 +79,7 @@ async function countActiveSuperusers(businessId, client = pool) {
 async function ensureSuperuserRemains(currentUser, nextRole, nextIsActive, client = pool) {
   if (currentUser.role !== "superusuario") return;
   if (nextRole === "superusuario" && nextIsActive) return;
-  if (currentUser.is_active && (await countActiveSuperusers(currentUser.business_id, client)) <= 1) {
+  if (currentUser.is_active && (await countActiveSuperusers(client, currentUser.id)) < 1) {
     throw new ApiError(409, "At least one active superusuario must remain");
   }
 }

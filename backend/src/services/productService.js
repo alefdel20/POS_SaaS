@@ -394,7 +394,7 @@ function buildEffectivePriceCase() {
           0
         )
         WHEN product_data.liquidation_price IS NOT NULL
-          AND (COALESCE(sales_30.recent_units_sold, 0) <= 2 OR (product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days'))
+          AND ((sales_30.product_id IS NOT NULL AND COALESCE(sales_30.recent_units_sold, 0) <= 2) OR (product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days'))
         THEN product_data.liquidation_price
         ELSE product_data.price
       END,
@@ -416,7 +416,7 @@ function buildProductSelect(effectivePriceCase) {
       COALESCE(supplier_meta.supplier_names, ARRAY[]::text[]) AS supplier_names,
       COALESCE(sales_30.recent_units_sold, 0) AS recent_units_sold,
       product_data.stock <= product_data.stock_minimo AS is_low_stock,
-      COALESCE(sales_30.recent_units_sold, 0) <= 2 AS is_low_rotation,
+      sales_30.product_id IS NOT NULL AND COALESCE(sales_30.recent_units_sold, 0) <= 2 AS is_low_rotation,
       product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days' AS is_near_expiry,
       (${effectivePriceCase}) AS effective_price,
       product_data.price > (${effectivePriceCase}) AS is_on_sale
@@ -798,6 +798,48 @@ async function updateProductStatus(id, isActive, status, actor) {
 async function deleteProduct(id, action, actor) {
   const current = await getOwnedProduct(id, actor);
   if (!current) throw new ApiError(404, "Product not found");
+
+  if (action === "delete") {
+    const client = await pool.connect();
+    let previousImagePath = null;
+
+    try {
+      await client.query("BEGIN");
+      const ownedProduct = await getOwnedProduct(id, actor, client);
+      if (!ownedProduct) throw new ApiError(404, "Product not found");
+
+      const { rows: usageRows } = await client.query(
+        `SELECT 1
+         FROM sale_items
+         WHERE product_id = $1 AND business_id = $2
+         LIMIT 1`,
+        [id, ownedProduct.business_id]
+      );
+      if (usageRows[0]) {
+        throw new ApiError(409, "Cannot permanently delete product with sales history");
+      }
+
+      previousImagePath = ownedProduct.image_path || null;
+      const { rows } = await client.query(
+        `DELETE FROM products
+         WHERE id = $1 AND business_id = $2
+         RETURNING *`,
+        [id, ownedProduct.business_id]
+      );
+
+      await client.query("COMMIT");
+      if (previousImagePath) {
+        await deleteStoredImage(previousImagePath).catch(() => {});
+      }
+      return { mode: "hard", product: mapProductRow(rows[0]), requested_action: action };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   const { rows } = await pool.query(
     `UPDATE products
      SET is_active = FALSE, status = 'inactivo', updated_at = NOW()

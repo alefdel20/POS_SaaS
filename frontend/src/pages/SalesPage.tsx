@@ -132,7 +132,6 @@ export function SalesPage() {
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [search, setSearch] = useState("");
-  const [scannerCode, setScannerCode] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
@@ -191,7 +190,6 @@ export function SalesPage() {
 
   function resetSaleForm() {
     setCart([]);
-    setScannerCode("");
     setScannerFeedback("");
     setScannerSelectionId(null);
     setPaymentMethod("cash");
@@ -399,14 +397,16 @@ export function SalesPage() {
     });
   }
 
-  async function handleScannerSubmit() {
+  async function handleScannerSubmit(rawInput = search) {
     if (!token) return;
 
-    const normalizedCode = normalizeScannerCode(scannerCode);
+    const normalizedCode = normalizeScannerCode(rawInput);
     if (!normalizedCode) {
-      setScannerCode("");
       setScannerFeedback("");
       setScannerSelectionId(null);
+      return;
+    }
+    if (!/^\d+$/.test(normalizedCode)) {
       return;
     }
 
@@ -418,15 +418,13 @@ export function SalesPage() {
       if (!exactProduct) {
         setScannerSelectionId(null);
         setScannerFeedback(`No se encontro un producto para el codigo ${normalizedCode}`);
-        setScannerCode("");
         return;
       }
 
       addToCart(exactProduct);
-      setSearch(exactProduct.name);
-      await loadProducts(exactProduct.name);
+      setSearch("");
+      await loadProducts("");
       setScannerFeedback(`Producto agregado: ${exactProduct.name}`);
-      setScannerCode("");
     } catch (scannerError) {
       setScannerSelectionId(null);
       setScannerFeedback("");
@@ -658,22 +656,15 @@ export function SalesPage() {
             ) : null}
             <input
               className="search-input"
-              placeholder="Escanear codigo"
-              value={scannerCode}
-              onChange={(event) => setScannerCode(event.target.value)}
+              placeholder="Buscar por nombre, SKU, código de barras o proveedor"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  handleScannerSubmit().catch(() => {});
+                  handleScannerSubmit(search).catch(() => {});
                 }
               }}
-            />
-            <button className="button ghost" onClick={() => handleScannerSubmit().catch(() => {})} type="button">Escanear</button>
-            <input
-              className="search-input"
-              placeholder="Buscar por nombre, SKU o proveedor"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
             />
           </div>
         </div>
