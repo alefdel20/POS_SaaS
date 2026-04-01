@@ -4,6 +4,43 @@ const pool = require("./pool");
 const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Otro"];
 const SEED_BUSINESS = { name: "Negocio Semilla", slug: "default" };
 
+function summarizeQuery(statement) {
+  return String(statement || "").replace(/\s+/g, " ").trim();
+}
+
+function wrapClientQueryWithLogging(client) {
+  const rawQuery = client.query.bind(client);
+  let queue = Promise.resolve();
+
+  client.query = (...args) => {
+    const [statement, params] = args;
+    const sql = summarizeQuery(statement);
+
+    const runQuery = async () => {
+      console.info(`[DB-COMPAT] Executing query: ${sql}`);
+
+      try {
+        return await rawQuery(...args);
+      } catch (error) {
+        console.error(`[DB-COMPAT] Failed query: ${sql}`);
+        if (params !== undefined) {
+          console.error("[DB-COMPAT] Query params:", params);
+        }
+        console.error("[DB-COMPAT] Original error:", error);
+        throw error;
+      }
+    };
+
+    const pending = queue.then(runQuery, runQuery);
+    queue = pending.catch(() => {});
+    return pending;
+  };
+
+  return () => {
+    client.query = rawQuery;
+  };
+}
+
 async function run(client, statements) {
   for (const statement of statements) {
     await client.query(statement);
@@ -507,13 +544,9 @@ async function ensureConstraints(client) {
   ]);
 
   await client.query("ALTER TABLE sales DROP CONSTRAINT IF EXISTS fk_sales_stamp_movement");
-  await client
-    .query("ALTER TABLE sales ADD CONSTRAINT fk_sales_stamp_movement FOREIGN KEY (stamp_movement_id) REFERENCES company_stamp_movements(id)")
-    .catch(() => {});
+  await client.query("ALTER TABLE sales ADD CONSTRAINT fk_sales_stamp_movement FOREIGN KEY (stamp_movement_id) REFERENCES company_stamp_movements(id)");
   await client.query("ALTER TABLE sales DROP CONSTRAINT IF EXISTS fk_sales_administrative_invoice");
-  await client
-    .query("ALTER TABLE sales ADD CONSTRAINT fk_sales_administrative_invoice FOREIGN KEY (administrative_invoice_id) REFERENCES administrative_invoices(id)")
-    .catch(() => {});
+  await client.query("ALTER TABLE sales ADD CONSTRAINT fk_sales_administrative_invoice FOREIGN KEY (administrative_invoice_id) REFERENCES administrative_invoices(id)");
 
   const fks = [
     "users",
@@ -534,14 +567,14 @@ async function ensureConstraints(client) {
   ];
 
   for (const table of fks) {
-    await client.query(`ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`).catch(() => {});
-    await client.query(`ALTER TABLE ${table} ADD CONSTRAINT fk_${table}_business FOREIGN KEY (business_id) REFERENCES businesses(id)`).catch(() => {});
+    await client.query(`ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`);
+    await client.query(`ALTER TABLE ${table} ADD CONSTRAINT fk_${table}_business FOREIGN KEY (business_id) REFERENCES businesses(id)`);
   }
 
-  await client.query("ALTER TABLE support_access_logs ALTER COLUMN business_id SET NOT NULL").catch(() => {});
-  await client.query("ALTER TABLE support_access_logs ALTER COLUMN target_business_id SET NOT NULL").catch(() => {});
-  await client.query("ALTER TABLE support_access_logs ADD CONSTRAINT fk_support_access_logs_business FOREIGN KEY (business_id) REFERENCES businesses(id)").catch(() => {});
-  await client.query("ALTER TABLE support_access_logs ADD CONSTRAINT fk_support_access_logs_target_business FOREIGN KEY (target_business_id) REFERENCES businesses(id)").catch(() => {});
+  await client.query("ALTER TABLE support_access_logs ALTER COLUMN business_id SET NOT NULL");
+  await client.query("ALTER TABLE support_access_logs ALTER COLUMN target_business_id SET NOT NULL");
+  await client.query("ALTER TABLE support_access_logs ADD CONSTRAINT fk_support_access_logs_business FOREIGN KEY (business_id) REFERENCES businesses(id)");
+  await client.query("ALTER TABLE support_access_logs ADD CONSTRAINT fk_support_access_logs_target_business FOREIGN KEY (target_business_id) REFERENCES businesses(id)");
 
   await client.query(`
     DO $$
@@ -727,6 +760,7 @@ async function ensureSupportUsers(client) {
 
 async function ensureDatabaseCompatibility() {
   const client = await pool.connect();
+  const restoreQuery = wrapClientQueryWithLogging(client);
 
   try {
     await client.query("BEGIN");
@@ -741,6 +775,7 @@ async function ensureDatabaseCompatibility() {
     await client.query("ROLLBACK");
     throw error;
   } finally {
+    restoreQuery();
     client.release();
   }
 }
