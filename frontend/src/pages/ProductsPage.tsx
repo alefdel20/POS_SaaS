@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { PaginatedProductsResponse, Product, Supplier } from "../types";
-import { currency, shortDate, shortDateTime } from "../utils/format";
+import { currency, shortDateTime } from "../utils/format";
 import { dateTimeLocalToIsoString, getMexicoCityDateTimeLocalValue } from "../utils/timezone";
 import { resolveProductImageUrl } from "../utils/assets";
 
@@ -845,63 +845,8 @@ export function ProductsPage() {
     }
   }
 
-  const liquidationProducts = useMemo(
-    () => products.filter((product) => product.is_low_rotation || product.is_near_expiry || product.has_active_discount),
-    [products]
-  );
-
   return (
     <section className="page-grid">
-      <div className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Resumen de remate</h2>
-            <p className="muted">Productos con baja rotación, próximos a vencer o con remate activo.</p>
-          </div>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th>Proveedor</th>
-                <th>Motivo</th>
-                <th>Precio base</th>
-                <th>Precio vigente</th>
-                <th>Vigencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {liquidationProducts.map((product) => (
-                <tr key={`liquidation-${product.id}`}>
-                  <td>{product.name}</td>
-                  <td>{product.supplier_names?.join(", ") || product.supplier_name || "-"}</td>
-                  <td>
-                    {product.has_active_discount ? "Remate activo" : ""}
-                    {product.has_active_discount && (product.is_low_rotation || product.is_near_expiry) ? " + " : ""}
-                    {product.is_low_rotation ? "Baja rotación" : ""}
-                    {product.is_low_rotation && product.is_near_expiry ? " + " : ""}
-                    {product.is_near_expiry ? "Próximo a vencer" : ""}
-                  </td>
-                  <td>{currency(product.price)}</td>
-                  <td>{product.is_on_sale ? currency(product.effective_price ?? product.price) : "Igual al base"}</td>
-                  <td>
-                    {product.discount_start || product.discount_end
-                      ? `${shortDateTime(product.discount_start || null)} - ${shortDateTime(product.discount_end || null)}`
-                      : shortDate(product.expires_at || null)}
-                  </td>
-                </tr>
-              ))}
-              {liquidationProducts.length === 0 ? (
-                <tr>
-                  <td className="muted" colSpan={6}>No hay productos con remate o riesgo detectado.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       <form className="panel product-form-panel product-form-panel-wide" onSubmit={handleSubmit}>
         <div className="panel-header">
           <h2>{editingId ? "Editar producto" : "Nuevo producto"}</h2>

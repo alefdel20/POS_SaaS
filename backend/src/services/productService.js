@@ -394,7 +394,7 @@ function buildEffectivePriceCase() {
           0
         )
         WHEN product_data.liquidation_price IS NOT NULL
-          AND ((sales_30.product_id IS NOT NULL AND COALESCE(sales_30.recent_units_sold, 0) <= 2) OR (product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days'))
+          AND (((COALESCE(sales_21.recent_units_sold, 0) = 0) AND product_data.created_at <= NOW() - INTERVAL '21 days') OR (product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days'))
         THEN product_data.liquidation_price
         ELSE product_data.price
       END,
@@ -414,14 +414,23 @@ function buildProductSelect(effectivePriceCase) {
       primary_supplier.observations AS supplier_observations,
       COALESCE(supplier_meta.suppliers_json, '[]'::jsonb) AS suppliers,
       COALESCE(supplier_meta.supplier_names, ARRAY[]::text[]) AS supplier_names,
-      COALESCE(sales_30.recent_units_sold, 0) AS recent_units_sold,
+      COALESCE(sales_21.recent_units_sold, 0) AS recent_units_sold,
       product_data.stock <= product_data.stock_minimo AS is_low_stock,
-      sales_30.product_id IS NOT NULL AND COALESCE(sales_30.recent_units_sold, 0) <= 2 AS is_low_rotation,
+      COALESCE(sales_21.recent_units_sold, 0) = 0
+        AND product_data.created_at <= NOW() - INTERVAL '21 days' AS is_low_rotation,
       product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days' AS is_near_expiry,
+      (
+        product_data.status = 'activo'
+        AND product_data.discount_type IS NOT NULL
+        AND product_data.discount_value IS NOT NULL
+        AND product_data.discount_start IS NOT NULL
+        AND product_data.discount_end IS NOT NULL
+        AND NOW() BETWEEN product_data.discount_start AND product_data.discount_end
+      ) AS has_active_discount,
       (${effectivePriceCase}) AS effective_price,
       product_data.price > (${effectivePriceCase}) AS is_on_sale
     FROM products product_data
-    LEFT JOIN sales_30 ON sales_30.product_id = product_data.id
+    LEFT JOIN sales_21 ON sales_21.product_id = product_data.id
     LEFT JOIN LATERAL (
       SELECT jsonb_agg(
                jsonb_build_object(
@@ -500,12 +509,13 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const baseQuery = `
-    WITH sales_30 AS (
+    WITH sales_21 AS (
       SELECT si.product_id, COALESCE(SUM(si.quantity), 0) AS recent_units_sold
       FROM sale_items si
       INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
       WHERE s.business_id = $1
         AND COALESCE(s.status, 'completed') <> 'cancelled'
+        AND COALESCE(s.created_at, NOW()) >= NOW() - INTERVAL '21 days'
       GROUP BY si.product_id
     )
     ${buildProductSelect(effectivePriceCase)}

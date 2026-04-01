@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Product } from "../types";
-import { currency, shortDateTime } from "../utils/format";
+import { currency, shortDate, shortDateTime } from "../utils/format";
 import { dateTimeLocalToIsoString, getMexicoCityDateTimeLocalValue } from "../utils/timezone";
 
 type DiscountForm = {
@@ -66,6 +66,14 @@ export function RematePage() {
   const filteredProducts = useMemo(
     () => products.filter((product) => product.status !== "inactivo"),
     [products]
+  );
+  const suggestedProducts = useMemo(
+    () => filteredProducts.filter((product) => !product.has_active_discount && (product.is_low_rotation || product.is_near_expiry)),
+    [filteredProducts]
+  );
+  const activeDiscountProducts = useMemo(
+    () => filteredProducts.filter((product) => product.has_active_discount),
+    [filteredProducts]
   );
   const selectedProducts = useMemo(
     () => filteredProducts.filter((product) => selectedIds.includes(product.id)),
@@ -138,12 +146,101 @@ export function RematePage() {
   }
 
   return (
-    <section className="page-grid two-columns">
+    <section className="page-grid">
+      <div className="page-grid two-columns">
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Sugerencias para remate</h2>
+              <p className="muted">Candidatos por baja rotacion sin ventas en los ultimos 21 dias o proximos a vencer.</p>
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Motivo sugerido</th>
+                  <th>Precio base</th>
+                  <th>Referencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {suggestedProducts.map((product) => (
+                  <tr key={`suggested-${product.id}`}>
+                    <td>
+                      <strong>{product.name}</strong>
+                      <div className="muted">{product.supplier_name || product.category || "-"}</div>
+                    </td>
+                    <td>
+                      {product.is_low_rotation ? "Sin ventas en los ultimos 21 dias" : ""}
+                      {product.is_low_rotation && product.is_near_expiry ? " + " : ""}
+                      {product.is_near_expiry ? "Proximo a vencer" : ""}
+                    </td>
+                    <td>{currency(product.price)}</td>
+                    <td>{product.is_near_expiry ? shortDate(product.expires_at || null) : "Sin remate activo"}</td>
+                  </tr>
+                ))}
+                {suggestedProducts.length === 0 ? (
+                  <tr>
+                    <td className="muted" colSpan={4}>No hay sugerencias de remate en este momento.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Remates activos</h2>
+              <p className="muted">Solo productos con remate o descuento vigente real.</p>
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Precio base</th>
+                  <th>Precio vigente</th>
+                  <th>Vigencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeDiscountProducts.map((product) => (
+                  <tr key={`active-discount-${product.id}`}>
+                    <td>
+                      <strong>{product.name}</strong>
+                      <div className="muted">{product.supplier_name || product.category || "-"}</div>
+                    </td>
+                    <td>{currency(product.price)}</td>
+                    <td>{currency(product.effective_price ?? product.price)}</td>
+                    <td>
+                      {product.discount_start || product.discount_end
+                        ? `${shortDateTime(product.discount_start || null)} - ${shortDateTime(product.discount_end || null)}`
+                        : "-"}
+                    </td>
+                  </tr>
+                ))}
+                {activeDiscountProducts.length === 0 ? (
+                  <tr>
+                    <td className="muted" colSpan={4}>No hay remates activos vigentes.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="page-grid two-columns">
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Modulo de remate</h2>
-            <p className="muted">Aplica remates individuales o masivos sin tocar el precio base.</p>
+            <h2>Catalogo para configurar remates</h2>
+            <p className="muted">Busca productos y selecciona los que quieras programar o limpiar.</p>
           </div>
           <input
             className="search-input"
@@ -160,8 +257,8 @@ export function RematePage() {
                 <th></th>
                 <th>Producto</th>
                 <th>Precio base</th>
-                <th>Precio vigente</th>
-                <th>Vigencia</th>
+                <th>Estado actual</th>
+                <th>Vigencia actual</th>
                 <th></th>
               </tr>
             </thead>
@@ -180,7 +277,7 @@ export function RematePage() {
                     <div className="muted">{product.supplier_name || product.category || "-"}</div>
                   </td>
                   <td>{currency(product.price)}</td>
-                  <td>{product.is_on_sale ? currency(product.effective_price ?? product.price) : "Igual al base"}</td>
+                  <td>{product.has_active_discount ? currency(product.effective_price ?? product.price) : "Sin remate activo"}</td>
                   <td>
                     {product.discount_start || product.discount_end
                       ? `${shortDateTime(product.discount_start || null)} - ${shortDateTime(product.discount_end || null)}`
@@ -231,6 +328,7 @@ export function RematePage() {
           <button className="button ghost" disabled={!selectedIds.length && !form.discount_type && !form.discount_value && !form.discount_start && !form.discount_end} onClick={clearSelection} type="button">Limpiar seleccion</button>
         </div>
       </form>
+      </div>
     </section>
   );
 }
