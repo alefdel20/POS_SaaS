@@ -3,47 +3,34 @@ const pool = require("./pool");
 
 const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Otro"];
 const SEED_BUSINESS = { name: "Negocio Semilla", slug: "default" };
+const INIT_VERSION_MARKER = "=== DB INIT VERSION 2026-04-01 FIX 3 ===";
 
 function summarizeQuery(statement) {
   return String(statement || "").replace(/\s+/g, " ").trim();
 }
 
-function wrapClientQueryWithLogging(client) {
-  const rawQuery = client.query.bind(client);
-  let queue = Promise.resolve();
+async function execQuery(client, statement, params) {
+  const sql = summarizeQuery(statement);
+  console.info(`[DB-COMPAT] Executing query: ${sql}`);
 
-  client.query = (...args) => {
-    const [statement, params] = args;
-    const sql = summarizeQuery(statement);
-
-    const runQuery = async () => {
-      console.info(`[DB-COMPAT] Executing query: ${sql}`);
-
-      try {
-        return await rawQuery(...args);
-      } catch (error) {
-        console.error(`[DB-COMPAT] Failed query: ${sql}`);
-        if (params !== undefined) {
-          console.error("[DB-COMPAT] Query params:", params);
-        }
-        console.error("[DB-COMPAT] Original error:", error);
-        throw error;
-      }
-    };
-
-    const pending = queue.then(runQuery, runQuery);
-    queue = pending.catch(() => {});
-    return pending;
-  };
-
-  return () => {
-    client.query = rawQuery;
-  };
+  try {
+    if (params === undefined) {
+      return await client.query(statement);
+    }
+    return await client.query(statement, params);
+  } catch (error) {
+    console.error(`[DB-COMPAT] Failed query: ${sql}`);
+    if (params !== undefined) {
+      console.error("[DB-COMPAT] Query params:", params);
+    }
+    console.error("[DB-COMPAT] Original error:", error);
+    throw error;
+  }
 }
 
 async function run(client, statements) {
   for (const statement of statements) {
-    await client.query(statement);
+    await execQuery(client, statement);
   }
 }
 
@@ -346,19 +333,23 @@ async function ensureSchema(client) {
 }
 
 async function ensureSeedBusiness(client) {
-  await client.query("UPDATE users SET role = 'superusuario' WHERE role = 'superadmin'");
-  await client.query("UPDATE users SET role = 'cajero' WHERE role IN ('user', 'cashier')");
-  await client.query("UPDATE products SET status = 'activo' WHERE status IS NULL");
-  await client.query("UPDATE sales SET status = 'completed' WHERE status IS NULL OR BTRIM(status) = ''");
-  await client.query("UPDATE products SET unidad_de_venta = 'pieza' WHERE unidad_de_venta IS NULL OR unidad_de_venta = ''");
-  await client.query("UPDATE products SET stock_maximo = GREATEST(COALESCE(stock, 0), COALESCE(stock_minimo, 0)) WHERE stock_maximo IS NULL");
-  await client.query("ALTER TABLE products ALTER COLUMN stock_maximo SET DEFAULT 0");
-  await client.query("UPDATE products SET stock_maximo = 0 WHERE stock_maximo IS NULL");
-  await client.query("ALTER TABLE products ALTER COLUMN stock_maximo SET NOT NULL");
-  await client.query("UPDATE products SET stock_maximo = stock_minimo WHERE stock_maximo < stock_minimo");
-  await client.query("UPDATE businesses SET business_type = COALESCE(business_type, pos_type) WHERE business_type IS NULL");
+  await execQuery(client, "UPDATE users SET role = 'superusuario' WHERE role = 'superadmin'");
+  await execQuery(client, "UPDATE users SET role = 'cajero' WHERE role IN ('user', 'cashier')");
+  await execQuery(client, "UPDATE products SET status = 'activo' WHERE status IS NULL");
+  await execQuery(client, "UPDATE sales SET status = 'completed' WHERE status IS NULL OR BTRIM(status) = ''");
+  await execQuery(client, "UPDATE products SET unidad_de_venta = 'pieza' WHERE unidad_de_venta IS NULL OR unidad_de_venta = ''");
+  await execQuery(
+    client,
+    "UPDATE products SET stock_maximo = GREATEST(COALESCE(stock, 0), COALESCE(stock_minimo, 0)) WHERE stock_maximo IS NULL"
+  );
+  await execQuery(client, "ALTER TABLE products ALTER COLUMN stock_maximo SET DEFAULT 0");
+  await execQuery(client, "UPDATE products SET stock_maximo = 0 WHERE stock_maximo IS NULL");
+  await execQuery(client, "ALTER TABLE products ALTER COLUMN stock_maximo SET NOT NULL");
+  await execQuery(client, "UPDATE products SET stock_maximo = stock_minimo WHERE stock_maximo < stock_minimo");
+  await execQuery(client, "UPDATE businesses SET business_type = COALESCE(business_type, pos_type) WHERE business_type IS NULL");
 
-  await client.query(
+  await execQuery(
+    client,
     `INSERT INTO businesses (name, slug, pos_type, is_active)
      SELECT $1::varchar, $2::varchar,
             COALESCE((
@@ -376,10 +367,15 @@ async function ensureSeedBusiness(client) {
 }
 
 async function backfillBusinessIds(client) {
-  const { rows } = await client.query(
+  const { rows } = await execQuery(
+    client,
     "SELECT id FROM businesses WHERE slug = $1 LIMIT 1",
     [SEED_BUSINESS.slug]
   );
+
+  if (!rows.length) {
+    throw new Error("Seed business not found after ensureSeedBusiness()");
+  }
 
   const businessId = rows[0].id;
 
@@ -395,7 +391,8 @@ async function backfillBusinessIds(client) {
     `UPDATE sync_logs SET business_id = ${businessId} WHERE business_id IS NULL`
   ]);
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE sales
      SET business_id = COALESCE(sales.business_id, users.business_id, $1)
      FROM users
@@ -404,7 +401,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE reminders
      SET business_id = COALESCE(
        reminders.business_id,
@@ -416,7 +414,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE fixed_expenses
      SET business_id = COALESCE(fixed_expenses.business_id, users.business_id, $1)
      FROM users
@@ -425,7 +424,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE product_suppliers
      SET business_id = COALESCE(product_suppliers.business_id, products.business_id, suppliers.business_id, $1)
      FROM products, suppliers
@@ -435,7 +435,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE sale_items
      SET business_id = COALESCE(sale_items.business_id, sales.business_id, $1)
      FROM sales
@@ -444,7 +445,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE credit_payments
      SET business_id = COALESCE(credit_payments.business_id, sales.business_id, $1)
      FROM sales
@@ -453,7 +455,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE company_stamp_movements
      SET business_id = COALESCE(company_stamp_movements.business_id, company_profiles.business_id, $1)
      FROM company_profiles
@@ -462,7 +465,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE administrative_invoices
      SET business_id = COALESCE(administrative_invoices.business_id, sales.business_id, $1)
      FROM sales
@@ -471,7 +475,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE support_access_logs
      SET business_id = COALESCE(support_access_logs.business_id, actor.business_id, target.business_id, $1),
          target_business_id = COALESCE(support_access_logs.target_business_id, target.business_id, $1)
@@ -485,10 +490,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  // import_jobs backfill omitido temporalmente:
-  // la base actual no garantiza que exista import_jobs.created_by
-
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE reports
      SET business_id = COALESCE(reports.business_id, users.business_id, $1)
      FROM users
@@ -497,7 +500,8 @@ async function backfillBusinessIds(client) {
     [businessId]
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `INSERT INTO company_profiles (business_id, profile_key, general_settings, is_active)
      SELECT businesses.id, 'default', '{}'::jsonb, TRUE
      FROM businesses
@@ -509,7 +513,8 @@ async function backfillBusinessIds(client) {
      )`
   );
 
-  await client.query(
+  await execQuery(
+    client,
     `INSERT INTO product_suppliers (product_id, supplier_id, is_primary, purchase_cost, cost_updated_at, business_id)
      SELECT id, supplier_id, TRUE, cost_price, updated_at, business_id
      FROM products
@@ -543,10 +548,45 @@ async function ensureConstraints(client) {
     "DROP INDEX IF EXISTS uq_reminders_source_key"
   ]);
 
-  await client.query("ALTER TABLE sales DROP CONSTRAINT IF EXISTS fk_sales_stamp_movement");
-  await client.query("ALTER TABLE sales ADD CONSTRAINT fk_sales_stamp_movement FOREIGN KEY (stamp_movement_id) REFERENCES company_stamp_movements(id)");
-  await client.query("ALTER TABLE sales DROP CONSTRAINT IF EXISTS fk_sales_administrative_invoice");
-  await client.query("ALTER TABLE sales ADD CONSTRAINT fk_sales_administrative_invoice FOREIGN KEY (administrative_invoice_id) REFERENCES administrative_invoices(id)");
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_sales_stamp_movement'
+          AND conrelid = 'sales'::regclass
+      ) THEN
+        ALTER TABLE sales
+        ADD CONSTRAINT fk_sales_stamp_movement
+        FOREIGN KEY (stamp_movement_id)
+        REFERENCES company_stamp_movements(id);
+      END IF;
+    END $$;
+    `
+  );
+
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_sales_administrative_invoice'
+          AND conrelid = 'sales'::regclass
+      ) THEN
+        ALTER TABLE sales
+        ADD CONSTRAINT fk_sales_administrative_invoice
+        FOREIGN KEY (administrative_invoice_id)
+        REFERENCES administrative_invoices(id);
+      END IF;
+    END $$;
+    `
+  );
 
   const fks = [
     "users",
@@ -567,16 +607,71 @@ async function ensureConstraints(client) {
   ];
 
   for (const table of fks) {
-    await client.query(`ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`);
-    await client.query(`ALTER TABLE ${table} ADD CONSTRAINT fk_${table}_business FOREIGN KEY (business_id) REFERENCES businesses(id)`);
+    await execQuery(client, `ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`);
+    await execQuery(
+      client,
+      `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'fk_${table}_business'
+            AND conrelid = '${table}'::regclass
+        ) THEN
+          ALTER TABLE ${table}
+          ADD CONSTRAINT fk_${table}_business
+          FOREIGN KEY (business_id) REFERENCES businesses(id);
+        END IF;
+      END $$;
+      `
+    );
   }
 
-  await client.query("ALTER TABLE support_access_logs ALTER COLUMN business_id SET NOT NULL");
-  await client.query("ALTER TABLE support_access_logs ALTER COLUMN target_business_id SET NOT NULL");
-  await client.query("ALTER TABLE support_access_logs ADD CONSTRAINT fk_support_access_logs_business FOREIGN KEY (business_id) REFERENCES businesses(id)");
-  await client.query("ALTER TABLE support_access_logs ADD CONSTRAINT fk_support_access_logs_target_business FOREIGN KEY (target_business_id) REFERENCES businesses(id)");
+  await execQuery(client, "ALTER TABLE support_access_logs ALTER COLUMN business_id SET NOT NULL");
+  await execQuery(client, "ALTER TABLE support_access_logs ALTER COLUMN target_business_id SET NOT NULL");
 
-  await client.query(`
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_support_access_logs_business'
+          AND conrelid = 'support_access_logs'::regclass
+      ) THEN
+        ALTER TABLE support_access_logs
+        ADD CONSTRAINT fk_support_access_logs_business
+        FOREIGN KEY (business_id) REFERENCES businesses(id);
+      END IF;
+    END $$;
+    `
+  );
+
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_support_access_logs_target_business'
+          AND conrelid = 'support_access_logs'::regclass
+      ) THEN
+        ALTER TABLE support_access_logs
+        ADD CONSTRAINT fk_support_access_logs_target_business
+        FOREIGN KEY (target_business_id) REFERENCES businesses(id);
+      END IF;
+    END $$;
+    `
+  );
+
+  await execQuery(
+    client,
+    `
     DO $$
     BEGIN
       IF EXISTS (
@@ -604,9 +699,12 @@ async function ensureConstraints(client) {
       ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'cajero', 'soporte'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$;
-  `);
+    `
+  );
 
-  await client.query(`
+  await execQuery(
+    client,
+    `
     DO $$
     BEGIN
       IF NOT EXISTS (
@@ -664,7 +762,8 @@ async function ensureConstraints(client) {
         CHECK (movement_type IN ('load', 'consume', 'adjustment', 'rollback', 'expire'));
       END IF;
     END $$;
-  `);
+    `
+  );
 
   await run(client, [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_company_profiles_business_profile_key ON company_profiles(business_id, profile_key)",
@@ -707,7 +806,8 @@ async function ensureConstraints(client) {
 }
 
 async function ensureSupportUsers(client) {
-  const { rows } = await client.query(
+  const { rows } = await execQuery(
+    client,
     `SELECT id, slug, name, pos_type
      FROM businesses
      WHERE NOT EXISTS (
@@ -719,7 +819,8 @@ async function ensureSupportUsers(client) {
   );
 
   for (const business of rows) {
-    await client.query(
+    await execQuery(
+      client,
       `INSERT INTO users (
         username,
         email,
@@ -743,7 +844,8 @@ async function ensureSupportUsers(client) {
     );
   }
 
-  await client.query(
+  await execQuery(
+    client,
     `UPDATE businesses
      SET pos_type = source.pos_type,
          updated_at = NOW()
@@ -760,22 +862,46 @@ async function ensureSupportUsers(client) {
 
 async function ensureDatabaseCompatibility() {
   const client = await pool.connect();
-  const restoreQuery = wrapClientQueryWithLogging(client);
+
+  console.info(INIT_VERSION_MARKER);
+  console.info("[DB-COMPAT] start ensureDatabaseCompatibility");
 
   try {
-    await client.query("BEGIN");
-    await client.query("SET TIME ZONE 'America/Mexico_City'");
+    console.info("[DB-COMPAT] BEGIN");
+    await execQuery(client, "BEGIN");
+
+    console.info("[DB-COMPAT] SET TIME ZONE");
+    await execQuery(client, "SET TIME ZONE 'America/Mexico_City'");
+
+    console.info("[DB-COMPAT] ensureSchema");
     await ensureSchema(client);
+
+    console.info("[DB-COMPAT] ensureSeedBusiness");
     await ensureSeedBusiness(client);
+
+    console.info("[DB-COMPAT] backfillBusinessIds");
     await backfillBusinessIds(client);
+
+    console.info("[DB-COMPAT] ensureConstraints");
     await ensureConstraints(client);
+
+    console.info("[DB-COMPAT] ensureSupportUsers");
     await ensureSupportUsers(client);
-    await client.query("COMMIT");
+
+    console.info("[DB-COMPAT] COMMIT");
+    await execQuery(client, "COMMIT");
   } catch (error) {
-    await client.query("ROLLBACK");
+    console.error("[DB-COMPAT] Fatal compatibility error:", error);
+
+    try {
+      await client.query("ROLLBACK");
+      console.info("[DB-COMPAT] ROLLBACK OK");
+    } catch (rollbackError) {
+      console.error("[DB-COMPAT] ROLLBACK failed:", rollbackError);
+    }
+
     throw error;
   } finally {
-    restoreQuery();
     client.release();
   }
 }
