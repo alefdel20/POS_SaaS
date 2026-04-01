@@ -39,6 +39,10 @@ interface QuickSupplierTouchedState {
   supplier_observations: boolean;
 }
 
+function normalizeScannerCode(value: string) {
+  return value.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "").trim();
+}
+
 const emptyInvoiceData = {
   company_rfc: "",
   company_name: "",
@@ -78,11 +82,6 @@ const emptyQuickSupplierTouched: QuickSupplierTouchedState = {
 
 function getResolvedSaleUnit(unit?: string | null) {
   return (unit || "pieza") as SaleUnit;
-}
-
-function generateNumericBarcode() {
-  const entropy = `${Date.now()}${Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0")}`;
-  return entropy.slice(-13);
 }
 
 function hasMoreThanThreeDecimals(value: number) {
@@ -133,6 +132,7 @@ export function SalesPage() {
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [search, setSearch] = useState("");
+  const [scannerCode, setScannerCode] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
@@ -154,6 +154,8 @@ export function SalesPage() {
   const [quickSupplierTouched, setQuickSupplierTouched] = useState<QuickSupplierTouchedState>(emptyQuickSupplierTouched);
   const [quickProductError, setQuickProductError] = useState("");
   const [quickProductSaving, setQuickProductSaving] = useState(false);
+  const [scannerFeedback, setScannerFeedback] = useState("");
+  const [scannerSelectionId, setScannerSelectionId] = useState<number | null>(null);
 
   async function loadProducts(term = "") {
     if (!token) return;
@@ -189,6 +191,9 @@ export function SalesPage() {
 
   function resetSaleForm() {
     setCart([]);
+    setScannerCode("");
+    setScannerFeedback("");
+    setScannerSelectionId(null);
     setPaymentMethod("cash");
     setSaleType("ticket");
     setCustomerName("");
@@ -289,22 +294,6 @@ export function SalesPage() {
   }, [showQuickAddModal]);
 
   useEffect(() => {
-    if (quickProductForm.barcode_manually_edited || !quickProductForm.name.trim() || !quickProductForm.category.trim() || quickProductForm.barcode) {
-      return;
-    }
-
-    setQuickProductForm((current) => {
-      if (current.barcode_manually_edited || !current.name.trim() || !current.category.trim() || current.barcode) {
-        return current;
-      }
-      return {
-        ...current,
-        barcode: generateNumericBarcode()
-      };
-    });
-  }, [quickProductForm.barcode_manually_edited, quickProductForm.name, quickProductForm.category, quickProductForm.barcode]);
-
-  useEffect(() => {
     const supplierName = quickProductForm.supplier_name.trim().toLowerCase();
     if (!supplierName) {
       return;
@@ -343,6 +332,7 @@ export function SalesPage() {
       }
       return [...current, { product, quantity: step }];
     });
+    setScannerSelectionId(product.id);
   }
 
   function openQuickAddModal() {
@@ -399,14 +389,49 @@ export function SalesPage() {
       setCart((current) => current.filter((item) => item.product.id !== productId));
       return;
     }
-    const target = cart.find((item) => item.product.id === productId);
-    const unit = getResolvedSaleUnit(target?.product.unidad_de_venta);
-    if ((unit === "pieza" || unit === "caja") && !Number.isInteger(quantity)) {
+    setCart((current) => {
+      const target = current.find((item) => item.product.id === productId);
+      const unit = getResolvedSaleUnit(target?.product.unidad_de_venta);
+      if ((unit === "pieza" || unit === "caja") && !Number.isInteger(quantity)) {
+        return current;
+      }
+      return current.map((item) => (item.product.id === productId ? { ...item, quantity: Number(quantity.toFixed(3)) } : item));
+    });
+  }
+
+  async function handleScannerSubmit() {
+    if (!token) return;
+
+    const normalizedCode = normalizeScannerCode(scannerCode);
+    if (!normalizedCode) {
+      setScannerCode("");
+      setScannerFeedback("");
+      setScannerSelectionId(null);
       return;
     }
-    setCart((current) =>
-      current.map((item) => (item.product.id === productId ? { ...item, quantity: Number(quantity.toFixed(3)) } : item))
-    );
+
+    try {
+      setError("");
+      const response = await apiRequest<Product[]>(`/products?activeOnly=true&search=${encodeURIComponent(normalizedCode)}`, { token });
+      const exactProduct = response.find((product) => normalizeScannerCode(product.barcode || "") === normalizedCode);
+
+      if (!exactProduct) {
+        setScannerSelectionId(null);
+        setScannerFeedback(`No se encontro un producto para el codigo ${normalizedCode}`);
+        setScannerCode("");
+        return;
+      }
+
+      addToCart(exactProduct);
+      setSearch(exactProduct.name);
+      await loadProducts(exactProduct.name);
+      setScannerFeedback(`Producto agregado: ${exactProduct.name}`);
+      setScannerCode("");
+    } catch (scannerError) {
+      setScannerSelectionId(null);
+      setScannerFeedback("");
+      setError(scannerError instanceof Error ? scannerError.message : "No fue posible procesar el escaneo");
+    }
   }
 
   async function handleQuickProductSubmit() {
@@ -633,6 +658,19 @@ export function SalesPage() {
             ) : null}
             <input
               className="search-input"
+              placeholder="Escanear codigo"
+              value={scannerCode}
+              onChange={(event) => setScannerCode(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleScannerSubmit().catch(() => {});
+                }
+              }}
+            />
+            <button className="button ghost" onClick={() => handleScannerSubmit().catch(() => {})} type="button">Escanear</button>
+            <input
+              className="search-input"
               placeholder="Buscar por nombre, SKU o proveedor"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -640,11 +678,12 @@ export function SalesPage() {
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
+        {scannerFeedback ? <p className="muted">{scannerFeedback}</p> : null}
         <div className="product-grid">
           {products.map((product) => (
             <button
               key={product.id}
-              className="catalog-card"
+              className={`catalog-card ${scannerSelectionId === product.id ? "table-row-active" : ""}`}
               disabled={Number(product.stock) <= 0 || product.status === "inactivo" || !product.is_active}
               onClick={() => addToCart(product)}
               type="button"
@@ -938,7 +977,7 @@ export function SalesPage() {
 
       <div className="panel">
         <div className="panel-header">
-          <h2>Ultimas 20 ventas</h2>
+          <h2>Ultimas 10 ventas</h2>
         </div>
         <div className="table-wrap">
           <table>

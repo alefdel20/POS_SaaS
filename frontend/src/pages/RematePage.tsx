@@ -160,7 +160,7 @@ export function RematePage() {
                 <th></th>
                 <th>Producto</th>
                 <th>Precio base</th>
-                <th>Precio final</th>
+                <th>Precio vigente</th>
                 <th>Vigencia</th>
                 <th></th>
               </tr>
@@ -180,7 +180,7 @@ export function RematePage() {
                     <div className="muted">{product.supplier_name || product.category || "-"}</div>
                   </td>
                   <td>{currency(product.price)}</td>
-                  <td>{currency(product.effective_price ?? product.price)}</td>
+                  <td>{product.is_on_sale ? currency(product.effective_price ?? product.price) : "Igual al base"}</td>
                   <td>
                     {product.discount_start || product.discount_end
                       ? `${shortDateTime(product.discount_start || null)} - ${shortDateTime(product.discount_end || null)}`

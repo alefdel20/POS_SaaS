@@ -51,6 +51,20 @@ function normalizeDiscountFields(payload) {
   };
 }
 
+function normalizeIepsValue(value, currentProduct = null) {
+  const rawValue = value !== undefined ? value : currentProduct?.ieps;
+  if (rawValue === undefined || rawValue === null || rawValue === "") {
+    return null;
+  }
+
+  const numericValue = Number(rawValue);
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    throw new ApiError(400, "Invalid IEPS value");
+  }
+
+  return Number(numericValue.toFixed(2));
+}
+
 function normalizeSaleUnit(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return "pieza";
@@ -176,7 +190,7 @@ function validateCoreProductData(payload, currentProduct = null) {
 
 async function ensureUniqueSku(baseSku, businessId, excludeProductId = null, client = pool) {
   const normalizedBase = sanitizeManualSku(baseSku).replace(/^-+|-+$/g, "");
-  const compactBase = normalizedBase.slice(0, 12) || "ITEM000";
+  const compactBase = normalizedBase.slice(0, 60) || "ITEM";
   const { rows } = await client.query(
     `SELECT sku
      FROM products
@@ -187,9 +201,9 @@ async function ensureUniqueSku(baseSku, businessId, excludeProductId = null, cli
   );
   const existing = new Set(rows.map((row) => String(row.sku || "").toUpperCase()));
   if (!existing.has(compactBase.toUpperCase())) return compactBase;
-  for (let sequence = 1; sequence <= 99; sequence += 1) {
-    const suffix = String(sequence).padStart(2, "0");
-    const candidate = `${compactBase.slice(0, Math.max(12 - suffix.length, 6))}${suffix}`;
+  for (let sequence = 1; sequence <= 9999; sequence += 1) {
+    const suffix = `-${sequence}`;
+    const candidate = `${compactBase.slice(0, Math.max(60 - suffix.length, 1))}${suffix}`;
     if (!existing.has(candidate.toUpperCase())) return candidate;
   }
   throw new ApiError(409, "Unable to generate unique SKU");
@@ -559,34 +573,60 @@ async function listCategories(search, actor) {
 
 async function createProduct(payload, actor) {
   const businessId = requireActorBusinessId(actor);
-  const discountFields = normalizeDiscountFields(payload);
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
+    const discountFields = normalizeDiscountFields(payload);
+    const ieps = normalizeIepsValue(payload.ieps);
     const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia } = validateCoreProductData(payload);
-    const resolvedSku = await resolveSku(payload, businessId, null, client);
     const requestedBarcode = sanitizeBarcode(payload.barcode || "");
-    const resolvedBarcode = requestedBarcode
-      ? await ensureUniqueBarcode(requestedBarcode, businessId, null, client)
-      : await generateUniqueBarcode(businessId, null, client);
     const primarySupplierId = await ensureSupplierReference(payload, businessId, client);
-    const { rows } = await client.query(
-      `INSERT INTO products (
-        name, sku, barcode, category, description, price, cost_price, liquidation_price, stock, expires_at,
-        is_active, supplier_id, status, discount_type, discount_value, discount_start, discount_end,
-        stock_minimo, stock_maximo, business_id, unidad_de_venta, porcentaje_ganancia
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-      RETURNING *`,
-      [
-        payload.name.trim(), resolvedSku, resolvedBarcode, payload.category || null, payload.description || "",
-        payload.price, payload.cost_price ?? 0, payload.liquidation_price ?? null, stock,
-        payload.expires_at || null, payload.is_active ?? true, primarySupplierId, payload.status || "activo",
-        discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end,
-        stockMinimo, stockMaximo, businessId, unidadDeVenta, porcentajeGanancia
-      ]
-    );
+    let rows = [];
+    let lastError = null;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const resolvedSku = await resolveSku(
+        attempt === 0 ? payload : { ...payload, sku: "" },
+        businessId,
+        null,
+        client
+      );
+      const resolvedBarcode = requestedBarcode
+        ? await ensureUniqueBarcode(requestedBarcode, businessId, null, client)
+        : await generateUniqueBarcode(businessId, null, client);
+
+      try {
+        ({ rows } = await client.query(
+          `INSERT INTO products (
+            name, sku, barcode, category, description, price, cost_price, liquidation_price, stock, expires_at,
+            is_active, supplier_id, status, discount_type, discount_value, discount_start, discount_end,
+            stock_minimo, stock_maximo, business_id, unidad_de_venta, porcentaje_ganancia, ieps
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+          RETURNING *`,
+          [
+            payload.name.trim(), resolvedSku, resolvedBarcode, payload.category || null, payload.description || "",
+            payload.price, payload.cost_price ?? 0, payload.liquidation_price ?? null, stock,
+            payload.expires_at || null, payload.is_active ?? true, primarySupplierId, payload.status || "activo",
+            discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end,
+            stockMinimo, stockMaximo, businessId, unidadDeVenta, porcentajeGanancia, ieps
+          ]
+        ));
+        lastError = null;
+        break;
+      } catch (error) {
+        if (error?.code !== "23505") {
+          throw error;
+        }
+        lastError = error;
+      }
+    }
+
+    if (lastError) {
+      throw new ApiError(409, "Unable to generate unique SKU");
+    }
+
     await syncProductSuppliers(rows[0].id, businessId, payload, client);
     await client.query("COMMIT");
     return mapProductRow(rows[0]);
@@ -613,6 +653,7 @@ async function updateProduct(id, payload, actor) {
     if (!current) throw new ApiError(404, "Product not found");
 
     const businessId = Number(current.business_id);
+    const ieps = normalizeIepsValue(payload.ieps, current);
     const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia } = validateCoreProductData(payload, current);
     const resolvedSku = payload.sku !== undefined ? await resolveSku(payload, businessId, current, client) : current.sku;
     const nextBarcodeSource = payload.barcode !== undefined ? payload.barcode : current.barcode;
@@ -634,12 +675,13 @@ async function updateProduct(id, payload, actor) {
        SET name = $1, sku = $2, barcode = $3, category = $4, description = $5, price = $6, cost_price = $7,
            liquidation_price = $8, stock = $9, expires_at = $10, is_active = $11, supplier_id = $12, status = $13,
            discount_type = $14, discount_value = $15, discount_start = $16, discount_end = $17,
-           stock_minimo = $18, stock_maximo = $19, unidad_de_venta = $20, porcentaje_ganancia = $21, updated_at = NOW()
-       WHERE id = $22 AND business_id = $23
+           stock_minimo = $18, stock_maximo = $19, unidad_de_venta = $20, porcentaje_ganancia = $21, ieps = $22, updated_at = NOW()
+       WHERE id = $23 AND business_id = $24
        RETURNING *`,
       [
         payload.name ?? current.name, resolvedSku, resolvedBarcode, payload.category ?? current.category,
         payload.description ?? current.description, payload.price ?? current.price, payload.cost_price ?? current.cost_price,
+        nextLiquidationPrice,
         payload.stock !== undefined ? stock : current.stock,
         payload.expires_at !== undefined ? payload.expires_at : current.expires_at,
         payload.is_active ?? current.is_active, supplierId, payload.status ?? current.status ?? "activo",
@@ -651,6 +693,7 @@ async function updateProduct(id, payload, actor) {
         payload.stock_maximo !== undefined || payload.stock !== undefined || payload.stock_minimo !== undefined ? stockMaximo : current.stock_maximo,
         payload.unidad_de_venta !== undefined ? unidadDeVenta : normalizeSaleUnit(current.unidad_de_venta),
         payload.porcentaje_ganancia !== undefined ? porcentajeGanancia : current.porcentaje_ganancia,
+        payload.ieps !== undefined ? ieps : current.ieps,
         id, businessId
       ]
     );

@@ -192,7 +192,7 @@ async function listRecentSales(actor) {
      WHERE sales.business_id = $1
        AND ${buildValidSaleStatusClause("sales")}
      ORDER BY sales.created_at DESC
-     LIMIT 20`,
+     LIMIT 10`,
     [businessId]
   );
   return rows.map(mapSaleRow);

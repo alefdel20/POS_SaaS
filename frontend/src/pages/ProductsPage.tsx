@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -24,13 +24,13 @@ type ProductSupplierFormState = {
 type ProductFormState = {
   name: string;
   sku: string;
-  sku_manually_edited: boolean;
   barcode_manually_edited: boolean;
   barcode: string;
   category: string;
   description: string;
   price: string;
   cost_price: string;
+  ieps: string;
   porcentaje_ganancia: string;
   unidad_de_venta: SaleUnit | "";
   stock: string;
@@ -60,13 +60,13 @@ const emptySupplier: ProductSupplierFormState = {
 const emptyProduct: ProductFormState = {
   name: "",
   sku: "",
-  sku_manually_edited: false,
   barcode_manually_edited: false,
   barcode: "",
   category: "",
   description: "",
   price: "",
   cost_price: "",
+  ieps: "",
   porcentaje_ganancia: "",
   unidad_de_venta: "",
   stock: "",
@@ -89,11 +89,6 @@ function toDateTimeLocal(value?: string | null) {
 function normalizeSaleUnit(value?: string | null) {
   if (!value) return "";
   return SALE_UNITS.includes(value as SaleUnit) ? (value as SaleUnit) : "";
-}
-
-function generateNumericBarcode() {
-  const entropy = `${Date.now()}${Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0")}`;
-  return entropy.slice(-13);
 }
 
 function getResolvedSaleUnit(unit?: string | null) {
@@ -177,13 +172,13 @@ function productToForm(product: Product): ProductFormState {
   return {
     name: product.name,
     sku: product.sku,
-    sku_manually_edited: false,
     barcode_manually_edited: true,
     barcode: product.barcode,
     category: product.category || "",
     description: product.description || "",
     price: String(product.price ?? ""),
     cost_price: String(product.cost_price ?? ""),
+    ieps: product.ieps === null || product.ieps === undefined ? "" : String(product.ieps),
     porcentaje_ganancia: product.porcentaje_ganancia === null || product.porcentaje_ganancia === undefined ? "" : String(product.porcentaje_ganancia),
     unidad_de_venta: normalizeSaleUnit(product.unidad_de_venta),
     stock: String(product.stock ?? ""),
@@ -245,10 +240,30 @@ export function ProductsPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [currentImagePath, setCurrentImagePath] = useState<string | null>(null);
   const [removeImageRequested, setRemoveImageRequested] = useState(false);
+  const baselineFormRef = useRef(JSON.stringify({
+    ...emptyProduct,
+    suppliers: emptyProduct.suppliers.map((supplier) => ({ ...supplier }))
+  }));
   const editProductIdFromQuery = Number(searchParams.get("edit") || 0) || null;
   const searchFromQuery = searchParams.get("search") || "";
-  const skuSuggestion = buildSkuSuggestion(form.name, form.category, "");
+  const skuSuggestion = useMemo(() => buildSkuSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
   const apiBaseUrl = ((import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api");
+  const hasSuggestedSku = !form.sku.trim() && Boolean(skuSuggestion);
+
+  function buildFormSnapshot(state: ProductFormState) {
+    return JSON.stringify({
+      ...state,
+      suppliers: state.suppliers.map((supplier) => ({ ...supplier }))
+    });
+  }
+
+  function syncBaseline(state: ProductFormState) {
+    baselineFormRef.current = buildFormSnapshot(state);
+  }
+
+  const hasUnsavedChanges = baselineFormRef.current !== buildFormSnapshot(form)
+    || Boolean(imageFile)
+    || removeImageRequested;
 
   async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize) {
     if (!token) return;
@@ -316,44 +331,6 @@ export function ProductsPage() {
   }, [search, pageSize, token]);
 
   useEffect(() => {
-    if (form.sku_manually_edited) {
-      return;
-    }
-
-    setForm((current) => {
-      if (current.sku_manually_edited) {
-        return current;
-      }
-
-      const nextSku = skuSuggestion || "";
-      if (current.sku === nextSku) {
-        return current;
-      }
-
-      return {
-        ...current,
-        sku: nextSku
-      };
-    });
-  }, [form.sku_manually_edited, skuSuggestion]);
-
-  useEffect(() => {
-    if (form.barcode_manually_edited || !form.name.trim() || !form.category.trim()) {
-      return;
-    }
-
-    setForm((current) => {
-      if (current.barcode_manually_edited || !current.name.trim() || !current.category.trim() || current.barcode) {
-        return current;
-      }
-      return {
-        ...current,
-        barcode: generateNumericBarcode()
-      };
-    });
-  }, [form.barcode_manually_edited, form.name, form.category, form.barcode]);
-
-  useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
       return;
     }
@@ -365,6 +342,24 @@ export function ProductsPage() {
 
     handleEdit(productToEdit);
   }, [editProductIdFromQuery, editingId, products]);
+
+  useEffect(() => {
+    syncBaseline(emptyProduct);
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     if (!imageFile) {
@@ -483,6 +478,7 @@ export function ProductsPage() {
     const stockMinimo = Number(form.stock_minimo);
     const stockMaximo = Number(form.stock_maximo);
     const costPrice = form.cost_price === "" ? 0 : Number(form.cost_price);
+    const ieps = form.ieps === "" ? null : Number(form.ieps);
     const porcentajeGanancia = form.porcentaje_ganancia === "" ? null : Number(form.porcentaje_ganancia);
     const discountValue = form.discount_value === "" ? null : Number(form.discount_value);
     const resolvedSaleUnit = getResolvedSaleUnit(form.unidad_de_venta);
@@ -507,6 +503,10 @@ export function ProductsPage() {
     }
     if (porcentajeGanancia !== null && (!Number.isFinite(porcentajeGanancia))) {
       setError("El porcentaje de ganancia debe ser numerico");
+      return;
+    }
+    if (ieps !== null && (!Number.isFinite(ieps) || ieps < 0)) {
+      setError("El IEPS debe ser numerico y valido");
       return;
     }
     if (stockMaximo < stockMinimo) {
@@ -594,12 +594,12 @@ export function ProductsPage() {
       ...form,
       name: form.name.trim(),
       sku: form.sku.trim(),
-      sku_manually_edited: form.sku_manually_edited,
       barcode: form.barcode.trim(),
       category: form.category.trim(),
       description: form.description.trim(),
       price,
       cost_price: costPrice,
+      ieps,
       porcentaje_ganancia: porcentajeGanancia,
       unidad_de_venta: form.unidad_de_venta || null,
       stock,
@@ -640,11 +640,13 @@ export function ProductsPage() {
       }
       await syncProductImage(savedProduct.id);
       setForm(emptyProduct);
+      syncBaseline(emptyProduct);
       setEditingId(null);
       setImageFile(null);
       setImagePreview(null);
       setCurrentImagePath(null);
       setRemoveImageRequested(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       setSearchParams((current) => {
         const next = new URLSearchParams(current);
         next.delete("edit");
@@ -659,7 +661,9 @@ export function ProductsPage() {
     } catch (submissionError) {
       if (savedProduct) {
         setEditingId(savedProduct.id);
-        setForm(productToForm(savedProduct));
+        const nextForm = productToForm(savedProduct);
+        setForm(nextForm);
+        syncBaseline(nextForm);
         setCurrentImagePath(savedProduct.image_path || null);
       }
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el producto");
@@ -669,8 +673,14 @@ export function ProductsPage() {
   }
 
   function handleEdit(product: Product) {
+    if (hasUnsavedChanges && !window.confirm("Hay cambios sin guardar. ¿Deseas descartarlos?")) {
+      return;
+    }
+
+    const nextForm = productToForm(product);
     setEditingId(product.id);
-    setForm(productToForm(product));
+    setForm(nextForm);
+    syncBaseline(nextForm);
     setImageFile(null);
     setCurrentImagePath(product.image_path || null);
     setImagePreview(resolveProductImageUrl(product.image_path));
@@ -687,8 +697,13 @@ export function ProductsPage() {
   }
 
   function resetProductEditor() {
+    if (hasUnsavedChanges && !window.confirm("Hay cambios sin guardar. ¿Deseas descartarlos?")) {
+      return;
+    }
+
     setEditingId(null);
     setForm(emptyProduct);
+    syncBaseline(emptyProduct);
     setImageFile(null);
     setImagePreview(null);
     setCurrentImagePath(null);
@@ -795,7 +810,7 @@ export function ProductsPage() {
                 <th>Proveedor</th>
                 <th>Motivo</th>
                 <th>Precio base</th>
-                <th>Precio final</th>
+                <th>Precio vigente</th>
                 <th>Vigencia</th>
               </tr>
             </thead>
@@ -812,7 +827,7 @@ export function ProductsPage() {
                     {product.is_near_expiry ? "Próximo a vencer" : ""}
                   </td>
                   <td>{currency(product.price)}</td>
-                  <td>{currency(product.effective_price ?? product.price)}</td>
+                  <td>{product.is_on_sale ? currency(product.effective_price ?? product.price) : "Igual al base"}</td>
                   <td>
                     {product.discount_start || product.discount_end
                       ? `${shortDateTime(product.discount_start || null)} - ${shortDateTime(product.discount_end || null)}`
@@ -900,11 +915,12 @@ export function ProductsPage() {
           <label>
             SKU
             <input
-              placeholder="Se generará automáticamente"
+              placeholder={hasSuggestedSku ? `Sugerido: ${skuSuggestion}` : "Se generará automáticamente en backend"}
               value={form.sku}
-              onChange={(event) => setForm({ ...form, sku: event.target.value, sku_manually_edited: true })}
+              onChange={(event) => setForm({ ...form, sku: event.target.value })}
             />
           </label>
+          {hasSuggestedSku ? <p className="muted">SKU sugerido visual: {skuSuggestion}. El SKU definitivo y unico se garantiza al guardar.</p> : null}
           <label>
             Categoría
             <input
@@ -953,6 +969,10 @@ export function ProductsPage() {
           <label>
             Costo del producto
             <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value, price: form.porcentaje_ganancia === "" ? form.price : recalculatePrice(event.target.value, form.porcentaje_ganancia) })} />
+          </label>
+          <label>
+            IEPS
+            <input type="number" min="0" step="0.01" value={form.ieps} onChange={(event) => setForm({ ...form, ieps: event.target.value })} />
           </label>
           <label>
             % ganancia

@@ -11,20 +11,20 @@ import {
 } from "../utils/roles";
 
 const links = [
-  { to: "/profile", label: "Perfil", isVisible: isManagementRole, pinned: true },
+  { to: "/profile", label: "Perfil", isVisible: isManagementRole, priority: 1 },
   { to: "/businesses", label: "Negocios", isVisible: canAccessBusinesses },
   { to: "/credit-collections", label: "Credito y Cobranza", isVisible: isManagementRole },
-  { to: "/daily-cut", label: "Corte Diario", isVisible: canAccessDailyCut },
+  { to: "/daily-cut", label: "Corte Diario", isVisible: canAccessDailyCut, priority: 4 },
   { to: "/finances", label: "Finanzas", isVisible: isManagementRole },
   { to: "/invoices", label: "Facturas", isVisible: canAccessInvoices },
   { to: "/sales-history", label: "Historial", isVisible: isManagementRole },
-  { to: "/products", label: "Productos", isVisible: isManagementRole },
+  { to: "/products", label: "Productos", isVisible: isManagementRole, priority: 3 },
   { to: "/remate", label: "Remate", isVisible: isManagementRole },
   { to: "/reminders", label: "Recordatorios", isVisible: () => true },
   { to: "/dashboard", label: "Resumen", isVisible: isManagementRole },
   { to: "/suppliers", label: "Proveedores", isVisible: isManagementRole },
   { to: "/users", label: "Usuarios", isVisible: canViewUsers },
-  { to: "/sales", label: "Ventas", isVisible: canAccessSales }
+  { to: "/sales", label: "Ventas", isVisible: canAccessSales, priority: 2 }
 ];
 
 export function Sidebar() {
@@ -44,8 +44,9 @@ export function Sidebar() {
         {links
           .filter((link) => link.isVisible(currentRole))
           .sort((left, right) => {
-            if (left.pinned) return -1;
-            if (right.pinned) return 1;
+            if (left.priority && right.priority) return left.priority - right.priority;
+            if (left.priority) return -1;
+            if (right.priority) return 1;
             return left.label.localeCompare(right.label, "es");
           })
           .map((link) => (

@@ -71,6 +71,7 @@ export interface Product {
   description: string;
   price: number;
   cost_price: number;
+  ieps?: number | null;
   stock_minimo?: number;
   stock_maximo?: number;
   supplier_id?: number | null;
