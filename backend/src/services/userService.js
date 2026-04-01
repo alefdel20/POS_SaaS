@@ -105,17 +105,26 @@ async function getUserByLogin(identifier) {
 }
 
 async function getScopedUser(id, actor, client = pool) {
-  const params = [id, requireActorBusinessId(actor)];
-  const where = "u.id = $1 AND u.business_id = $2";
-
   const { rows } = await client.query(
     `SELECT ${USER_FIELDS}
      FROM users u
      LEFT JOIN businesses b ON b.id = u.business_id
-     WHERE ${where}`,
-    params
+     WHERE u.id = $1`,
+    [id]
   );
-  return mapUser(rows[0] || null);
+
+  const target = mapUser(rows[0] || null);
+  if (!target) return null;
+  if (isSuperUser(actor)) {
+    return target;
+  }
+
+  const actorBusinessId = requireActorBusinessId(actor);
+  if (target.business_id !== actorBusinessId) {
+    throw new ApiError(403, "Cannot modify users from another business");
+  }
+
+  return target;
 }
 
 async function listUsers(actor) {

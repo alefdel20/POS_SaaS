@@ -45,6 +45,7 @@ const errorTranslations: Record<string, string> = {
   "Username or email already exists": "El usuario o correo ya existe",
   "Invalid role": "Rol invalido",
   "Forbidden role assignment": "No puedes asignar ese rol",
+  "Cannot modify users from another business": "No puedes modificar usuarios de otro negocio",
   "At least one active superusuario must remain": "Debe permanecer al menos un superusuario activo",
   "Product not found": "Producto no encontrado",
   "Supplier not found": "Proveedor no encontrado",

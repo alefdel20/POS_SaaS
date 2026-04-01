@@ -50,6 +50,8 @@ export function UsersPage() {
   const canCreateUsers = currentRole === "superusuario" || currentRole === "admin";
   const canResetPasswords = currentRole === "superusuario";
   const canEditRoles = currentRole === "superusuario";
+  const currentBusinessId = currentUser?.business_id;
+  const canManageUserAcrossBusinesses = currentRole === "superusuario";
 
   const roleOptions = useMemo(() => {
     if (currentRole === "superusuario") {
@@ -143,6 +145,11 @@ export function UsersPage() {
 
   async function updateRole(user: User, role: Role) {
     if (!token || !canEditRoles) return;
+    if (!canManageUserAcrossBusinesses && currentBusinessId && user.business_id !== currentBusinessId) {
+      setError("No puedes modificar usuarios de otro negocio");
+      setInfo("");
+      return;
+    }
     try {
       setError("");
       setInfo("");
@@ -304,6 +311,8 @@ export function UsersPage() {
                   <td>
                     {canEditRoles && !isProtectedSupportUser(user) ? (
                       <select
+                        disabled={Boolean(!canManageUserAcrossBusinesses && currentBusinessId && user.business_id !== currentBusinessId)}
+                        title={!canManageUserAcrossBusinesses && currentBusinessId && user.business_id !== currentBusinessId ? "No puedes modificar usuarios de otro negocio" : undefined}
                         value={normalizeRole(user.role) || "cajero"}
                         onChange={(event) => updateRole(user, event.target.value as Role)}
                       >
