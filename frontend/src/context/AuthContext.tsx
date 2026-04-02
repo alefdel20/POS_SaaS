@@ -21,6 +21,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  function normalizeEffectiveUser(user: User | null) {
+    if (!user?.support_context) {
+      return user;
+    }
+
+    return {
+      ...user,
+      business_id: user.support_context.business_id,
+      business_name: user.support_context.business_name,
+      business_slug: user.support_context.business_slug,
+      pos_type: user.support_context.pos_type || user.pos_type,
+      support_session_id: user.support_context.session_id
+    };
+  }
+
   useEffect(() => {
     async function hydrate() {
       if (!token) {
@@ -30,7 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const response = await apiRequest<{ user: User }>("/auth/me", { token });
-        setUser(response.user);
+        setUser(normalizeEffectiveUser(response.user));
       } catch {
         clearStoredToken();
         setToken(null);
@@ -44,9 +59,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [token]);
 
   function normalizeSessionUser(response: AuthResponse) {
-    return response.support_context
+    const mergedUser = response.support_context
       ? { ...response.user, support_context: response.support_context, support_session_id: response.support_context.session_id }
       : response.user;
+    return normalizeEffectiveUser(mergedUser);
   }
 
   function applySession(nextToken: string | null, nextUser: User | null) {
@@ -66,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const response = await apiRequest<{ user: User }>("/auth/me", { token });
-    setUser(response.user);
+    setUser(normalizeEffectiveUser(response.user));
   }
 
   async function login(identifier: string, password: string) {
