@@ -465,17 +465,12 @@ async function getSupportSessionById(sessionId, actorUserId, client = pool) {
      INNER JOIN businesses business ON business.id = sal.target_business_id
      WHERE sal.id = $1
        AND sal.actor_user_id = $2
+       AND sal.ended_at IS NULL
+       AND sal.expires_at > NOW()
      LIMIT 1`,
     [sessionId, actorUserId]
   );
-  const session = rows[0] || null;
-  if (!session) {
-    return null;
-  }
-  if (session.ended_at || new Date(session.expires_at) <= new Date()) {
-    return null;
-  }
-  return session;
+  return rows[0] || null;
 }
 
 async function logSupportAccess(targetUserId, actor, reason = "") {
