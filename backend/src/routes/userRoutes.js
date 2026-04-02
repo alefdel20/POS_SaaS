@@ -10,7 +10,7 @@ router.put("/:id", requireRole(["superusuario", "superadmin", "admin"]), control
 router.patch("/:id/status", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.statusValidation, controller.updateUserStatus);
 router.post("/:id/reset-password", requireRole(["superusuario", "superadmin"]), controller.resetPasswordValidation, controller.resetPassword);
 router.post("/:id/support-access", requireRole(["superusuario", "superadmin", "soporte"]), controller.supportAccessValidation, controller.supportAccess);
-router.post("/:id/support-mode/activate", requireRole(["superusuario", "superadmin", "soporte"]), controller.supportModeValidation, controller.activateSupportMode);
-router.post("/:id/support-mode/deactivate", requireRole(["superusuario", "superadmin", "soporte"]), controller.supportModeValidation, controller.deactivateSupportMode);
+router.post("/:id/support-mode/activate", requireRole(["superusuario", "superadmin"]), controller.supportModeValidation, controller.activateSupportMode);
+router.post("/:id/support-mode/deactivate", requireRole(["superusuario", "superadmin"]), controller.supportModeValidation, controller.deactivateSupportMode);
 
 module.exports = router;

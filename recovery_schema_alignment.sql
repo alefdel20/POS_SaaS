@@ -265,10 +265,10 @@ CREATE TABLE IF NOT EXISTS products (
   barcode VARCHAR(80),
   category VARCHAR(120),
   description TEXT NOT NULL DEFAULT '',
-  price NUMERIC(12, 2) NOT NULL DEFAULT 0,
-  cost_price NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  price NUMERIC(12, 5) NOT NULL DEFAULT 0,
+  cost_price NUMERIC(12, 5) NOT NULL DEFAULT 0,
   ieps NUMERIC(10, 2),
-  liquidation_price NUMERIC(12, 2),
+  liquidation_price NUMERIC(12, 5),
   supplier_id INTEGER,
   status VARCHAR(20) NOT NULL DEFAULT 'activo',
   discount_type VARCHAR(20),
@@ -297,7 +297,7 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_type VARCHAR(20);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_value NUMERIC(12, 2);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_start TIMESTAMP;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_end TIMESTAMP;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS liquidation_price NUMERIC(12, 2);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS liquidation_price NUMERIC(12, 5);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS ieps NUMERIC(10, 2);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS expires_at DATE;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo NUMERIC(12, 3) NOT NULL DEFAULT 0;
@@ -445,14 +445,14 @@ CREATE TABLE IF NOT EXISTS product_suppliers (
   product_id INTEGER NOT NULL,
   supplier_id INTEGER NOT NULL,
   is_primary BOOLEAN NOT NULL DEFAULT FALSE,
-  purchase_cost NUMERIC(12, 3),
+  purchase_cost NUMERIC(12, 5),
   cost_updated_at TIMESTAMP,
   business_id INTEGER,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   UNIQUE(product_id, supplier_id)
 );
 
-ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS purchase_cost NUMERIC(12, 3);
+ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS purchase_cost NUMERIC(12, 5);
 ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS cost_updated_at TIMESTAMP;
 ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS business_id INTEGER;
 ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW();
@@ -740,9 +740,9 @@ CREATE TABLE IF NOT EXISTS sales (
   user_id INTEGER NOT NULL,
   payment_method VARCHAR(20) NOT NULL,
   sale_type VARCHAR(20) NOT NULL,
-  subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
-  total NUMERIC(12, 2) NOT NULL DEFAULT 0,
-  total_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  subtotal NUMERIC(14, 5) NOT NULL DEFAULT 0,
+  total NUMERIC(14, 5) NOT NULL DEFAULT 0,
+  total_cost NUMERIC(14, 5) NOT NULL DEFAULT 0,
   customer_name VARCHAR(150),
   customer_phone VARCHAR(40),
   initial_payment NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -926,15 +926,15 @@ CREATE TABLE IF NOT EXISTS sale_items (
   product_id INTEGER NOT NULL,
   business_id INTEGER,
   quantity NUMERIC(12, 3) NOT NULL,
-  unit_price NUMERIC(12, 2) NOT NULL,
-  unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
-  subtotal NUMERIC(12, 2) NOT NULL,
+  unit_price NUMERIC(12, 5) NOT NULL,
+  unit_cost NUMERIC(12, 5) NOT NULL DEFAULT 0,
+  subtotal NUMERIC(14, 5) NOT NULL,
   unidad_de_venta VARCHAR(20),
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS business_id INTEGER;
-ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12, 5) NOT NULL DEFAULT 0;
 ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unidad_de_venta VARCHAR(20);
 ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW();
 
@@ -1576,11 +1576,21 @@ CREATE TABLE IF NOT EXISTS support_access_logs (
   business_id INTEGER,
   target_business_id INTEGER,
   reason TEXT NOT NULL DEFAULT '',
+  support_session_token UUID NOT NULL DEFAULT gen_random_uuid(),
+  started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMP NOT NULL DEFAULT (NOW() + INTERVAL '30 minutes'),
+  ended_at TIMESTAMP,
+  ended_by_user_id INTEGER,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS business_id INTEGER;
 ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS target_business_id INTEGER;
+ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS support_session_token UUID NOT NULL DEFAULT gen_random_uuid();
+ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS started_at TIMESTAMP NOT NULL DEFAULT NOW();
+ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP NOT NULL DEFAULT (NOW() + INTERVAL '30 minutes');
+ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP;
+ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS ended_by_user_id INTEGER;
 ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW();
 
 WITH seed AS (

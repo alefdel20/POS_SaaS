@@ -10,14 +10,64 @@ const { saveAuditLog } = require("./auditLogService");
 const INTEGER_UNITS = new Set(["pieza", "caja"]);
 const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
 
+function roundToScale(value, scale) {
+  const numericValue = Number(value || 0);
+  if (!Number.isFinite(numericValue)) {
+    throw new ApiError(400, "Invalid numeric value");
+  }
+  const factor = 10 ** scale;
+  return Math.round((numericValue + Number.EPSILON) * factor) / factor;
+}
+
+function roundQuantity(value) {
+  return roundToScale(value, 3);
+}
+
+function normalizeMoneyValue(value, fieldLabel, options = {}) {
+  const allowNull = Boolean(options.allowNull);
+  if (value === undefined || value === null || value === "") {
+    if (allowNull) {
+      return null;
+    }
+    return 0;
+  }
+
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    throw new ApiError(400, `${fieldLabel} must be a valid positive number`);
+  }
+  if (Math.abs(numericValue * 100000 - Math.round(numericValue * 100000)) > 1e-9) {
+    throw new ApiError(400, `${fieldLabel} cannot exceed 5 decimals`);
+  }
+  return roundToScale(numericValue, 5);
+}
+
+function multiplyMoney(left, right) {
+  return roundToScale(Number(left || 0) * Number(right || 0), 5);
+}
+
+function buildSaleAuditMetadata(actor, extra = {}) {
+  if (!actor?.support_context) {
+    return extra;
+  }
+  return {
+    ...extra,
+    is_support_mode: true,
+    support_session_id: actor.support_context.session_id,
+    support_actor_user_id: actor.support_context.actor_user_id,
+    support_target_business_id: actor.support_context.business_id,
+    support_reason: actor.support_context.reason
+  };
+}
+
 function computeDiscountedPrice(product) {
   if (product.status !== "activo" || !product.discount_type || product.discount_value === null || !product.discount_start || !product.discount_end) return null;
   const now = new Date();
   const start = new Date(product.discount_start);
   const end = new Date(product.discount_end);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || now < start || now > end) return null;
-  if (product.discount_type === "percentage") return Math.max(Number(product.price) - Number(product.price) * (Number(product.discount_value) / 100), 0);
-  if (product.discount_type === "fixed") return Math.max(Number(product.price) - Number(product.discount_value), 0);
+  if (product.discount_type === "percentage") return roundToScale(Math.max(Number(product.price) - Number(product.price) * (Number(product.discount_value) / 100), 0), 5);
+  if (product.discount_type === "fixed") return roundToScale(Math.max(Number(product.price) - Number(product.discount_value), 0), 5);
   return null;
 }
 
@@ -65,7 +115,7 @@ function formatQuantity(quantity, unit) {
   if (INTEGER_UNITS.has(unit)) {
     return String(Math.trunc(numericValue));
   }
-  return numericValue.toFixed(3);
+  return String(roundQuantity(numericValue));
 }
 
 function buildItemsSummary(items = []) {
@@ -85,7 +135,7 @@ function validateSaleQuantity(quantity, unit) {
   if (FRACTIONAL_UNITS.has(unit) && hasMoreThanThreeDecimals(numericValue)) {
     throw new ApiError(400, `Quantity cannot exceed 3 decimals for ${unit}`);
   }
-  return Number(numericValue.toFixed(3));
+  return roundQuantity(numericValue);
 }
 
 function appendBusinessScope(filters, actor, alias = "sales") {
@@ -338,20 +388,20 @@ async function createSale(payload, user) {
         : product.liquidation_price !== null && (Number(product.recent_units_sold || 0) <= 2 || nearExpiry)
           ? product.liquidation_price
           : product.price;
-      const unitPrice = Number(item.unit_price ?? effectivePrice);
-      const unitCost = Number(product.cost_price || 0);
-      const subtotal = unitPrice * quantity;
-      total += subtotal;
-      totalCost += unitCost * quantity;
+      const unitPrice = normalizeMoneyValue(item.unit_price ?? effectivePrice, "Unit price");
+      const unitCost = normalizeMoneyValue(product.cost_price || 0, "Unit cost");
+      const subtotal = multiplyMoney(unitPrice, quantity);
+      total = roundToScale(total + subtotal, 5);
+      totalCost = roundToScale(totalCost + multiplyMoney(unitCost, quantity), 5);
       normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: unit, productName: product.name });
     }
 
     const saleType = payload.sale_type || "ticket";
     const requiresAdministrativeInvoice = Boolean(payload.requires_administrative_invoice);
-    const initialPayment = Number(payload.initial_payment || 0);
-    const cashReceived = payload.payment_method === "cash" ? Number(payload.cash_received) : null;
+    const initialPayment = normalizeMoneyValue(payload.initial_payment || 0, "Initial payment");
+    const cashReceived = payload.payment_method === "cash" ? normalizeMoneyValue(payload.cash_received, "Cash received") : null;
     if (payload.payment_method === "cash" && cashReceived < total) throw new ApiError(400, "Cash received must cover the sale total");
-    const balanceDue = payload.payment_method === "credit" ? Math.max(total - initialPayment, 0) : 0;
+    const balanceDue = payload.payment_method === "credit" ? roundToScale(Math.max(total - initialPayment, 0), 5) : 0;
     const customerName = payload.customer?.name?.trim() || null;
     const customerPhone = payload.customer?.phone?.trim() || null;
     let invoiceData = saleType === "invoice" ? payload.invoice_data || {} : {};
@@ -451,6 +501,33 @@ async function createSale(payload, user) {
     await ensureAutomaticReminders(user);
 
     sale.requires_administrative_invoice = requiresAdministrativeInvoice;
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: user.id,
+      modulo: "sales",
+      accion: "create_sale",
+      entidad_tipo: "sale",
+      entidad_id: sale.id,
+      detalle_anterior: {},
+      detalle_nuevo: {
+        entity: "sale",
+        entity_id: sale.id,
+        snapshot: {
+          ...sale,
+          items: normalizedItems.map((item) => ({
+            product_id: item.productId,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            unit_cost: item.unitCost,
+            subtotal: item.subtotal,
+            unidad_de_venta: item.unidadDeVenta
+          }))
+        },
+        version: 1
+      },
+      motivo: user?.support_context?.reason || payload.notes || "",
+      metadata: buildSaleAuditMetadata(user, { warnings_count: warnings.length })
+    }, { strict: false });
     return { sale, warnings, receipt: { bank_details: payload.payment_method === "transfer" ? transferSnapshot : null, balance_due: balanceDue, invoice_status: invoiceStatus, stamp_status: stampStatus } };
   } catch (error) {
     await client.query("ROLLBACK");
@@ -538,7 +615,7 @@ async function cancelSale(saleId, reason, actor) {
       detalle_anterior: { entity: "sale", entity_id: saleId, snapshot: mapSaleRow(sale), version: 1 },
       detalle_nuevo: { entity: "sale", entity_id: saleId, snapshot: mapSaleRow(updatedSale), restored_items: itemRows, version: 1 },
       motivo: trimmedReason,
-      metadata: { restored_stock_items: itemRows.length }
+      metadata: buildSaleAuditMetadata(actor, { restored_stock_items: itemRows.length })
     }, { client });
 
     await client.query("COMMIT");

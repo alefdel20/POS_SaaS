@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { setStoredTheme } from "../services/storage";
 import type { CompanyProfile } from "../types";
 import { normalizeRole } from "../utils/roles";
 
@@ -10,6 +11,7 @@ type ProfileFormState = {
   phone: string;
   email: string;
   address: string;
+  theme: "light" | "dark";
   bank_name: string;
   bank_clabe: string;
   bank_beneficiary: string;
@@ -33,6 +35,7 @@ const emptyForm: ProfileFormState = {
   phone: "",
   email: "",
   address: "",
+  theme: "dark",
   bank_name: "",
   bank_clabe: "",
   bank_beneficiary: "",
@@ -57,6 +60,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
     phone: profile?.phone || "",
     email: profile?.email || "",
     address: profile?.address || "",
+    theme: profile?.theme || "dark",
     bank_name: profile?.bank_name || "",
     bank_clabe: profile?.bank_clabe || "",
     bank_beneficiary: profile?.bank_beneficiary || "",
@@ -76,7 +80,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
 }
 
 const sectionFields = {
-  general: ["owner_name", "company_name", "phone", "email", "address"],
+  general: ["owner_name", "company_name", "phone", "email", "address", "theme"],
   banking: ["bank_name", "bank_clabe", "bank_beneficiary", "card_terminal", "card_bank", "card_instructions", "card_commission"],
   fiscal: ["fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address"],
   stamps: ["pac_provider", "pac_mode", "stamps_available", "stamp_alert_threshold"]
@@ -141,6 +145,10 @@ export function ProfilePage() {
         body: JSON.stringify(body)
       });
       setProfile(response);
+      if (section === "general" && user?.business_id && response.theme) {
+        document.documentElement.dataset.theme = response.theme;
+        setStoredTheme(user.business_id, response.theme);
+      }
       applySectionFromResponse(section, response);
       setInfo("Perfil actualizado correctamente");
     } catch (saveError) {
@@ -173,7 +181,8 @@ export function ProfilePage() {
         company_name: formData.company_name,
         phone: formData.phone,
         email: formData.email,
-        address: formData.address
+        address: formData.address,
+        theme: formData.theme
       })}>
         <div className="panel-header">
           <div>
@@ -200,6 +209,13 @@ export function ProfilePage() {
         <label>
           Dirección
           <textarea value={formData.address} onChange={(event) => updateField("address", event.target.value)} />
+        </label>
+        <label>
+          Tema
+          <select value={formData.theme} onChange={(event) => updateField("theme", event.target.value as "light" | "dark")}>
+            <option value="dark">Oscuro</option>
+            <option value="light">Claro</option>
+          </select>
         </label>
         <button className="button" disabled={savingSection === "general"} type="submit">
           {savingSection === "general" ? "Guardando..." : "Guardar información general"}

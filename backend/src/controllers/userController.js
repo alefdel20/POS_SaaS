@@ -38,7 +38,7 @@ const supportAccessValidation = [
 ];
 const supportModeValidation = [
   param("id").isInt(),
-  body("reason").optional({ values: "falsy" }).trim(),
+  body("reason").trim().notEmpty(),
   validateRequest
 ];
 

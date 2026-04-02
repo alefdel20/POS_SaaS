@@ -36,6 +36,7 @@ async function run(client, statements) {
 
 async function ensureSchema(client) {
   await run(client, [
+    "CREATE EXTENSION IF NOT EXISTS pgcrypto",
     `CREATE TABLE IF NOT EXISTS businesses (
       id SERIAL PRIMARY KEY,
       name VARCHAR(180) NOT NULL UNIQUE,
@@ -79,6 +80,9 @@ async function ensureSchema(client) {
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS unidad_de_venta VARCHAR(20)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS porcentaje_ganancia NUMERIC(7, 3)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS image_path TEXT",
+    "ALTER TABLE products ALTER COLUMN price TYPE NUMERIC(12, 5)",
+    "ALTER TABLE products ALTER COLUMN cost_price TYPE NUMERIC(12, 5)",
+    "ALTER TABLE products ALTER COLUMN liquidation_price TYPE NUMERIC(12, 5)",
     "ALTER TABLE products ALTER COLUMN stock TYPE NUMERIC(12, 3)",
     "ALTER TABLE products ALTER COLUMN stock_minimo TYPE NUMERIC(12, 3)",
     "ALTER TABLE products ALTER COLUMN stock_maximo TYPE NUMERIC(12, 3)",
@@ -88,7 +92,7 @@ async function ensureSchema(client) {
       product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
       supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
       is_primary BOOLEAN NOT NULL DEFAULT FALSE,
-      purchase_cost NUMERIC(12, 3),
+      purchase_cost NUMERIC(12, 5),
       cost_updated_at TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       UNIQUE(product_id, supplier_id)
@@ -115,13 +119,21 @@ async function ensureSchema(client) {
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS cancellation_reason TEXT",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(id)",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP",
+    "ALTER TABLE sales ALTER COLUMN subtotal TYPE NUMERIC(14, 5)",
+    "ALTER TABLE sales ALTER COLUMN total TYPE NUMERIC(14, 5)",
+    "ALTER TABLE sales ALTER COLUMN total_cost TYPE NUMERIC(14, 5)",
+    "ALTER TABLE sales ALTER COLUMN initial_payment TYPE NUMERIC(14, 5)",
+    "ALTER TABLE sales ALTER COLUMN balance_due TYPE NUMERIC(14, 5)",
 
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0",
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unidad_de_venta VARCHAR(20)",
+    "ALTER TABLE sale_items ALTER COLUMN unit_price TYPE NUMERIC(12, 5)",
+    "ALTER TABLE sale_items ALTER COLUMN unit_cost TYPE NUMERIC(12, 5)",
+    "ALTER TABLE sale_items ALTER COLUMN subtotal TYPE NUMERIC(14, 5)",
     "ALTER TABLE sale_items ALTER COLUMN quantity TYPE NUMERIC(12, 3)",
 
-    "ALTER TABLE product_suppliers ALTER COLUMN purchase_cost TYPE NUMERIC(12, 3)",
+    "ALTER TABLE product_suppliers ALTER COLUMN purchase_cost TYPE NUMERIC(12, 5)",
 
     `CREATE TABLE IF NOT EXISTS credit_payments (
       id SERIAL PRIMARY KEY,
@@ -201,6 +213,11 @@ async function ensureSchema(client) {
     )`,
     "ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS target_business_id INTEGER",
+    "ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS support_session_token UUID NOT NULL DEFAULT gen_random_uuid()",
+    "ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS started_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    "ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP NOT NULL DEFAULT (NOW() + INTERVAL '30 minutes')",
+    "ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP",
+    "ALTER TABLE support_access_logs ADD COLUMN IF NOT EXISTS ended_by_user_id INTEGER REFERENCES users(id)",
 
     `CREATE TABLE IF NOT EXISTS audit_logs (
       id BIGSERIAL PRIMARY KEY,
@@ -486,8 +503,17 @@ async function backfillBusinessIds(client) {
        AND (
          support_access_logs.business_id IS NULL
          OR support_access_logs.target_business_id IS NULL
-       )`,
+        )`,
     [businessId]
+  );
+
+  await execQuery(
+    client,
+    `UPDATE support_access_logs
+     SET started_at = COALESCE(started_at, created_at),
+         expires_at = COALESCE(expires_at, created_at + INTERVAL '30 minutes'),
+         ended_at = COALESCE(ended_at, created_at),
+         ended_by_user_id = COALESCE(ended_by_user_id, actor_user_id)`
   );
 
   await execQuery(
@@ -771,6 +797,8 @@ async function ensureConstraints(client) {
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_products_business_sku ON products(business_id, UPPER(sku)) WHERE sku IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_products_business_barcode ON products(business_id, UPPER(barcode)) WHERE barcode IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_reminders_business_source_key ON reminders(business_id, source_key) WHERE source_key IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_support_access_logs_active_actor ON support_access_logs(actor_user_id) WHERE ended_at IS NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_support_access_logs_session_token ON support_access_logs(support_session_token)",
     "CREATE INDEX IF NOT EXISTS idx_users_business_id ON users(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_suppliers_business_id ON suppliers(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_products_business_id ON products(business_id)",
@@ -792,6 +820,7 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_administrative_invoices_status ON administrative_invoices(business_id, status)",
     "CREATE INDEX IF NOT EXISTS idx_support_access_logs_business_id ON support_access_logs(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_support_access_logs_actor ON support_access_logs(actor_user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_support_access_logs_session ON support_access_logs(support_session_token)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_usuario_id ON audit_logs(usuario_id)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_modulo ON audit_logs(modulo)",
     "CREATE INDEX IF NOT EXISTS idx_suppliers_name_lower ON suppliers ((LOWER(name)))",

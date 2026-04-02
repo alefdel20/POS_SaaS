@@ -37,7 +37,7 @@ const createValidation = [
   body("items").isArray({ min: 1 }),
   body("items.*.product_id").isInt(),
   body("items.*.quantity").isFloat({ gt: 0 }),
-  body("items.*.unit_price").optional().isFloat({ min: 0 }),
+  body("items.*.unit_price").optional().isFloat({ min: 0, maxDecimalPlaces: 5 }),
   validateRequest
 ];
 

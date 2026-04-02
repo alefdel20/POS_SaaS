@@ -9,6 +9,7 @@ const generalValidation = [
   body("phone").optional({ values: "falsy" }).trim(),
   body("email").optional({ values: "falsy" }).isEmail(),
   body("address").optional().trim(),
+  body("theme").optional().isIn(["light", "dark"]),
   body("reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];

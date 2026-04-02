@@ -88,6 +88,14 @@ function hasMoreThanThreeDecimals(value: number) {
   return Math.abs(value * 1000 - Math.round(value * 1000)) > 1e-9;
 }
 
+function hasMoreThanFiveDecimals(value: number) {
+  return Math.abs(value * 100000 - Math.round(value * 100000)) > 1e-9;
+}
+
+function roundQuantity(value: number) {
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}
+
 function validateQuantityByUnit(value: number, unit: SaleUnit, label: string) {
   if (Number.isNaN(value) || value < 0) {
     throw new Error(`${label} debe ser numérico y válido`);
@@ -106,7 +114,7 @@ function recalculatePrice(costPrice: string, gainPercentage: string) {
   if (!Number.isFinite(cost) || !Number.isFinite(gain)) {
     return "";
   }
-  return (cost * (1 + gain / 100)).toFixed(2);
+  return String(Math.round((cost * (1 + gain / 100) + Number.EPSILON) * 100000) / 100000);
 }
 
 function recalculateGain(costPrice: string, price: string) {
@@ -115,7 +123,7 @@ function recalculateGain(costPrice: string, price: string) {
   if (!Number.isFinite(cost) || cost <= 0 || !Number.isFinite(publicPrice)) {
     return "";
   }
-  return (((publicPrice / cost) - 1) * 100).toFixed(3);
+  return String(Math.round((((publicPrice / cost) - 1) * 100 + Number.EPSILON) * 1000) / 1000);
 }
 
 function formatSaleQuantity(quantity: number, unit?: string | null) {
@@ -235,7 +243,7 @@ export function SalesPage() {
     () => cart.reduce((sum, item) => sum + Number(item.product.effective_price ?? item.product.price) * item.quantity, 0),
     [cart]
   );
-  const invoiceTax = Number((total * 0.16).toFixed(2));
+  const invoiceTax = Math.round(((total * 0.16) + Number.EPSILON) * 100) / 100;
   const pendingBalance = Math.max(total - Number(initialPayment || 0), 0);
   const cashReceivedAmount = Number(cashReceived || 0);
   const cashChange = Math.max(cashReceivedAmount - total, 0);
@@ -325,7 +333,7 @@ export function SalesPage() {
       const existing = current.find((item) => item.product.id === product.id);
       if (existing) {
         return current.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: Number((item.quantity + step).toFixed(3)) } : item
+          item.product.id === product.id ? { ...item, quantity: roundQuantity(item.quantity + step) } : item
         );
       }
       return [...current, { product, quantity: step }];
@@ -393,7 +401,7 @@ export function SalesPage() {
       if ((unit === "pieza" || unit === "caja") && !Number.isInteger(quantity)) {
         return current;
       }
-      return current.map((item) => (item.product.id === productId ? { ...item, quantity: Number(quantity.toFixed(3)) } : item));
+      return current.map((item) => (item.product.id === productId ? { ...item, quantity: roundQuantity(quantity) } : item));
     });
   }
 
@@ -456,6 +464,10 @@ export function SalesPage() {
     }
     if (Number.isNaN(costPrice) || costPrice < 0) {
       setQuickProductError("El costo debe ser cero o mayor");
+      return;
+    }
+    if (hasMoreThanFiveDecimals(price) || hasMoreThanFiveDecimals(costPrice)) {
+      setQuickProductError("Precio y costo solo aceptan hasta 5 decimales");
       return;
     }
     if (Number.isNaN(stock) || stock < 0) {
@@ -738,7 +750,7 @@ export function SalesPage() {
                   </td>
                   <td>
                     <div className="quantity-control">
-                      <button onClick={() => updateQuantity(item.product.id, Number((item.quantity - (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)).toFixed(3)))} type="button">-</button>
+                      <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity - (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)))} type="button">-</button>
                       <input
                         min="0"
                         step={getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? "0.001" : "1"}
@@ -747,7 +759,7 @@ export function SalesPage() {
                         onChange={(event) => updateQuantity(item.product.id, Number(event.target.value))}
                       />
                       <span>{getResolvedSaleUnit(item.product.unidad_de_venta)}</span>
-                      <button onClick={() => updateQuantity(item.product.id, Number((item.quantity + (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)).toFixed(3)))} type="button">+</button>
+                      <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity + (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)))} type="button">+</button>
                     </div>
                   </td>
                   <td>
@@ -1017,7 +1029,7 @@ export function SalesPage() {
                 Precio al público *
                 <input
                   min="0"
-                  step="0.01"
+                  step="0.00001"
                   type="number"
                   value={quickProductForm.price}
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, price: event.target.value, porcentaje_ganancia: recalculateGain(quickProductForm.cost_price, event.target.value) })}
@@ -1027,7 +1039,7 @@ export function SalesPage() {
                 Costo del producto *
                 <input
                   min="0"
-                  step="0.01"
+                  step="0.00001"
                   type="number"
                   value={quickProductForm.cost_price}
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, cost_price: event.target.value, price: quickProductForm.porcentaje_ganancia === "" ? quickProductForm.price : recalculatePrice(event.target.value, quickProductForm.porcentaje_ganancia) })}

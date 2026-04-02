@@ -11,6 +11,7 @@ interface AuthContextValue {
   registerBusiness: (payload: RegisterBusinessPayload) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  setSession: (response: AuthResponse) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -42,6 +43,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     hydrate();
   }, [token]);
 
+  function normalizeSessionUser(response: AuthResponse) {
+    return response.support_context
+      ? { ...response.user, support_context: response.support_context, support_session_id: response.support_context.session_id }
+      : response.user;
+  }
+
+  function applySession(nextToken: string | null, nextUser: User | null) {
+    if (nextToken) {
+      setStoredToken(nextToken);
+    } else {
+      clearStoredToken();
+    }
+    setToken(nextToken);
+    setUser(nextUser);
+  }
+
   async function refreshUser() {
     if (!token) {
       setUser(null);
@@ -58,9 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ identifier, password })
     });
 
-    setStoredToken(response.token);
-    setToken(response.token);
-    setUser(response.user);
+    applySession(response.token, normalizeSessionUser(response));
   }
 
   async function registerBusiness(payload: RegisterBusinessPayload) {
@@ -69,19 +84,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify(payload)
     });
 
-    setStoredToken(response.token);
-    setToken(response.token);
-    setUser(response.user);
+    applySession(response.token, normalizeSessionUser(response));
   }
 
   function logout() {
-    clearStoredToken();
-    setToken(null);
-    setUser(null);
+    applySession(null, null);
   }
 
   return (
-    <AuthContext.Provider value={{ token, user, loading, login, registerBusiness, logout, refreshUser }}>
+    <AuthContext.Provider value={{ token, user, loading, login, registerBusiness, logout, refreshUser, setSession: (response) => applySession(response.token, normalizeSessionUser(response)) }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,16 +1,7 @@
 :root {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  color: #f3f7fb;
-  background:
-    radial-gradient(circle at top, rgba(31, 81, 119, 0.35), transparent 28%),
-    linear-gradient(180deg, #09111c 0%, #0f1723 50%, #131b28 100%);
   line-height: 1.4;
   font-weight: 400;
-  color-scheme: dark;
-  --panel: rgba(16, 24, 37, 0.9);
-  --panel-alt: rgba(21, 33, 49, 0.92);
-  --border: rgba(154, 173, 196, 0.16);
-  --muted: #97a8bd;
   --accent: #58d4b3;
   --accent-2: #ffb454;
   --danger: #ff7b7b;
@@ -20,6 +11,37 @@
   --ankode-white: #f8fafc;
   --ankode-app-bg: #0f172a;
   --ankode-login-bg: #020617;
+}
+
+:root,
+:root[data-theme="dark"] {
+  color: #f3f7fb;
+  background:
+    radial-gradient(circle at top, rgba(31, 81, 119, 0.35), transparent 28%),
+    linear-gradient(180deg, #09111c 0%, #0f1723 50%, #131b28 100%);
+  color-scheme: dark;
+  --panel: rgba(16, 24, 37, 0.9);
+  --panel-alt: rgba(21, 33, 49, 0.92);
+  --border: rgba(154, 173, 196, 0.16);
+  --muted: #97a8bd;
+  --text: #eef4ff;
+  --field-bg: rgba(8, 14, 24, 0.8);
+  --sidebar-bg: rgba(6, 11, 19, 0.88);
+}
+
+:root[data-theme="light"] {
+  color: #132033;
+  background:
+    radial-gradient(circle at top, rgba(102, 160, 214, 0.25), transparent 30%),
+    linear-gradient(180deg, #f3f8fc 0%, #e8f0f8 50%, #dde8f4 100%);
+  color-scheme: light;
+  --panel: rgba(255, 255, 255, 0.86);
+  --panel-alt: rgba(245, 249, 253, 0.92);
+  --border: rgba(43, 64, 89, 0.14);
+  --muted: #5f7188;
+  --text: #132033;
+  --field-bg: rgba(255, 255, 255, 0.9);
+  --sidebar-bg: rgba(236, 243, 250, 0.92);
 }
 
 :root[data-pos-type="Farmacia"] {
@@ -43,6 +65,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: transparent;
+  color: inherit;
 }
 
 button,
@@ -62,8 +85,8 @@ select,
 textarea {
   width: 100%;
   border: 1px solid var(--border);
-  background: rgba(8, 14, 24, 0.8);
-  color: #eef4ff;
+  background: var(--field-bg);
+  color: var(--text);
   border-radius: 12px;
   padding: 0.85rem 1rem;
 }
@@ -98,7 +121,7 @@ td {
   gap: 1.25rem;
   padding: 1.5rem;
   border-right: 1px solid var(--border);
-  background: rgba(6, 11, 19, 0.88);
+  background: var(--sidebar-bg);
 }
 
 .sidebar-header {
@@ -169,6 +192,21 @@ td {
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(18px);
+}
+
+.support-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 180, 84, 0.28);
+  background: rgba(255, 180, 84, 0.14);
+}
+
+.support-banner-copy {
+  display: grid;
+  gap: 0.2rem;
 }
 
 .header-brand-block {

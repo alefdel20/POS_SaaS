@@ -15,6 +15,20 @@ export interface User {
   is_active: boolean;
   must_change_password?: boolean;
   support_mode_active?: boolean;
+  support_session_id?: number;
+  support_context?: {
+    session_id: number;
+    actor_user_id: number;
+    target_user_id: number;
+    actor_business_id: number;
+    business_id: number;
+    business_name: string;
+    business_slug?: string;
+    pos_type?: PosType;
+    reason: string;
+    started_at: string;
+    expires_at: string;
+  } | null;
 }
 
 export interface Business {
@@ -189,6 +203,7 @@ export interface CompanyProfile {
   email?: string | null;
   address: string;
   general_settings?: Record<string, unknown>;
+  theme?: "light" | "dark";
   bank_name?: string | null;
   bank_clabe?: string | null;
   bank_beneficiary?: string | null;
@@ -309,6 +324,7 @@ export interface FinanceDashboard {
 export interface AuthResponse {
   token: string;
   user: User;
+  support_context?: User["support_context"];
 }
 
 export interface RegisterBusinessPayload {

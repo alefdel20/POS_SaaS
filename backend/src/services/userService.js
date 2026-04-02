@@ -1,10 +1,14 @@
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 const pool = require("../db/pool");
+const { jwtSecret } = require("../config/env");
 const ApiError = require("../utils/ApiError");
 const { canAssignRole, normalizeRole } = require("../utils/roles");
 const { saveAuditLog } = require("./auditLogService");
 const { isSuperUser, requireActorBusinessId } = require("../utils/tenant");
+
+const SUPPORT_SESSION_DURATION_MINUTES = 30;
 
 const USER_FIELDS = `
   u.*,
@@ -35,6 +39,19 @@ function sanitizeUser(user) {
   if (!user) return null;
   const { password_hash, ...safe } = user;
   return mapUser(safe);
+}
+
+function signUserToken(user, supportSessionId = null) {
+  return jwt.sign(
+    {
+      userId: user.id,
+      role: user.role,
+      businessId: requireActorBusinessId(user),
+      supportSessionId
+    },
+    jwtSecret,
+    { expiresIn: "12h" }
+  );
 }
 
 function isProtectedSupportUser(user) {
@@ -92,6 +109,17 @@ async function getUserById(id, businessId) {
      LEFT JOIN businesses b ON b.id = u.business_id
      WHERE u.id = $1 AND u.business_id = $2`,
     [id, scopedBusinessId]
+  );
+  return mapUser(rows[0] || null);
+}
+
+async function getUserByAuthId(id, client = pool) {
+  const { rows } = await client.query(
+    `SELECT ${USER_FIELDS}
+     FROM users u
+     LEFT JOIN businesses b ON b.id = u.business_id
+     WHERE u.id = $1`,
+    [id]
   );
   return mapUser(rows[0] || null);
 }
@@ -400,6 +428,56 @@ async function changeOwnPassword(userId, payload) {
   return { success: true };
 }
 
+async function expireOpenSupportSessions(actorUserId, client = pool) {
+  await client.query(
+    `UPDATE support_access_logs
+     SET ended_at = COALESCE(ended_at, NOW()),
+         ended_by_user_id = COALESCE(ended_by_user_id, actor_user_id)
+     WHERE actor_user_id = $1
+       AND ended_at IS NULL
+       AND expires_at <= NOW()`,
+    [actorUserId]
+  );
+}
+
+async function getSupportSessionById(sessionId, actorUserId, client = pool) {
+  await expireOpenSupportSessions(actorUserId, client);
+  const { rows } = await client.query(
+    `SELECT
+       sal.id,
+       sal.actor_user_id,
+       sal.target_user_id,
+       sal.business_id AS actor_business_id,
+       sal.target_business_id,
+       sal.reason,
+       sal.started_at,
+       sal.created_at,
+       sal.expires_at,
+       sal.ended_at,
+       actor.full_name AS actor_full_name,
+       target.full_name AS target_user_name,
+       business.name AS target_business_name,
+       business.slug AS target_business_slug,
+       business.pos_type AS target_business_pos_type
+     FROM support_access_logs sal
+     INNER JOIN users actor ON actor.id = sal.actor_user_id
+     INNER JOIN users target ON target.id = sal.target_user_id
+     INNER JOIN businesses business ON business.id = sal.target_business_id
+     WHERE sal.id = $1
+       AND sal.actor_user_id = $2
+     LIMIT 1`,
+    [sessionId, actorUserId]
+  );
+  const session = rows[0] || null;
+  if (!session) {
+    return null;
+  }
+  if (session.ended_at || new Date(session.expires_at) <= new Date()) {
+    return null;
+  }
+  return session;
+}
+
 async function logSupportAccess(targetUserId, actor, reason = "") {
   const actorRole = normalizeRole(actor?.role);
   const actorBusinessId = requireActorBusinessId(actor);
@@ -442,50 +520,141 @@ async function logSupportAccess(targetUserId, actor, reason = "") {
 
 async function setSupportMode(targetUserId, actor, nextState, reason = "") {
   const actorRole = normalizeRole(actor?.role);
-  const actorBusinessId = requireActorBusinessId(actor);
-  if (!["superusuario", "soporte"].includes(actorRole || "")) throw new ApiError(403, "Forbidden");
+  if (actorRole !== "superusuario") throw new ApiError(403, "Forbidden");
 
+  const trimmedReason = String(reason || "").trim();
+  if (nextState && !trimmedReason) throw new ApiError(400, "Support reason is required");
+
+  const actorBusinessId = requireActorBusinessId(actor);
   const target = await getScopedUser(targetUserId, actor);
   if (!target) throw new ApiError(404, "User not found");
-  if (target.role !== "soporte") throw new ApiError(409, "Support mode is only available for soporte users");
-  if (!isProtectedSupportUser(target)) throw new ApiError(409, "Support mode is only available for protected support users");
-  if (actorRole === "soporte" && actor.id !== targetUserId) throw new ApiError(403, "Support users can only manage their own support mode");
-  if (nextState && !target.is_active) throw new ApiError(409, "Support mode requires an active user");
-  if (target.support_mode_active === nextState) return sanitizeUser(target);
+  if (!target.is_active) throw new ApiError(409, "Support mode requires an active target user");
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query(
-      `UPDATE users
-       SET support_mode_active = $1,
-           support_mode_activated_at = CASE WHEN $1::boolean THEN NOW() ELSE support_mode_activated_at END,
-           support_mode_deactivated_at = CASE WHEN $1::boolean THEN support_mode_deactivated_at ELSE NOW() END,
-           support_mode_updated_by = $2,
-           updated_at = NOW()
-       WHERE id = $3 AND business_id = $4
-       RETURNING *`,
-      [nextState, actor.id, targetUserId, target.business_id]
-    );
+    await expireOpenSupportSessions(actor.id, client);
+
+    if (nextState) {
+      await client.query(
+        `UPDATE support_access_logs
+         SET ended_at = NOW(),
+             ended_by_user_id = $2
+         WHERE actor_user_id = $1
+           AND ended_at IS NULL`,
+        [actor.id, actor.id]
+      );
+
+      const { rows } = await client.query(
+        `INSERT INTO support_access_logs (
+          actor_user_id,
+          target_user_id,
+          business_id,
+          target_business_id,
+          reason,
+          started_at,
+          expires_at
+        )
+        VALUES ($1, $2, $3, $4, $5, NOW(), NOW() + ($6::text || ' minutes')::interval)
+        RETURNING *`,
+        [actor.id, targetUserId, actorBusinessId, target.business_id, trimmedReason, String(SUPPORT_SESSION_DURATION_MINUTES)]
+      );
+
+      const supportSession = rows[0];
+      const actorUser = await getUserByAuthId(actor.id, client);
+      await saveAuditLog({
+        business_id: target.business_id,
+        usuario_id: actor.id,
+        modulo: "support",
+        accion: "activate_support_mode",
+        entidad_tipo: "support_session",
+        entidad_id: supportSession.id,
+        detalle_anterior: {},
+        detalle_nuevo: {
+          entity: "support_session",
+          entity_id: supportSession.id,
+          snapshot: { ...supportSession, target_business_name: target.business_name },
+          version: 1
+        },
+        motivo: trimmedReason,
+        metadata: {
+          actor_role: actorRole,
+          actor_business_id: actorBusinessId,
+          target_user_id: targetUserId,
+          target_business_id: target.business_id,
+          expires_at: supportSession.expires_at
+        }
+      }, { client });
+      await client.query("COMMIT");
+
+      return {
+        token: signUserToken(actorUser, supportSession.id),
+        user: sanitizeUser(actorUser),
+        support_context: {
+          session_id: supportSession.id,
+          target_user_id: targetUserId,
+          business_id: target.business_id,
+          business_name: target.business_name,
+          business_slug: target.business_slug,
+          pos_type: target.pos_type,
+          reason: trimmedReason,
+          started_at: supportSession.started_at,
+          expires_at: supportSession.expires_at
+        }
+      };
+    }
+
+    const activeSession = await getSupportSessionById(actor.support_session_id, actor.id, client);
+    if (!activeSession) {
+      const actorUser = await getUserByAuthId(actor.id, client);
+      await client.query("COMMIT");
+      return {
+        token: signUserToken(actorUser, null),
+        user: sanitizeUser(actorUser),
+        support_context: null
+      };
+    }
+
     await client.query(
-      `INSERT INTO support_access_logs (actor_user_id, target_user_id, business_id, target_business_id, reason)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [actor.id, targetUserId, actorBusinessId, target.business_id, reason || (nextState ? "Support mode activated" : "Support mode deactivated")]
+      `UPDATE support_access_logs
+       SET ended_at = NOW(),
+           ended_by_user_id = $2
+       WHERE id = $1`,
+      [activeSession.id, actor.id]
     );
     await saveAuditLog({
-      business_id: target.business_id,
+      business_id: activeSession.target_business_id,
       usuario_id: actor.id,
-      modulo: "users",
-      accion: nextState ? "activate_support_mode" : "deactivate_support_mode",
-      entidad_tipo: "user",
-      entidad_id: targetUserId,
-      detalle_anterior: { entity: "user", entity_id: targetUserId, snapshot: buildAuditSnapshot(target), version: 1 },
-      detalle_nuevo: { entity: "user", entity_id: targetUserId, snapshot: buildAuditSnapshot({ ...rows[0], business_pos_type: target.pos_type }), version: 1 },
-      motivo: reason || "",
-      metadata: { actor_role: actorRole }
+      modulo: "support",
+      accion: "deactivate_support_mode",
+      entidad_tipo: "support_session",
+      entidad_id: activeSession.id,
+      detalle_anterior: {
+        entity: "support_session",
+        entity_id: activeSession.id,
+        snapshot: activeSession,
+        version: 1
+      },
+      detalle_nuevo: {
+        entity: "support_session",
+        entity_id: activeSession.id,
+        snapshot: { ...activeSession, ended_at: new Date().toISOString(), ended_by_user_id: actor.id },
+        version: 1
+      },
+      motivo: trimmedReason,
+      metadata: {
+        actor_role: actorRole,
+        actor_business_id: activeSession.actor_business_id,
+        target_business_id: activeSession.target_business_id
+      }
     }, { client });
+    const actorUser = await getUserByAuthId(actor.id, client);
     await client.query("COMMIT");
-    return sanitizeUser({ ...rows[0], business_name: target.business_name, business_slug: target.business_slug, business_pos_type: target.pos_type });
+    return {
+      token: signUserToken(actorUser, null),
+      user: sanitizeUser(actorUser),
+      support_context: null
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -497,6 +666,8 @@ async function setSupportMode(targetUserId, actor, nextState, reason = "") {
 module.exports = {
   sanitizeUser,
   getUserById,
+  getUserByAuthId,
+  getSupportSessionById,
   getUserByLogin,
   listUsers,
   createUser,

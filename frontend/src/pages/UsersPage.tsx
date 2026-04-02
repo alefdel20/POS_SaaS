@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { Business, Role, User } from "../types";
+import type { AuthResponse, Business, Role, User } from "../types";
 import { getRoleLabel } from "../utils/uiLabels";
 import { canViewUsers, normalizeRole } from "../utils/roles";
 
@@ -34,7 +34,7 @@ function isProtectedSupportUser(user: User) {
 }
 
 export function UsersPage() {
-  const { token, user: currentUser, refreshUser } = useAuth();
+  const { token, user: currentUser, setSession } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [form, setForm] = useState(emptyUser);
@@ -45,6 +45,8 @@ export function UsersPage() {
   const [forceChange, setForceChange] = useState(true);
   const [showCreatePassword, setShowCreatePassword] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [supportTarget, setSupportTarget] = useState<User | null>(null);
+  const [supportReason, setSupportReason] = useState("");
 
   const currentRole = normalizeRole(currentUser?.role);
   const canCreateUsers = currentRole === "superusuario" || currentRole === "admin";
@@ -196,21 +198,20 @@ export function UsersPage() {
 
   async function toggleSupportMode(targetUser: User) {
     if (!token) return;
-    const targetRole = normalizeRole(targetUser.role);
-    if (targetRole !== "soporte") return;
-    const nextAction = targetUser.support_mode_active ? "deactivate" : "activate";
+    const isCurrentSupportTarget = currentUser?.support_context?.target_user_id === targetUser.id;
+    const nextAction = isCurrentSupportTarget ? "deactivate" : "activate";
 
     try {
       setError("");
       setInfo("");
-      await apiRequest(`/users/${targetUser.id}/support-mode/${nextAction}`, {
+      const response = await apiRequest<AuthResponse>(`/users/${targetUser.id}/support-mode/${nextAction}`, {
         method: "POST",
         token,
-        body: JSON.stringify({ reason: "Revision operativa" })
+        body: JSON.stringify({ reason: supportReason.trim() || (nextAction === "activate" ? "Revision operativa" : "Salida manual de soporte") })
       });
-      if (currentUser?.id === targetUser.id) {
-        await refreshUser();
-      }
+      setSession(response);
+      setSupportTarget(null);
+      setSupportReason("");
       loadUsers();
     } catch (supportError) {
       setError(supportError instanceof Error ? supportError.message : "No fue posible actualizar el modo soporte");
@@ -304,7 +305,10 @@ export function UsersPage() {
               </tr>
             </thead>
             <tbody>
-              {users.map((user) => (
+              {users.map((user) => {
+                const isCurrentSupportTarget = currentUser?.support_context?.target_user_id === user.id;
+                const canActivateSupport = currentRole === "superusuario" && normalizeRole(user.role) !== "superusuario" && !isProtectedSupportUser(user);
+                return (
                 <tr key={user.id}>
                   <td>{user.full_name}</td>
                   <td>{user.username}</td>
@@ -339,17 +343,25 @@ export function UsersPage() {
                       {canResetPasswords && !isProtectedSupportUser(user) ? (
                         <button className="button ghost" onClick={() => setResetTarget(user)} type="button">Resetear contrasena</button>
                       ) : null}
-                      {(currentRole === "superusuario" || currentRole === "soporte") && normalizeRole(user.role) === "soporte"
+                      {canActivateSupport
                         ? (
-                            <button className="button ghost" onClick={() => toggleSupportMode(user)} type="button">
-                              {user.support_mode_active ? "Desactivar soporte" : "Activar soporte"}
+                            <button
+                              className="button ghost"
+                              onClick={() => {
+                                setSupportTarget(user);
+                                setSupportReason(isCurrentSupportTarget ? "Salida manual de soporte" : "");
+                              }}
+                              type="button"
+                            >
+                              {isCurrentSupportTarget ? "Desactivar soporte" : "Activar soporte"}
                             </button>
                           )
                         : null}
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -382,6 +394,38 @@ export function UsersPage() {
               <button className="button ghost" onClick={() => setResetPassword(generatePassword())} type="button">Generar automatica</button>
               <button className="button" onClick={submitResetPassword} type="button">Confirmar</button>
               <button className="button ghost" onClick={() => setResetTarget(null)} type="button">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {supportTarget ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card">
+            <h3>{currentUser?.support_context?.target_user_id === supportTarget.id ? "Salir de modo soporte" : "Activar modo soporte"}</h3>
+            <p>Superusuario entrara al contexto de {supportTarget.business_name || "este negocio"} con trazabilidad completa.</p>
+            <label>
+              Motivo *
+              <textarea
+                value={supportReason}
+                onChange={(event) => setSupportReason(event.target.value)}
+                placeholder="Describe brevemente la incidencia o motivo de soporte"
+              />
+            </label>
+            <div className="inline-actions">
+              <button className="button" disabled={!supportReason.trim()} onClick={() => toggleSupportMode(supportTarget)} type="button">
+                Confirmar
+              </button>
+              <button
+                className="button ghost"
+                onClick={() => {
+                  setSupportTarget(null);
+                  setSupportReason("");
+                }}
+                type="button"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>

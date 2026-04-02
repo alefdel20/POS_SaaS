@@ -2,6 +2,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { buildStoredImagePath, deleteStoredImage } = require("../utils/productImages");
+const { saveAuditLog } = require("./auditLogService");
 
 const SKU_CONFUSING_CHARACTERS = { O: "0", I: "1" };
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"];
@@ -45,10 +46,19 @@ function pickSkuSegments(payload) {
 function normalizeDiscountFields(payload) {
   return {
     discount_type: payload.discount_type || null,
-    discount_value: payload.discount_value === undefined || payload.discount_value === null || payload.discount_value === "" ? null : Number(payload.discount_value),
+    discount_value: payload.discount_value === undefined || payload.discount_value === null || payload.discount_value === "" ? null : roundToScale(payload.discount_value, 5),
     discount_start: payload.discount_start || null,
     discount_end: payload.discount_end || null
   };
+}
+
+function roundToScale(value, scale) {
+  const numericValue = Number(value || 0);
+  if (!Number.isFinite(numericValue)) {
+    throw new ApiError(400, "Invalid numeric value");
+  }
+  const factor = 10 ** scale;
+  return Math.round((numericValue + Number.EPSILON) * factor) / factor;
 }
 
 function normalizeIepsValue(value, currentProduct = null) {
@@ -62,7 +72,7 @@ function normalizeIepsValue(value, currentProduct = null) {
     throw new ApiError(400, "Invalid IEPS value");
   }
 
-  return Number(numericValue.toFixed(2));
+  return roundToScale(numericValue, 2);
 }
 
 function normalizeSaleUnit(value) {
@@ -73,7 +83,7 @@ function normalizeSaleUnit(value) {
 }
 
 function roundToThree(value) {
-  return Number(Number(value || 0).toFixed(3));
+  return roundToScale(value, 3);
 }
 
 function hasMoreThanThreeDecimals(value) {
@@ -109,6 +119,48 @@ function normalizeGainPercentage(payload, currentProduct = null) {
   }
 
   return roundToThree(numericValue);
+}
+
+function normalizeMoneyValue(value, fieldLabel, options = {}) {
+  const allowZero = options.allowZero !== false;
+  const allowNull = Boolean(options.allowNull);
+  if (value === undefined || value === null || value === "") {
+    if (allowNull) {
+      return null;
+    }
+    return 0;
+  }
+
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    throw new ApiError(400, `${fieldLabel} must be a valid number`);
+  }
+  if (numericValue < 0 || (!allowZero && numericValue === 0)) {
+    throw new ApiError(400, `${fieldLabel} must be greater than ${allowZero ? "or equal to " : ""}zero`);
+  }
+  if (Math.abs(numericValue * 100000 - Math.round(numericValue * 100000)) > 1e-9) {
+    throw new ApiError(400, `${fieldLabel} cannot exceed 5 decimals`);
+  }
+  return roundToScale(numericValue, 5);
+}
+
+function buildProductAuditMetadata(actor, extra = {}) {
+  if (!actor?.support_context) {
+    return extra;
+  }
+  return {
+    ...extra,
+    is_support_mode: true,
+    support_session_id: actor.support_context.session_id,
+    support_actor_user_id: actor.support_context.actor_user_id,
+    support_target_business_id: actor.support_context.business_id,
+    support_reason: actor.support_context.reason
+  };
+}
+
+function buildProductSnapshot(product) {
+  if (!product) return {};
+  return mapProductRow(product);
 }
 
 function normalizeListOptions(search, options) {
@@ -172,8 +224,11 @@ function validateCoreProductData(payload, currentProduct = null) {
 
   if (!String(name || "").trim()) throw new ApiError(400, "Product name is required");
   if (!String(category || "").trim()) throw new ApiError(400, "Product category is required");
-  if (Number(price) <= 0) throw new ApiError(400, "Product price must be greater than zero");
-  if (Number(costPrice) < 0) throw new ApiError(400, "Product cost cannot be negative");
+  const normalizedPrice = normalizeMoneyValue(price, "Product price", { allowZero: false });
+  const normalizedCostPrice = normalizeMoneyValue(costPrice, "Product cost", { allowZero: true });
+  const normalizedLiquidationPrice = (payload.liquidation_price !== undefined || currentProduct?.liquidation_price !== undefined)
+    ? normalizeMoneyValue(payload.liquidation_price ?? currentProduct?.liquidation_price, "Liquidation price", { allowZero: true, allowNull: true })
+    : null;
   if (normalizedStock < 0) throw new ApiError(400, "Product stock cannot be negative");
   if (normalizedStockMinimo < 0) throw new ApiError(400, "Product minimum stock cannot be negative");
   if (normalizedStockMaximo < 0) throw new ApiError(400, "Product maximum stock cannot be negative");
@@ -184,7 +239,10 @@ function validateCoreProductData(payload, currentProduct = null) {
     stockMinimo: normalizedStockMinimo,
     stockMaximo: normalizedStockMaximo,
     unidadDeVenta,
-    porcentajeGanancia
+    porcentajeGanancia,
+    price: normalizedPrice,
+    costPrice: normalizedCostPrice,
+    liquidationPrice: normalizedLiquidationPrice
   };
 }
 
@@ -589,7 +647,7 @@ async function createProduct(payload, actor) {
     await client.query("BEGIN");
     const discountFields = normalizeDiscountFields(payload);
     const ieps = normalizeIepsValue(payload.ieps);
-    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia } = validateCoreProductData(payload);
+    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(payload);
     const requestedBarcode = sanitizeBarcode(payload.barcode || "");
     const primarySupplierId = await ensureSupplierReference(payload, businessId, client);
     let rows = [];
@@ -617,7 +675,7 @@ async function createProduct(payload, actor) {
           RETURNING *`,
           [
             payload.name.trim(), resolvedSku, resolvedBarcode, payload.category || null, payload.description || "",
-            payload.price, payload.cost_price ?? 0, payload.liquidation_price ?? null, stock,
+            price, costPrice, liquidationPrice, stock,
             payload.expires_at || null, payload.is_active ?? true, primarySupplierId, payload.status || "activo",
             discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end,
             stockMinimo, stockMaximo, businessId, unidadDeVenta, porcentajeGanancia, ieps
@@ -638,6 +696,18 @@ async function createProduct(payload, actor) {
     }
 
     await syncProductSuppliers(rows[0].id, businessId, payload, client);
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "products",
+      accion: "create_product",
+      entidad_tipo: "product",
+      entidad_id: rows[0].id,
+      detalle_anterior: {},
+      detalle_nuevo: { entity: "product", entity_id: rows[0].id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
+      motivo: actor?.support_context?.reason || "",
+      metadata: buildProductAuditMetadata(actor)
+    }, { client });
     await client.query("COMMIT");
     return mapProductRow(rows[0]);
   } catch (error) {
@@ -664,7 +734,7 @@ async function updateProduct(id, payload, actor) {
 
     const businessId = Number(current.business_id);
     const ieps = normalizeIepsValue(payload.ieps, current);
-    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia } = validateCoreProductData(payload, current);
+    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(payload, current);
     const resolvedSku = payload.sku !== undefined ? await resolveSku(payload, businessId, current, client) : current.sku;
     const nextBarcodeSource = payload.barcode !== undefined ? payload.barcode : current.barcode;
     const normalizedNextBarcode = sanitizeBarcode(nextBarcodeSource || "");
@@ -678,7 +748,7 @@ async function updateProduct(id, payload, actor) {
       : current.supplier_id;
     const discountFields = normalizeDiscountFields(payload);
     const clearDiscountData = payload.discount_type !== undefined && discountFields.discount_type === null;
-    const nextLiquidationPrice = clearDiscountData ? null : payload.liquidation_price !== undefined ? payload.liquidation_price : current.liquidation_price;
+    const nextLiquidationPrice = clearDiscountData ? null : payload.liquidation_price !== undefined ? liquidationPrice : current.liquidation_price;
 
     const { rows } = await client.query(
       `UPDATE products
@@ -690,7 +760,7 @@ async function updateProduct(id, payload, actor) {
        RETURNING *`,
       [
         payload.name ?? current.name, resolvedSku, resolvedBarcode, payload.category ?? current.category,
-        payload.description ?? current.description, payload.price ?? current.price, payload.cost_price ?? current.cost_price,
+        payload.description ?? current.description, payload.price !== undefined ? price : current.price, payload.cost_price !== undefined ? costPrice : current.cost_price,
         nextLiquidationPrice,
         payload.stock !== undefined ? stock : current.stock,
         payload.expires_at !== undefined ? payload.expires_at : current.expires_at,
@@ -715,6 +785,18 @@ async function updateProduct(id, payload, actor) {
       }
     }
 
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "products",
+      accion: "update_product",
+      entidad_tipo: "product",
+      entidad_id: id,
+      detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(current), version: 1 },
+      detalle_nuevo: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
+      motivo: actor?.support_context?.reason || "",
+      metadata: buildProductAuditMetadata(actor)
+    }, { client });
     await client.query("COMMIT");
     return mapProductRow(rows[0]);
   } catch (error) {
@@ -796,13 +878,35 @@ async function updateProductStatus(id, isActive, status, actor) {
   if (!current) throw new ApiError(404, "Product not found");
   const resolvedIsActive = isActive === undefined ? current.is_active : isActive;
   const nextStatus = status || (resolvedIsActive ? "activo" : "inactivo");
-  const { rows } = await pool.query(
-    `UPDATE products SET is_active = $1, status = $2, updated_at = NOW()
-     WHERE id = $3 AND business_id = $4
-     RETURNING *`,
-    [resolvedIsActive, nextStatus, id, current.business_id]
-  );
-  return mapProductRow(rows[0]);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `UPDATE products SET is_active = $1, status = $2, updated_at = NOW()
+       WHERE id = $3 AND business_id = $4
+       RETURNING *`,
+      [resolvedIsActive, nextStatus, id, current.business_id]
+    );
+    await saveAuditLog({
+      business_id: current.business_id,
+      usuario_id: actor.id,
+      modulo: "products",
+      accion: "update_product_status",
+      entidad_tipo: "product",
+      entidad_id: id,
+      detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(current), version: 1 },
+      detalle_nuevo: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
+      motivo: actor?.support_context?.reason || "",
+      metadata: buildProductAuditMetadata(actor)
+    }, { client });
+    await client.query("COMMIT");
+    return mapProductRow(rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function deleteProduct(id, action, actor) {
@@ -837,6 +941,19 @@ async function deleteProduct(id, action, actor) {
         [id, ownedProduct.business_id]
       );
 
+      await saveAuditLog({
+        business_id: ownedProduct.business_id,
+        usuario_id: actor.id,
+        modulo: "products",
+        accion: "delete_product",
+        entidad_tipo: "product",
+        entidad_id: id,
+        detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(ownedProduct), version: 1 },
+        detalle_nuevo: { entity: "product", entity_id: id, snapshot: {}, version: 1 },
+        motivo: actor?.support_context?.reason || "",
+        metadata: buildProductAuditMetadata(actor, { delete_mode: "hard" })
+      }, { client });
+
       await client.query("COMMIT");
       if (previousImagePath) {
         await deleteStoredImage(previousImagePath).catch(() => {});
@@ -850,14 +967,36 @@ async function deleteProduct(id, action, actor) {
     }
   }
 
-  const { rows } = await pool.query(
-    `UPDATE products
-     SET is_active = FALSE, status = 'inactivo', updated_at = NOW()
-     WHERE id = $1 AND business_id = $2
-     RETURNING *`,
-    [id, current.business_id]
-  );
-  return { mode: "soft", product: mapProductRow(rows[0]), requested_action: action || "deactivate" };
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `UPDATE products
+       SET is_active = FALSE, status = 'inactivo', updated_at = NOW()
+       WHERE id = $1 AND business_id = $2
+       RETURNING *`,
+      [id, current.business_id]
+    );
+    await saveAuditLog({
+      business_id: current.business_id,
+      usuario_id: actor.id,
+      modulo: "products",
+      accion: "deactivate_product",
+      entidad_tipo: "product",
+      entidad_id: id,
+      detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(current), version: 1 },
+      detalle_nuevo: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
+      motivo: actor?.support_context?.reason || "",
+      metadata: buildProductAuditMetadata(actor, { delete_mode: "soft" })
+    }, { client });
+    await client.query("COMMIT");
+    return { mode: "soft", product: mapProductRow(rows[0]), requested_action: action || "deactivate" };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function applyBulkDiscount(productIds, payload, actor) {

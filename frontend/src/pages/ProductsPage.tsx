@@ -99,6 +99,10 @@ function hasMoreThanThreeDecimals(value: number) {
   return Math.abs(value * 1000 - Math.round(value * 1000)) > 1e-9;
 }
 
+function hasMoreThanFiveDecimals(value: number) {
+  return Math.abs(value * 100000 - Math.round(value * 100000)) > 1e-9;
+}
+
 function validateQuantityByUnitInput(value: number, unit: SaleUnit, label: string) {
   if (Number.isNaN(value) || value < 0) {
     throw new Error(`${label} debe ser numérico y válido`);
@@ -117,7 +121,7 @@ function recalculatePrice(costPrice: string, gainPercentage: string) {
   if (!Number.isFinite(cost) || !Number.isFinite(gain)) {
     return "";
   }
-  return (cost * (1 + gain / 100)).toFixed(2);
+  return String(Math.round((cost * (1 + gain / 100) + Number.EPSILON) * 100000) / 100000);
 }
 
 function recalculateGain(costPrice: string, price: string) {
@@ -126,7 +130,7 @@ function recalculateGain(costPrice: string, price: string) {
   if (!Number.isFinite(cost) || cost <= 0 || !Number.isFinite(publicPrice)) {
     return "";
   }
-  return (((publicPrice / cost) - 1) * 100).toFixed(3);
+  return String(Math.round((((publicPrice / cost) - 1) * 100 + Number.EPSILON) * 1000) / 1000);
 }
 
 function normalizeTextForSku(value: string) {
@@ -550,6 +554,10 @@ export function ProductsPage() {
       setError("Precio, costo, stock y stock mínimo deben ser numéricos válidos");
       return;
     }
+    if (hasMoreThanFiveDecimals(price) || hasMoreThanFiveDecimals(costPrice) || (discountValue !== null && hasMoreThanFiveDecimals(discountValue))) {
+      setError("Precio, costo y remate solo aceptan hasta 5 decimales");
+      return;
+    }
     if (form.barcode.trim() && !/^\d+$/.test(form.barcode.trim())) {
       setError("El codigo de barras debe ser numerico");
       return;
@@ -621,6 +629,10 @@ export function ProductsPage() {
       }
       if (supplier.purchase_cost !== null && (Number.isNaN(supplier.purchase_cost) || supplier.purchase_cost < 0)) {
         setError("El costo de compra por proveedor debe ser numérico y válido");
+        return;
+      }
+      if (supplier.purchase_cost !== null && hasMoreThanFiveDecimals(supplier.purchase_cost)) {
+        setError("El costo de compra por proveedor solo acepta hasta 5 decimales");
         return;
       }
       if (normalizedName) seenSupplierNames.add(normalizedName);
@@ -967,11 +979,11 @@ export function ProductsPage() {
           </label>
           <label>
             {requiredLabel("Precio al público")}
-            <input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value, porcentaje_ganancia: recalculateGain(form.cost_price, event.target.value) })} required />
+            <input type="number" min="0" step="0.00001" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value, porcentaje_ganancia: recalculateGain(form.cost_price, event.target.value) })} required />
           </label>
           <label>
             Costo del producto
-            <input type="number" min="0" step="0.01" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value, price: form.porcentaje_ganancia === "" ? form.price : recalculatePrice(event.target.value, form.porcentaje_ganancia) })} />
+            <input type="number" min="0" step="0.00001" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value, price: form.porcentaje_ganancia === "" ? form.price : recalculatePrice(event.target.value, form.porcentaje_ganancia) })} />
           </label>
           <label>
             IEPS
@@ -1019,7 +1031,7 @@ export function ProductsPage() {
           </label>
           <label>
             Valor de remate
-            <input type="number" min="0" step="0.01" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} />
+            <input type="number" min="0" step="0.00001" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} />
           </label>
           <label>
             Inicio remate
@@ -1095,7 +1107,7 @@ export function ProductsPage() {
                 Costo de compra
                 <input
                   min="0"
-                  step="0.01"
+                    step="0.00001"
                   type="number"
                   value={form.suppliers[0]?.purchase_cost || ""}
                   onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), purchase_cost: event.target.value })}
@@ -1204,7 +1216,7 @@ export function ProductsPage() {
                       Costo de compra
                       <input
                         min="0"
-                        step="0.01"
+                        step="0.00001"
                         type="number"
                         value={supplier.purchase_cost}
                         onChange={(event) => updateSupplierDraft(index, { ...supplier, purchase_cost: event.target.value })}

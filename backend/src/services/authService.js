@@ -9,13 +9,14 @@ const { saveAuditLog } = require("./auditLogService");
 const { resolveBusinessClassification } = require("../utils/business");
 const userService = require("./userService");
 
-function signToken(user) {
+function signToken(user, options = {}) {
   const businessId = requireActorBusinessId(user);
   return jwt.sign(
     {
       userId: user.id,
       role: user.role,
-      businessId
+      businessId,
+      supportSessionId: options.supportSessionId || null
     },
     jwtSecret,
     { expiresIn: "12h" }
@@ -178,5 +179,6 @@ async function registerBusiness(payload) {
 
 module.exports = {
   login,
-  registerBusiness
+  registerBusiness,
+  signToken
 };
