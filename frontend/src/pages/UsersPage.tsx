@@ -212,7 +212,6 @@ export function UsersPage() {
       setSession(response);
       setSupportTarget(null);
       setSupportReason("");
-      loadUsers();
     } catch (supportError) {
       setError(supportError instanceof Error ? supportError.message : "No fue posible actualizar el modo soporte");
     }
