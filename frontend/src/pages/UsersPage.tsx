@@ -49,6 +49,7 @@ export function UsersPage() {
   const [supportReason, setSupportReason] = useState("");
 
   const currentRole = normalizeRole(currentUser?.role);
+  const isSupportContextActive = Boolean(currentUser?.support_context);
   const canCreateUsers = currentRole === "superusuario" || currentRole === "admin";
   const canResetPasswords = currentRole === "superusuario";
   const canEditRoles = currentRole === "superusuario";
@@ -109,6 +110,17 @@ export function UsersPage() {
       setForm((current) => ({ ...current, role: roleOptions[0] }));
     }
   }, [roleOptions]);
+
+  useEffect(() => {
+    if (currentRole !== "superusuario" || !currentUser?.business_id) {
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      business_id: currentUser.business_id
+    }));
+  }, [currentRole, currentUser?.business_id]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -262,7 +274,7 @@ export function UsersPage() {
             <label>
               Negocio *
               <select
-                disabled={!canCreateUsers || !businesses.length}
+                disabled={!canCreateUsers || !businesses.length || isSupportContextActive}
                 value={form.business_id ?? ""}
                 onChange={(event) => setForm({ ...form, business_id: Number(event.target.value) })}
               >
@@ -271,6 +283,7 @@ export function UsersPage() {
                 ))}
               </select>
             </label>
+            {isSupportContextActive ? <p className="muted">Modo soporte activo: el negocio queda fijado al contexto objetivo.</p> : null}
             <label>
               Tipo de POS
               <input value={selectedBusiness?.pos_type || ""} readOnly />
