@@ -103,6 +103,22 @@ function hasMoreThanFiveDecimals(value: number) {
   return Math.abs(value * 100000 - Math.round(value * 100000)) > 1e-9;
 }
 
+function normalizeMoneyInput(value: string) {
+  const normalizedValue = value.replace(",", ".").replace(/[^\d.]/g, "");
+  if (!normalizedValue) {
+    return "";
+  }
+
+  const decimalPointIndex = normalizedValue.indexOf(".");
+  if (decimalPointIndex === -1) {
+    return normalizedValue;
+  }
+
+  const integerPart = normalizedValue.slice(0, decimalPointIndex);
+  const decimalPart = normalizedValue.slice(decimalPointIndex + 1).replace(/\./g, "").slice(0, 5);
+  return `${integerPart || "0"}.${decimalPart}`;
+}
+
 function validateQuantityByUnitInput(value: number, unit: SaleUnit, label: string) {
   if (Number.isNaN(value) || value < 0) {
     throw new Error(`${label} debe ser numérico y válido`);
@@ -979,11 +995,30 @@ export function ProductsPage() {
           </label>
           <label>
             {requiredLabel("Precio al público")}
-            <input type="number" min="0" step="0.00001" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value, porcentaje_ganancia: recalculateGain(form.cost_price, event.target.value) })} required />
+            <input
+              type="number"
+              min="0"
+              step="0.00001"
+              value={form.price}
+              onChange={(event) => {
+                const nextPrice = normalizeMoneyInput(event.target.value);
+                setForm({ ...form, price: nextPrice, porcentaje_ganancia: recalculateGain(form.cost_price, nextPrice) });
+              }}
+              required
+            />
           </label>
           <label>
             Costo del producto
-            <input type="number" min="0" step="0.00001" value={form.cost_price} onChange={(event) => setForm({ ...form, cost_price: event.target.value, price: form.porcentaje_ganancia === "" ? form.price : recalculatePrice(event.target.value, form.porcentaje_ganancia) })} />
+            <input
+              type="number"
+              min="0"
+              step="0.00001"
+              value={form.cost_price}
+              onChange={(event) => {
+                const nextCostPrice = normalizeMoneyInput(event.target.value);
+                setForm({ ...form, cost_price: nextCostPrice, porcentaje_ganancia: recalculateGain(nextCostPrice, form.price) });
+              }}
+            />
           </label>
           <label>
             IEPS
