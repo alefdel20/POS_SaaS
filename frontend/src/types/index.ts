@@ -73,6 +73,138 @@ export interface SupplierDetail {
   products: SupplierProductItem[];
 }
 
+export interface SupplierCatalogImportPreviewRow {
+  row_number: number;
+  index: number;
+  payload: {
+    supplier_product_code: string;
+    supplier_product_name: string;
+    supplier_description: string;
+    supplier_category: string;
+    supplier_unit: "pieza" | "kg" | "litro" | "caja";
+    purchase_cost: string;
+    currency: string;
+    pack_size: string;
+    min_order_qty: string;
+    is_active: boolean;
+  };
+  warnings: string[];
+  errors: string[];
+  action: "create" | "update" | "error";
+  existing_item?: {
+    id: number;
+    product_id: number | null;
+    supplier_product_name: string;
+    purchase_cost: number;
+    catalog_status: string;
+    cost_changed: boolean;
+    product_name?: string | null;
+    product_sku?: string | null;
+  } | null;
+  suggested_product?: {
+    id: number;
+    name: string;
+    sku?: string | null;
+    match_reason: "codigo" | "nombre";
+  } | null;
+  cost_changed: boolean;
+}
+
+export interface SupplierCatalogImportPreviewResponse {
+  supplier: {
+    id: number;
+    name: string;
+  };
+  format: "csv" | "xlsx";
+  headers: string[];
+  detected_columns: Record<string, number>;
+  rows: SupplierCatalogImportPreviewRow[];
+  summary: {
+    total: number;
+    ready: number;
+    new_items: number;
+    updated: number;
+    with_errors: number;
+    cost_changes: number;
+  };
+}
+
+export interface SupplierCatalogImportConfirmResponse {
+  results: Array<{
+    row_number: number | null;
+    status: "imported" | "updated" | "error";
+    item_id?: number;
+    message?: string;
+    cost_changed?: boolean;
+  }>;
+  summary: {
+    total: number;
+    imported: number;
+    updated: number;
+    errors: number;
+    cost_changes: number;
+  };
+}
+
+export interface SupplierCatalogItem {
+  id: number;
+  supplier_id: number;
+  product_id: number | null;
+  supplier_product_code: string;
+  supplier_product_name: string;
+  supplier_description: string;
+  supplier_category: string;
+  supplier_unit: "pieza" | "kg" | "litro" | "caja";
+  purchase_cost: number;
+  previous_purchase_cost: number | null;
+  currency: string;
+  pack_size: string;
+  min_order_qty: number | null;
+  is_active: boolean;
+  cost_changed: boolean;
+  catalog_status: "new" | "pending" | "linked" | "cost_changed" | "cost_applied" | "inactive" | string;
+  source_file?: string | null;
+  imported_at: string;
+  updated_at: string;
+  last_cost_applied_at?: string | null;
+  linked_product?: {
+    id: number;
+    name?: string | null;
+    sku?: string | null;
+    cost_price?: number | null;
+  } | null;
+}
+
+export interface SupplierCatalogImportHistory {
+  source_file: string;
+  imported_at: string;
+  item_count: number;
+  linked_count: number;
+  cost_changes: number;
+}
+
+export interface SupplierCatalogListResponse {
+  supplier: {
+    id: number;
+    business_id: number;
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+    whatsapp?: string | null;
+    observations?: string | null;
+  };
+  summary: {
+    total: number;
+    linked: number;
+    pending: number;
+    cost_changes: number;
+    active: number;
+  };
+  categories: string[];
+  imports: SupplierCatalogImportHistory[];
+  items: SupplierCatalogItem[];
+}
+
 export interface Product {
   id: number;
   name: string;

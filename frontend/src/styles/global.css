@@ -561,6 +561,22 @@ td {
   gap: 0.6rem;
 }
 
+.tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.supplier-detail-panel {
+  min-width: 0;
+}
+
+.supplier-catalog-filters {
+  margin-bottom: 1rem;
+}
+
 .quick-filter-row {
   margin-bottom: 1rem;
 }
@@ -904,6 +920,32 @@ td {
 .status-badge.cancelled {
   background: rgba(255, 123, 123, 0.16);
   color: #ffd1d1;
+}
+
+.status-badge[class*="supplier-status-"] {
+  margin-top: 0;
+}
+
+.supplier-status-new,
+.supplier-status-pending {
+  background: rgba(96, 165, 250, 0.14);
+  color: #bfdbfe;
+}
+
+.supplier-status-linked,
+.supplier-status-cost_applied {
+  background: rgba(88, 212, 179, 0.16);
+  color: #9ae6b4;
+}
+
+.supplier-status-cost_changed {
+  background: rgba(255, 180, 84, 0.16);
+  color: #ffd7a4;
+}
+
+.supplier-status-inactive {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
 }
 
 .stack-list {
