@@ -6,7 +6,6 @@ const errorHandler = require("./middleware/errorHandler");
 const { ensureDatabaseCompatibility } = require("./db/init");
 const { ensureUploadsDirectory } = require("./utils/productImages");
 
-// Rutas
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
@@ -14,7 +13,7 @@ const supplierRoutes = require("./routes/supplierRoutes");
 const saleRoutes = require("./routes/saleRoutes");
 const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
-const automationRoutes = require("./role/automationRoutes"); // Revisa si es 'routes' o 'role' en tu carpeta
+const automationRoutes = require("./routes/automationRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 const financeRoutes = require("./routes/financeRoutes");
@@ -23,28 +22,29 @@ const businessRoutes = require("./routes/businessRoutes");
 const adminInvoiceRoutes = require("./routes/adminInvoiceRoutes");
 const onboardingRoutes = require("./routes/onboardingRoutes");
 const serviceCatalogRoutes = require("./routes/serviceCatalogRoutes");
+const clinicalClientRoutes = require("./routes/clinicalClientRoutes");
+const clinicalPatientRoutes = require("./routes/clinicalPatientRoutes");
+const clinicalConsultationRoutes = require("./routes/clinicalConsultationRoutes");
+const clinicalAppointmentRoutes = require("./routes/clinicalAppointmentRoutes");
+const clinicalHistoryRoutes = require("./routes/clinicalHistoryRoutes");
 
 const app = express();
 
-// --- CONFIGURACIÓN DE CORS (UNIFICADA) ---
 app.use(cors({
-  origin: true, // Detecta y permite automáticamente el origen de tu frontend
+  origin: true,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
 }));
 
-// Middleware para parsear JSON
 app.use(express.json());
 app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
 app.use("/api/uploads", express.static(path.resolve(__dirname, "../uploads")));
 
-// Ruta de salud
 app.get(["/health", "/api/health"], (req, res) => {
   res.json({ status: "ok", message: "Servidor vivo" });
 });
 
-// Configuración de rutas (con y sin prefijo /api)
 const routes = [
   { path: "/auth", router: authRoutes, auth: false },
   { path: "/automation", router: automationRoutes, auth: false },
@@ -62,31 +62,41 @@ const routes = [
   { path: "/admin-invoices", router: adminInvoiceRoutes, auth: true },
   { path: "/onboarding", router: onboardingRoutes, auth: true },
   { path: "/services", router: serviceCatalogRoutes, auth: true },
+  { path: "/clients", router: clinicalClientRoutes, auth: true },
+  { path: "/patients", router: clinicalPatientRoutes, auth: true },
+  { path: "/medical-consultations", router: clinicalConsultationRoutes, auth: true },
+  { path: "/medical-appointments", router: clinicalAppointmentRoutes, auth: true },
+  { path: "/medical-history", router: clinicalHistoryRoutes, auth: true }
 ];
 
 routes.forEach((route) => {
   const handlers = route.auth ? [requireAuth, route.router] : [route.router];
   app.use(route.path, ...handlers);
-  app.use("/api" + route.path, ...handlers);
+  app.use(`/api${route.path}`, ...handlers);
 });
 
-// Manejador de errores global
 app.use(errorHandler);
 
-// Puerto para Dokploy
-const PORT = 3002;
+async function startServer(port = Number(process.env.PORT || 3000)) {
+  await ensureDatabaseCompatibility();
+  await ensureUploadsDirectory();
 
-// Inicialización de DB y Servidor
-ensureDatabaseCompatibility()
-  .then(() => {
-    return ensureUploadsDirectory();
-  })
-  .then(() => {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`>>> SERVIDOR POS CORRIENDO EN PUERTO ${PORT} <<<`);
+  return new Promise((resolve) => {
+    const server = app.listen(port, "0.0.0.0", () => {
+      console.log(`>>> SERVIDOR POS CORRIENDO EN PUERTO ${port} <<<`);
+      resolve(server);
     });
-  })
-  .catch((error) => {
+  });
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
     console.error("Failed to initialize database compatibility", error);
     process.exit(1);
   });
+}
+
+module.exports = {
+  app,
+  startServer
+};

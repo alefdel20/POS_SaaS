@@ -11,13 +11,13 @@ export type SidebarSection = {
 
 export const POS_TYPE_OPTIONS: Array<{ value: PosType; label: string }> = [
   { value: "Tienda", label: "Tienda" },
-  { value: "Tlapaleria", label: "Tlapalería" },
-  { value: "Papeleria", label: "Papelería" },
+  { value: "Tlapaleria", label: "Tlapaleria" },
+  { value: "Papeleria", label: "Papeleria" },
   { value: "Veterinaria", label: "Veterinaria" },
   { value: "Dentista", label: "Dentista" },
   { value: "Farmacia", label: "Farmacia" },
   { value: "FarmaciaConsultorio", label: "Farmacia con consultorio" },
-  { value: "ClinicaChica", label: "Clínica chica" },
+  { value: "ClinicaChica", label: "Clinica chica" },
   { value: "Otro", label: "Otro" }
 ];
 
@@ -25,17 +25,18 @@ export const VETERINARY_PRODUCT_CATEGORIES = [
   "Medicamentos",
   "Insumos medicamentos",
   "Insumos alimentos",
-  "Insumos médicos/fármacos",
+  "Insumos medicos/farmacos",
   "Accesorios e insumos"
 ] as const;
 
 const IEPS_POS_TYPES = new Set<PosType>(["Tienda"]);
 const EXPIRY_POS_TYPES = new Set<PosType>(["Tienda", "Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
 const CREDIT_POS_TYPES = new Set<PosType>(POS_TYPE_OPTIONS.map((option) => option.value).filter((value) => value !== "Dentista"));
+const CLINICAL_POS_TYPES = new Set<PosType>(["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"]);
 
 const DEFAULT_SIDEBAR_SECTIONS: SidebarSection[] = [
   {
-    title: "Operación",
+    title: "Operacion",
     links: [
       { to: "/sales", label: "Ventas", roles: "sales" },
       { to: "/products", label: "Productos", roles: "management" },
@@ -44,7 +45,7 @@ const DEFAULT_SIDEBAR_SECTIONS: SidebarSection[] = [
     ]
   },
   {
-    title: "Administración",
+    title: "Administracion",
     links: [
       { to: "/credit-collections", label: "Credito y Cobranza", roles: "management" },
       { to: "/daily-cut", label: "Corte Diario", roles: "dailyCut" },
@@ -59,52 +60,28 @@ const DEFAULT_SIDEBAR_SECTIONS: SidebarSection[] = [
   }
 ];
 
-const VETERINARY_SIDEBAR_SECTIONS: SidebarSection[] = [
-  {
-    title: "Operación",
-    links: [
-      { to: "/sales", label: "Ventas", roles: "sales" },
-      { to: "/products", label: "Productos e insumos", roles: "management" },
-      { to: "/services", label: "Servicios", roles: "management" },
-      { to: "/suppliers", label: "Proveedores", roles: "management" }
-    ]
-  },
-  {
-    title: "Clientes y pacientes",
-    links: [
-      { to: "/clients", label: "Clientes / Dueños", roles: "management" },
-      { to: "/patients", label: "Pacientes / Mascotas", roles: "management" }
-    ]
-  },
-  {
-    title: "Clínico",
-    links: [
-      { to: "/medical-appointments", label: "Citas médicas", roles: "management" },
-      { to: "/medical-consultations", label: "Consultas médicas", roles: "management" },
-      { to: "/medical-history", label: "Historial médico", roles: "management" }
-    ]
-  },
-  {
-    title: "Administración",
-    links: [
-      { to: "/credit-collections", label: "Credito y Cobranza", roles: "management" },
-      { to: "/daily-cut", label: "Corte Diario", roles: "dailyCut" },
-      { to: "/finances", label: "Finanzas", roles: "management" },
-      { to: "/invoices", label: "Facturas", roles: "invoices" },
-      { to: "/reminders", label: "Recordatorios", roles: "all" },
-      { to: "/dashboard", label: "Resumen", roles: "management" },
-      { to: "/users", label: "Usuarios", roles: "users" },
-      { to: "/profile", label: "Perfil", roles: "management" }
-    ]
-  }
-];
-
 export function getPosTypeLabel(posType?: string | null) {
   return POS_TYPE_OPTIONS.find((option) => option.value === posType)?.label || posType || "Otro";
 }
 
 export function isVeterinaryPos(posType?: string | null) {
   return posType === "Veterinaria";
+}
+
+export function isClinicalPos(posType?: string | null) {
+  return CLINICAL_POS_TYPES.has((posType || "Otro") as PosType);
+}
+
+export function showsPatientSpecies(posType?: string | null) {
+  return isVeterinaryPos(posType);
+}
+
+export function getClinicalClientLabel(posType?: string | null) {
+  return isVeterinaryPos(posType) ? "Clientes / Duenos" : "Clientes / Responsables";
+}
+
+export function getClinicalPatientLabel(posType?: string | null) {
+  return isVeterinaryPos(posType) ? "Pacientes / Mascotas" : "Pacientes";
 }
 
 export function canUseIeps(posType?: string | null) {
@@ -128,5 +105,49 @@ export function getProductModuleLabel(posType?: string | null) {
 }
 
 export function getSidebarSectionsForPosType(posType?: string | null) {
-  return isVeterinaryPos(posType) ? VETERINARY_SIDEBAR_SECTIONS : DEFAULT_SIDEBAR_SECTIONS;
+  if (!isClinicalPos(posType)) {
+    return DEFAULT_SIDEBAR_SECTIONS;
+  }
+
+  return [
+    {
+      title: "Operacion",
+      links: [
+        { to: "/sales", label: "Ventas", roles: "sales" },
+        { to: "/products", label: getProductModuleLabel(posType), roles: "management" },
+        { to: "/services", label: "Servicios", roles: "management" },
+        { to: "/suppliers", label: "Proveedores", roles: "management" },
+        { to: "/sales-history", label: "Historial", roles: "management" }
+      ]
+    },
+    {
+      title: "Clientes y pacientes",
+      links: [
+        { to: "/clients", label: getClinicalClientLabel(posType), roles: "management" },
+        { to: "/patients", label: getClinicalPatientLabel(posType), roles: "management" }
+      ]
+    },
+    {
+      title: "Clinico",
+      links: [
+        { to: "/medical-appointments", label: "Citas medicas", roles: "management" },
+        { to: "/medical-consultations", label: "Consultas medicas", roles: "management" },
+        { to: "/medical-history", label: "Historial medico", roles: "management" }
+      ]
+    },
+    {
+      title: "Administracion",
+      links: [
+        { to: "/credit-collections", label: "Credito y Cobranza", roles: "management" },
+        { to: "/daily-cut", label: "Corte Diario", roles: "dailyCut" },
+        { to: "/finances", label: "Finanzas", roles: "management" },
+        { to: "/invoices", label: "Facturas", roles: "invoices" },
+        { to: "/reminders", label: "Recordatorios", roles: "all" },
+        { to: "/dashboard", label: "Resumen", roles: "management" },
+        { to: "/users", label: "Usuarios", roles: "users" },
+        { to: "/profile", label: "Perfil", roles: "management" },
+        { to: "/businesses", label: "Negocios", roles: "businesses" }
+      ]
+    }
+  ];
 }

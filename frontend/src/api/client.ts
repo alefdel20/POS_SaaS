@@ -31,3 +31,23 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   return response.json() as Promise<T>;
 }
+
+export async function apiDownload(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const headers = new Headers(options.headers || {});
+
+  if (options.token) {
+    headers.set("Authorization", `Bearer ${options.token}`);
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ message: "Request failed" }));
+    throw new Error(translateErrorMessage(errorBody.message || "Request failed"));
+  }
+
+  return response.blob();
+}

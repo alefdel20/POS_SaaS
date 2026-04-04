@@ -328,6 +328,105 @@ export interface ServiceCatalogItem {
   updated_at: string;
 }
 
+export interface ClinicalClientSummary {
+  id: number;
+  business_id: number;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  tax_id?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  is_active: boolean;
+  patient_count: number;
+  consultation_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClinicalPatientSummary {
+  id: number;
+  business_id: number;
+  client_id: number;
+  name: string;
+  species?: string | null;
+  breed?: string | null;
+  sex?: string | null;
+  birth_date?: string | null;
+  notes?: string | null;
+  is_active: boolean;
+  client_name?: string;
+  client_phone?: string | null;
+  client_email?: string | null;
+  consultation_count: number;
+  appointment_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClinicalConsultation {
+  id: number;
+  business_id: number;
+  patient_id: number;
+  client_id: number;
+  patient_name: string;
+  client_name: string;
+  species?: string | null;
+  breed?: string | null;
+  consultation_date: string;
+  motivo_consulta: string;
+  diagnostico: string;
+  tratamiento: string;
+  notas: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClinicalAppointment {
+  id: number;
+  business_id: number;
+  patient_id: number;
+  client_id: number;
+  patient_name: string;
+  client_name: string;
+  species?: string | null;
+  breed?: string | null;
+  appointment_date: string;
+  start_time: string;
+  end_time: string;
+  area: "CLINICA" | "ESTETICA";
+  status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show";
+  notes: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClinicalClientDetail extends ClinicalClientSummary {
+  patients: ClinicalPatientSummary[];
+}
+
+export interface ClinicalPatientDetail extends ClinicalPatientSummary {
+  client_address?: string | null;
+  consultations: ClinicalConsultation[];
+  appointments: ClinicalAppointment[];
+}
+
+export interface ClinicalHistoryResponse {
+  filters: {
+    patient_id: number | null;
+    client_id: number | null;
+    date_from: string | null;
+    date_to: string | null;
+  };
+  summary: {
+    total_consultations: number;
+    total_treatments: number;
+  };
+  timeline: Array<ClinicalConsultation & { type: "consultation" }>;
+}
+
 export interface Sale {
   id: number;
   user_id: number;

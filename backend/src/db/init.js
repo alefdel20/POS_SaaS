@@ -416,6 +416,109 @@ async function ensureSchema(client) {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+
+    `CREATE TABLE IF NOT EXISTS patients (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER,
+      client_id INTEGER NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      species VARCHAR(120),
+      breed VARCHAR(120),
+      sex VARCHAR(20),
+      birth_date DATE,
+      notes TEXT NOT NULL DEFAULT '',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_by INTEGER REFERENCES users(id),
+      updated_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS client_id INTEGER",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS name VARCHAR(150)",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS species VARCHAR(120)",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS breed VARCHAR(120)",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS sex VARCHAR(20)",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS birth_date DATE",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
+    `CREATE TABLE IF NOT EXISTS consultations (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER,
+      patient_id INTEGER NOT NULL,
+      client_id INTEGER NOT NULL,
+      consultation_date TIMESTAMP NOT NULL DEFAULT NOW(),
+      motivo_consulta TEXT NOT NULL DEFAULT '',
+      diagnostico TEXT NOT NULL DEFAULT '',
+      tratamiento TEXT NOT NULL DEFAULT '',
+      notas TEXT NOT NULL DEFAULT '',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_by INTEGER REFERENCES users(id),
+      updated_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS patient_id INTEGER",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS client_id INTEGER",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS consultation_date TIMESTAMP NOT NULL DEFAULT NOW()",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS motivo_consulta TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS diagnostico TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS tratamiento TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS notas TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
+    `CREATE TABLE IF NOT EXISTS appointments (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER,
+      patient_id INTEGER NOT NULL,
+      client_id INTEGER NOT NULL,
+      appointment_date DATE NOT NULL,
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      area VARCHAR(20) NOT NULL DEFAULT 'CLINICA',
+      status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+      notes TEXT NOT NULL DEFAULT '',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_by INTEGER REFERENCES users(id),
+      updated_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_id INTEGER",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS client_id INTEGER",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS appointment_date DATE",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS start_time TIME",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS end_time TIME",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS area VARCHAR(20) NOT NULL DEFAULT 'CLINICA'",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'scheduled'",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
 
     `CREATE TABLE IF NOT EXISTS reports (
       id SERIAL PRIMARY KEY,
@@ -660,6 +763,25 @@ async function backfillBusinessIds(client) {
     `UPDATE credit_payments SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE company_stamp_movements SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE administrative_invoices SET business_id = ${businessId} WHERE business_id IS NULL`,
+    `UPDATE patients
+       SET business_id = COALESCE(patients.business_id, clients.business_id, ${businessId})
+     FROM clients
+     WHERE clients.id = patients.client_id
+       AND patients.business_id IS NULL`,
+    `UPDATE consultations
+       SET business_id = COALESCE(consultations.business_id, patients.business_id, clients.business_id, ${businessId}),
+           client_id = COALESCE(consultations.client_id, patients.client_id)
+     FROM patients
+     LEFT JOIN clients ON clients.id = patients.client_id
+     WHERE patients.id = consultations.patient_id
+       AND (consultations.business_id IS NULL OR consultations.client_id IS NULL)`,
+    `UPDATE appointments
+       SET business_id = COALESCE(appointments.business_id, patients.business_id, clients.business_id, ${businessId}),
+           client_id = COALESCE(appointments.client_id, patients.client_id)
+     FROM patients
+     LEFT JOIN clients ON clients.id = patients.client_id
+     WHERE patients.id = appointments.patient_id
+       AND (appointments.business_id IS NULL OR appointments.client_id IS NULL)`,
     `UPDATE support_access_logs
        SET business_id = ${businessId}, target_business_id = ${businessId}
      WHERE business_id IS NULL OR target_business_id IS NULL`,
@@ -673,6 +795,16 @@ async function ensureConstraints(client) {
     "ALTER TABLE products DROP CONSTRAINT IF EXISTS products_sku_key",
     "ALTER TABLE products DROP CONSTRAINT IF EXISTS products_barcode_key",
     "ALTER TABLE company_profiles DROP CONSTRAINT IF EXISTS uq_company_profiles_profile_key",
+    "ALTER TABLE patients DROP CONSTRAINT IF EXISTS patients_client_fk",
+    "ALTER TABLE patients DROP CONSTRAINT IF EXISTS patients_client_id_fkey",
+    "ALTER TABLE consultations DROP CONSTRAINT IF EXISTS consultations_patient_fk",
+    "ALTER TABLE consultations DROP CONSTRAINT IF EXISTS consultations_client_fk",
+    "ALTER TABLE consultations DROP CONSTRAINT IF EXISTS consultations_patient_id_fkey",
+    "ALTER TABLE consultations DROP CONSTRAINT IF EXISTS consultations_client_id_fkey",
+    "ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_patient_fk",
+    "ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_client_fk",
+    "ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_patient_id_fkey",
+    "ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_client_id_fkey",
     "DROP INDEX IF EXISTS uq_company_profiles_profile_key",
     "DROP INDEX IF EXISTS uq_reminders_source_key"
   ]);
@@ -717,6 +849,69 @@ async function ensureConstraints(client) {
     `
   );
 
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_patients_client'
+          AND conrelid = 'patients'::regclass
+      ) THEN
+        ALTER TABLE patients
+        ADD CONSTRAINT fk_patients_client
+        FOREIGN KEY (client_id) REFERENCES clients(id);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_consultations_patient'
+          AND conrelid = 'consultations'::regclass
+      ) THEN
+        ALTER TABLE consultations
+        ADD CONSTRAINT fk_consultations_patient
+        FOREIGN KEY (patient_id) REFERENCES patients(id);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_consultations_client'
+          AND conrelid = 'consultations'::regclass
+      ) THEN
+        ALTER TABLE consultations
+        ADD CONSTRAINT fk_consultations_client
+        FOREIGN KEY (client_id) REFERENCES clients(id);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_appointments_patient'
+          AND conrelid = 'appointments'::regclass
+      ) THEN
+        ALTER TABLE appointments
+        ADD CONSTRAINT fk_appointments_patient
+        FOREIGN KEY (patient_id) REFERENCES patients(id);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_appointments_client'
+          AND conrelid = 'appointments'::regclass
+      ) THEN
+        ALTER TABLE appointments
+        ADD CONSTRAINT fk_appointments_client
+        FOREIGN KEY (client_id) REFERENCES clients(id);
+      END IF;
+    END $$;
+    `
+  );
+
   const fks = [
     "users",
     "suppliers",
@@ -736,7 +931,11 @@ async function ensureConstraints(client) {
     "fixed_expenses",
     "company_profiles",
     "company_stamp_movements",
-    "administrative_invoices"
+    "administrative_invoices",
+    "clients",
+    "patients",
+    "consultations",
+    "appointments"
   ];
 
   for (const table of fks) {
@@ -916,6 +1115,39 @@ async function ensureConstraints(client) {
         ADD CONSTRAINT automation_events_type_check
         CHECK (event_type IN ('sale_created', 'low_stock_detected', 'credit_payment_received', 'product_created'));
       END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'appointments_area_check'
+          AND conrelid = 'appointments'::regclass
+      ) THEN
+        ALTER TABLE appointments
+        ADD CONSTRAINT appointments_area_check
+        CHECK (area IN ('CLINICA', 'ESTETICA'));
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'appointments_status_check'
+          AND conrelid = 'appointments'::regclass
+      ) THEN
+        ALTER TABLE appointments
+        ADD CONSTRAINT appointments_status_check
+        CHECK (status IN ('scheduled', 'confirmed', 'completed', 'cancelled', 'no_show'));
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'appointments_time_check'
+          AND conrelid = 'appointments'::regclass
+      ) THEN
+        ALTER TABLE appointments
+        ADD CONSTRAINT appointments_time_check
+        CHECK (end_time > start_time);
+      END IF;
     END $$;
     `
   );
@@ -971,7 +1203,16 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales(sale_date)",
     "CREATE INDEX IF NOT EXISTS idx_sales_user_id ON sales(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_credit_payments_sale_id ON credit_payments(sale_id)",
-    "CREATE INDEX IF NOT EXISTS idx_reminders_due_date ON reminders(due_date)"
+    "CREATE INDEX IF NOT EXISTS idx_reminders_due_date ON reminders(due_date)",
+    "CREATE INDEX IF NOT EXISTS idx_clients_business_id_active_name ON clients(business_id, is_active, LOWER(name))",
+    "CREATE INDEX IF NOT EXISTS idx_clients_business_phone ON clients(business_id, phone)",
+    "CREATE INDEX IF NOT EXISTS idx_clients_business_email ON clients(business_id, email)",
+    "CREATE INDEX IF NOT EXISTS idx_patients_business_id_active_name ON patients(business_id, is_active, LOWER(name))",
+    "CREATE INDEX IF NOT EXISTS idx_patients_client_id ON patients(business_id, client_id)",
+    "CREATE INDEX IF NOT EXISTS idx_consultations_business_patient_date ON consultations(business_id, patient_id, consultation_date DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_consultations_business_client_date ON consultations(business_id, client_id, consultation_date DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_appointments_business_date_area ON appointments(business_id, appointment_date, area, start_time, end_time)",
+    "CREATE INDEX IF NOT EXISTS idx_appointments_business_patient_date ON appointments(business_id, patient_id, appointment_date DESC)"
   ]);
 }
 
