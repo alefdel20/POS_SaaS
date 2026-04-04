@@ -174,6 +174,13 @@ export function ProfilePage() {
             Empresa actual: <strong>{profile.company_name || "-"}</strong> | Timbres disponibles: <strong>{profile.stamps_available || 0}</strong>
           </p>
         ) : null}
+        {profile ? (
+          <div className="info-card">
+            <p>Estado fiscal: <strong>{profile.has_fiscal_profile ? "Completo" : "Incompleto"}</strong></p>
+            <p>Facturacion en caja: <strong>{profile.billing_ready ? "Disponible" : "Bloqueada"}</strong></p>
+            {profile.stamp_alert_active ? <p className="error-text">El negocio esta en umbral de alerta de timbres.</p> : null}
+          </div>
+        ) : null}
       </div>
 
       <form className="panel grid-form" onSubmit={(event) => saveSection(event, "general", {

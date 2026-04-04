@@ -8,7 +8,7 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   login: (identifier: string, password: string) => Promise<void>;
-  registerBusiness: (payload: RegisterBusinessPayload) => Promise<void>;
+  registerBusiness: (payload: RegisterBusinessPayload) => Promise<AuthResponse>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   setSession: (response: AuthResponse) => void;
@@ -101,6 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     applySession(response.token, normalizeSessionUser(response));
+    return response;
   }
 
   function logout() {

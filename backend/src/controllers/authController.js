@@ -3,7 +3,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const authService = require("../services/authService");
 const userService = require("../services/userService");
-const { BUSINESS_TYPE_OPTIONS } = require("../utils/business");
+const { BUSINESS_TYPE_OPTIONS, POS_TYPE_OPTIONS } = require("../utils/business");
 
 const loginValidation = [
   body("identifier").trim().notEmpty(),
@@ -23,7 +23,7 @@ const registerBusinessValidation = [
   body("password").isLength({ min: 8 }),
   body("role").isIn(["superusuario", "superadmin", "admin"]),
   body("business_type").isIn(BUSINESS_TYPE_OPTIONS),
-  body("pos_type").optional({ values: "falsy" }).trim(),
+  body("pos_type").isIn(POS_TYPE_OPTIONS),
   validateRequest
 ];
 

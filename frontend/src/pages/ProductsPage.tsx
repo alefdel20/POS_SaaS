@@ -2,10 +2,25 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { PaginatedProductsResponse, Product, Supplier } from "../types";
+import type {
+  PaginatedProductsResponse,
+  Product,
+  ProductImportConfirmResponse,
+  ProductImportPreviewResponse,
+  ProductImportPreviewRow,
+  RestockProductItem,
+  Supplier
+} from "../types";
 import { currency, shortDateTime } from "../utils/format";
-import { dateTimeLocalToIsoString, getMexicoCityDateTimeLocalValue } from "../utils/timezone";
 import { resolveProductImageUrl } from "../utils/assets";
+import {
+  VETERINARY_PRODUCT_CATEGORIES,
+  canUseExpiryDate,
+  canUseIeps,
+  getDefaultUnitForPosType,
+  getProductModuleLabel,
+  isVeterinaryPos
+} from "../utils/pos";
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
@@ -82,8 +97,12 @@ const emptyProduct: ProductFormState = {
   discount_end: ""
 };
 
-function toDateTimeLocal(value?: string | null) {
-  return getMexicoCityDateTimeLocalValue(value);
+function buildEmptyProduct(defaultUnit: SaleUnit): ProductFormState {
+  return {
+    ...emptyProduct,
+    unidad_de_venta: defaultUnit,
+    suppliers: [{ ...emptySupplier }]
+  };
 }
 
 function normalizeSaleUnit(value?: string | null) {
@@ -229,10 +248,10 @@ function productToForm(product: Product): ProductFormState {
           whatsapp: product.supplier_whatsapp,
           observations: product.supplier_observations
         })],
-    discount_type: (product.discount_type as ProductFormState["discount_type"]) || "",
-    discount_value: product.discount_value === null || product.discount_value === undefined ? "" : String(product.discount_value),
-    discount_start: toDateTimeLocal(product.discount_start),
-    discount_end: toDateTimeLocal(product.discount_end)
+    discount_type: "",
+    discount_value: "",
+    discount_start: "",
+    discount_end: ""
   };
 }
 
@@ -250,20 +269,42 @@ function validateImageFile(file: File) {
   }
 }
 
+function formatRestockQuantity(value: number, unit?: string | null) {
+  const resolvedUnit = getResolvedSaleUnit(unit);
+  if (resolvedUnit === "pieza" || resolvedUnit === "caja") {
+    return `${Math.trunc(value)} ${resolvedUnit}`;
+  }
+  return `${value.toFixed(3)} ${resolvedUnit}`;
+}
+
 export function ProductsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const defaultSaleUnit = getDefaultUnitForPosType();
+  const emptyProductState = useMemo(() => buildEmptyProduct(defaultSaleUnit), [defaultSaleUnit]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
-  const [form, setForm] = useState<ProductFormState>(emptyProduct);
+  const [form, setForm] = useState<ProductFormState>(emptyProductState);
   const [supplierDrafts, setSupplierDrafts] = useState<ProductSupplierFormState[]>([]);
   const [showSuppliersModal, setShowSuppliersModal] = useState(false);
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<10 | 15>(10);
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
+  const [restockItems, setRestockItems] = useState<RestockProductItem[]>([]);
+  const [restockSearch, setRestockSearch] = useState("");
+  const [restockCategoryFilter, setRestockCategoryFilter] = useState("");
+  const [restockSupplierFilter, setRestockSupplierFilter] = useState("");
+  const [loadingRestock, setLoadingRestock] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<ProductImportPreviewResponse | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importConfirming, setImportConfirming] = useState(false);
+  const [importResult, setImportResult] = useState<ProductImportConfirmResponse | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<number | null>(null);
@@ -273,8 +314,8 @@ export function ProductsPage() {
   const [currentImagePath, setCurrentImagePath] = useState<string | null>(null);
   const [removeImageRequested, setRemoveImageRequested] = useState(false);
   const baselineFormRef = useRef(JSON.stringify({
-    ...emptyProduct,
-    suppliers: emptyProduct.suppliers.map((supplier) => ({ ...supplier }))
+    ...emptyProductState,
+    suppliers: emptyProductState.suppliers.map((supplier) => ({ ...supplier }))
   }));
   const editProductIdFromQuery = Number(searchParams.get("edit") || 0) || null;
   const searchFromQuery = searchParams.get("search") || "";
@@ -283,6 +324,12 @@ export function ProductsPage() {
   const apiBaseUrl = ((import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api");
   const hasSuggestedSku = !form.sku.trim() && Boolean(skuSuggestion);
   const hasSuggestedBarcode = !form.barcode.trim() && Boolean(barcodeSuggestion);
+  const showIepsField = canUseIeps(user?.pos_type);
+  const showExpiryField = canUseExpiryDate(user?.pos_type);
+  const isVeterinaryView = isVeterinaryPos(user?.pos_type);
+  const productModuleLabel = getProductModuleLabel(user?.pos_type);
+  const veterinaryCategoryFilters = [...VETERINARY_PRODUCT_CATEGORIES];
+  const importableRows = importPreview?.rows.filter((row) => row.action === "import" && row.errors.length === 0) || [];
 
   function buildFormSnapshot(state: ProductFormState) {
     return JSON.stringify({
@@ -299,7 +346,7 @@ export function ProductsPage() {
     || Boolean(imageFile)
     || removeImageRequested;
 
-  async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize) {
+  async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize, nextCategoryFilter = categoryFilter) {
     if (!token) return;
     const params = new URLSearchParams({
       page: String(nextPage),
@@ -308,6 +355,9 @@ export function ProductsPage() {
 
     if (nextSearch.trim()) {
       params.set("search", nextSearch.trim());
+    }
+    if (nextCategoryFilter.trim()) {
+      params.set("category", nextCategoryFilter.trim());
     }
 
     const response = await apiRequest<PaginatedProductsResponse>(`/products?${params.toString()}`, { token });
@@ -336,13 +386,105 @@ export function ProductsPage() {
     setCategories(response);
   }
 
+  async function loadRestockProducts(nextSearch = restockSearch, nextCategory = restockCategoryFilter, nextSupplier = restockSupplierFilter) {
+    if (!token) return;
+    setLoadingRestock(true);
+    try {
+      const params = new URLSearchParams();
+      if (nextSearch.trim()) {
+        params.set("search", nextSearch.trim());
+      }
+      if (nextCategory.trim()) {
+        params.set("category", nextCategory.trim());
+      }
+      if (nextSupplier.trim()) {
+        params.set("supplier", nextSupplier.trim());
+      }
+      const response = await apiRequest<RestockProductItem[]>(`/products/restock?${params.toString()}`, { token });
+      setRestockItems(response);
+    } finally {
+      setLoadingRestock(false);
+    }
+  }
+
+  function openImportModal() {
+    setShowImportModal(true);
+    setImportFile(null);
+    setImportPreview(null);
+    setImportResult(null);
+  }
+
+  function closeImportModal() {
+    setShowImportModal(false);
+    setImportFile(null);
+    setImportPreview(null);
+    setImportResult(null);
+    setImportLoading(false);
+    setImportConfirming(false);
+  }
+
+  async function previewImportFile() {
+    if (!token || !importFile) {
+      setError("Selecciona un archivo CSV o XLSX");
+      return;
+    }
+
+    try {
+      setError("");
+      setImportLoading(true);
+      setImportResult(null);
+      const formData = new FormData();
+      formData.append("file", importFile);
+      const response = await apiRequest<ProductImportPreviewResponse>("/products/import/preview", {
+        method: "POST",
+        token,
+        body: formData
+      });
+      setImportPreview(response);
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : "No fue posible previsualizar el archivo");
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  async function confirmImport() {
+    if (!token || !importPreview) return;
+
+    try {
+      setError("");
+      setImportConfirming(true);
+      const response = await apiRequest<ProductImportConfirmResponse>("/products/import/confirm", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          rows: importPreview.rows.filter((row) => row.action === "import" && row.errors.length === 0)
+        })
+      });
+      setImportResult(response);
+      await Promise.all([
+        loadProducts(search, page, pageSize, categoryFilter),
+        loadCategories(),
+        loadSuppliers(),
+        loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter)
+      ]);
+    } catch (confirmError) {
+      setError(confirmError instanceof Error ? confirmError.message : "No fue posible importar productos");
+    } finally {
+      setImportConfirming(false);
+    }
+  }
+
   useEffect(() => {
-    loadProducts(search, page, pageSize).catch((loadError) => {
+    loadProducts(search, page, pageSize, categoryFilter).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
+    });
+    loadRestockProducts().catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar productos por reabastecer");
     });
     loadSuppliers().catch(console.error);
     loadCategories().catch(console.error);
-  }, [token, page, pageSize]);
+  }, [token, page, pageSize, categoryFilter]);
 
   useEffect(() => {
     if (!searchFromQuery || search === searchFromQuery) {
@@ -356,13 +498,23 @@ export function ProductsPage() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       setPage(1);
-      loadProducts(search, 1, pageSize).catch((loadError) => {
+      loadProducts(search, 1, pageSize, categoryFilter).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible buscar productos");
       });
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [search, pageSize, token]);
+  }, [search, pageSize, token, categoryFilter]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter).catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
+      });
+    }, 250);
+
+    return () => clearTimeout(timeout);
+  }, [restockSearch, restockCategoryFilter, restockSupplierFilter, token]);
 
   useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
@@ -378,8 +530,14 @@ export function ProductsPage() {
   }, [editProductIdFromQuery, editingId, products]);
 
   useEffect(() => {
-    syncBaseline(emptyProduct);
-  }, []);
+    syncBaseline(emptyProductState);
+  }, [emptyProductState]);
+
+  useEffect(() => {
+    if (!isVeterinaryView && categoryFilter) {
+      setCategoryFilter("");
+    }
+  }, [categoryFilter, isVeterinaryView]);
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -519,8 +677,8 @@ export function ProductsPage() {
 
       if (editingId === product.id) {
         setEditingId(null);
-        setForm(emptyProduct);
-        syncBaseline(emptyProduct);
+        setForm(emptyProductState);
+        syncBaseline(emptyProductState);
         setImageFile(null);
         setImagePreview(null);
         setCurrentImagePath(null);
@@ -535,7 +693,8 @@ export function ProductsPage() {
         next.delete("search");
         return next;
       });
-      await loadProducts("", 1, pageSize);
+      await loadProducts("", 1, pageSize, categoryFilter);
+      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
     }
@@ -551,9 +710,8 @@ export function ProductsPage() {
     const stockMinimo = Number(form.stock_minimo);
     const stockMaximo = Number(form.stock_maximo);
     const costPrice = form.cost_price === "" ? 0 : Number(form.cost_price);
-    const ieps = form.ieps === "" ? null : Number(form.ieps);
+    const ieps = showIepsField && form.ieps !== "" ? Number(form.ieps) : null;
     const porcentajeGanancia = form.porcentaje_ganancia === "" ? null : Number(form.porcentaje_ganancia);
-    const discountValue = form.discount_value === "" ? null : Number(form.discount_value);
     const resolvedSaleUnit = getResolvedSaleUnit(form.unidad_de_venta);
 
     if (!form.name.trim() || !form.category.trim()) {
@@ -570,8 +728,8 @@ export function ProductsPage() {
       setError("Precio, costo, stock y stock mínimo deben ser numéricos válidos");
       return;
     }
-    if (hasMoreThanFiveDecimals(price) || hasMoreThanFiveDecimals(costPrice) || (discountValue !== null && hasMoreThanFiveDecimals(discountValue))) {
-      setError("Precio, costo y remate solo aceptan hasta 5 decimales");
+    if (hasMoreThanFiveDecimals(price) || hasMoreThanFiveDecimals(costPrice)) {
+      setError("Precio y costo solo aceptan hasta 5 decimales");
       return;
     }
     if (form.barcode.trim() && !/^\d+$/.test(form.barcode.trim())) {
@@ -588,14 +746,6 @@ export function ProductsPage() {
     }
     if (stockMaximo < stockMinimo) {
       setError("El stock maximo no puede ser menor al stock minimo");
-      return;
-    }
-    if (form.discount_type && (discountValue === null || Number.isNaN(discountValue) || discountValue < 0)) {
-      setError("El valor del remate debe ser numérico y válido");
-      return;
-    }
-    if ((form.discount_start && !form.discount_end) || (!form.discount_start && form.discount_end)) {
-      setError("Debes indicar inicio y fin del remate");
       return;
     }
     try {
@@ -686,7 +836,7 @@ export function ProductsPage() {
       stock,
       stock_minimo: stockMinimo,
       stock_maximo: stockMaximo,
-      expires_at: form.expires_at || null,
+      expires_at: showExpiryField ? (form.expires_at || null) : null,
       supplier_id: primarySupplier?.supplier_id ?? null,
       supplier_name: primarySupplier?.supplier_name || null,
       supplier_email: primarySupplier?.supplier_email || null,
@@ -694,10 +844,6 @@ export function ProductsPage() {
       supplier_whatsapp: primarySupplier?.supplier_whatsapp || null,
       supplier_observations: primarySupplier?.supplier_observations || "",
       suppliers: normalizedSuppliers,
-      discount_type: form.discount_type || null,
-      discount_value: discountValue,
-      discount_start: dateTimeLocalToIsoString(form.discount_start),
-      discount_end: dateTimeLocalToIsoString(form.discount_end),
       is_active: form.status === "activo"
     };
 
@@ -720,8 +866,8 @@ export function ProductsPage() {
         });
       }
       await syncProductImage(savedProduct.id);
-      setForm(emptyProduct);
-      syncBaseline(emptyProduct);
+      setForm(emptyProductState);
+      syncBaseline(emptyProductState);
       setEditingId(null);
       setImageFile(null);
       setImagePreview(null);
@@ -740,9 +886,10 @@ export function ProductsPage() {
       });
       setSupplierDrafts([]);
       setShowSuppliersModal(false);
-      await loadProducts(wasEditing ? "" : search, wasEditing ? 1 : page, pageSize);
+      await loadProducts(wasEditing ? "" : search, wasEditing ? 1 : page, pageSize, categoryFilter);
       await loadSuppliers();
       await loadCategories();
+      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
     } catch (submissionError) {
       if (savedProduct) {
         setEditingId(savedProduct.id);
@@ -787,8 +934,8 @@ export function ProductsPage() {
     }
 
     setEditingId(null);
-    setForm(emptyProduct);
-    syncBaseline(emptyProduct);
+    setForm(emptyProductState);
+    syncBaseline(emptyProductState);
     setImageFile(null);
     setImagePreview(null);
     setCurrentImagePath(null);
@@ -865,7 +1012,8 @@ export function ProductsPage() {
           is_active: nextStatus === "activo"
         })
       });
-      await loadProducts(search, page, pageSize);
+      await loadProducts(search, page, pageSize, categoryFilter);
+      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : "No fue posible actualizar el producto");
     } finally {
@@ -877,7 +1025,7 @@ export function ProductsPage() {
     <section className="page-grid">
       <form className="panel product-form-panel product-form-panel-wide" onSubmit={handleSubmit}>
         <div className="panel-header">
-          <h2>{editingId ? "Editar producto" : "Nuevo producto"}</h2>
+          <h2>{editingId ? `Editar ${productModuleLabel.toLowerCase()}` : `Nuevo ${productModuleLabel.toLowerCase()}`}</h2>
           <div className="inline-actions">
             {editingId ? (
               <button
@@ -1020,10 +1168,12 @@ export function ProductsPage() {
               }}
             />
           </label>
-          <label>
-            IEPS
-            <input type="number" min="0" step="0.01" value={form.ieps} onChange={(event) => setForm({ ...form, ieps: event.target.value })} />
-          </label>
+          {showIepsField ? (
+            <label>
+              IEPS
+              <input type="number" min="0" step="0.01" value={form.ieps} onChange={(event) => setForm({ ...form, ieps: event.target.value })} />
+            </label>
+          ) : null}
           <label>
             % ganancia
             <input type="number" step="0.001" value={form.porcentaje_ganancia} onChange={(event) => setForm({ ...form, porcentaje_ganancia: event.target.value, price: event.target.value === "" ? form.price : recalculatePrice(form.cost_price, event.target.value) })} />
@@ -1040,42 +1190,12 @@ export function ProductsPage() {
             {requiredLabel("Stock maximo")}
             <input type="number" min="0" step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
           </label>
-          <label>
-            Fecha de vencimiento
-            <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
-          </label>
-          <label>
-            Tipo de remate
-            <select
-              value={form.discount_type}
-              onChange={(event) => {
-                const nextDiscountType = event.target.value as ProductFormState["discount_type"];
-                setForm({
-                  ...form,
-                  discount_type: nextDiscountType,
-                  discount_value: nextDiscountType ? form.discount_value : "",
-                  discount_start: nextDiscountType ? form.discount_start : "",
-                  discount_end: nextDiscountType ? form.discount_end : ""
-                });
-              }}
-            >
-              <option value="">Sin remate programado</option>
-              <option value="percentage">Porcentaje</option>
-              <option value="fixed">Monto fijo</option>
-            </select>
-          </label>
-          <label>
-            Valor de remate
-            <input type="number" min="0" step="0.00001" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} />
-          </label>
-          <label>
-            Inicio remate
-            <input type="datetime-local" value={form.discount_start} onChange={(event) => setForm({ ...form, discount_start: event.target.value })} />
-          </label>
-          <label>
-            Fin remate
-            <input type="datetime-local" value={form.discount_end} onChange={(event) => setForm({ ...form, discount_end: event.target.value })} />
-          </label>
+          {showExpiryField ? (
+            <label>
+              Fecha de vencimiento
+              <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
+            </label>
+          ) : null}
         </div>
 
         <div className="panel-header">
@@ -1281,11 +1401,12 @@ export function ProductsPage() {
       <div className="panel">
         <div className="panel-header product-catalog-header">
           <div>
-            <h2>Catálogo administrativo</h2>
+            <h2>{productModuleLabel}</h2>
             <p className="muted">Buscador, paginación y alertas por stock mínimo.</p>
           </div>
           <div className="inline-actions">
-            <button className="button" onClick={resetProductEditor} type="button">Nuevo producto</button>
+            <button className="button" onClick={resetProductEditor} type="button">Nuevo registro</button>
+            <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button>
             <input
               className="search-input"
               placeholder="Buscar por nombre, SKU, categoría o proveedor"
@@ -1299,6 +1420,23 @@ export function ProductsPage() {
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
+        {isVeterinaryView ? (
+          <div className="inline-actions quick-filter-row">
+            <button className={`button ghost ${categoryFilter === "" ? "active-filter" : ""}`} onClick={() => { setCategoryFilter(""); setPage(1); }} type="button">
+              Todas
+            </button>
+            {veterinaryCategoryFilters.map((category) => (
+              <button
+                className={`button ghost ${categoryFilter === category ? "active-filter" : ""}`}
+                key={category}
+                onClick={() => { setCategoryFilter(category); setPage(1); }}
+                type="button"
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="table-wrap">
           <table>
             <thead>
@@ -1380,8 +1518,8 @@ export function ProductsPage() {
             </tbody>
           </table>
         </div>
-        <div className="panel-header product-table-footer">
-          <p className="muted">{totalProducts} productos encontrados</p>
+      <div className="panel-header product-table-footer">
+          <p className="muted">{totalProducts} {isVeterinaryView ? "productos e insumos" : "productos"} encontrados</p>
           <div className="inline-actions">
             <button className="button ghost" disabled={page <= 1} onClick={() => setPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
             <span className="muted">Pagina {page} de {totalPages}</span>
@@ -1389,6 +1527,213 @@ export function ProductsPage() {
           </div>
         </div>
       </div>
+
+      <div className="panel">
+        <div className="panel-header product-catalog-header">
+          <div>
+            <h2>Productos por reabastecer</h2>
+            <p className="muted">Vista operativa con stock actual, proveedor principal y costo reciente.</p>
+          </div>
+          <div className="total-box secondary compact-box">
+            <span>Alertas</span>
+            <strong>{restockItems.length}</strong>
+          </div>
+        </div>
+        <div className="inline-actions quick-filter-row">
+          <input
+            className="search-input"
+            placeholder="Buscar por nombre, SKU, categoria o proveedor"
+            value={restockSearch}
+            onChange={(event) => setRestockSearch(event.target.value)}
+          />
+          <input
+            list="product-category-options"
+            placeholder="Categoria"
+            value={restockCategoryFilter}
+            onChange={(event) => setRestockCategoryFilter(event.target.value)}
+          />
+          <input
+            list="supplier-options"
+            placeholder="Proveedor"
+            value={restockSupplierFilter}
+            onChange={(event) => setRestockSupplierFilter(event.target.value)}
+          />
+          <button
+            className="button ghost"
+            onClick={() => {
+              setRestockSearch("");
+              setRestockCategoryFilter("");
+              setRestockSupplierFilter("");
+            }}
+            type="button"
+          >
+            Limpiar filtros
+          </button>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Categoria</th>
+                <th>Stock</th>
+                <th>Minimo</th>
+                <th>Proveedor</th>
+                <th>Costo reciente</th>
+                <th>Sugerido</th>
+              </tr>
+            </thead>
+            <tbody>
+              {restockItems.map((item) => (
+                <tr key={`restock-${item.id}`}>
+                  <td>
+                    <div>
+                      <div>{item.name}</div>
+                      <small className="error-text">Faltante: {formatRestockQuantity(item.shortage, item.unidad_de_venta)}</small>
+                    </div>
+                  </td>
+                  <td>{item.category || "-"}</td>
+                  <td>{formatRestockQuantity(item.stock, item.unidad_de_venta)}</td>
+                  <td>{formatRestockQuantity(item.stock_minimo, item.unidad_de_venta)}</td>
+                  <td>
+                    <div>{item.supplier_name || "-"}</div>
+                    <small className="muted">{item.supplier_whatsapp || "-"}</small>
+                  </td>
+                  <td>
+                    <div>{item.recent_purchase_cost !== null && item.recent_purchase_cost !== undefined ? currency(item.recent_purchase_cost) : currency(item.cost_price || 0)}</div>
+                    <small className="muted">{item.cost_updated_at ? `Actualizado ${shortDateTime(item.cost_updated_at)}` : "Sin costo reciente"}</small>
+                  </td>
+                  <td>{formatRestockQuantity(item.suggested_restock, item.unidad_de_venta)}</td>
+                </tr>
+              ))}
+              {restockItems.length === 0 ? (
+                <tr>
+                  <td className="muted" colSpan={7}>{loadingRestock ? "Cargando..." : "No hay productos pendientes de reabastecimiento."}</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showImportModal ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card import-modal-card">
+            <div className="panel-header">
+              <div>
+                <h3>Importar productos</h3>
+                <p className="muted">Sube un CSV o XLSX para revisar el catalogo antes de importarlo.</p>
+              </div>
+              <button className="button ghost" onClick={closeImportModal} type="button">Cerrar</button>
+            </div>
+            <div className="grid-form">
+              <label>
+                Archivo
+                <input accept=".csv,.xlsx" onChange={(event) => setImportFile(event.target.files?.[0] || null)} type="file" />
+              </label>
+              <div className="inline-actions">
+                <button className="button" disabled={!importFile || importLoading} onClick={previewImportFile} type="button">
+                  {importLoading ? "Analizando..." : "Generar preview"}
+                </button>
+                <span className="muted">El sistema detecta columnas comunes, completa categoria/unidad faltante y reutiliza validaciones actuales.</span>
+              </div>
+            </div>
+
+            {importPreview ? (
+              <div className="stack-list">
+                <div className="import-summary-grid">
+                  <div className="total-box secondary compact-box">
+                    <span>Filas</span>
+                    <strong>{importPreview.summary.total}</strong>
+                  </div>
+                  <div className="total-box secondary compact-box">
+                    <span>Listas</span>
+                    <strong>{importPreview.summary.ready}</strong>
+                  </div>
+                  <div className="total-box secondary compact-box">
+                    <span>Con error</span>
+                    <strong>{importPreview.summary.with_errors}</strong>
+                  </div>
+                  <div className="total-box secondary compact-box">
+                    <span>Con aviso</span>
+                    <strong>{importPreview.summary.with_warnings}</strong>
+                  </div>
+                </div>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Fila</th>
+                        <th>Nombre</th>
+                        <th>Precio</th>
+                        <th>Costo</th>
+                        <th>Categoria</th>
+                        <th>Unidad</th>
+                        <th>Stock</th>
+                        <th>Proveedor</th>
+                        <th>Revision</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.rows.map((row: ProductImportPreviewRow) => (
+                        <tr key={`import-preview-${row.index}`}>
+                          <td>{row.row_number}</td>
+                          <td>{row.payload.name || "-"}</td>
+                          <td>{row.payload.price || "-"}</td>
+                          <td>{row.payload.cost_price || "-"}</td>
+                          <td>{row.payload.category || "-"}</td>
+                          <td>{row.payload.unidad_de_venta}</td>
+                          <td>{row.payload.stock || "0"}</td>
+                          <td>{row.payload.supplier_name || "-"}</td>
+                          <td>
+                            {row.errors.length ? <div className="error-text">{row.errors.join(" | ")}</div> : null}
+                            {!row.errors.length && row.warnings.length ? <div className="muted">{row.warnings.join(" | ")}</div> : null}
+                            {!row.errors.length && !row.warnings.length ? <span className="success-text">Lista para importar</span> : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="inline-actions modal-actions-end">
+                  <button className="button ghost" onClick={closeImportModal} type="button">Cancelar</button>
+                  <button className="button" disabled={importableRows.length === 0 || importConfirming} onClick={confirmImport} type="button">
+                    {importConfirming ? "Importando..." : `Confirmar importacion (${importableRows.length})`}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {importResult ? (
+              <div className="info-card">
+                <h3>Resultado de importacion</h3>
+                <p>Importados: {importResult.summary.imported} | Errores: {importResult.summary.errors}</p>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Fila</th>
+                        <th>Estado</th>
+                        <th>Detalle</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importResult.results.map((row, index) => (
+                        <tr key={`import-result-${index}`}>
+                          <td>{row.row_number || "-"}</td>
+                          <td>{row.status}</td>
+                          <td>{row.message || row.product_name || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
+

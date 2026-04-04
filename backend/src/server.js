@@ -19,6 +19,8 @@ const profileRoutes = require("./routes/profileRoutes");
 const supplierRoutes = require("./routes/supplierRoutes");
 const businessRoutes = require("./routes/businessRoutes");
 const adminInvoiceRoutes = require("./routes/adminInvoiceRoutes");
+const onboardingRoutes = require("./routes/onboardingRoutes");
+const serviceCatalogRoutes = require("./routes/serviceCatalogRoutes");
 const { ensureUploadsDirectory } = require("./utils/productImages");
 
 const app = express();
@@ -56,6 +58,8 @@ app.use(["/profile", "/api/profile"], requireAuth, profileRoutes);
 app.use(["/suppliers", "/api/suppliers"], requireAuth, supplierRoutes);
 app.use(["/businesses", "/api/businesses"], requireAuth, businessRoutes);
 app.use(["/admin-invoices", "/api/admin-invoices"], requireAuth, adminInvoiceRoutes);
+app.use(["/onboarding", "/api/onboarding"], requireAuth, onboardingRoutes);
+app.use(["/services", "/api/services"], requireAuth, serviceCatalogRoutes);
 
 app.use(errorHandler);
 

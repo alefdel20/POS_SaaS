@@ -6,6 +6,7 @@ import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { isManagementRole } from "../utils/roles";
 import { resolveProductImageUrl } from "../utils/assets";
+import { canUseCreditCollections, getDefaultUnitForPosType } from "../utils/pos";
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
@@ -136,9 +137,11 @@ function formatSaleQuantity(quantity: number, unit?: string | null) {
 
 export function SalesPage() {
   const { token, user } = useAuth();
+  const defaultSaleUnit = getDefaultUnitForPosType();
   const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
@@ -156,7 +159,7 @@ export function SalesPage() {
   const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
   const [invoiceData, setInvoiceData] = useState(emptyInvoiceData);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
-  const [quickProductForm, setQuickProductForm] = useState<QuickProductFormState>(emptyQuickProduct);
+  const [quickProductForm, setQuickProductForm] = useState<QuickProductFormState>({ ...emptyQuickProduct, unidad_de_venta: defaultSaleUnit, stock: "0" });
   const [quickSupplierOptions, setQuickSupplierOptions] = useState<Supplier[]>([]);
   const [quickSupplierTouched, setQuickSupplierTouched] = useState<QuickSupplierTouchedState>(emptyQuickSupplierTouched);
   const [quickProductError, setQuickProductError] = useState("");
@@ -184,6 +187,16 @@ export function SalesPage() {
     if (!token) return;
     const response = await apiRequest<CompanyProfile>("/profile", { token });
     setProfile(response);
+  }
+
+  async function loadCategories(term = "") {
+    if (!token) return;
+    const params = new URLSearchParams();
+    if (term.trim()) {
+      params.set("search", term.trim());
+    }
+    const response = await apiRequest<string[]>(`/products/categories?${params.toString()}`, { token });
+    setCategories(response);
   }
 
   async function loadSupplierOptions(term = "") {
@@ -228,6 +241,7 @@ export function SalesPage() {
     loadProfile().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil del negocio");
     });
+    loadCategories().catch(() => setCategories([]));
   }, [token]);
 
   useEffect(() => {
@@ -270,6 +284,8 @@ export function SalesPage() {
     commission: profile?.card_commission ?? null
   };
   const canQuickCreateProduct = isManagementRole(user?.role);
+  const canUseCredit = canUseCreditCollections(user?.pos_type);
+  const stampCount = Number(profile?.stamps_available || 0);
 
   useEffect(() => {
     setInvoiceData((current) => ({
@@ -286,6 +302,12 @@ export function SalesPage() {
       setSaleType("ticket");
     }
   }, [canUseInvoice, invoiceBlockedByStamps, saleType]);
+
+  useEffect(() => {
+    if (!canUseCredit && paymentMethod === "credit") {
+      setPaymentMethod("cash");
+    }
+  }, [canUseCredit, paymentMethod]);
 
   useEffect(() => {
     if (!showQuickAddModal) {
@@ -342,19 +364,24 @@ export function SalesPage() {
   }
 
   function openQuickAddModal() {
+    const suggestedCategory = cart[cart.length - 1]?.product.category || categories[0] || "";
     setQuickProductForm({
       ...emptyQuickProduct,
-      name: search.trim()
+      name: search.trim(),
+      category: suggestedCategory,
+      unidad_de_venta: defaultSaleUnit,
+      stock: "0"
     });
     setQuickSupplierTouched(emptyQuickSupplierTouched);
     loadSupplierOptions().catch(() => setQuickSupplierOptions([]));
+    loadCategories().catch(() => setCategories([]));
     setQuickProductError("");
     setShowQuickAddModal(true);
   }
 
   function closeQuickAddModal() {
     setShowQuickAddModal(false);
-    setQuickProductForm(emptyQuickProduct);
+    setQuickProductForm({ ...emptyQuickProduct, unidad_de_venta: defaultSaleUnit, stock: "0" });
     setQuickSupplierOptions([]);
     setQuickSupplierTouched(emptyQuickSupplierTouched);
     setQuickProductError("");
@@ -508,6 +535,7 @@ export function SalesPage() {
           supplier_phone: quickProductForm.supplier_phone.trim() || undefined,
           supplier_whatsapp: quickProductForm.supplier_whatsapp.trim() || undefined,
           supplier_observations: quickProductForm.supplier_observations.trim() || undefined,
+          source: "quick_sale_add",
           status: "activo",
           is_active: true
         })
@@ -784,7 +812,7 @@ export function SalesPage() {
             <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>
               <option value="cash">{getPaymentMethodLabel("cash")}</option>
               <option value="card">{getPaymentMethodLabel("card")}</option>
-              <option value="credit">{getPaymentMethodLabel("credit")}</option>
+              {canUseCredit ? <option value="credit">{getPaymentMethodLabel("credit")}</option> : null}
               <option value="transfer">{getPaymentMethodLabel("transfer")}</option>
             </select>
           </label>
@@ -805,6 +833,10 @@ export function SalesPage() {
             <span>Total</span>
             <strong>{currency(total)}</strong>
           </div>
+          <div className="total-box secondary">
+            <span>Timbres disponibles</span>
+            <strong>{stampCount}</strong>
+          </div>
           <button
             className="button"
             disabled={(saleType === "invoice" && (!canUseInvoice || (!requiresAdministrativeInvoice && invoiceBlockedByStamps))) || !hasValidCashReceived || cart.length === 0}
@@ -814,6 +846,12 @@ export function SalesPage() {
             Finalizar venta
           </button>
         </div>
+
+        {!canUseCredit ? (
+          <div className="warning-box">
+            <p>Credito y Cobranza no esta disponible para el giro Dentista.</p>
+          </div>
+        ) : null}
 
         {!canUseInvoice ? (
           <div className="warning-box">
@@ -1036,7 +1074,7 @@ export function SalesPage() {
                 />
               </label>
               <label>
-                Costo del producto *
+                Costo del producto
                 <input
                   min="0"
                   step="0.00001"
@@ -1055,7 +1093,7 @@ export function SalesPage() {
                 />
               </label>
               <label>
-                Stock inicial *
+                Stock inicial
                 <input
                   min="0"
                   step={getResolvedSaleUnit(quickProductForm.unidad_de_venta) === "kg" || getResolvedSaleUnit(quickProductForm.unidad_de_venta) === "litro" ? "0.001" : "1"}
@@ -1067,14 +1105,18 @@ export function SalesPage() {
               <label>
                 Categoria *
                 <input
+                  list="quick-category-options"
                   value={quickProductForm.category}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, category: event.target.value })}
+                  onChange={(event) => {
+                    setQuickProductForm({ ...quickProductForm, category: event.target.value });
+                    loadCategories(event.target.value).catch(() => setCategories([]));
+                  }}
                 />
               </label>
               <label>
                 Unidad de venta
                 <select value={quickProductForm.unidad_de_venta} onChange={(event) => setQuickProductForm({ ...quickProductForm, unidad_de_venta: event.target.value as SaleUnit | "" })}>
-                  <option value="">pieza (default)</option>
+                  <option value="">{defaultSaleUnit} (default)</option>
                   {SALE_UNITS.map((unit) => (
                     <option key={unit} value={unit}>{unit}</option>
                   ))}
@@ -1092,6 +1134,7 @@ export function SalesPage() {
               <label>
                 Codigo de barras
                 <input
+                  placeholder="Opcional, se genera si lo dejas vacio"
                   value={quickProductForm.barcode}
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, barcode: event.target.value.replace(/\D/g, ""), barcode_manually_edited: true })}
                 />
@@ -1141,6 +1184,11 @@ export function SalesPage() {
             <datalist id="quick-supplier-options">
               {quickSupplierOptions.map((supplier) => (
                 <option key={supplier.id} value={supplier.name} />
+              ))}
+            </datalist>
+            <datalist id="quick-category-options">
+              {categories.map((category) => (
+                <option key={category} value={category} />
               ))}
             </datalist>
             <div className="inline-actions modal-actions-end">

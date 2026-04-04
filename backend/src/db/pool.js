@@ -22,6 +22,8 @@ const TENANT_TABLES = [
   "users",
   "suppliers",
   "products",
+  "services",
+  "automation_events",
   "product_suppliers",
   "sales",
   "sale_items",

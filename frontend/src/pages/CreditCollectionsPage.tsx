@@ -5,6 +5,7 @@ import type { CreditPayment, Debtor } from "../types";
 import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel } from "../utils/uiLabels";
 import { getMexicoCityDateInputValue } from "../utils/timezone";
+import { canUseCreditCollections } from "../utils/pos";
 
 type PaymentFormState = {
   amount: string;
@@ -21,19 +22,50 @@ const emptyPayment: PaymentFormState = {
 };
 
 export function CreditCollectionsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [debtors, setDebtors] = useState<Debtor[]>([]);
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
   const [payments, setPayments] = useState<CreditPayment[]>([]);
   const [form, setForm] = useState(emptyPayment);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "overdue">("all");
   const [error, setError] = useState("");
   const [sendingReminder, setSendingReminder] = useState(false);
+  const isAvailable = canUseCreditCollections(user?.pos_type);
 
-  async function loadDebtors() {
+  if (!isAvailable) {
+    return (
+      <section className="page-grid">
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Credito y Cobranza</h2>
+              <p className="muted">Este modulo no esta disponible para el giro Dentista.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  async function loadDebtors(nextSearch = search, nextStatus = statusFilter) {
     if (!token) return;
-    const response = await apiRequest<Debtor[]>("/credit-collections", { token });
+    const params = new URLSearchParams();
+    if (nextSearch.trim()) {
+      params.set("search", nextSearch.trim());
+    }
+    if (nextStatus !== "all") {
+      params.set("status", nextStatus);
+    }
+
+    const response = await apiRequest<Debtor[]>(`/credit-collections?${params.toString()}`, { token });
     setDebtors(response);
-    setSelectedSaleId((current) => current ?? response[0]?.sale_id ?? null);
+    setSelectedSaleId((current) => {
+      if (current && response.some((debtor) => debtor.sale_id === current)) {
+        return current;
+      }
+      return response[0]?.sale_id ?? null;
+    });
   }
 
   async function loadPayments(saleId: number) {
@@ -47,6 +79,16 @@ export function CreditCollectionsPage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar deudores");
     });
   }, [token]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      loadDebtors(search, statusFilter).catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible filtrar deudores");
+      });
+    }, 250);
+
+    return () => clearTimeout(timeout);
+  }, [search, statusFilter, token]);
 
   useEffect(() => {
     if (!selectedSaleId) return;
@@ -72,7 +114,7 @@ export function CreditCollectionsPage() {
         })
       });
       setForm(emptyPayment);
-      await loadDebtors();
+      await loadDebtors(search, statusFilter);
       await loadPayments(selectedSaleId);
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible registrar el abono");
@@ -89,7 +131,7 @@ export function CreditCollectionsPage() {
         token,
         body: JSON.stringify({ send_reminder: sendReminder })
       });
-      await loadDebtors();
+      await loadDebtors(search, statusFilter);
     } catch (preferenceError) {
       setError(preferenceError instanceof Error ? preferenceError.message : "No fue posible actualizar el recordatorio");
     }
@@ -119,6 +161,8 @@ export function CreditCollectionsPage() {
   }
 
   const selectedDebtor = debtors.find((debtor) => debtor.sale_id === selectedSaleId) || null;
+  const totalPending = debtors.reduce((sum, debtor) => sum + Number(debtor.balance_due || 0), 0);
+  const overdueCount = debtors.filter((debtor) => debtor.status === "overdue").length;
 
   return (
     <section className="page-grid two-columns">
@@ -129,14 +173,42 @@ export function CreditCollectionsPage() {
             <p className="muted">Saldo final = total venta - total abonado.</p>
           </div>
         </div>
+        <div className="credit-summary">
+          <div className="total-box secondary">
+            <span>Deudores</span>
+            <strong>{debtors.length}</strong>
+          </div>
+          <div className="total-box secondary">
+            <span>Saldo pendiente</span>
+            <strong>{currency(totalPending)}</strong>
+          </div>
+          <div className="total-box secondary">
+            <span>Atrasados</span>
+            <strong>{overdueCount}</strong>
+          </div>
+        </div>
+        <div className="inline-actions quick-filter-row">
+          <input
+            className="search-input"
+            placeholder="Buscar por cliente, telefono o venta"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+            <option value="all">Todos</option>
+            <option value="pending">Pendientes</option>
+            <option value="overdue">Vencidos</option>
+          </select>
+        </div>
         {error ? <p className="error-text">{error}</p> : null}
         <div className="table-wrap">
-          <table className="credit-collections-table">
+          <table className="credit-collections-table credit-collections-table-wide">
             <thead>
               <tr>
-                <th>Persona</th>
-                <th>Teléfono</th>
+                <th>Cliente</th>
+                <th>Venta</th>
                 <th>Saldo pendiente</th>
+                <th>Estado</th>
                 <th className="credit-reminder-header">Recordatorio</th>
               </tr>
             </thead>
@@ -147,9 +219,19 @@ export function CreditCollectionsPage() {
                   key={debtor.sale_id}
                   onClick={() => setSelectedSaleId(debtor.sale_id)}
                 >
-                  <td>{debtor.person}</td>
-                  <td>{debtor.phone}</td>
+                  <td>
+                    <div>{debtor.person}</div>
+                    <small className="muted">{debtor.phone || "-"}</small>
+                  </td>
+                  <td>
+                    <div>{shortDate(debtor.sale_date)}</div>
+                    <small className="muted">Venta #{debtor.sale_id}</small>
+                  </td>
                   <td>{currency(debtor.balance_due)}</td>
+                  <td>
+                    <div>{debtor.status === "overdue" ? "Atrasado" : "Pendiente"}</div>
+                    <small className="muted">{debtor.days_overdue ? `${debtor.days_overdue} dia(s)` : "Sin atraso"}</small>
+                  </td>
                   <td className="credit-reminder-cell">
                     <label className="checkbox-row credit-reminder-toggle">
                       <input
@@ -167,7 +249,7 @@ export function CreditCollectionsPage() {
               ))}
               {debtors.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={4}>No hay ventas pendientes.</td>
+                  <td className="muted" colSpan={5}>No hay ventas pendientes.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -180,7 +262,7 @@ export function CreditCollectionsPage() {
           <div className="panel-header">
             <div>
               <h2>Registrar abono</h2>
-              <p className="muted">{selectedDebtor ? `${selectedDebtor.person} | venta #${selectedDebtor.sale_id}` : "Selecciona una venta a crédito"}</p>
+              <p className="muted">{selectedDebtor ? `${selectedDebtor.person} | venta #${selectedDebtor.sale_id}` : "Selecciona una venta a credito"}</p>
             </div>
           </div>
           <label>
@@ -188,7 +270,7 @@ export function CreditCollectionsPage() {
             <input min="0" step="0.01" required type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
           </label>
           <label>
-            Método de pago *
+            Metodo de pago *
             <select value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value as CreditPayment["payment_method"] })}>
               <option value="cash">Efectivo</option>
               <option value="card">Tarjeta</option>
@@ -206,6 +288,14 @@ export function CreditCollectionsPage() {
           </label>
           <div className="inline-actions">
             <button className="button" disabled={!selectedSaleId} type="submit">Registrar abono</button>
+            <button
+              className="button ghost"
+              disabled={!selectedDebtor}
+              onClick={() => setForm((current) => ({ ...current, amount: selectedDebtor ? String(selectedDebtor.balance_due) : current.amount }))}
+              type="button"
+            >
+              Liquidar saldo
+            </button>
             <button className="button ghost" disabled={!selectedSaleId || sendingReminder} onClick={sendReminder} type="button">
               {sendingReminder ? "Enviando..." : "Enviar recordatorio"}
             </button>
@@ -217,20 +307,29 @@ export function CreditCollectionsPage() {
             <h2>Historial de abonos</h2>
           </div>
           {selectedDebtor ? (
-            <div className="credit-summary">
-              <div className="total-box secondary">
-                <span>Total venta</span>
-                <strong>{currency(selectedDebtor.total)}</strong>
+            <>
+              <div className="credit-summary">
+                <div className="total-box secondary">
+                  <span>Total venta</span>
+                  <strong>{currency(selectedDebtor.total)}</strong>
+                </div>
+                <div className="total-box secondary">
+                  <span>Total abonado</span>
+                  <strong>{currency(selectedDebtor.initial_payment + selectedDebtor.total_paid)}</strong>
+                </div>
+                <div className="total-box secondary">
+                  <span>Saldo final</span>
+                  <strong>{currency(selectedDebtor.balance_due)}</strong>
+                </div>
               </div>
-              <div className="total-box secondary">
-                <span>Total abonado</span>
-                <strong>{currency(selectedDebtor.initial_payment + selectedDebtor.total_paid)}</strong>
+              <div className="info-card">
+                <p>Cliente: {selectedDebtor.person || "-"}</p>
+                <p>Telefono: {selectedDebtor.phone || "-"}</p>
+                <p>Fecha venta: {shortDate(selectedDebtor.sale_date)}</p>
+                <p>Estado: {selectedDebtor.status === "overdue" ? "Atrasado" : "Pendiente"}</p>
+                <p>Dias de atraso: {selectedDebtor.days_overdue || 0}</p>
               </div>
-              <div className="total-box secondary">
-                <span>Saldo final</span>
-                <strong>{currency(selectedDebtor.balance_due)}</strong>
-              </div>
-            </div>
+            </>
           ) : null}
           <div className="table-wrap">
             <table>
@@ -239,6 +338,7 @@ export function CreditCollectionsPage() {
                   <th>Fecha</th>
                   <th>Monto</th>
                   <th>Metodo</th>
+                  <th>Notas</th>
                 </tr>
               </thead>
               <tbody>
@@ -247,11 +347,12 @@ export function CreditCollectionsPage() {
                     <td>{shortDate(payment.payment_date)}</td>
                     <td>{currency(payment.amount)}</td>
                     <td>{getPaymentMethodLabel(payment.payment_method)}</td>
+                    <td>{payment.notes || "-"}</td>
                   </tr>
                 ))}
                 {payments.length === 0 ? (
                   <tr>
-                    <td className="muted" colSpan={3}>Sin abonos registrados.</td>
+                    <td className="muted" colSpan={4}>Sin abonos registrados.</td>
                   </tr>
                 ) : null}
               </tbody>

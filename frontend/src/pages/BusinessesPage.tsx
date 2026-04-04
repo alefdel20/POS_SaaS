@@ -2,8 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Business, PosType } from "../types";
-
-const POS_TYPES: PosType[] = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Otro"];
+import { POS_TYPE_OPTIONS, getPosTypeLabel } from "../utils/pos";
 
 const emptyForm = {
   name: "",
@@ -65,7 +64,7 @@ export function BusinessesPage() {
         <label>
           Tipo de POS *
           <select value={form.pos_type} onChange={(event) => setForm({ ...form, pos_type: event.target.value as PosType })}>
-            {POS_TYPES.map((posType) => <option key={posType} value={posType}>{posType}</option>)}
+            {POS_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
         <button className="button" type="submit">Crear negocio</button>
@@ -94,7 +93,7 @@ export function BusinessesPage() {
                 <tr key={business.id}>
                   <td>{business.name}</td>
                   <td>{business.slug}</td>
-                  <td>{business.pos_type}</td>
+                  <td>{getPosTypeLabel(business.pos_type)}</td>
                   <td>{business.user_count ?? 0}</td>
                   <td>{business.is_active ? "Activo" : "Inactivo"}</td>
                 </tr>

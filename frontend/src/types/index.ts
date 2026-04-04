@@ -1,5 +1,5 @@
 export type Role = "superusuario" | "superadmin" | "admin" | "soporte" | "support" | "cajero" | "cashier" | "user";
-export type BusinessType = "Tienda" | "Tlapaleria" | "Farmacia" | "Veterinaria" | "Otro";
+export type BusinessType = "Tienda" | "Tlapaleria" | "Papeleria" | "Veterinaria" | "Dentista" | "Farmacia" | "FarmaciaConsultorio" | "ClinicaChica" | "Otro";
 export type PosType = string;
 
 export interface User {
@@ -115,6 +115,87 @@ export interface Product {
   status?: "activo" | "inactivo";
 }
 
+export interface ProductImportPreviewRow {
+  row_number: number;
+  index: number;
+  payload: {
+    name: string;
+    price: string;
+    cost_price: string;
+    category: string;
+    sku: string;
+    barcode: string;
+    stock: string;
+    unidad_de_venta: "pieza" | "kg" | "litro" | "caja";
+    supplier_name: string;
+    stock_minimo: string;
+  };
+  warnings: string[];
+  errors: string[];
+  action: "import" | "error";
+}
+
+export interface ProductImportPreviewResponse {
+  format: "csv" | "xlsx";
+  headers: string[];
+  detected_columns: Record<string, number>;
+  rows: ProductImportPreviewRow[];
+  summary: {
+    total: number;
+    ready: number;
+    with_errors: number;
+    with_warnings: number;
+    omitted: number;
+  };
+}
+
+export interface ProductImportResult {
+  row_number: number | null;
+  status: "imported" | "error";
+  product_id?: number;
+  product_name?: string;
+  message?: string;
+}
+
+export interface ProductImportConfirmResponse {
+  results: ProductImportResult[];
+  summary: {
+    total: number;
+    imported: number;
+    errors: number;
+    omitted: number;
+  };
+}
+
+export interface RestockProductItem {
+  id: number;
+  name: string;
+  sku: string;
+  category?: string | null;
+  stock: number;
+  stock_minimo: number;
+  stock_maximo: number;
+  cost_price: number;
+  unidad_de_venta?: "pieza" | "kg" | "litro" | "caja" | null;
+  supplier_name?: string | null;
+  supplier_whatsapp?: string | null;
+  recent_purchase_cost?: number | null;
+  cost_updated_at?: string | null;
+  shortage: number;
+  suggested_restock: number;
+}
+
+export interface ServiceCatalogItem {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  category?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Sale {
   id: number;
   user_id: number;
@@ -220,6 +301,9 @@ export interface CompanyProfile {
   stamps_available: number;
   stamps_used: number;
   stamp_alert_threshold: number;
+  has_fiscal_profile?: boolean;
+  billing_ready?: boolean;
+  stamp_alert_active?: boolean;
   is_active: boolean;
 }
 
@@ -232,6 +316,8 @@ export interface Debtor {
   initial_payment: number;
   total_paid: number;
   balance_due: number;
+  days_overdue?: number;
+  status?: "pending" | "overdue" | "settled";
   send_reminder?: boolean;
 }
 
@@ -279,10 +365,29 @@ export interface DailyCut {
 export interface DashboardSummary {
   total_sales_today: number;
   total_sales_week: number;
+  total_sales_month: number;
+  estimated_profit_month: number;
+  pending_credit_balance: number;
   total_products: number;
   low_stock_products: number;
   active_users: number;
   pending_reminders: number;
+  stamps_available?: number;
+  billing_ready?: boolean;
+  low_stock_items: Array<{
+    id: number;
+    name: string;
+    stock: number;
+    stock_minimo: number;
+    category?: string | null;
+  }>;
+  top_products: Array<{
+    product_id: number;
+    product_name: string;
+    sku?: string | null;
+    units_sold: number;
+    total_sales: number;
+  }>;
 }
 
 export interface Expense {

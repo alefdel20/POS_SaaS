@@ -1,16 +1,51 @@
 const pool = require("../db/pool");
+const ExcelJS = require("exceljs");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { buildStoredImagePath, deleteStoredImage } = require("../utils/productImages");
 const { saveAuditLog } = require("./auditLogService");
+const { emitActorAutomationEvent } = require("./automationEventService");
+const { canUseExpiryDate, canUseIeps, normalizePosType } = require("../utils/business");
 
 const SKU_CONFUSING_CHARACTERS = { O: "0", I: "1" };
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"];
 const INTEGER_UNITS = new Set(["pieza", "caja"]);
 const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
+const PRODUCT_IMPORT_LIMIT = 500;
+const IMPORT_DEFAULT_CATEGORY = "General";
+const IMPORT_COLUMN_ALIASES = {
+  name: ["nombre", "producto", "descripcion", "descripción", "name", "product", "item", "articulo", "artículo"],
+  price: ["precio", "precio venta", "precio_venta", "pvp", "price", "publico", "publico venta", "venta"],
+  cost_price: ["costo", "cost", "compra", "cost_price", "precio compra", "precio_compra"],
+  category: ["categoria", "categoría", "category", "rubro", "linea", "línea"],
+  sku: ["sku", "clave", "codigo sku", "codigo_sku"],
+  barcode: ["codigo", "código", "barcode", "codigo barras", "código barras", "codigo_de_barras", "ean"],
+  stock: ["stock", "existencia", "inventario", "cantidad", "qty"],
+  unidad_de_venta: ["unidad", "unidad de venta", "unidad_de_venta", "presentacion", "presentación", "uom"],
+  supplier: ["proveedor", "supplier", "marca", "brand"]
+};
 
 function stripAccents(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeImportHeader(value) {
+  return stripAccents(String(value || ""))
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeImportCell(value) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  return String(value).replace(/\s+/g, " ").trim();
+}
+
+function normalizeImportText(value) {
+  return normalizeImportCell(value);
 }
 
 function normalizeAlphaNumeric(value) {
@@ -50,6 +85,30 @@ function normalizeDiscountFields(payload) {
     discount_start: payload.discount_start || null,
     discount_end: payload.discount_end || null
   };
+}
+
+function getActorPosType(actor) {
+  return normalizePosType(actor?.pos_type) || "Otro";
+}
+
+function sanitizeProductPayloadByPosType(payload, actor, currentProduct = null) {
+  const posType = getActorPosType(actor);
+  const nextPayload = { ...payload };
+
+  if (!canUseIeps(posType)) {
+    nextPayload.ieps = null;
+  }
+
+  if (!canUseExpiryDate(posType) && (currentProduct === null || Object.prototype.hasOwnProperty.call(nextPayload, "expires_at"))) {
+    nextPayload.expires_at = null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(nextPayload, "discount_type")) delete nextPayload.discount_type;
+  if (Object.prototype.hasOwnProperty.call(nextPayload, "discount_value")) delete nextPayload.discount_value;
+  if (Object.prototype.hasOwnProperty.call(nextPayload, "discount_start")) delete nextPayload.discount_start;
+  if (Object.prototype.hasOwnProperty.call(nextPayload, "discount_end")) delete nextPayload.discount_end;
+
+  return nextPayload;
 }
 
 function roundToScale(value, scale) {
@@ -167,12 +226,13 @@ function normalizeListOptions(search, options) {
   if (options && typeof options === "object" && !Array.isArray(options)) {
     return {
       search: search || "",
+      category: options.category ? String(options.category).trim() : "",
       activeOnly: Boolean(options.activeOnly),
       page: options.page ? Number(options.page) : null,
       pageSize: options.pageSize ? Number(options.pageSize) : null
     };
   }
-  return { search: search || "", activeOnly: Boolean(options), page: null, pageSize: null };
+  return { search: search || "", category: "", activeOnly: Boolean(options), page: null, pageSize: null };
 }
 
 function normalizeSupplierEntries(payload) {
@@ -545,6 +605,10 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
   const conditions = [];
   if (baseFilter.clause) conditions.push(baseFilter.clause.replace(/^WHERE /, ""));
   if (options.activeOnly) conditions.push("product_data.is_active = TRUE AND product_data.status = 'activo'");
+  if (options.category) {
+    filters.push(options.category);
+    conditions.push(`product_data.category = $${filters.length}`);
+  }
   if (options.search) {
     filters.push(`%${options.search}%`);
     const idx = filters.length;
@@ -620,23 +684,541 @@ async function listSuppliers(search, actor) {
   return rows;
 }
 
+async function ensureCategoryReference(category, businessId, actor, client = pool) {
+  const normalizedCategory = String(category || "").trim();
+  if (!normalizedCategory) return;
+  await client.query(
+    `INSERT INTO product_categories (business_id, name, source, created_by)
+     VALUES ($1, $2, 'product', $3)
+     ON CONFLICT (business_id, LOWER(name))
+     DO UPDATE SET updated_at = NOW()`,
+    [businessId, normalizedCategory, actor.id]
+  );
+}
+
 async function listCategories(search, actor) {
   const term = search?.trim();
   const params = [requireActorBusinessId(actor)];
-  const conditions = ["category IS NOT NULL", "category <> ''", `business_id = $${params.length}`];
+  const productConditions = ["category IS NOT NULL", "category <> ''", `business_id = $${params.length}`];
+  const templateConditions = ["name IS NOT NULL", "name <> ''", `business_id = $${params.length}`];
   if (term) {
     params.push(`%${term}%`);
-    conditions.push(`category ILIKE $${params.length}`);
+    productConditions.push(`category ILIKE $${params.length}`);
+    templateConditions.push(`name ILIKE $${params.length}`);
   }
   const { rows } = await pool.query(
     `SELECT DISTINCT category
-     FROM products
-     WHERE ${conditions.join(" AND ")}
+     FROM (
+       SELECT category
+       FROM products
+       WHERE ${productConditions.join(" AND ")}
+       UNION
+       SELECT name AS category
+       FROM product_categories
+       WHERE ${templateConditions.join(" AND ")}
+     ) AS categories
      ORDER BY category ASC
      LIMIT 20`,
     params
   );
   return rows.map((row) => row.category);
+}
+
+function detectImportColumn(header) {
+  const normalizedHeader = normalizeImportHeader(header);
+  if (!normalizedHeader) return null;
+
+  for (const [field, aliases] of Object.entries(IMPORT_COLUMN_ALIASES)) {
+    if (aliases.some((alias) => normalizedHeader === normalizeImportHeader(alias))) {
+      return field;
+    }
+  }
+
+  for (const [field, aliases] of Object.entries(IMPORT_COLUMN_ALIASES)) {
+    if (aliases.some((alias) => normalizedHeader.includes(normalizeImportHeader(alias)))) {
+      return field;
+    }
+  }
+
+  return null;
+}
+
+async function parseImportWorkbook(file) {
+  if (!file?.buffer?.length) {
+    throw new ApiError(400, "Import file is required");
+  }
+
+  const extension = String(file.originalname || "").toLowerCase().split(".").pop();
+  if (!["csv", "xlsx"].includes(extension)) {
+    throw new ApiError(400, "Only CSV and XLSX files are allowed");
+  }
+
+  const rows = extension === "csv"
+    ? parseCsvImportRows(file.buffer)
+    : await parseXlsxImportRows(file.buffer);
+
+  if (!rows.length) {
+    throw new ApiError(400, "The file is empty");
+  }
+
+  const [headerRow, ...dataRows] = rows;
+  const headers = headerRow.values.map((header) => normalizeImportCell(header));
+  if (!headers.some(Boolean)) {
+    throw new ApiError(400, "The file header is empty");
+  }
+
+  const headerMap = {};
+  headers.forEach((header, index) => {
+    const detectedField = detectImportColumn(header);
+    if (detectedField && headerMap[detectedField] === undefined) {
+      headerMap[detectedField] = index;
+    }
+  });
+
+  return {
+    format: extension,
+    headers,
+    headerMap,
+    rows: dataRows.filter((row) => row.values.some((value) => normalizeImportCell(value)))
+  };
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    const nextCharacter = line[index + 1];
+
+    if (character === "\"") {
+      if (inQuotes && nextCharacter === "\"") {
+        current += "\"";
+        index += 1;
+        continue;
+      }
+
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (character === "," && !inQuotes) {
+      values.push(current);
+      current = "";
+      continue;
+    }
+
+    current += character;
+  }
+
+  values.push(current);
+  return values.map((value) => normalizeImportCell(value));
+}
+
+function parseCsvImportRows(buffer) {
+  const text = buffer.toString("utf-8").replace(/^\uFEFF/, "");
+  const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "");
+  return lines.map((line, index) => ({
+    rowNumber: index + 1,
+    values: parseCsvLine(line)
+  }));
+}
+
+async function parseXlsxImportRows(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) {
+    throw new ApiError(400, "The file does not contain sheets or rows");
+  }
+
+  const rows = [];
+  worksheet.eachRow((row, rowNumber) => {
+    rows.push({
+      rowNumber,
+      values: row.values.slice(1).map((value) => normalizeImportCell(value))
+    });
+  });
+  return rows;
+}
+
+function normalizeImportUnit(unitValue, nameValue = "") {
+  const normalizedUnit = normalizeImportHeader(unitValue);
+  if (normalizedUnit) {
+    if (["pieza", "pza", "pz", "unit", "unidad"].includes(normalizedUnit)) return "pieza";
+    if (["kg", "kilo", "kilos", "kilogramo", "kilogramos"].includes(normalizedUnit)) return "kg";
+    if (["litro", "litros", "lt", "lts", "l"].includes(normalizedUnit)) return "litro";
+    if (["caja", "cajas", "box"].includes(normalizedUnit)) return "caja";
+  }
+
+  const normalizedName = normalizeImportHeader(nameValue);
+  if (/\b(kg|kilo|kilos|kilogramo|kilogramos)\b/.test(normalizedName)) return "kg";
+  if (/\b(lt|lts|litro|litros)\b/.test(normalizedName)) return "litro";
+  if (/\b(caja|cajas|box)\b/.test(normalizedName)) return "caja";
+  return "pieza";
+}
+
+function normalizeImportMoney(value) {
+  const raw = normalizeImportCell(value);
+  if (!raw) return "";
+  const normalized = raw
+    .replace(/\s+/g, "")
+    .replace(/\$(?=\d)/g, "")
+    .replace(/,(?=\d{1,5}$)/, ".")
+    .replace(/,/g, "");
+  return normalized;
+}
+
+function normalizeImportStock(value) {
+  const raw = normalizeImportCell(value);
+  if (!raw) return "0";
+  return raw.replace(/,/g, ".");
+}
+
+async function getImportContext(actor) {
+  const businessId = requireActorBusinessId(actor);
+  const [categories, suppliersResult, skusResult, barcodesResult] = await Promise.all([
+    listCategories("", actor),
+    pool.query("SELECT id, name FROM suppliers WHERE business_id = $1 ORDER BY name ASC", [businessId]),
+    pool.query("SELECT UPPER(sku) AS value FROM products WHERE business_id = $1 AND sku IS NOT NULL AND sku <> ''", [businessId]),
+    pool.query("SELECT barcode AS value FROM products WHERE business_id = $1 AND barcode IS NOT NULL AND barcode <> ''", [businessId])
+  ]);
+
+  return {
+    businessId,
+    categories,
+    categoryFallback: categories[0] || IMPORT_DEFAULT_CATEGORY,
+    suppliersByName: new Map(suppliersResult.rows.map((row) => [String(row.name || "").trim().toLowerCase(), row])),
+    existingSkus: new Set(skusResult.rows.map((row) => String(row.value || "").toUpperCase())),
+    existingBarcodes: new Set(barcodesResult.rows.map((row) => String(row.value || "")))
+  };
+}
+
+function mapImportRowValues(rowValues, headerMap) {
+  const valueFor = (field) => {
+    const index = headerMap[field];
+    return index === undefined ? "" : normalizeImportCell(rowValues[index]);
+  };
+
+  return {
+    name: valueFor("name"),
+    price: valueFor("price"),
+    cost_price: valueFor("cost_price"),
+    category: valueFor("category"),
+    sku: valueFor("sku"),
+    barcode: valueFor("barcode"),
+    stock: valueFor("stock"),
+    unidad_de_venta: valueFor("unidad_de_venta"),
+    supplier_name: valueFor("supplier")
+  };
+}
+
+function buildImportRowPreview(index, rawRow, headerMap, context) {
+  const extracted = mapImportRowValues(rawRow.values, headerMap);
+  const warnings = [];
+  const errors = [];
+  const payload = {
+    name: normalizeImportText(extracted.name),
+    price: normalizeImportMoney(extracted.price),
+    cost_price: normalizeImportMoney(extracted.cost_price),
+    category: normalizeImportText(extracted.category) || context.categoryFallback,
+    sku: sanitizeManualSku(extracted.sku || ""),
+    barcode: sanitizeBarcode(extracted.barcode || ""),
+    stock: normalizeImportStock(extracted.stock),
+    unidad_de_venta: normalizeImportUnit(extracted.unidad_de_venta, extracted.name),
+    supplier_name: normalizeImportText(extracted.supplier_name),
+    stock_minimo: "0"
+  };
+
+  if (!payload.name) {
+    errors.push("Nombre requerido");
+  }
+
+  const normalizedPrice = payload.price === "" ? Number.NaN : Number(payload.price);
+  if (!Number.isFinite(normalizedPrice) || normalizedPrice <= 0 || hasMoreThanFiveDecimals(normalizedPrice)) {
+    errors.push("Precio invalido");
+  }
+
+  const normalizedCost = payload.cost_price === "" ? 0 : Number(payload.cost_price);
+  if (!Number.isFinite(normalizedCost) || normalizedCost < 0 || hasMoreThanFiveDecimals(normalizedCost)) {
+    errors.push("Costo invalido");
+  }
+
+  const normalizedStock = payload.stock === "" ? 0 : Number(payload.stock);
+  if (!Number.isFinite(normalizedStock) || normalizedStock < 0) {
+    errors.push("Stock invalido");
+  } else if ((payload.unidad_de_venta === "pieza" || payload.unidad_de_venta === "caja") && !Number.isInteger(normalizedStock)) {
+    errors.push(`Stock debe ser entero para ${payload.unidad_de_venta}`);
+  } else if ((payload.unidad_de_venta === "kg" || payload.unidad_de_venta === "litro") && hasMoreThanThreeDecimals(normalizedStock)) {
+    errors.push(`Stock solo acepta 3 decimales para ${payload.unidad_de_venta}`);
+  }
+
+  if (!normalizeImportText(extracted.category)) {
+    warnings.push(`Categoria vacia, se asignara ${context.categoryFallback}`);
+  }
+
+  if (!normalizeImportText(extracted.unidad_de_venta)) {
+    warnings.push(`Unidad no informada, se usara ${payload.unidad_de_venta}`);
+  }
+
+  if (!payload.sku) {
+    warnings.push("SKU vacio, se generara automaticamente");
+  }
+
+  if (payload.sku && context.existingSkus.has(payload.sku.toUpperCase())) {
+    warnings.push("SKU duplicado en este negocio, se generara uno nuevo");
+    payload.sku = "";
+  }
+
+  if (payload.barcode && context.existingBarcodes.has(payload.barcode)) {
+    warnings.push("Codigo de barras duplicado en este negocio, se generara uno nuevo");
+    payload.barcode = "";
+  }
+
+  if (payload.supplier_name && !context.suppliersByName.has(payload.supplier_name.toLowerCase())) {
+    warnings.push("Proveedor no existe aun, se creara al importar");
+  }
+
+  return {
+    row_number: rawRow.rowNumber,
+    index,
+    payload,
+    warnings,
+    errors,
+    action: errors.length ? "error" : "import"
+  };
+}
+
+function dedupeImportPreviewRows(rows) {
+  const seenNames = new Set();
+  const seenSkus = new Set();
+  const seenBarcodes = new Set();
+
+  for (const row of rows) {
+    const normalizedName = normalizeImportHeader(row.payload.name);
+    const normalizedSku = String(row.payload.sku || "").toUpperCase();
+    const normalizedBarcode = String(row.payload.barcode || "");
+
+    if (normalizedName && seenNames.has(normalizedName)) {
+      row.warnings.push("Nombre repetido en el archivo");
+    } else if (normalizedName) {
+      seenNames.add(normalizedName);
+    }
+
+    if (normalizedSku) {
+      if (seenSkus.has(normalizedSku)) {
+        row.warnings.push("SKU repetido en el archivo, se generara uno nuevo");
+        row.payload.sku = "";
+      } else {
+        seenSkus.add(normalizedSku);
+      }
+    }
+
+    if (normalizedBarcode) {
+      if (seenBarcodes.has(normalizedBarcode)) {
+        row.warnings.push("Codigo repetido en el archivo, se generara uno nuevo");
+        row.payload.barcode = "";
+      } else {
+        seenBarcodes.add(normalizedBarcode);
+      }
+    }
+  }
+
+  return rows;
+}
+
+function summarizeImportPreview(rows) {
+  return rows.reduce((summary, row) => {
+    if (row.action === "import") {
+      summary.ready += 1;
+    }
+    if (row.errors.length) {
+      summary.with_errors += 1;
+    }
+    if (row.warnings.length) {
+      summary.with_warnings += 1;
+    }
+    if (row.action !== "import") {
+      summary.omitted += 1;
+    }
+    return summary;
+  }, {
+    total: rows.length,
+    ready: 0,
+    with_errors: 0,
+    with_warnings: 0,
+    omitted: 0
+  });
+}
+
+async function previewProductImport(file, actor) {
+  const parsedWorkbook = await parseImportWorkbook(file);
+  if (parsedWorkbook.rows.length > PRODUCT_IMPORT_LIMIT) {
+    throw new ApiError(400, `Import limit is ${PRODUCT_IMPORT_LIMIT} rows per file`);
+  }
+
+  const context = await getImportContext(actor);
+  const previewRows = dedupeImportPreviewRows(
+    parsedWorkbook.rows.map((row, index) => buildImportRowPreview(index, row, parsedWorkbook.headerMap, context))
+  );
+
+  return {
+    format: parsedWorkbook.format,
+    headers: parsedWorkbook.headers,
+    detected_columns: parsedWorkbook.headerMap,
+    rows: previewRows,
+    summary: summarizeImportPreview(previewRows)
+  };
+}
+
+function sanitizeImportedRow(row, context) {
+  const payload = {
+    name: normalizeImportText(row?.payload?.name || row?.name),
+    price: normalizeImportMoney(row?.payload?.price || row?.price),
+    cost_price: normalizeImportMoney(row?.payload?.cost_price || row?.cost_price),
+    category: normalizeImportText(row?.payload?.category || row?.category) || context.categoryFallback,
+    sku: sanitizeManualSku(row?.payload?.sku || row?.sku || ""),
+    barcode: sanitizeBarcode(row?.payload?.barcode || row?.barcode || ""),
+    stock: normalizeImportStock(row?.payload?.stock || row?.stock),
+    unidad_de_venta: normalizeImportUnit(row?.payload?.unidad_de_venta || row?.unidad_de_venta, row?.payload?.name || row?.name),
+    supplier_name: normalizeImportText(row?.payload?.supplier_name || row?.supplier_name),
+    stock_minimo: "0"
+  };
+
+  if (!payload.name) {
+    throw new ApiError(400, "Imported row requires product name");
+  }
+
+  return payload;
+}
+
+async function confirmProductImport(rows, actor) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new ApiError(400, "Import rows are required");
+  }
+  if (rows.length > PRODUCT_IMPORT_LIMIT) {
+    throw new ApiError(400, `Import limit is ${PRODUCT_IMPORT_LIMIT} rows per request`);
+  }
+
+  const context = await getImportContext(actor);
+  const results = [];
+  const seenSkus = new Set();
+  const seenBarcodes = new Set();
+
+  for (const row of rows) {
+    try {
+      const payload = sanitizeImportedRow(row, context);
+      const normalizedSku = String(payload.sku || "").toUpperCase();
+      const normalizedBarcode = String(payload.barcode || "");
+      if (normalizedSku && (context.existingSkus.has(normalizedSku) || seenSkus.has(normalizedSku))) {
+        payload.sku = "";
+      }
+      if (normalizedBarcode && (context.existingBarcodes.has(normalizedBarcode) || seenBarcodes.has(normalizedBarcode))) {
+        payload.barcode = "";
+      }
+
+      const created = await createProduct(payload, actor);
+      results.push({
+        row_number: row?.row_number || row?.index || null,
+        status: "imported",
+        product_id: created.id,
+        product_name: created.name
+      });
+      if (normalizedSku) seenSkus.add(normalizedSku);
+      if (normalizedBarcode) seenBarcodes.add(normalizedBarcode);
+    } catch (error) {
+      results.push({
+        row_number: row?.row_number || row?.index || null,
+        status: "error",
+        message: error instanceof Error ? error.message : "Import row failed"
+      });
+    }
+  }
+
+  return {
+    results,
+    summary: {
+      total: rows.length,
+      imported: results.filter((row) => row.status === "imported").length,
+      errors: results.filter((row) => row.status === "error").length,
+      omitted: 0
+    }
+  };
+}
+
+async function listRestockProducts(filters = {}, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const values = [businessId];
+  const conditions = [
+    "product_data.business_id = $1",
+    "product_data.is_active = TRUE",
+    "product_data.status = 'activo'",
+    "product_data.stock <= product_data.stock_minimo"
+  ];
+
+  if (filters.category) {
+    values.push(String(filters.category).trim());
+    conditions.push(`product_data.category = $${values.length}`);
+  }
+
+  if (filters.supplier) {
+    values.push(`%${String(filters.supplier).trim()}%`);
+    conditions.push(`COALESCE(product_suppliers.name, '') ILIKE $${values.length}`);
+  }
+
+  if (filters.search) {
+    values.push(`%${String(filters.search).trim()}%`);
+    conditions.push(`(
+      product_data.name ILIKE $${values.length}
+      OR product_data.sku ILIKE $${values.length}
+      OR COALESCE(product_data.category, '') ILIKE $${values.length}
+      OR COALESCE(product_suppliers.name, '') ILIKE $${values.length}
+    )`);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT
+       product_data.id,
+       product_data.name,
+       product_data.sku,
+       product_data.category,
+       product_data.stock,
+       product_data.stock_minimo,
+       product_data.stock_maximo,
+       product_data.cost_price,
+       product_data.unidad_de_venta,
+       product_suppliers.name AS supplier_name,
+       product_suppliers.whatsapp AS supplier_whatsapp,
+       product_suppliers.purchase_cost AS recent_purchase_cost,
+       product_suppliers.cost_updated_at,
+       GREATEST(COALESCE(product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0), 0) AS shortage,
+       GREATEST(COALESCE(product_data.stock_maximo, product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0), 0) AS suggested_restock
+     FROM products product_data
+     LEFT JOIN LATERAL (
+       SELECT ps.*, s.name, s.whatsapp
+       FROM product_suppliers ps
+       INNER JOIN suppliers s ON s.id = ps.supplier_id AND s.business_id = ps.business_id
+       WHERE ps.product_id = product_data.id
+         AND ps.business_id = product_data.business_id
+       ORDER BY ps.is_primary DESC, ps.cost_updated_at DESC NULLS LAST, s.name ASC
+       LIMIT 1
+     ) AS product_suppliers ON TRUE
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY shortage DESC, suggested_restock DESC, product_data.name ASC`,
+    values
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    stock: Number(row.stock || 0),
+    stock_minimo: Number(row.stock_minimo || 0),
+    stock_maximo: Number(row.stock_maximo || 0),
+    cost_price: Number(row.cost_price || 0),
+    recent_purchase_cost: row.recent_purchase_cost === null || row.recent_purchase_cost === undefined ? null : Number(row.recent_purchase_cost),
+    shortage: Number(row.shortage || 0),
+    suggested_restock: Number(row.suggested_restock || 0)
+  }));
 }
 
 async function createProduct(payload, actor) {
@@ -645,17 +1227,18 @@ async function createProduct(payload, actor) {
 
   try {
     await client.query("BEGIN");
-    const discountFields = normalizeDiscountFields(payload);
-    const ieps = normalizeIepsValue(payload.ieps);
-    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(payload);
-    const requestedBarcode = sanitizeBarcode(payload.barcode || "");
-    const primarySupplierId = await ensureSupplierReference(payload, businessId, client);
+    const sanitizedPayload = sanitizeProductPayloadByPosType(payload, actor);
+    const discountFields = normalizeDiscountFields(sanitizedPayload);
+    const ieps = normalizeIepsValue(sanitizedPayload.ieps);
+    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(sanitizedPayload);
+    const requestedBarcode = sanitizeBarcode(sanitizedPayload.barcode || "");
+    const primarySupplierId = await ensureSupplierReference(sanitizedPayload, businessId, client);
     let rows = [];
     let lastError = null;
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const resolvedSku = await resolveSku(
-        attempt === 0 ? payload : { ...payload, sku: "" },
+        attempt === 0 ? sanitizedPayload : { ...sanitizedPayload, sku: "" },
         businessId,
         null,
         client
@@ -674,9 +1257,9 @@ async function createProduct(payload, actor) {
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
           RETURNING *`,
           [
-            payload.name.trim(), resolvedSku, resolvedBarcode, payload.category || null, payload.description || "",
+            sanitizedPayload.name.trim(), resolvedSku, resolvedBarcode, sanitizedPayload.category || null, sanitizedPayload.description || "",
             price, costPrice, liquidationPrice, stock,
-            payload.expires_at || null, payload.is_active ?? true, primarySupplierId, payload.status || "activo",
+            sanitizedPayload.expires_at || null, sanitizedPayload.is_active ?? true, primarySupplierId, sanitizedPayload.status || "activo",
             discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end,
             stockMinimo, stockMaximo, businessId, unidadDeVenta, porcentajeGanancia, ieps
           ]
@@ -695,7 +1278,28 @@ async function createProduct(payload, actor) {
       throw new ApiError(409, "Unable to generate unique SKU");
     }
 
-    await syncProductSuppliers(rows[0].id, businessId, payload, client);
+    await syncProductSuppliers(rows[0].id, businessId, sanitizedPayload, client);
+    await ensureCategoryReference(sanitizedPayload.category, businessId, actor, client);
+    await emitActorAutomationEvent(actor, "product_created", {
+      product_id: rows[0].id,
+      name: rows[0].name,
+      sku: rows[0].sku,
+      category: rows[0].category,
+      stock: Number(rows[0].stock || 0),
+      stock_minimo: Number(rows[0].stock_minimo || 0),
+      supplier_id: primarySupplierId,
+      source: payload?.source || "products_module"
+    }, { client });
+    if (Number(rows[0].stock || 0) <= Number(rows[0].stock_minimo || 0)) {
+      await emitActorAutomationEvent(actor, "low_stock_detected", {
+        product_id: rows[0].id,
+        name: rows[0].name,
+        sku: rows[0].sku,
+        stock: Number(rows[0].stock || 0),
+        stock_minimo: Number(rows[0].stock_minimo || 0),
+        source: "product_created"
+      }, { client });
+    }
     await saveAuditLog({
       business_id: businessId,
       usuario_id: actor.id,
@@ -733,22 +1337,23 @@ async function updateProduct(id, payload, actor) {
     if (!current) throw new ApiError(404, "Product not found");
 
     const businessId = Number(current.business_id);
-    const ieps = normalizeIepsValue(payload.ieps, current);
-    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(payload, current);
-    const resolvedSku = payload.sku !== undefined ? await resolveSku(payload, businessId, current, client) : current.sku;
-    const nextBarcodeSource = payload.barcode !== undefined ? payload.barcode : current.barcode;
+    const sanitizedPayload = sanitizeProductPayloadByPosType(payload, actor, current);
+    const ieps = normalizeIepsValue(sanitizedPayload.ieps, current);
+    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(sanitizedPayload, current);
+    const resolvedSku = sanitizedPayload.sku !== undefined ? await resolveSku(sanitizedPayload, businessId, current, client) : current.sku;
+    const nextBarcodeSource = sanitizedPayload.barcode !== undefined ? sanitizedPayload.barcode : current.barcode;
     const normalizedNextBarcode = sanitizeBarcode(nextBarcodeSource || "");
     const resolvedBarcode = normalizedNextBarcode
       ? await ensureUniqueBarcode(normalizedNextBarcode, businessId, id, client)
       : current.barcode
         ? await ensureUniqueBarcode(current.barcode, businessId, id, client)
         : await generateUniqueBarcode(businessId, id, client);
-    const supplierId = payload.supplier_id !== undefined || payload.supplier_name !== undefined || payload.suppliers !== undefined
-      ? await ensureSupplierReference(payload, businessId, client)
+    const supplierId = sanitizedPayload.supplier_id !== undefined || sanitizedPayload.supplier_name !== undefined || sanitizedPayload.suppliers !== undefined
+      ? await ensureSupplierReference(sanitizedPayload, businessId, client)
       : current.supplier_id;
-    const discountFields = normalizeDiscountFields(payload);
-    const clearDiscountData = payload.discount_type !== undefined && discountFields.discount_type === null;
-    const nextLiquidationPrice = clearDiscountData ? null : payload.liquidation_price !== undefined ? liquidationPrice : current.liquidation_price;
+    const discountFields = normalizeDiscountFields(sanitizedPayload);
+    const clearDiscountData = sanitizedPayload.discount_type !== undefined && discountFields.discount_type === null;
+    const nextLiquidationPrice = clearDiscountData ? null : sanitizedPayload.liquidation_price !== undefined ? liquidationPrice : current.liquidation_price;
 
     const { rows } = await client.query(
       `UPDATE products
@@ -759,30 +1364,34 @@ async function updateProduct(id, payload, actor) {
        WHERE id = $23 AND business_id = $24
        RETURNING *`,
       [
-        payload.name ?? current.name, resolvedSku, resolvedBarcode, payload.category ?? current.category,
-        payload.description ?? current.description, payload.price !== undefined ? price : current.price, payload.cost_price !== undefined ? costPrice : current.cost_price,
+        sanitizedPayload.name ?? current.name, resolvedSku, resolvedBarcode, sanitizedPayload.category ?? current.category,
+        sanitizedPayload.description ?? current.description, sanitizedPayload.price !== undefined ? price : current.price, sanitizedPayload.cost_price !== undefined ? costPrice : current.cost_price,
         nextLiquidationPrice,
-        payload.stock !== undefined ? stock : current.stock,
-        payload.expires_at !== undefined ? payload.expires_at : current.expires_at,
-        payload.is_active ?? current.is_active, supplierId, payload.status ?? current.status ?? "activo",
-        clearDiscountData || payload.discount_type !== undefined ? discountFields.discount_type : current.discount_type,
-        clearDiscountData || payload.discount_value !== undefined ? discountFields.discount_value : current.discount_value,
-        clearDiscountData || payload.discount_start !== undefined ? discountFields.discount_start : current.discount_start,
-        clearDiscountData || payload.discount_end !== undefined ? discountFields.discount_end : current.discount_end,
-        payload.stock_minimo !== undefined ? stockMinimo : current.stock_minimo ?? 0,
-        payload.stock_maximo !== undefined || payload.stock !== undefined || payload.stock_minimo !== undefined ? stockMaximo : current.stock_maximo,
-        payload.unidad_de_venta !== undefined ? unidadDeVenta : normalizeSaleUnit(current.unidad_de_venta),
-        payload.porcentaje_ganancia !== undefined ? porcentajeGanancia : current.porcentaje_ganancia,
-        payload.ieps !== undefined ? ieps : current.ieps,
+        sanitizedPayload.stock !== undefined ? stock : current.stock,
+        sanitizedPayload.expires_at !== undefined ? sanitizedPayload.expires_at : current.expires_at,
+        sanitizedPayload.is_active ?? current.is_active, supplierId, sanitizedPayload.status ?? current.status ?? "activo",
+        clearDiscountData || sanitizedPayload.discount_type !== undefined ? discountFields.discount_type : current.discount_type,
+        clearDiscountData || sanitizedPayload.discount_value !== undefined ? discountFields.discount_value : current.discount_value,
+        clearDiscountData || sanitizedPayload.discount_start !== undefined ? discountFields.discount_start : current.discount_start,
+        clearDiscountData || sanitizedPayload.discount_end !== undefined ? discountFields.discount_end : current.discount_end,
+        sanitizedPayload.stock_minimo !== undefined ? stockMinimo : current.stock_minimo ?? 0,
+        sanitizedPayload.stock_maximo !== undefined || sanitizedPayload.stock !== undefined || sanitizedPayload.stock_minimo !== undefined ? stockMaximo : current.stock_maximo,
+        sanitizedPayload.unidad_de_venta !== undefined ? unidadDeVenta : normalizeSaleUnit(current.unidad_de_venta),
+        sanitizedPayload.porcentaje_ganancia !== undefined ? porcentajeGanancia : current.porcentaje_ganancia,
+        sanitizedPayload.ieps !== undefined ? ieps : current.ieps,
         id, businessId
       ]
     );
 
-    if (payload.supplier_id !== undefined || payload.supplier_name !== undefined || payload.suppliers !== undefined) {
-      const primarySupplierId = await syncProductSuppliers(id, businessId, payload, client);
+    if (sanitizedPayload.supplier_id !== undefined || sanitizedPayload.supplier_name !== undefined || sanitizedPayload.suppliers !== undefined) {
+      const primarySupplierId = await syncProductSuppliers(id, businessId, sanitizedPayload, client);
       if (primarySupplierId !== supplierId) {
         await client.query("UPDATE products SET supplier_id = $1 WHERE id = $2 AND business_id = $3", [primarySupplierId, id, businessId]);
       }
+    }
+
+    if (sanitizedPayload.category !== undefined) {
+      await ensureCategoryReference(sanitizedPayload.category, businessId, actor, client);
     }
 
     await saveAuditLog({
@@ -1033,6 +1642,9 @@ module.exports = {
   listProducts,
   listSuppliers,
   listCategories,
+  previewProductImport,
+  confirmProductImport,
+  listRestockProducts,
   createProduct,
   updateProduct,
   uploadProductImage,

@@ -9,27 +9,31 @@ import {
   canViewUsers,
   isManagementRole
 } from "../utils/roles";
+import { canUseCreditCollections, getSidebarSectionsForPosType } from "../utils/pos";
 
-const links = [
-  { to: "/profile", label: "Perfil", isVisible: isManagementRole, priority: 1 },
-  { to: "/businesses", label: "Negocios", isVisible: canAccessBusinesses },
-  { to: "/credit-collections", label: "Credito y Cobranza", isVisible: isManagementRole },
-  { to: "/daily-cut", label: "Corte Diario", isVisible: canAccessDailyCut, priority: 4 },
-  { to: "/finances", label: "Finanzas", isVisible: isManagementRole },
-  { to: "/invoices", label: "Facturas", isVisible: canAccessInvoices },
-  { to: "/sales-history", label: "Historial", isVisible: isManagementRole },
-  { to: "/products", label: "Productos", isVisible: isManagementRole, priority: 3 },
-  { to: "/remate", label: "Remate", isVisible: isManagementRole },
-  { to: "/reminders", label: "Recordatorios", isVisible: () => true },
-  { to: "/dashboard", label: "Resumen", isVisible: isManagementRole },
-  { to: "/suppliers", label: "Proveedores", isVisible: isManagementRole },
-  { to: "/users", label: "Usuarios", isVisible: canViewUsers },
-  { to: "/sales", label: "Ventas", isVisible: canAccessSales, priority: 2 }
-];
+function isRoleAllowed(role?: string | null, roleGroup: "sales" | "users" | "dailyCut" | "management" | "invoices" | "businesses" | "all" = "all") {
+  if (roleGroup === "all") return true;
+  if (roleGroup === "sales") return canAccessSales(role);
+  if (roleGroup === "users") return canViewUsers(role);
+  if (roleGroup === "dailyCut") return canAccessDailyCut(role);
+  if (roleGroup === "management") return isManagementRole(role);
+  if (roleGroup === "invoices") return canAccessInvoices(role);
+  if (roleGroup === "businesses") return canAccessBusinesses(role);
+  return false;
+}
 
 export function Sidebar() {
   const { user } = useAuth();
   const currentRole = user?.role;
+  const canShowCreditCollections = canUseCreditCollections(user?.pos_type);
+  const sections = getSidebarSectionsForPosType(user?.pos_type)
+    .map((section) => ({
+      ...section,
+      links: section.links
+        .filter((link) => isRoleAllowed(currentRole, link.roles || "all"))
+        .filter((link) => link.to !== "/credit-collections" || canShowCreditCollections)
+    }))
+    .filter((section) => section.links.length > 0);
 
   return (
     <aside className="sidebar">
@@ -41,23 +45,22 @@ export function Sidebar() {
         <p className="brand-subtitle">Panel comercial oscuro</p>
       </div>
       <nav className="nav-list">
-        {links
-          .filter((link) => link.isVisible(currentRole))
-          .sort((left, right) => {
-            if (left.priority && right.priority) return left.priority - right.priority;
-            if (left.priority) return -1;
-            if (right.priority) return 1;
-            return left.label.localeCompare(right.label, "es");
-          })
-          .map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
-            >
-              {link.label}
-            </NavLink>
-          ))}
+        {sections.map((section) => (
+          <div className="nav-section" key={section.title}>
+            <p className="nav-section-title">{section.title}</p>
+            <div className="nav-section-links">
+              {section.links.map((link) => (
+                <NavLink
+                  key={link.to}
+                  to={link.to}
+                  className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+                >
+                  {link.label}
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        ))}
       </nav>
     </aside>
   );

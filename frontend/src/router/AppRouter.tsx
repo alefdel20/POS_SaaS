@@ -3,11 +3,16 @@ import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useAuth } from "../context/AuthContext";
 import { AppLayout } from "../layouts/AppLayout";
 import { DashboardPage } from "../pages/DashboardPage";
+import { ClientsPage } from "../pages/ClientsPage";
 import { CreditCollectionsPage } from "../pages/CreditCollectionsPage";
 import { DailyCutPage } from "../pages/DailyCutPage";
 import { FinancesPage } from "../pages/FinancesPage";
 import { LoginPage } from "../pages/LoginPage";
+import { MedicalAppointmentsPage } from "../pages/MedicalAppointmentsPage";
+import { MedicalConsultationsPage } from "../pages/MedicalConsultationsPage";
+import { MedicalHistoryPage } from "../pages/MedicalHistoryPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
+import { PatientsPage } from "../pages/PatientsPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { ProductsPage } from "../pages/ProductsPage";
 import { RegisterBusinessPage } from "../pages/RegisterBusinessPage";
@@ -15,6 +20,7 @@ import { RematePage } from "../pages/RematePage";
 import { RemindersPage } from "../pages/RemindersPage";
 import { SalesHistoryPage } from "../pages/SalesHistoryPage";
 import { SalesPage } from "../pages/SalesPage";
+import { ServicesPage } from "../pages/ServicesPage";
 import { UsersPage } from "../pages/UsersPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { BusinessesPage } from "../pages/BusinessesPage";
@@ -56,6 +62,12 @@ export function AppRouter() {
               <Route path="/sales-history" element={<SalesHistoryPage />} />
               <Route path="/credit-collections" element={<CreditCollectionsPage />} />
               <Route path="/finances" element={<FinancesPage />} />
+              <Route path="/services" element={<ServicesPage />} />
+              <Route path="/clients" element={<ClientsPage />} />
+              <Route path="/patients" element={<PatientsPage />} />
+              <Route path="/medical-appointments" element={<MedicalAppointmentsPage />} />
+              <Route path="/medical-consultations" element={<MedicalConsultationsPage />} />
+              <Route path="/medical-history" element={<MedicalHistoryPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.invoices]} />}>
               <Route path="/invoices" element={<InvoicesPage />} />

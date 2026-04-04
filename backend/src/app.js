@@ -21,6 +21,8 @@ const financeRoutes = require("./routes/financeRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const businessRoutes = require("./routes/businessRoutes");
 const adminInvoiceRoutes = require("./routes/adminInvoiceRoutes");
+const onboardingRoutes = require("./routes/onboardingRoutes");
+const serviceCatalogRoutes = require("./routes/serviceCatalogRoutes");
 
 const app = express();
 
@@ -58,6 +60,8 @@ const routes = [
   { path: "/profile", router: profileRoutes, auth: true },
   { path: "/businesses", router: businessRoutes, auth: true },
   { path: "/admin-invoices", router: adminInvoiceRoutes, auth: true },
+  { path: "/onboarding", router: onboardingRoutes, auth: true },
+  { path: "/services", router: serviceCatalogRoutes, auth: true },
 ];
 
 routes.forEach((route) => {

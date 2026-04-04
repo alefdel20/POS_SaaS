@@ -9,7 +9,6 @@ const createValidation = [
   body("slug").optional({ values: "falsy" }).trim(),
   body("business_type").optional({ values: "falsy" }).isIn(BUSINESS_TYPE_OPTIONS),
   body("pos_type").optional({ values: "falsy" }).isIn(POS_TYPE_OPTIONS),
-  body("pos_type_manual").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
 

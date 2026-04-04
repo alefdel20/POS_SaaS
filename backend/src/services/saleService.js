@@ -6,6 +6,8 @@ const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate, getMexicoCityTime } = require("../utils/timezone");
 const { createAdministrativeInvoiceFromSale } = require("./adminInvoiceService");
 const { saveAuditLog } = require("./auditLogService");
+const { emitActorAutomationEvent } = require("./automationEventService");
+const { canUseCreditCollections } = require("../utils/business");
 
 const INTEGER_UNITS = new Set(["pieza", "caja"]);
 const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
@@ -339,6 +341,7 @@ async function getSalesTrends(period, actor) {
 
 async function createSale(payload, user) {
   if (!payload.items?.length) throw new ApiError(400, "Sale requires at least one item");
+  if (payload.payment_method === "credit" && !canUseCreditCollections(user?.pos_type)) throw new ApiError(409, "Credit sales are not available for this business type");
   if (payload.payment_method === "credit" && !payload.customer?.name?.trim()) throw new ApiError(400, "Customer name is required for credit sales");
   if (payload.payment_method === "credit" && !payload.customer?.phone?.trim()) throw new ApiError(400, "Customer phone is required for credit sales");
   if (payload.payment_method === "credit" && (payload.initial_payment === undefined || Number(payload.initial_payment) < 0)) throw new ApiError(400, "Initial payment is required for credit sales");
@@ -494,6 +497,17 @@ async function createSale(payload, user) {
       );
       sale.administrative_invoice_id = administrativeInvoice.id;
     }
+
+    await emitActorAutomationEvent(user, "sale_created", {
+      sale_id: sale.id,
+      payment_method: sale.payment_method,
+      sale_type: sale.sale_type,
+      total: Number(sale.total || total),
+      total_cost: Number(sale.total_cost || totalCost),
+      balance_due: Number(sale.balance_due || balanceDue),
+      items_count: normalizedItems.length,
+      requires_administrative_invoice: Boolean(requiresAdministrativeInvoice)
+    }, { client });
 
     await client.query("COMMIT");
     await recomputeDailyCut(sale.sale_date, user);

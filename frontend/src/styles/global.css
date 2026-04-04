@@ -162,6 +162,26 @@ td {
   margin-top: 0;
 }
 
+.nav-section {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.nav-section-title {
+  margin: 0;
+  padding: 0 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nav-section-links {
+  display: grid;
+  gap: 0.55rem;
+}
+
 .nav-link {
   padding: 0.9rem 1rem;
   border-radius: 14px;
@@ -541,6 +561,25 @@ td {
   gap: 0.6rem;
 }
 
+.quick-filter-row {
+  margin-bottom: 1rem;
+}
+
+.import-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.compact-box {
+  min-width: 120px;
+}
+
+.active-filter {
+  background: rgba(88, 212, 179, 0.16) !important;
+  border-color: rgba(88, 212, 179, 0.34) !important;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -772,6 +811,26 @@ td {
   margin: 0;
 }
 
+.credit-collections-table-wide th:nth-child(1),
+.credit-collections-table-wide td:nth-child(1) {
+  width: 26%;
+}
+
+.credit-collections-table-wide th:nth-child(2),
+.credit-collections-table-wide td:nth-child(2) {
+  width: 17%;
+}
+
+.credit-collections-table-wide th:nth-child(3),
+.credit-collections-table-wide td:nth-child(3) {
+  width: 18%;
+}
+
+.credit-collections-table-wide th:nth-child(4),
+.credit-collections-table-wide td:nth-child(4) {
+  width: 19%;
+}
+
 .supplier-modal-card {
   width: min(960px, 94vw);
 }
@@ -793,6 +852,10 @@ td {
   overscroll-behavior: contain;
 }
 
+.import-modal-card {
+  width: min(1100px, 96vw);
+}
+
 .modal-actions-end {
   justify-content: flex-end;
   margin-top: 1rem;
@@ -806,6 +869,21 @@ td {
   border: 1px dashed var(--border);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.03);
+}
+
+.module-shell-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.dashboard-grid {
+  align-items: start;
+}
+
+.dashboard-note-list {
+  display: grid;
+  gap: 1rem;
 }
 
 .table-row-active {

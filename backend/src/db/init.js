@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const pool = require("./pool");
 
-const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Otro"];
+const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Dentista", "FarmaciaConsultorio", "ClinicaChica", "Otro"];
 const SEED_BUSINESS = { name: "Negocio Semilla", slug: "default" };
 const INIT_VERSION_MARKER = "=== DB INIT VERSION 2026-04-01 FIX 3 ===";
 
@@ -41,7 +41,7 @@ async function ensureSchema(client) {
       id SERIAL PRIMARY KEY,
       name VARCHAR(180) NOT NULL UNIQUE,
       slug VARCHAR(80) NOT NULL UNIQUE,
-      pos_type VARCHAR(40) NOT NULL CHECK (pos_type IN ('Tlapaleria', 'Tienda', 'Farmacia', 'Veterinaria', 'Papeleria', 'Otro')),
+      pos_type VARCHAR(40) NOT NULL CHECK (pos_type IN ('Tlapaleria', 'Tienda', 'Farmacia', 'Veterinaria', 'Papeleria', 'Dentista', 'FarmaciaConsultorio', 'ClinicaChica', 'Otro')),
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       created_by INTEGER REFERENCES users(id),
       updated_by INTEGER REFERENCES users(id),
@@ -86,6 +86,30 @@ async function ensureSchema(client) {
     "ALTER TABLE products ALTER COLUMN stock TYPE NUMERIC(12, 3)",
     "ALTER TABLE products ALTER COLUMN stock_minimo TYPE NUMERIC(12, 3)",
     "ALTER TABLE products ALTER COLUMN stock_maximo TYPE NUMERIC(12, 3)",
+
+    `CREATE TABLE IF NOT EXISTS product_categories (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER,
+      name VARCHAR(120) NOT NULL,
+      source VARCHAR(30) NOT NULL DEFAULT 'manual',
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS services (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER,
+      name VARCHAR(160) NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      price NUMERIC(12, 2) NOT NULL DEFAULT 0,
+      category VARCHAR(120) NOT NULL DEFAULT 'General',
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_by INTEGER REFERENCES users(id),
+      updated_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
 
     `CREATE TABLE IF NOT EXISTS product_suppliers (
       id SERIAL PRIMARY KEY,
@@ -234,6 +258,19 @@ async function ensureSchema(client) {
     )`,
     "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS business_id INTEGER",
 
+    `CREATE TABLE IF NOT EXISTS automation_events (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER,
+      event_type VARCHAR(80) NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      processed BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE automation_events ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE automation_events ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE automation_events ADD COLUMN IF NOT EXISTS processed BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE automation_events ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
     `CREATE TABLE IF NOT EXISTS company_profiles (
       id SERIAL PRIMARY KEY,
       profile_key VARCHAR(50) NOT NULL DEFAULT 'default',
@@ -262,6 +299,14 @@ async function ensureSchema(client) {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
+    `CREATE TABLE IF NOT EXISTS pos_templates (
+      id SERIAL PRIMARY KEY,
+      pos_type VARCHAR(40) NOT NULL,
+      type VARCHAR(40) NOT NULL,
+      data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
 
     `CREATE TABLE IF NOT EXISTS company_stamp_movements (
       id BIGSERIAL PRIMARY KEY,
@@ -404,6 +449,9 @@ async function backfillBusinessIds(client) {
     `UPDATE owner_loans SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE daily_cuts SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE company_profiles SET business_id = ${businessId} WHERE business_id IS NULL`,
+    `UPDATE product_categories SET business_id = ${businessId} WHERE business_id IS NULL`,
+    `UPDATE services SET business_id = ${businessId} WHERE business_id IS NULL`,
+    `UPDATE automation_events SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE clients SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE sync_logs SET business_id = ${businessId} WHERE business_id IS NULL`
   ]);
@@ -624,6 +672,9 @@ async function ensureConstraints(client) {
     "credit_payments",
     "daily_cuts",
     "reminders",
+    "product_categories",
+    "services",
+    "automation_events",
     "expenses",
     "owner_loans",
     "fixed_expenses",
@@ -710,7 +761,7 @@ async function ensureConstraints(client) {
       END IF;
 
       ALTER TABLE businesses
-      ADD CONSTRAINT businesses_pos_type_check CHECK (pos_type IN ('Tlapaleria', 'Tienda', 'Farmacia', 'Veterinaria', 'Papeleria', 'Otro'));
+      ADD CONSTRAINT businesses_pos_type_check CHECK (pos_type IN ('Tlapaleria', 'Tienda', 'Farmacia', 'Veterinaria', 'Papeleria', 'Dentista', 'FarmaciaConsultorio', 'ClinicaChica', 'Otro'));
 
       IF EXISTS (
         SELECT 1
@@ -787,6 +838,17 @@ async function ensureConstraints(client) {
         ADD CONSTRAINT company_stamp_movements_type_check
         CHECK (movement_type IN ('load', 'consume', 'adjustment', 'rollback', 'expire'));
       END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'automation_events_type_check'
+          AND conrelid = 'automation_events'::regclass
+      ) THEN
+        ALTER TABLE automation_events
+        ADD CONSTRAINT automation_events_type_check
+        CHECK (event_type IN ('sale_created', 'low_stock_detected', 'credit_payment_received', 'product_created'));
+      END IF;
     END $$;
     `
   );
@@ -794,6 +856,8 @@ async function ensureConstraints(client) {
   await run(client, [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_company_profiles_business_profile_key ON company_profiles(business_id, profile_key)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_cuts_business_cut_date ON daily_cuts(business_id, cut_date)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_product_categories_business_name ON product_categories(business_id, LOWER(name))",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_templates_pos_type_type ON pos_templates(pos_type, type)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_products_business_sku ON products(business_id, UPPER(sku)) WHERE sku IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_products_business_barcode ON products(business_id, UPPER(barcode)) WHERE barcode IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_reminders_business_source_key ON reminders(business_id, source_key) WHERE source_key IS NOT NULL",
@@ -810,6 +874,10 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_credit_payments_business_id ON credit_payments(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_daily_cuts_business_id ON daily_cuts(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_reminders_business_id ON reminders(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_product_categories_business_id ON product_categories(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_services_business_id ON services(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_automation_events_business_id ON automation_events(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_automation_events_processed ON automation_events(business_id, processed, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_expenses_business_id ON expenses(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_owner_loans_business_id ON owner_loans(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_fixed_expenses_business_id ON fixed_expenses(business_id)",

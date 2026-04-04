@@ -6,13 +6,25 @@ const { getProductBarcodeSvg } = require("../services/adminInvoiceService");
 
 const listValidation = [
   query("search").optional().trim(),
+  query("category").optional({ values: "falsy" }).trim(),
   query("activeOnly").optional().isBoolean(),
   query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
   query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
   validateRequest
 ];
 const categoryListValidation = [query("search").optional().trim(), validateRequest];
+const restockValidation = [
+  query("search").optional().trim(),
+  query("category").optional({ values: "falsy" }).trim(),
+  query("supplier").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 const idValidation = [param("id").isInt(), validateRequest];
+const importConfirmValidation = [
+  body("rows").isArray({ min: 1 }),
+  body("rows.*.payload").optional().isObject(),
+  validateRequest
+];
 const createValidation = [
   body("name").trim().notEmpty(),
   body("sku").optional().trim(),
@@ -113,6 +125,7 @@ const deleteValidation = [
 
 const listProducts = asyncHandler(async (req, res) => {
   res.json(await productService.listProducts(req.query.search, {
+    category: req.query.category,
     activeOnly: req.query.activeOnly === "true",
     page: req.query.page,
     pageSize: req.query.pageSize
@@ -125,6 +138,22 @@ const listSuppliers = asyncHandler(async (req, res) => {
 
 const listCategories = asyncHandler(async (req, res) => {
   res.json(await productService.listCategories(req.query.search, req.user));
+});
+
+const listRestockProducts = asyncHandler(async (req, res) => {
+  res.json(await productService.listRestockProducts({
+    search: req.query.search,
+    category: req.query.category,
+    supplier: req.query.supplier
+  }, req.user));
+});
+
+const previewProductImport = asyncHandler(async (req, res) => {
+  res.json(await productService.previewProductImport(req.file, req.user));
+});
+
+const confirmProductImport = asyncHandler(async (req, res) => {
+  res.json(await productService.confirmProductImport(req.body.rows, req.user));
 });
 
 const getProductBarcode = asyncHandler(async (req, res) => {
@@ -164,7 +193,9 @@ const applyBulkDiscount = asyncHandler(async (req, res) => {
 module.exports = {
   listValidation,
   categoryListValidation,
+  restockValidation,
   idValidation,
+  importConfirmValidation,
   createValidation,
   updateValidation,
   statusValidation,
@@ -174,6 +205,9 @@ module.exports = {
   listProducts,
   listSuppliers,
   listCategories,
+  listRestockProducts,
+  previewProductImport,
+  confirmProductImport,
   getProductBarcode,
   createProduct,
   updateProduct,

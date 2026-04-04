@@ -2,6 +2,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { n8nWebhookUrl } = require("../config/env");
 const { getReminderContext } = require("./creditCollectionService");
+const { emitActorAutomationEvent } = require("./automationEventService");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { TIME_ZONE, getMexicoCityDate, getMexicoCityDateTime } = require("../utils/timezone");
 
@@ -166,6 +167,14 @@ async function ensureLowStockRemindersForProductIds(productIds = [], actor) {
       notes: `El producto con SKU: ${product.sku || "-"} ha llegado a su nivel minimo (${Number(product.stock_minimo)}). Stock actual: ${Number(product.stock)}.`,
       due_date: today
     }, actor));
+    await emitActorAutomationEvent(actor, "low_stock_detected", {
+      product_id: product.id,
+      name: product.name,
+      sku: product.sku || "",
+      stock: Number(product.stock || 0),
+      stock_minimo: Number(product.stock_minimo || 0),
+      source: "stock_threshold_check"
+    });
   }
   return reminders;
 }

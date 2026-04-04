@@ -7,6 +7,9 @@ const { requireActorBusinessId } = require("../utils/tenant");
 function mapProfile(profile) {
   if (!profile) return null;
   const generalSettings = profile.general_settings || {};
+  const hasFiscalProfile = Boolean(profile.fiscal_rfc && profile.fiscal_business_name && profile.fiscal_regime && profile.fiscal_address);
+  const stampAlertThreshold = Number(profile.stamp_alert_threshold || 0);
+  const stampsAvailable = Number(profile.stamps_available || 0);
   return {
     id: profile.id,
     business_id: profile.business_id,
@@ -31,9 +34,12 @@ function mapProfile(profile) {
     fiscal_address: profile.fiscal_address,
     pac_provider: profile.pac_provider,
     pac_mode: profile.pac_mode,
-    stamps_available: Number(profile.stamps_available || 0),
+    stamps_available: stampsAvailable,
     stamps_used: Number(profile.stamps_used || 0),
-    stamp_alert_threshold: Number(profile.stamp_alert_threshold || 0),
+    stamp_alert_threshold: stampAlertThreshold,
+    has_fiscal_profile: hasFiscalProfile,
+    billing_ready: hasFiscalProfile && stampsAvailable > 0,
+    stamp_alert_active: stampAlertThreshold > 0 && stampsAvailable <= stampAlertThreshold,
     is_active: Boolean(profile.is_active),
     created_at: profile.created_at,
     updated_at: profile.updated_at

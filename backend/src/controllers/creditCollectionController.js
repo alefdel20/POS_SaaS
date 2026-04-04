@@ -1,8 +1,13 @@
-const { body, param } = require("express-validator");
+const { body, param, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const creditCollectionService = require("../services/creditCollectionService");
 
+const listDebtorsValidation = [
+  query("search").optional({ values: "falsy" }).trim(),
+  query("status").optional({ values: "falsy" }).isIn(["pending", "overdue"]),
+  validateRequest
+];
 const saleIdValidation = [param("saleId").isInt(), validateRequest];
 const createPaymentValidation = [
   param("saleId").isInt(),
@@ -19,7 +24,10 @@ const reminderPreferenceValidation = [
 ];
 
 const listDebtors = asyncHandler(async (req, res) => {
-  res.json(await creditCollectionService.listDebtors(req.user));
+  res.json(await creditCollectionService.listDebtors(req.user, {
+    search: req.query.search,
+    status: req.query.status
+  }));
 });
 
 const listPaymentsBySale = asyncHandler(async (req, res) => {
@@ -35,6 +43,7 @@ const updateReminderPreference = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  listDebtorsValidation,
   saleIdValidation,
   createPaymentValidation,
   reminderPreferenceValidation,
