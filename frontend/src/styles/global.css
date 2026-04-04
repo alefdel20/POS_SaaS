@@ -573,6 +573,12 @@ td {
   min-width: 0;
 }
 
+.supplier-callout,
+.supplier-catalog-guide,
+.supplier-empty-state {
+  margin-top: 1rem;
+}
+
 .supplier-catalog-filters {
   margin-bottom: 1rem;
 }

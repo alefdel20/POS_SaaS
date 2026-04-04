@@ -78,9 +78,9 @@ function getCatalogStatusLabel(status: string) {
     case "linked":
       return "Vinculado";
     case "cost_changed":
-      return "Costo cambiado";
+      return "Costo por revisar";
     case "cost_applied":
-      return "Costo aplicado";
+      return "Costo actualizado";
     case "inactive":
       return "Inactivo";
     case "pending":
@@ -204,7 +204,7 @@ export function SuppliersPage() {
     if (!selectedSupplierId) return;
     const timeout = setTimeout(() => {
       loadSupplierCatalog(selectedSupplierId, catalogFilters).catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el catálogo del proveedor");
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el catalogo del proveedor");
       });
     }, 250);
     return () => clearTimeout(timeout);
@@ -221,7 +221,7 @@ export function SuppliersPage() {
       });
     }, 250);
     return () => clearTimeout(timeout);
-  }, [productSearch, linkingItem, token]);
+    }, [productSearch, linkingItem, token]);
 
   function openImportModal() {
     resetFeedback();
@@ -268,12 +268,12 @@ export function SuppliersPage() {
         loadSupplierCatalog(selectedSupplierId),
         loadSupplierDetail(selectedSupplierId)
       ]);
-      setSuccess(`Importación completada: ${response.summary.imported} nuevos, ${response.summary.updated} actualizados.`);
+      setSuccess(`Importacion completada: ${response.summary.imported} nuevos, ${response.summary.updated} actualizados.`);
       setImportModalOpen(false);
       setImportPreview(null);
       setImportFileName("");
     } catch (importError) {
-      setError(importError instanceof Error ? importError.message : "No fue posible importar el catálogo");
+      setError(importError instanceof Error ? importError.message : "No fue posible importar la lista del proveedor");
     } finally {
       setIsImporting(false);
     }
@@ -336,11 +336,11 @@ export function SuppliersPage() {
         loadSupplierCatalog(selectedSupplierId),
         loadSupplierDetail(selectedSupplierId)
       ]);
-      setSuccess(`Producto interno creado: ${created.name}.`);
+      setSuccess(`Producto del sistema creado: ${created.name}.`);
       setCreatingItem(null);
       setCreateProductForm(null);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "No fue posible crear el producto interno");
+      setError(actionError instanceof Error ? actionError.message : "No fue posible crear el producto del sistema");
     } finally {
       setIsSubmittingAction(false);
     }
@@ -348,7 +348,7 @@ export function SuppliersPage() {
 
   async function handleApplyCost(item: SupplierCatalogItem) {
     if (!token || !selectedSupplierId) return;
-    const confirmed = window.confirm(`Aplicar costo ${currency(item.purchase_cost)} al producto interno vinculado?`);
+    const confirmed = window.confirm(`Actualizar costo de compra a ${currency(item.purchase_cost)} para el producto vinculado?`);
     if (!confirmed) return;
 
     resetFeedback();
@@ -362,9 +362,9 @@ export function SuppliersPage() {
         loadSupplierCatalog(selectedSupplierId),
         loadSupplierDetail(selectedSupplierId)
       ]);
-      setSuccess("Costo aplicado al producto interno.");
+      setSuccess("Costo de compra actualizado.");
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "No fue posible aplicar el costo");
+      setError(actionError instanceof Error ? actionError.message : "No fue posible actualizar el costo");
     } finally {
       setIsSubmittingAction(false);
     }
@@ -372,6 +372,7 @@ export function SuppliersPage() {
 
   const linkedCatalogItems = catalogData?.items.filter((item) => item.product_id) || [];
   const catalogItemsByProductId = new Map(linkedCatalogItems.map((item) => [item.product_id, item]));
+  const hasSuppliers = suppliers.length > 0;
 
   return (
     <section className="page-grid two-columns">
@@ -379,57 +380,78 @@ export function SuppliersPage() {
         <div className="panel-header">
           <div>
             <h2>Proveedores</h2>
-            <p className="muted">Consulta proveedores y administra su catálogo externo sin tocar el catálogo interno hasta confirmarlo.</p>
+            <p className="muted">Desde aqui cargas la lista de cada proveedor. Tus productos de venta siguen administrandose en Productos.</p>
           </div>
-          <input
-            className="search-input"
-            placeholder="Buscar proveedor"
-            value={supplierSearch}
-            onChange={(event) => setSupplierSearch(event.target.value)}
-          />
+          <div className="inline-actions">
+            <button className="button" disabled={!selectedSupplierId} onClick={openImportModal} type="button">
+              Importar catalogo proveedor
+            </button>
+            <input
+              className="search-input"
+              placeholder="Buscar proveedor"
+              value={supplierSearch}
+              onChange={(event) => setSupplierSearch(event.target.value)}
+            />
+          </div>
         </div>
+
+        <div className="info-card supplier-callout">
+          <strong>Carga la lista del proveedor desde aqui</strong>
+          <p className="muted">1. Crea o selecciona un proveedor. 2. Sube su archivo. 3. Revisa cambios de costo. 4. Vincula solo los productos que quieras usar en el sistema.</p>
+        </div>
+
         {error ? <p className="error-text">{error}</p> : null}
         {success ? <p className="success-text">{success}</p> : null}
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Proveedor</th>
-                <th>Contacto</th>
-                <th>Productos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {suppliers.map((supplier) => (
-                <tr
-                  className={supplier.id === selectedSupplierId ? "table-row-active" : ""}
-                  key={supplier.id}
-                  onClick={() => setSelectedSupplierId(supplier.id)}
-                >
-                  <td>{supplier.name}</td>
-                  <td>{supplier.whatsapp || supplier.phone || supplier.email || "-"}</td>
-                  <td>{supplier.product_count}</td>
-                </tr>
-              ))}
-              {suppliers.length === 0 ? (
+
+        {hasSuppliers ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
                 <tr>
-                  <td className="muted" colSpan={3}>No hay proveedores registrados.</td>
+                  <th>Proveedor</th>
+                  <th>Contacto</th>
+                  <th>Productos</th>
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {suppliers.map((supplier) => (
+                  <tr
+                    className={supplier.id === selectedSupplierId ? "table-row-active" : ""}
+                    key={supplier.id}
+                    onClick={() => setSelectedSupplierId(supplier.id)}
+                  >
+                    <td>{supplier.name}</td>
+                    <td>{supplier.whatsapp || supplier.phone || supplier.email || "-"}</td>
+                    <td>{supplier.product_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-state-card supplier-empty-state">
+            <strong>Aun no tienes proveedores registrados.</strong>
+            <span className="muted">Primero crea un proveedor. Despues podras cargar su catalogo y revisar sus costos desde este modulo.</span>
+            <button className="button" onClick={() => navigate("/products?tab=suppliers")} type="button">
+              Crear proveedor primero
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="panel supplier-detail-panel">
         <div className="panel-header">
           <div>
-            <h2>{selectedSupplier?.name || "Detalle del proveedor"}</h2>
-            <p className="muted">Catálogo externo, productos vinculados y cambios de costo controlados.</p>
+            <h2>{selectedSupplier?.name || "Selecciona un proveedor"}</h2>
+            <p className="muted">
+              {selectedSupplier
+                ? "Aqui administras la lista del proveedor, sus vinculos con productos del sistema y las actualizaciones de costo."
+                : "Selecciona un proveedor para importar y administrar su catalogo."}
+            </p>
           </div>
           {selectedSupplierId ? (
             <button className="button ghost" onClick={openImportModal} type="button">
-              Importar catálogo
+              Subir lista del proveedor
             </button>
           ) : null}
         </div>
@@ -438,7 +460,7 @@ export function SuppliersPage() {
           <>
             <div className="tab-row">
               <button className={`button ghost compact-box ${activeTab === "overview" ? "active-filter" : ""}`} onClick={() => setActiveTab("overview")} type="button">Datos</button>
-              <button className={`button ghost compact-box ${activeTab === "catalog" ? "active-filter" : ""}`} onClick={() => setActiveTab("catalog")} type="button">Catálogo proveedor</button>
+              <button className={`button ghost compact-box ${activeTab === "catalog" ? "active-filter" : ""}`} onClick={() => setActiveTab("catalog")} type="button">Catalogo proveedor</button>
               <button className={`button ghost compact-box ${activeTab === "linked" ? "active-filter" : ""}`} onClick={() => setActiveTab("linked")} type="button">Productos vinculados</button>
               <button className={`button ghost compact-box ${activeTab === "history" ? "active-filter" : ""}`} onClick={() => setActiveTab("history")} type="button">Historial</button>
             </div>
@@ -453,9 +475,9 @@ export function SuppliersPage() {
                 </div>
                 {catalogData ? (
                   <div className="import-summary-grid">
-                    <div className="info-card compact-box"><strong>{catalogData.summary.total}</strong><span className="muted">Items catalogados</span></div>
+                    <div className="info-card compact-box"><strong>{catalogData.summary.total}</strong><span className="muted">Items en lista</span></div>
                     <div className="info-card compact-box"><strong>{catalogData.summary.linked}</strong><span className="muted">Vinculados</span></div>
-                    <div className="info-card compact-box"><strong>{catalogData.summary.pending}</strong><span className="muted">Pendientes</span></div>
+                    <div className="info-card compact-box"><strong>{catalogData.summary.pending}</strong><span className="muted">Por revisar</span></div>
                     <div className="info-card compact-box"><strong>{catalogData.summary.cost_changes}</strong><span className="muted">Con cambio de costo</span></div>
                   </div>
                 ) : null}
@@ -464,18 +486,27 @@ export function SuppliersPage() {
 
             {activeTab === "catalog" ? (
               <>
+                <div className="info-card supplier-catalog-guide">
+                  <strong>Catalogo del proveedor</strong>
+                  <p className="muted">Aqui subes la lista del proveedor y revisas costos. Tus productos de venta siguen administrandose en Productos.</p>
+                  <div className="inline-actions">
+                    <button className="button" onClick={openImportModal} type="button">Importar catalogo</button>
+                    <button className="button ghost" onClick={() => setActiveTab("linked")} type="button">Ver productos vinculados</button>
+                  </div>
+                </div>
+
                 <div className="grid-form supplier-catalog-filters">
                   <div className="form-section-grid">
                     <label>
                       Buscar
-                      <input value={catalogFilters.search} onChange={(event) => setCatalogFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Nombre o descripción" />
+                      <input value={catalogFilters.search} onChange={(event) => setCatalogFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Nombre o descripcion" />
                     </label>
                     <label>
-                      Código proveedor
-                      <input value={catalogFilters.supplier_product_code} onChange={(event) => setCatalogFilters((current) => ({ ...current, supplier_product_code: event.target.value }))} placeholder="Código o clave" />
+                      Codigo proveedor
+                      <input value={catalogFilters.supplier_product_code} onChange={(event) => setCatalogFilters((current) => ({ ...current, supplier_product_code: event.target.value }))} placeholder="Codigo o clave" />
                     </label>
                     <label>
-                      Categoría
+                      Categoria
                       <select value={catalogFilters.category} onChange={(event) => setCatalogFilters((current) => ({ ...current, category: event.target.value }))}>
                         <option value="">Todas</option>
                         {catalogData?.categories.map((category) => (
@@ -490,8 +521,8 @@ export function SuppliersPage() {
                         <option value="new">Nuevo</option>
                         <option value="pending">Pendiente</option>
                         <option value="linked">Vinculado</option>
-                        <option value="cost_changed">Costo cambiado</option>
-                        <option value="cost_applied">Costo aplicado</option>
+                        <option value="cost_changed">Costo por revisar</option>
+                        <option value="cost_applied">Costo actualizado</option>
                         <option value="inactive">Inactivo</option>
                       </select>
                     </label>
@@ -499,12 +530,11 @@ export function SuppliersPage() {
                   <div className="inline-actions">
                     <button className={`button ghost compact-box ${catalogFilters.linked === "linked" ? "active-filter" : ""}`} onClick={() => setCatalogFilters((current) => ({ ...current, linked: current.linked === "linked" ? "" : "linked" }))} type="button">Vinculados</button>
                     <button className={`button ghost compact-box ${catalogFilters.linked === "unlinked" ? "active-filter" : ""}`} onClick={() => setCatalogFilters((current) => ({ ...current, linked: current.linked === "unlinked" ? "" : "unlinked" }))} type="button">Sin vincular</button>
-                    <button className={`button ghost compact-box ${catalogFilters.cost_changed === "true" ? "active-filter" : ""}`} onClick={() => setCatalogFilters((current) => ({ ...current, cost_changed: current.cost_changed === "true" ? "" : "true" }))} type="button">Costo cambiado</button>
+                    <button className={`button ghost compact-box ${catalogFilters.cost_changed === "true" ? "active-filter" : ""}`} onClick={() => setCatalogFilters((current) => ({ ...current, cost_changed: current.cost_changed === "true" ? "" : "true" }))} type="button">Costo por revisar</button>
                     <button className={`button ghost compact-box ${catalogFilters.active === "inactive" ? "active-filter" : ""}`} onClick={() => setCatalogFilters((current) => ({ ...current, active: current.active === "inactive" ? "active" : "inactive" }))} type="button">Inactivos</button>
                     <button className="button ghost compact-box" onClick={() => setCatalogFilters(DEFAULT_FILTERS)} type="button">Limpiar filtros</button>
                   </div>
                 </div>
-
                 {catalogData ? (
                   <>
                     <div className="import-summary-grid">
@@ -517,10 +547,10 @@ export function SuppliersPage() {
                       <table>
                         <thead>
                           <tr>
-                            <th>Código</th>
-                            <th>Producto proveedor</th>
+                            <th>Codigo</th>
+                            <th>Producto del proveedor</th>
                             <th>Costo</th>
-                            <th>Producto interno</th>
+                            <th>Producto del sistema</th>
                             <th>Estado</th>
                             <th>Acciones</th>
                           </tr>
@@ -531,7 +561,7 @@ export function SuppliersPage() {
                               <td>{item.supplier_product_code || "-"}</td>
                               <td>
                                 <strong>{item.supplier_product_name}</strong>
-                                <div className="muted">{item.supplier_category || "Sin categoría"} · {item.supplier_unit}</div>
+                                <div className="muted">{item.supplier_category || "Sin categoria"} · {item.supplier_unit}</div>
                               </td>
                               <td>
                                 <strong>{currency(item.purchase_cost)}</strong>
@@ -553,11 +583,11 @@ export function SuppliersPage() {
                               </td>
                               <td>
                                 <div className="inline-actions">
-                                  <button className="button ghost" onClick={() => openLinkModal(item)} type="button">Vincular</button>
-                                  {!item.product_id ? <button className="button ghost" onClick={() => openCreateProductModal(item)} type="button">Crear producto</button> : null}
-                                  {item.cost_changed && item.product_id ? <button className="button ghost" onClick={() => handleApplyCost(item)} type="button">Aplicar costo</button> : null}
+                                  <button className="button ghost" onClick={() => openLinkModal(item)} type="button">Vincular con producto del sistema</button>
+                                  {!item.product_id ? <button className="button ghost" onClick={() => openCreateProductModal(item)} type="button">Crear producto en el sistema</button> : null}
+                                  {item.cost_changed && item.product_id ? <button className="button ghost" onClick={() => handleApplyCost(item)} type="button">Actualizar costo de compra</button> : null}
                                   {item.product_id ? (
-                                    <button className="button ghost" onClick={() => navigate(`/products?edit=${item.product_id}&search=${encodeURIComponent(item.linked_product?.name || item.supplier_product_name)}`)} type="button">Editar interno</button>
+                                    <button className="button ghost" onClick={() => navigate(`/products?edit=${item.product_id}&search=${encodeURIComponent(item.linked_product?.name || item.supplier_product_name)}`)} type="button">Ver en Productos</button>
                                   ) : null}
                                 </div>
                               </td>
@@ -565,7 +595,7 @@ export function SuppliersPage() {
                           ))}
                           {catalogData.items.length === 0 ? (
                             <tr>
-                              <td className="muted" colSpan={6}>Este proveedor aun no tiene catálogo cargado con esos filtros.</td>
+                              <td className="muted" colSpan={6}>Este proveedor aun no tiene lista cargada. Usa "Importar catalogo" para subir su archivo y empezar a vincular productos.</td>
                             </tr>
                           ) : null}
                         </tbody>
@@ -573,7 +603,7 @@ export function SuppliersPage() {
                     </div>
                   </>
                 ) : (
-                  <p className="muted">Cargando catálogo del proveedor.</p>
+                  <p className="muted">Cargando catalogo del proveedor.</p>
                 )}
               </>
             ) : null}
@@ -583,10 +613,10 @@ export function SuppliersPage() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Producto interno</th>
+                      <th>Producto del sistema</th>
                       <th>SKU</th>
                       <th>Costo proveedor</th>
-                      <th>Actualización</th>
+                      <th>Actualizacion</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
@@ -594,23 +624,23 @@ export function SuppliersPage() {
                     {selectedSupplier.products.map((product) => {
                       const catalogItem = catalogItemsByProductId.get(product.product_id);
                       return (
-                      <tr key={product.product_id}>
-                        <td>{product.product_name}</td>
-                        <td>{product.sku || "-"}</td>
-                        <td>{currency(catalogItem?.purchase_cost ?? product.purchase_cost)}</td>
-                        <td>{shortDateTime(catalogItem?.updated_at || product.cost_updated_at || product.product_updated_at)}</td>
-                        <td>
-                          <div className="inline-actions">
-                            <button className="button ghost" onClick={() => navigate(`/products?edit=${product.product_id}&search=${encodeURIComponent(product.product_name)}`)} type="button">Editar producto</button>
-                            {catalogItem?.cost_changed ? <button className="button ghost" onClick={() => handleApplyCost(catalogItem)} type="button">Aplicar costo</button> : null}
-                          </div>
-                        </td>
-                      </tr>
+                        <tr key={product.product_id}>
+                          <td>{product.product_name}</td>
+                          <td>{product.sku || "-"}</td>
+                          <td>{currency(catalogItem?.purchase_cost ?? product.purchase_cost)}</td>
+                          <td>{shortDateTime(catalogItem?.updated_at || product.cost_updated_at || product.product_updated_at)}</td>
+                          <td>
+                            <div className="inline-actions">
+                              <button className="button ghost" onClick={() => navigate(`/products?edit=${product.product_id}&search=${encodeURIComponent(product.product_name)}`)} type="button">Ver en Productos</button>
+                              {catalogItem?.cost_changed ? <button className="button ghost" onClick={() => handleApplyCost(catalogItem)} type="button">Actualizar costo de compra</button> : null}
+                            </div>
+                          </td>
+                        </tr>
                       );
                     })}
                     {selectedSupplier.products.length === 0 ? (
                       <tr>
-                        <td className="muted" colSpan={5}>Todavía no hay productos internos vinculados desde este catálogo.</td>
+                        <td className="muted" colSpan={5}>Todavia no hay productos del sistema vinculados con este proveedor.</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -624,7 +654,7 @@ export function SuppliersPage() {
                   <thead>
                     <tr>
                       <th>Archivo</th>
-                      <th>Última carga</th>
+                      <th>Ultima carga</th>
                       <th>Items</th>
                       <th>Vinculados</th>
                       <th>Cambios de costo</th>
@@ -642,7 +672,7 @@ export function SuppliersPage() {
                     ))}
                     {!catalogData?.imports.length ? (
                       <tr>
-                        <td className="muted" colSpan={5}>Todavía no hay cargas registradas para este proveedor.</td>
+                        <td className="muted" colSpan={5}>Todavia no hay cargas registradas para este proveedor.</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -651,20 +681,27 @@ export function SuppliersPage() {
             ) : null}
           </>
         ) : (
-          <p className="muted">Selecciona un proveedor para ver su catálogo y sus productos asociados.</p>
+          <div className="empty-state-card supplier-empty-state">
+            <strong>Selecciona un proveedor para importar y administrar su catalogo.</strong>
+            <span className="muted">Desde Proveedores cargas la lista del proveedor. Desde Productos administras el catalogo de tu negocio.</span>
+            {!hasSuppliers ? (
+              <button className="button" onClick={() => navigate("/products?tab=suppliers")} type="button">
+                Crear proveedor primero
+              </button>
+            ) : null}
+          </div>
         )}
       </div>
-
       {importModalOpen ? (
         <div className="modal-backdrop">
           <div className="modal-card import-modal-card">
-            <h3>Importar catálogo del proveedor</h3>
-            <p className="muted">Sube CSV o XLSX. Este flujo guarda catálogo externo del proveedor, no crea productos internos automáticamente.</p>
+            <h3>Importar catalogo del proveedor</h3>
+            <p className="muted">Sube CSV o XLSX con la lista del proveedor. Esto no agrega productos a tu catalogo de venta hasta que tu lo confirmes desde Proveedores.</p>
             <label>
               Archivo
               <input accept=".csv,.xlsx" onChange={(event) => handleImportFileSelected(event.target.files?.[0] || null)} type="file" />
             </label>
-            {isImporting ? <p className="muted">Procesando archivo…</p> : null}
+            {isImporting ? <p className="muted">Procesando archivo...</p> : null}
             {importPreview ? (
               <>
                 <div className="import-summary-grid">
@@ -672,16 +709,16 @@ export function SuppliersPage() {
                   <div className="info-card compact-box"><strong>{importPreview.summary.ready}</strong><span className="muted">Listas</span></div>
                   <div className="info-card compact-box"><strong>{importPreview.summary.new_items}</strong><span className="muted">Nuevas</span></div>
                   <div className="info-card compact-box"><strong>{importPreview.summary.updated}</strong><span className="muted">Actualizables</span></div>
-                  <div className="info-card compact-box"><strong>{importPreview.summary.cost_changes}</strong><span className="muted">Costo cambiado</span></div>
+                  <div className="info-card compact-box"><strong>{importPreview.summary.cost_changes}</strong><span className="muted">Costo por revisar</span></div>
                 </div>
                 <div className="table-wrap">
                   <table>
                     <thead>
                       <tr>
-                        <th>Código</th>
-                        <th>Producto proveedor</th>
+                        <th>Codigo</th>
+                        <th>Producto del proveedor</th>
                         <th>Costo</th>
-                        <th>Vinculado</th>
+                        <th>Ya vinculado</th>
                         <th>Sugerencia</th>
                         <th>Observaciones</th>
                       </tr>
@@ -692,7 +729,7 @@ export function SuppliersPage() {
                           <td>{row.payload.supplier_product_code || "-"}</td>
                           <td>
                             <strong>{row.payload.supplier_product_name || "-"}</strong>
-                            <div className="muted">{row.payload.supplier_category || "Sin categoría"} · {row.payload.supplier_unit}</div>
+                            <div className="muted">{row.payload.supplier_category || "Sin categoria"} · {row.payload.supplier_unit}</div>
                           </td>
                           <td>{currency(Number(row.payload.purchase_cost || 0))}</td>
                           <td>{row.existing_item?.product_name || row.existing_item?.product_sku || (row.existing_item?.product_id ? `#${row.existing_item.product_id}` : "No")}</td>
@@ -700,7 +737,7 @@ export function SuppliersPage() {
                           <td>
                             {row.errors.length ? <div className="error-text">{row.errors.join(", ")}</div> : null}
                             {row.warnings.length ? <div className="muted">{row.warnings.join(", ")}</div> : null}
-                            {!row.errors.length && !row.warnings.length ? <span className="muted">{row.action === "update" ? "Se actualizará" : "Se importará"}</span> : null}
+                            {!row.errors.length && !row.warnings.length ? <span className="muted">{row.action === "update" ? "Se actualizara la lista" : "Se guardara en la lista"}</span> : null}
                           </td>
                         </tr>
                       ))}
@@ -711,40 +748,39 @@ export function SuppliersPage() {
             ) : null}
             <div className="inline-actions modal-actions-end">
               <button className="button ghost" onClick={() => setImportModalOpen(false)} type="button">Cerrar</button>
-              <button className="button" disabled={!importableRows.length || isImporting} onClick={handleConfirmImport} type="button">Confirmar importación</button>
+              <button className="button" disabled={!importableRows.length || isImporting} onClick={handleConfirmImport} type="button">Guardar lista del proveedor</button>
             </div>
           </div>
         </div>
       ) : null}
-
       {linkingItem ? (
         <div className="modal-backdrop">
           <div className="modal-card supplier-modal-card">
-            <h3>Vincular producto interno</h3>
-            <p className="muted">Selecciona un producto existente para relacionarlo con el catálogo del proveedor.</p>
+            <h3>Vincular con producto del sistema</h3>
+            <p className="muted">Elige un producto que ya exista en tu sistema para relacionarlo con esta lista del proveedor.</p>
             <label>
-              Buscar producto interno
-              <input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Nombre, SKU o código" />
+              Buscar producto del sistema
+              <input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Nombre, SKU o codigo" />
             </label>
-            {productSearchLoading ? <p className="muted">Buscando productos…</p> : null}
+            {productSearchLoading ? <p className="muted">Buscando productos...</p> : null}
             <div className="supplier-modal-list">
               {productResults.map((product) => (
                 <div className="info-card" key={product.id}>
                   <div className="panel-header">
                     <div>
                       <strong>{product.name}</strong>
-                      <div className="muted">{product.sku} · {product.category || "Sin categoría"}</div>
+                      <div className="muted">{product.sku} · {product.category || "Sin categoria"}</div>
                     </div>
                     <button className="button ghost" disabled={isSubmittingAction} onClick={() => handleLinkProduct(product.id)} type="button">
-                      Vincular
+                      Vincular con este producto
                     </button>
                   </div>
                 </div>
               ))}
               {!productResults.length && !productSearchLoading ? (
                 <div className="empty-state-card">
-                  <strong>No se encontraron productos internos.</strong>
-                  <span className="muted">Prueba otra búsqueda o crea el producto desde el ítem del proveedor.</span>
+                  <strong>No se encontraron productos del sistema.</strong>
+                  <span className="muted">Prueba otra busqueda o crea el producto desde esta misma lista del proveedor.</span>
                 </div>
               ) : null}
             </div>
@@ -754,23 +790,22 @@ export function SuppliersPage() {
           </div>
         </div>
       ) : null}
-
       {creatingItem && createProductForm ? (
         <div className="modal-backdrop">
           <div className="modal-card quick-product-modal">
-            <h3>Crear producto interno desde catálogo</h3>
-            <p className="muted">Se reutiliza el alta actual de productos. El costo no se aplica en silencio: queda creado y vinculado al proveedor.</p>
+            <h3>Crear producto del sistema desde la lista del proveedor</h3>
+            <p className="muted">Se usara esta informacion como base para crear el producto en tu sistema y dejarlo vinculado con el proveedor.</p>
             <div className="product-form-grid">
               <label>
                 Nombre
                 <input value={createProductForm.name} onChange={(event) => setCreateProductForm((current) => current ? { ...current, name: event.target.value } : current)} />
               </label>
               <label>
-                Categoría
+                Categoria
                 <input value={createProductForm.category} onChange={(event) => setCreateProductForm((current) => current ? { ...current, category: event.target.value } : current)} />
               </label>
               <label className="form-span-2">
-                Descripción
+                Descripcion
                 <textarea value={createProductForm.description} onChange={(event) => setCreateProductForm((current) => current ? { ...current, description: event.target.value } : current)} />
               </label>
               <label>
@@ -783,7 +818,7 @@ export function SuppliersPage() {
                 </select>
               </label>
               <label>
-                Precio público
+                Precio publico
                 <input type="number" min="0" step="0.00001" value={createProductForm.price} onChange={(event) => setCreateProductForm((current) => current ? { ...current, price: event.target.value } : current)} />
               </label>
               <label>
@@ -795,17 +830,17 @@ export function SuppliersPage() {
                 <input type="number" min="0" step="0.001" value={createProductForm.stock} onChange={(event) => setCreateProductForm((current) => current ? { ...current, stock: event.target.value } : current)} />
               </label>
               <label>
-                Stock mínimo
+                Stock minimo
                 <input type="number" min="0" step="0.001" value={createProductForm.stock_minimo} onChange={(event) => setCreateProductForm((current) => current ? { ...current, stock_minimo: event.target.value } : current)} />
               </label>
               <label>
-                Stock máximo
+                Stock maximo
                 <input type="number" min="0" step="0.001" value={createProductForm.stock_maximo} onChange={(event) => setCreateProductForm((current) => current ? { ...current, stock_maximo: event.target.value } : current)} />
               </label>
             </div>
             <div className="inline-actions modal-actions-end">
               <button className="button ghost" onClick={() => { setCreatingItem(null); setCreateProductForm(null); }} type="button">Cancelar</button>
-              <button className="button" disabled={isSubmittingAction} onClick={handleCreateInternalProduct} type="button">Crear y vincular</button>
+              <button className="button" disabled={isSubmittingAction} onClick={handleCreateInternalProduct} type="button">Crear producto y vincular</button>
             </div>
           </div>
         </div>
