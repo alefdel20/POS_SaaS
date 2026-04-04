@@ -497,17 +497,14 @@ async function backfillBusinessIds(client) {
     `UPDATE company_profiles SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE product_categories SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE services SET business_id = ${businessId} WHERE business_id IS NULL`,
-    `UPDATE supplier_catalog_items
+    `UPDATE supplier_catalog_items sci
      SET business_id = COALESCE(
-       supplier_catalog_items.business_id,
-       suppliers.business_id,
-       products.business_id,
+       sci.business_id,
+       (SELECT s.business_id FROM suppliers s WHERE s.id = sci.supplier_id),
+       (SELECT p.business_id FROM products p WHERE p.id = sci.product_id),
        ${businessId}
      )
-     FROM suppliers
-     LEFT JOIN products ON products.id = supplier_catalog_items.product_id
-     WHERE suppliers.id = supplier_catalog_items.supplier_id
-       AND supplier_catalog_items.business_id IS NULL`,
+     WHERE sci.business_id IS NULL`,
     `UPDATE automation_events SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE clients SET business_id = ${businessId} WHERE business_id IS NULL`,
     `UPDATE sync_logs SET business_id = ${businessId} WHERE business_id IS NULL`
@@ -608,7 +605,7 @@ async function backfillBusinessIds(client) {
        AND (
          support_access_logs.business_id IS NULL
          OR support_access_logs.target_business_id IS NULL
-        )`,
+       )`,
     [businessId]
   );
 
