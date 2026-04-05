@@ -247,6 +247,40 @@ export interface Product {
   status?: "activo" | "inactivo";
 }
 
+export interface ProductUpdateRequest {
+  id: number;
+  business_id: number;
+  product_id: number;
+  product_name: string;
+  product_sku?: string | null;
+  requested_by_user_id: number;
+  requested_by_name?: string | null;
+  reviewed_by_user_id?: number | null;
+  reviewed_by_name?: string | null;
+  status: "pending" | "approved" | "rejected";
+  reason: string;
+  current_price_snapshot: number;
+  requested_price?: number | null;
+  current_stock_snapshot: number;
+  requested_stock?: number | null;
+  review_note: string;
+  reviewed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductUpdateRequestPendingSummary {
+  pending_count: number;
+  recent: Array<{
+    id: number;
+    product_id: number;
+    product_name: string;
+    product_sku?: string | null;
+    requested_by_name?: string | null;
+    created_at: string;
+  }>;
+}
+
 export interface ProductImportPreviewRow {
   row_number: number;
   index: number;

@@ -39,6 +39,7 @@ const DEFAULT_SIDEBAR_SECTIONS: SidebarSection[] = [
     title: "Operacion",
     links: [
       { to: "/sales", label: "Ventas", roles: "sales" },
+      { to: "/product-update-requests", label: "Solicitudes de producto", roles: "sales" },
       { to: "/products", label: "Productos", roles: "management" },
       { to: "/suppliers", label: "Proveedores", roles: "management" },
       { to: "/sales-history", label: "Historial", roles: "management" }
@@ -114,6 +115,7 @@ export function getSidebarSectionsForPosType(posType?: string | null) {
       title: "Operacion",
       links: [
         { to: "/sales", label: "Ventas", roles: "sales" },
+        { to: "/product-update-requests", label: "Solicitudes de producto", roles: "sales" },
         { to: "/products", label: getProductModuleLabel(posType), roles: "management" },
         { to: "/services", label: "Servicios", roles: "management" },
         { to: "/suppliers", label: "Proveedores", roles: "management" },

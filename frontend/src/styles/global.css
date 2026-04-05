@@ -16,6 +16,9 @@
   --ankode-app-bg: #0f172a;
   --ankode-login-bg: #020617;
   --accent-contrast: #08111a;
+  --modal-backdrop: rgba(2, 6, 23, 0.7);
+  --modal-panel: rgba(15, 23, 42, 0.96);
+  --modal-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
 }
 
 :root,
@@ -58,6 +61,9 @@
   --warning: #d97706;
   --warning-rgb: 217, 119, 6;
   --warning-text: #9a3412;
+  --modal-backdrop: rgba(148, 163, 184, 0.34);
+  --modal-panel: rgba(255, 255, 255, 0.98);
+  --modal-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
 }
 
 :root[data-palette="default"] {
@@ -645,7 +651,7 @@ td {
   place-items: center;
   padding: 1.5rem;
   overflow-y: auto;
-  background: rgba(2, 6, 23, 0.7);
+  background: var(--modal-backdrop);
   z-index: 40;
 }
 
@@ -656,8 +662,9 @@ td {
   padding: 1.25rem;
   border-radius: 20px;
   border: 1px solid var(--border);
-  background: rgba(15, 23, 42, 0.96);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  background: var(--modal-panel);
+  color: var(--text);
+  box-shadow: var(--modal-shadow);
 }
 
 .modal-card h3,
@@ -1062,6 +1069,10 @@ td {
   padding: 1rem;
   border-radius: 16px;
   background: var(--panel-alt);
+}
+
+.reminder-notes {
+  white-space: pre-wrap;
 }
 
 .pill {

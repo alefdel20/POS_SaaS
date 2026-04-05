@@ -27,6 +27,7 @@ const clinicalPatientRoutes = require("./routes/clinicalPatientRoutes");
 const clinicalConsultationRoutes = require("./routes/clinicalConsultationRoutes");
 const clinicalAppointmentRoutes = require("./routes/clinicalAppointmentRoutes");
 const clinicalHistoryRoutes = require("./routes/clinicalHistoryRoutes");
+const productUpdateRequestRoutes = require("./routes/productUpdateRequestRoutes");
 
 const app = express();
 
@@ -50,6 +51,7 @@ const routes = [
   { path: "/automation", router: automationRoutes, auth: false },
   { path: "/users", router: userRoutes, auth: true },
   { path: "/products", router: productRoutes, auth: true },
+  { path: "/product-update-requests", router: productUpdateRequestRoutes, auth: true },
   { path: "/suppliers", router: supplierRoutes, auth: true },
   { path: "/sales", router: saleRoutes, auth: true },
   { path: "/daily-cuts", router: dailyCutRoutes, auth: true },

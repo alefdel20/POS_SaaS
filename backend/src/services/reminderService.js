@@ -122,8 +122,16 @@ function buildLowStockReminderPayload(businessId, products, dueDate) {
     source_key: `auto:stock-low:${businessId}`,
     title: "STOCK BAJO",
     notes: products
-      .map((product) => `${product.name} | SKU: ${product.sku || "-"} | stock: ${Number(product.stock)} | minimo: ${Number(product.stock_minimo)}`)
-      .join("\n"),
+      .map((product) => {
+        const stockMaximo = product.stock_maximo === null || product.stock_maximo === undefined || product.stock_maximo === ""
+          ? "-"
+          : Number(product.stock_maximo);
+        return `• ${product.name}
+  Stock actual: ${Number(product.stock)}
+  Minimo: ${Number(product.stock_minimo)}
+  Maximo: ${stockMaximo}`;
+      })
+      .join("\n\n"),
     due_date: dueDate
   };
 }
@@ -154,7 +162,7 @@ async function ensureAutomaticReminders(actor) {
   const upcomingDate = addDays(today, 3);
   const [lowStockRows, fixedExpenseRows] = await Promise.all([
     pool.query(
-      `SELECT id, name, sku, stock, stock_minimo
+      `SELECT id, name, stock, stock_minimo, stock_maximo
        FROM products
        WHERE business_id = $1 AND is_active = TRUE AND status = 'activo' AND stock_minimo > 0 AND stock <= stock_minimo`,
       [businessId]
@@ -189,7 +197,7 @@ async function ensureLowStockRemindersForProductIds(productIds = [], actor) {
     return [];
   }
   const { rows } = await pool.query(
-    `SELECT id, name, sku, stock, stock_minimo
+    `SELECT id, name, stock, stock_minimo, stock_maximo
      FROM products
      WHERE business_id = $1 AND is_active = TRUE AND status = 'activo' AND stock_minimo > 0 AND stock <= stock_minimo
      ORDER BY name ASC`,

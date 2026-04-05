@@ -111,7 +111,7 @@ export function RemindersPage() {
             <article key={reminder.id} className="reminder-card">
               <div>
                 <strong>{reminder.title}</strong>
-                <p className="muted">{reminder.notes}</p>
+                <p className="muted reminder-notes">{reminder.notes}</p>
                 <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(reminder.due_date)}</small>
               </div>
               <div className="inline-actions">

@@ -15,6 +15,7 @@ import { NotFoundPage } from "../pages/NotFoundPage";
 import { PatientsPage } from "../pages/PatientsPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { ProductsPage } from "../pages/ProductsPage";
+import { ProductUpdateRequestsPage } from "../pages/ProductUpdateRequestsPage";
 import { RegisterBusinessPage } from "../pages/RegisterBusinessPage";
 import { RematePage } from "../pages/RematePage";
 import { RemindersPage } from "../pages/RemindersPage";
@@ -45,6 +46,7 @@ export function AppRouter() {
             <Route path="/" element={<RoleHomeRedirect />} />
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.sales]} />}>
               <Route path="/sales" element={<SalesPage />} />
+              <Route path="/product-update-requests" element={<ProductUpdateRequestsPage />} />
             </Route>
             <Route path="/reminders" element={<RemindersPage />} />
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.users]} />}>

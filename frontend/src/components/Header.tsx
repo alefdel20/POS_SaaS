@@ -1,10 +1,14 @@
+import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { AuthResponse } from "../types";
+import type { AuthResponse, ProductUpdateRequestPendingSummary } from "../types";
+import { isManagementRole } from "../utils/roles";
 import { getRoleLabel } from "../utils/uiLabels";
 
 export function Header() {
   const { token, user, logout, setSession } = useAuth();
+  const [pendingSummary, setPendingSummary] = useState<ProductUpdateRequestPendingSummary | null>(null);
 
   async function exitSupportMode() {
     if (!token || !user?.support_context) return;
@@ -15,6 +19,36 @@ export function Header() {
     });
     setSession(response);
   }
+
+  useEffect(() => {
+    if (!token || !user?.business_id || !isManagementRole(user.role)) {
+      setPendingSummary(null);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadPendingSummary() {
+      const response = await apiRequest<ProductUpdateRequestPendingSummary>("/product-update-requests/pending-summary", { token });
+      if (!cancelled) {
+        setPendingSummary(response);
+      }
+    }
+
+    function refreshSummary() {
+      loadPendingSummary().catch(() => {
+        if (!cancelled) {
+          setPendingSummary(null);
+        }
+      });
+    }
+
+    refreshSummary();
+    window.addEventListener("product-update-requests:refresh-banner", refreshSummary);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("product-update-requests:refresh-banner", refreshSummary);
+    };
+  }, [token, user?.business_id, user?.role]);
 
   return (
     <>
@@ -28,6 +62,17 @@ export function Header() {
           <button className="button ghost" onClick={exitSupportMode} type="button">
             Salir de soporte
           </button>
+        </div>
+      ) : null}
+      {!user?.support_context && pendingSummary && pendingSummary.pending_count > 0 ? (
+        <div className="support-banner">
+          <div className="support-banner-copy">
+            <strong>Solicitudes de producto pendientes</strong>
+            <span>{pendingSummary.pending_count} pendientes por revisar en este negocio.</span>
+          </div>
+          <Link className="button ghost" to="/product-update-requests">
+            Revisar solicitudes
+          </Link>
         </div>
       ) : null}
       <header className="header">

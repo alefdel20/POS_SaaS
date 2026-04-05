@@ -148,6 +148,38 @@ async function ensureSchema(client) {
     )`,
     "ALTER TABLE product_suppliers ADD COLUMN IF NOT EXISTS business_id INTEGER",
 
+    `CREATE TABLE IF NOT EXISTS product_update_requests (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      requested_by_user_id INTEGER NOT NULL REFERENCES users(id),
+      reviewed_by_user_id INTEGER REFERENCES users(id),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      reason TEXT NOT NULL DEFAULT '',
+      current_price_snapshot NUMERIC(12, 5) NOT NULL,
+      requested_price NUMERIC(12, 5),
+      current_stock_snapshot NUMERIC(12, 3) NOT NULL,
+      requested_stock NUMERIC(12, 3),
+      review_note TEXT NOT NULL DEFAULT '',
+      reviewed_at TIMESTAMP,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS product_id INTEGER",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS requested_by_user_id INTEGER",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS reviewed_by_user_id INTEGER",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS reason TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS current_price_snapshot NUMERIC(12, 5)",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS requested_price NUMERIC(12, 5)",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS current_stock_snapshot NUMERIC(12, 3)",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS requested_stock NUMERIC(12, 3)",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS review_note TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS send_reminder BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_name VARCHAR(150)",
@@ -935,7 +967,8 @@ async function ensureConstraints(client) {
     "clients",
     "patients",
     "consultations",
-    "appointments"
+    "appointments",
+    "product_update_requests"
   ];
 
   for (const table of fks) {
@@ -1167,6 +1200,9 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_suppliers_business_id ON suppliers(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_products_business_id ON products(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_products_business_image_path ON products(business_id) WHERE image_path IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_product_update_requests_business_status_created ON product_update_requests(business_id, status, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_product_update_requests_business_requester_created ON product_update_requests(business_id, requested_by_user_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_product_update_requests_product_id ON product_update_requests(product_id)",
     "CREATE INDEX IF NOT EXISTS idx_product_suppliers_business_id ON product_suppliers(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_sales_business_id ON sales(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_sales_business_sale_date_status ON sales(business_id, sale_date, status)",
