@@ -3,6 +3,7 @@
   line-height: 1.4;
   font-weight: 400;
   --accent: #58d4b3;
+  --accent-rgb: 88, 212, 179;
   --accent-2: #ffb454;
   --danger: #ff7b7b;
   --ankode-violet: #6d28d9;
@@ -11,6 +12,7 @@
   --ankode-white: #f8fafc;
   --ankode-app-bg: #0f172a;
   --ankode-login-bg: #020617;
+  --accent-contrast: #08111a;
 }
 
 :root,
@@ -27,21 +29,48 @@
   --text: #eef4ff;
   --field-bg: rgba(8, 14, 24, 0.8);
   --sidebar-bg: rgba(6, 11, 19, 0.88);
+  --button-ghost-bg: rgba(255, 255, 255, 0.04);
+  --button-ghost-text: #eef4ff;
+  --surface-soft: rgba(255, 255, 255, 0.04);
 }
 
 :root[data-theme="light"] {
-  color: #132033;
+  color: #162434;
   background:
-    radial-gradient(circle at top, rgba(102, 160, 214, 0.25), transparent 30%),
-    linear-gradient(180deg, #f3f8fc 0%, #e8f0f8 50%, #dde8f4 100%);
+    radial-gradient(circle at top, rgba(var(--accent-rgb), 0.18), transparent 32%),
+    linear-gradient(180deg, #f6f8fb 0%, #e8eef5 48%, #dce5ef 100%);
   color-scheme: light;
-  --panel: rgba(255, 255, 255, 0.86);
-  --panel-alt: rgba(245, 249, 253, 0.92);
-  --border: rgba(43, 64, 89, 0.14);
-  --muted: #5f7188;
-  --text: #132033;
-  --field-bg: rgba(255, 255, 255, 0.9);
-  --sidebar-bg: rgba(236, 243, 250, 0.92);
+  --panel: rgba(255, 255, 255, 0.96);
+  --panel-alt: rgba(250, 252, 255, 0.98);
+  --border: rgba(31, 53, 80, 0.18);
+  --muted: #53657b;
+  --text: #162434;
+  --field-bg: rgba(255, 255, 255, 0.98);
+  --sidebar-bg: rgba(241, 246, 251, 0.98);
+  --button-ghost-bg: rgba(22, 36, 52, 0.04);
+  --button-ghost-text: #162434;
+  --surface-soft: rgba(22, 36, 52, 0.04);
+  --accent-contrast: #ffffff;
+}
+
+:root[data-palette="default"] {
+  --accent: #58d4b3;
+  --accent-rgb: 88, 212, 179;
+}
+
+:root[data-palette="ocean"] {
+  --accent: #2f82ff;
+  --accent-rgb: 47, 130, 255;
+}
+
+:root[data-palette="forest"] {
+  --accent: #2f9e44;
+  --accent-rgb: 47, 158, 68;
+}
+
+:root[data-palette="ember"] {
+  --accent: #e76f51;
+  --accent-rgb: 231, 111, 81;
 }
 
 :root[data-pos-type="Farmacia"] {
@@ -191,8 +220,8 @@ td {
 
 .nav-link.active,
 .nav-link:hover {
-  background: rgba(88, 212, 179, 0.12);
-  border-color: rgba(88, 212, 179, 0.3);
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.3);
 }
 
 .app-main {
@@ -322,15 +351,15 @@ td {
   border: none;
   border-radius: 14px;
   padding: 0.9rem 1.2rem;
-  background: linear-gradient(135deg, var(--accent), #2f82ff);
-  color: #08111a;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 42%, #2f82ff));
+  color: var(--accent-contrast);
   font-weight: 700;
   cursor: pointer;
 }
 
 .button.ghost {
-  background: rgba(255, 255, 255, 0.04);
-  color: #eef4ff;
+  background: var(--button-ghost-bg);
+  color: var(--button-ghost-text);
   border: 1px solid var(--border);
 }
 
@@ -442,7 +471,7 @@ td {
   text-align: left;
   border: 1px solid var(--border);
   background: var(--panel-alt);
-  color: #eef4ff;
+  color: var(--text);
   padding: 1rem;
   border-radius: 16px;
   cursor: pointer;
@@ -598,8 +627,8 @@ td {
 }
 
 .active-filter {
-  background: rgba(88, 212, 179, 0.16) !important;
-  border-color: rgba(88, 212, 179, 0.34) !important;
+  background: rgba(var(--accent-rgb), 0.16) !important;
+  border-color: rgba(var(--accent-rgb), 0.34) !important;
 }
 
 .modal-backdrop {
@@ -639,7 +668,7 @@ td {
   display: flex;
   align-items: center;
   gap: 0.65rem;
-  color: #eef4ff;
+  color: var(--text);
 }
 
 .checkbox-row input {
@@ -694,11 +723,11 @@ td {
   align-content: center;
   padding: 0.8rem 1rem;
   border-radius: 16px;
-  background: rgba(88, 212, 179, 0.08);
+  background: rgba(var(--accent-rgb), 0.1);
 }
 
 .total-box.secondary {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-soft);
 }
 
 .table-wrap {
@@ -768,7 +797,7 @@ td {
   padding: 1rem;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-soft);
 }
 
 .info-card h3 {
@@ -920,13 +949,13 @@ td {
   text-align: left;
   border-radius: 18px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-soft);
   color: inherit;
 }
 
 .timeline-card-active {
-  background: rgba(88, 212, 179, 0.12);
-  border-color: rgba(88, 212, 179, 0.28);
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.28);
 }
 
 .timeline-card-static {
@@ -968,7 +997,7 @@ td {
 }
 
 .table-row-active {
-  background: rgba(88, 212, 179, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .status-badge {
@@ -1035,7 +1064,7 @@ td {
 }
 
 .pill.success {
-  background: rgba(88, 212, 179, 0.15);
+  background: rgba(var(--accent-rgb), 0.15);
   color: var(--accent);
 }
 

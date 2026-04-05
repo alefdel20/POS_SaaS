@@ -51,6 +51,8 @@ export function MedicalConsultationsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const selectedPatient = patients.find((patient) => String(patient.id) === form.patient_id) || null;
+  const detailPatient = patients.find((patient) => patient.id === detail?.patient_id) || null;
 
   async function loadPatients() {
     if (!token) return;
@@ -256,6 +258,16 @@ export function MedicalConsultationsPage() {
             Cliente
             <input disabled value={patients.find((patient) => String(patient.id) === form.patient_id)?.client_name || ""} />
           </label>
+          {selectedPatient ? (
+            <div className="info-card form-span-2">
+              <p><strong>Responsable:</strong> {selectedPatient.client_name || "-"}</p>
+              <p><strong>Telefono:</strong> {selectedPatient.client_phone || "-"}</p>
+              <p><strong>Correo:</strong> {selectedPatient.client_email || "-"}</p>
+              <p><strong>Especie / raza:</strong> {selectedPatient.species || "-"} / {selectedPatient.breed || "-"}</p>
+              <p><strong>Sexo:</strong> {selectedPatient.sex || "-"}</p>
+              <p><strong>Nacimiento:</strong> {selectedPatient.birth_date || "-"}</p>
+            </div>
+          ) : null}
           <label>
             Fecha *
             <input type="datetime-local" value={form.consultation_date} onChange={(event) => setForm({ ...form, consultation_date: event.target.value })} />
@@ -286,6 +298,11 @@ export function MedicalConsultationsPage() {
           <div className="info-card">
             <p><strong>Paciente:</strong> {detail.patient_name}</p>
             <p><strong>Cliente:</strong> {detail.client_name}</p>
+            <p><strong>Telefono:</strong> {detailPatient?.client_phone || "-"}</p>
+            <p><strong>Correo:</strong> {detailPatient?.client_email || "-"}</p>
+            <p><strong>Especie / raza:</strong> {detail.species || detailPatient?.species || "-"} / {detail.breed || detailPatient?.breed || "-"}</p>
+            <p><strong>Sexo:</strong> {detailPatient?.sex || "-"}</p>
+            <p><strong>Nacimiento:</strong> {detailPatient?.birth_date || "-"}</p>
             <p><strong>Fecha:</strong> {shortDateTime(detail.consultation_date)}</p>
             <p><strong>Motivo:</strong> {detail.motivo_consulta}</p>
             <p><strong>Diagnostico:</strong> {detail.diagnostico}</p>

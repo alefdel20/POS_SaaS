@@ -10,6 +10,7 @@ const generalValidation = [
   body("email").optional({ values: "falsy" }).isEmail(),
   body("address").optional().trim(),
   body("theme").optional().isIn(["light", "dark"]),
+  body("accent_palette").optional().isIn(["default", "ocean", "forest", "ember"]),
   body("reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];

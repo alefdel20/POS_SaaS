@@ -170,11 +170,15 @@ export function SalesPage() {
   async function loadProducts(term = "") {
     if (!token) return;
     const params = new URLSearchParams({ activeOnly: "true" });
-    if (term) {
-      params.set("search", term);
+    const trimmedTerm = term.trim();
+    if (trimmedTerm) {
+      params.set("search", trimmedTerm);
+    } else {
+      params.set("page", "1");
+      params.set("pageSize", "10");
     }
-    const response = await apiRequest<Product[]>(`/products?${params.toString()}`, { token });
-    setProducts(response);
+    const response = await apiRequest<Product[] | { items: Product[] }>(`/products?${params.toString()}`, { token });
+    setProducts(Array.isArray(response) ? response : response.items);
   }
 
   async function loadRecentSales() {

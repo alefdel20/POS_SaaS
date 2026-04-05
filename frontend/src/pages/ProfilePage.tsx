@@ -12,6 +12,7 @@ type ProfileFormState = {
   email: string;
   address: string;
   theme: "light" | "dark";
+  accent_palette: "default" | "ocean" | "forest" | "ember";
   bank_name: string;
   bank_clabe: string;
   bank_beneficiary: string;
@@ -36,6 +37,7 @@ const emptyForm: ProfileFormState = {
   email: "",
   address: "",
   theme: "dark",
+  accent_palette: "default",
   bank_name: "",
   bank_clabe: "",
   bank_beneficiary: "",
@@ -61,6 +63,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
     email: profile?.email || "",
     address: profile?.address || "",
     theme: profile?.theme || "dark",
+    accent_palette: profile?.accent_palette || "default",
     bank_name: profile?.bank_name || "",
     bank_clabe: profile?.bank_clabe || "",
     bank_beneficiary: profile?.bank_beneficiary || "",
@@ -80,7 +83,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
 }
 
 const sectionFields = {
-  general: ["owner_name", "company_name", "phone", "email", "address", "theme"],
+  general: ["owner_name", "company_name", "phone", "email", "address", "theme", "accent_palette"],
   banking: ["bank_name", "bank_clabe", "bank_beneficiary", "card_terminal", "card_bank", "card_instructions", "card_commission"],
   fiscal: ["fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address"],
   stamps: ["pac_provider", "pac_mode", "stamps_available", "stamp_alert_threshold"]
@@ -147,6 +150,7 @@ export function ProfilePage() {
       setProfile(response);
       if (section === "general" && user?.business_id && response.theme) {
         document.documentElement.dataset.theme = response.theme;
+        document.documentElement.dataset.palette = response.accent_palette || "default";
         setStoredTheme(user.business_id, response.theme);
       }
       applySectionFromResponse(section, response);
@@ -189,7 +193,8 @@ export function ProfilePage() {
         phone: formData.phone,
         email: formData.email,
         address: formData.address,
-        theme: formData.theme
+        theme: formData.theme,
+        accent_palette: formData.accent_palette
       })}>
         <div className="panel-header">
           <div>
@@ -222,6 +227,15 @@ export function ProfilePage() {
           <select value={formData.theme} onChange={(event) => updateField("theme", event.target.value as "light" | "dark")}>
             <option value="dark">Oscuro</option>
             <option value="light">Claro</option>
+          </select>
+        </label>
+        <label>
+          Paleta de color
+          <select value={formData.accent_palette} onChange={(event) => updateField("accent_palette", event.target.value as ProfileFormState["accent_palette"])}>
+            <option value="default">Aqua</option>
+            <option value="ocean">Oceano</option>
+            <option value="forest">Bosque</option>
+            <option value="ember">Ember</option>
           </select>
         </label>
         <button className="button" disabled={savingSection === "general"} type="submit">

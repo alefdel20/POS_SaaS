@@ -516,6 +516,7 @@ export interface CompanyProfile {
   address: string;
   general_settings?: Record<string, unknown>;
   theme?: "light" | "dark";
+  accent_palette?: "default" | "ocean" | "forest" | "ember";
   bank_name?: string | null;
   bank_clabe?: string | null;
   bank_beneficiary?: string | null;

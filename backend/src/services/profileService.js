@@ -21,6 +21,9 @@ function mapProfile(profile) {
     address: profile.address,
     general_settings: generalSettings,
     theme: generalSettings.theme === "light" ? "light" : "dark",
+    accent_palette: ["default", "ocean", "forest", "ember"].includes(generalSettings.accent_palette)
+      ? generalSettings.accent_palette
+      : "default",
     bank_name: profile.bank_name,
     bank_clabe: profile.bank_clabe,
     bank_beneficiary: profile.bank_beneficiary,
@@ -96,6 +99,11 @@ async function updateProfileSection(payload, actor, section) {
     if (section === "general") Object.assign(updates, { owner_name: payload.owner_name ?? current.owner_name, company_name: payload.company_name ?? current.company_name, phone: payload.phone ?? current.phone, email: payload.email ?? current.email, address: payload.address ?? current.address });
     if (section === "general" && payload.theme !== undefined) {
       generalSettings.theme = payload.theme === "light" ? "light" : "dark";
+    }
+    if (section === "general" && payload.accent_palette !== undefined) {
+      generalSettings.accent_palette = ["default", "ocean", "forest", "ember"].includes(payload.accent_palette)
+        ? payload.accent_palette
+        : "default";
     }
     if (section === "banking") {
       Object.assign(updates, { bank_name: payload.bank_name ?? current.bank_name, bank_clabe: payload.bank_clabe ?? current.bank_clabe, bank_beneficiary: payload.bank_beneficiary ?? current.bank_beneficiary });

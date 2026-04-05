@@ -38,6 +38,10 @@ function detailToForm(detail: ClinicalPatientDetail | null): PatientFormState {
   };
 }
 
+function buildClientSearchLabel(client: ClinicalClientSummary) {
+  return client.phone ? `${client.name} · ${client.phone}` : client.name;
+}
+
 export function PatientsPage() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
@@ -48,6 +52,7 @@ export function PatientsPage() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState<PatientFormState>(emptyForm);
+  const [clientSearch, setClientSearch] = useState("");
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -112,6 +117,18 @@ export function PatientsPage() {
     });
   }, [selectedId, token]);
 
+  useEffect(() => {
+    if (!form.client_id) {
+      setClientSearch("");
+      return;
+    }
+
+    const selectedClient = clients.find((client) => String(client.id) === form.client_id);
+    if (selectedClient) {
+      setClientSearch(buildClientSearchLabel(selectedClient));
+    }
+  }, [form.client_id, clients]);
+
   function resetFeedback() {
     setError("");
     setInfo("");
@@ -121,12 +138,22 @@ export function PatientsPage() {
     resetFeedback();
     setMode("create");
     setForm(emptyForm);
+    setClientSearch("");
   }
 
   function startEdit() {
     resetFeedback();
     setMode("edit");
     setForm(detailToForm(detail));
+  }
+
+  function handleClientSearchChange(value: string) {
+    const matchedClient = clients.find((client) => buildClientSearchLabel(client).toLowerCase() === value.trim().toLowerCase());
+    setClientSearch(value);
+    setForm((current) => ({
+      ...current,
+      client_id: matchedClient ? String(matchedClient.id) : ""
+    }));
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -155,6 +182,7 @@ export function PatientsPage() {
         await loadDetail(selectedId);
       } else {
         setForm(emptyForm);
+        setClientSearch("");
       }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el paciente");
@@ -245,11 +273,16 @@ export function PatientsPage() {
         <form className="grid-form" onSubmit={handleSubmit}>
           <label>
             Responsable *
-            <select value={form.client_id} onChange={(event) => setForm({ ...form, client_id: event.target.value })}>
-              <option value="">Selecciona un cliente</option>
-              {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
-            </select>
+            <input
+              list="patient-client-options"
+              placeholder="Busca por nombre o telefono"
+              value={clientSearch}
+              onChange={(event) => handleClientSearchChange(event.target.value)}
+            />
           </label>
+          <datalist id="patient-client-options">
+            {clients.map((client) => <option key={client.id} value={buildClientSearchLabel(client)} />)}
+          </datalist>
           <label>
             Nombre *
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
