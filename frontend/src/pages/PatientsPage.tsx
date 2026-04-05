@@ -39,7 +39,7 @@ function detailToForm(detail: ClinicalPatientDetail | null): PatientFormState {
 }
 
 function buildClientSearchLabel(client: ClinicalClientSummary) {
-  return client.phone ? `${client.name} · ${client.phone}` : client.name;
+  return client.phone ? `${client.name} - ${client.phone}` : client.name;
 }
 
 export function PatientsPage() {
@@ -211,7 +211,7 @@ export function PatientsPage() {
   }
 
   return (
-    <section className="page-grid two-columns">
+    <section className="page-grid">
       <div className="panel">
         <div className="panel-header">
           <div>
@@ -220,7 +220,6 @@ export function PatientsPage() {
           </div>
           <div className="inline-actions">
             <input className="search-input" placeholder="Buscar paciente" value={search} onChange={(event) => setSearch(event.target.value)} />
-            <button className="button" onClick={startCreate} type="button">Nuevo</button>
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}

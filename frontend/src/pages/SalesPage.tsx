@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import type { CompanyProfile, Product, Sale, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
-import { isManagementRole } from "../utils/roles";
+import { isCashierRole, isManagementRole } from "../utils/roles";
 import { resolveProductImageUrl } from "../utils/assets";
 import { canUseCreditCollections, getDefaultUnitForPosType } from "../utils/pos";
 
@@ -18,6 +18,7 @@ interface CartItem {
 
 interface QuickProductFormState {
   name: string;
+  reason: string;
   price: string;
   cost_price: string;
   porcentaje_ganancia: string;
@@ -59,6 +60,7 @@ const emptyInvoiceData = {
 
 const emptyQuickProduct: QuickProductFormState = {
   name: "",
+  reason: "",
   price: "",
   cost_price: "",
   porcentaje_ganancia: "",
@@ -195,6 +197,10 @@ export function SalesPage() {
 
   async function loadCategories(term = "") {
     if (!token) return;
+    if (!isManagementRole(user?.role)) {
+      setCategories([]);
+      return;
+    }
     const params = new URLSearchParams();
     if (term.trim()) {
       params.set("search", term.trim());
@@ -205,6 +211,10 @@ export function SalesPage() {
 
   async function loadSupplierOptions(term = "") {
     if (!token) return;
+    if (!isManagementRole(user?.role)) {
+      setQuickSupplierOptions([]);
+      return;
+    }
     const params = new URLSearchParams();
     if (term.trim()) {
       params.set("search", term.trim());
@@ -245,8 +255,12 @@ export function SalesPage() {
     loadProfile().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil del negocio");
     });
-    loadCategories().catch(() => setCategories([]));
-  }, [token]);
+    if (isManagementRole(user?.role)) {
+      loadCategories().catch(() => setCategories([]));
+    } else {
+      setCategories([]);
+    }
+  }, [token, user?.role]);
 
   useEffect(() => {
     const delay = setTimeout(() => {
@@ -287,7 +301,8 @@ export function SalesPage() {
     instructions: profile?.card_instructions || "",
     commission: profile?.card_commission ?? null
   };
-  const canQuickCreateProduct = isManagementRole(user?.role);
+  const canQuickCreateProduct = isManagementRole(user?.role) || isCashierRole(user?.role);
+  const requiresQuickCreateReason = isCashierRole(user?.role);
   const canUseCredit = canUseCreditCollections(user?.pos_type);
   const stampCount = Number(profile?.stamps_available || 0);
 
@@ -377,8 +392,13 @@ export function SalesPage() {
       stock: "0"
     });
     setQuickSupplierTouched(emptyQuickSupplierTouched);
-    loadSupplierOptions().catch(() => setQuickSupplierOptions([]));
-    loadCategories().catch(() => setCategories([]));
+    if (isManagementRole(user?.role)) {
+      loadSupplierOptions().catch(() => setQuickSupplierOptions([]));
+      loadCategories().catch(() => setCategories([]));
+    } else {
+      setQuickSupplierOptions([]);
+      setCategories([]);
+    }
     setQuickProductError("");
     setShowQuickAddModal(true);
   }
@@ -489,6 +509,10 @@ export function SalesPage() {
       setQuickProductError("La categoria es obligatoria");
       return;
     }
+    if (requiresQuickCreateReason && !quickProductForm.reason.trim()) {
+      setQuickProductError("El motivo es obligatorio");
+      return;
+    }
     if (Number.isNaN(price) || price <= 0) {
       setQuickProductError("El precio de venta debe ser mayor a cero");
       return;
@@ -539,6 +563,7 @@ export function SalesPage() {
           supplier_phone: quickProductForm.supplier_phone.trim() || undefined,
           supplier_whatsapp: quickProductForm.supplier_whatsapp.trim() || undefined,
           supplier_observations: quickProductForm.supplier_observations.trim() || undefined,
+          reason: quickProductForm.reason.trim() || undefined,
           source: "quick_sale_add",
           status: "activo",
           is_active: true
@@ -1067,6 +1092,15 @@ export function SalesPage() {
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, name: event.target.value })}
                 />
               </label>
+              {requiresQuickCreateReason ? (
+                <label>
+                  Motivo *
+                  <input
+                    value={quickProductForm.reason}
+                    onChange={(event) => setQuickProductForm({ ...quickProductForm, reason: event.target.value })}
+                  />
+                </label>
+              ) : null}
               <label>
                 Precio al público *
                 <input

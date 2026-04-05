@@ -108,6 +108,46 @@ async function upsertAutomaticReminder(payload, actor) {
   return rows[0];
 }
 
+async function removeLegacyLowStockReminders(businessId) {
+  await pool.query(
+    `DELETE FROM reminders
+     WHERE business_id = $1
+       AND source_key LIKE $2`,
+    [businessId, `auto:stock-low:${businessId}:%`]
+  );
+}
+
+function buildLowStockReminderPayload(businessId, products, dueDate) {
+  return {
+    source_key: `auto:stock-low:${businessId}`,
+    title: "STOCK BAJO",
+    notes: products
+      .map((product) => `${product.name} | SKU: ${product.sku || "-"} | stock: ${Number(product.stock)} | minimo: ${Number(product.stock_minimo)}`)
+      .join("\n"),
+    due_date: dueDate
+  };
+}
+
+async function syncConsolidatedLowStockReminder(products, actor) {
+  const businessId = getBusinessId(actor);
+  const sourceKey = `auto:stock-low:${businessId}`;
+  const today = getTodayLocalDate();
+
+  await removeLegacyLowStockReminders(businessId);
+
+  if (!products.length) {
+    await pool.query(
+      `DELETE FROM reminders
+       WHERE business_id = $1
+         AND source_key = $2`,
+      [businessId, sourceKey]
+    );
+    return null;
+  }
+
+  return upsertAutomaticReminder(buildLowStockReminderPayload(businessId, products, today), actor);
+}
+
 async function ensureAutomaticReminders(actor) {
   const businessId = getBusinessId(actor);
   const today = getTodayLocalDate();
@@ -127,14 +167,7 @@ async function ensureAutomaticReminders(actor) {
     )
   ]);
 
-  for (const product of lowStockRows.rows) {
-    await upsertAutomaticReminder({
-      source_key: `auto:stock-low:${businessId}:${product.id}`,
-      title: `STOCK BAJO: ${product.name}`,
-      notes: `El producto con SKU: ${product.sku || "-"} ha llegado a su nivel minimo (${Number(product.stock_minimo)}). Stock actual: ${Number(product.stock)}.`,
-      due_date: today
-    }, actor);
-  }
+  await syncConsolidatedLowStockReminder(lowStockRows.rows, actor);
 
   const upcomingDay = Number(upcomingDate.slice(-2));
   for (const expense of fixedExpenseRows.rows) {
@@ -151,22 +184,26 @@ async function ensureAutomaticReminders(actor) {
 async function ensureLowStockRemindersForProductIds(productIds = [], actor) {
   const businessId = getBusinessId(actor);
   const normalizedIds = [...new Set(productIds.map(Number).filter(Boolean))];
-  if (!normalizedIds.length) return [];
+  if (!normalizedIds.length) {
+    await ensureAutomaticReminders(actor);
+    return [];
+  }
   const { rows } = await pool.query(
     `SELECT id, name, sku, stock, stock_minimo
      FROM products
-     WHERE business_id = $1 AND id = ANY($2::int[]) AND is_active = TRUE AND status = 'activo' AND stock_minimo >= 0 AND stock <= stock_minimo`,
-    [businessId, normalizedIds]
+     WHERE business_id = $1 AND is_active = TRUE AND status = 'activo' AND stock_minimo > 0 AND stock <= stock_minimo
+     ORDER BY name ASC`,
+    [businessId]
   );
-  const today = getTodayLocalDate();
+  const consolidatedReminder = await syncConsolidatedLowStockReminder(rows, actor);
   const reminders = [];
+  if (consolidatedReminder) {
+    reminders.push(consolidatedReminder);
+  }
   for (const product of rows) {
-    reminders.push(await upsertAutomaticReminder({
-      source_key: `auto:stock-low:${businessId}:${product.id}`,
-      title: `STOCK BAJO: ${product.name}`,
-      notes: `El producto con SKU: ${product.sku || "-"} ha llegado a su nivel minimo (${Number(product.stock_minimo)}). Stock actual: ${Number(product.stock)}.`,
-      due_date: today
-    }, actor));
+    if (!normalizedIds.includes(Number(product.id))) {
+      continue;
+    }
     await emitActorAutomationEvent(actor, "low_stock_detected", {
       product_id: product.id,
       name: product.name,

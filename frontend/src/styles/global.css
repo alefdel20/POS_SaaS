@@ -5,6 +5,9 @@
   --accent: #58d4b3;
   --accent-rgb: 88, 212, 179;
   --accent-2: #ffb454;
+  --warning: #ff9f43;
+  --warning-rgb: 255, 159, 67;
+  --warning-text: #ffd5a6;
   --danger: #ff7b7b;
   --ankode-violet: #6d28d9;
   --ankode-violet-soft: #8b5cf6;
@@ -32,6 +35,7 @@
   --button-ghost-bg: rgba(255, 255, 255, 0.04);
   --button-ghost-text: #eef4ff;
   --surface-soft: rgba(255, 255, 255, 0.04);
+  --warning-text: #ffd5a6;
 }
 
 :root[data-theme="light"] {
@@ -51,6 +55,9 @@
   --button-ghost-text: #162434;
   --surface-soft: rgba(22, 36, 52, 0.04);
   --accent-contrast: #ffffff;
+  --warning: #d97706;
+  --warning-rgb: 217, 119, 6;
+  --warning-text: #9a3412;
 }
 
 :root[data-palette="default"] {
@@ -755,7 +762,7 @@ td {
 
 .warning-box,
 .error-text {
-  color: #ffd7a4;
+  color: var(--warning-text);
 }
 
 .success-text {
@@ -768,8 +775,8 @@ td {
   width: fit-content;
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
-  background: rgba(255, 180, 84, 0.16);
-  color: #ffcf8a;
+  background: rgba(var(--warning-rgb), 0.16);
+  color: var(--warning-text);
   font-size: 0.78rem;
 }
 
@@ -1033,8 +1040,8 @@ td {
 }
 
 .supplier-status-cost_changed {
-  background: rgba(255, 180, 84, 0.16);
-  color: #ffd7a4;
+  background: rgba(var(--warning-rgb), 0.16);
+  color: var(--warning-text);
 }
 
 .supplier-status-inactive {

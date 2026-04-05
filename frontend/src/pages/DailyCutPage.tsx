@@ -70,8 +70,14 @@ export function DailyCutPage() {
     loadHistory(emptyFilters).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el historial");
     });
-    loadUsers().catch(console.error);
-  }, [token]);
+    if (!isCashierRole(user?.role)) {
+      loadUsers().catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar usuarios");
+      });
+    } else {
+      setUsers([]);
+    }
+  }, [token, user?.role]);
 
   const shareMessage = today
     ? `Corte Diario\nFecha: ${shortDate(today.cut_date)}\n\nTotal: ${currency(today.total_day)}\nEfectivo: ${currency(today.cash_total)}\nTarjeta: ${currency(today.card_total)}\nTransferencia: ${currency(today.transfer_total)}\nFacturas: ${today.invoice_count}\nTimbres usados: ${today.timbres_usados || 0}\nTimbres restantes: ${today.timbres_restantes || 0}\n\nGanancia: ${currency(today.gross_profit)}\nTickets: ${today.ticket_count}`
@@ -199,15 +205,17 @@ export function DailyCutPage() {
             Hasta
             <input type="date" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} />
           </label>
-          <label>
-            Usuario
-            <select value={filters.user_id} onChange={(event) => setFilters({ ...filters, user_id: event.target.value })}>
-              <option value="">Todos</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>{user.full_name}</option>
-              ))}
-            </select>
-          </label>
+          {!isCashier ? (
+            <label>
+              Usuario
+              <select value={filters.user_id} onChange={(event) => setFilters({ ...filters, user_id: event.target.value })}>
+                <option value="">Todos</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>{user.full_name}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label>
             Mes
             <input type="month" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />

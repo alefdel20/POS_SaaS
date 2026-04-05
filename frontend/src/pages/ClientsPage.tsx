@@ -167,7 +167,7 @@ export function ClientsPage() {
   }
 
   return (
-    <section className="page-grid two-columns">
+    <section className="page-grid">
       <div className="panel">
         <div className="panel-header">
           <div>
@@ -176,7 +176,6 @@ export function ClientsPage() {
           </div>
           <div className="inline-actions">
             <input className="search-input" placeholder="Buscar cliente" value={search} onChange={(event) => setSearch(event.target.value)} />
-            <button className="button" onClick={startCreate} type="button">Nuevo cliente</button>
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}

@@ -40,6 +40,10 @@ function appointmentToForm(appointment: ClinicalAppointment | null): Appointment
   };
 }
 
+function buildPatientSearchLabel(patient: ClinicalPatientSummary) {
+  return `${patient.name} - ${patient.client_name || "Sin cliente"}`;
+}
+
 export function MedicalAppointmentsPage() {
   const { token } = useAuth();
   const navigate = useNavigate();
@@ -48,6 +52,7 @@ export function MedicalAppointmentsPage() {
   const [appointments, setAppointments] = useState<ClinicalAppointment[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalAppointment | null>(null);
+  const [patientSearch, setPatientSearch] = useState("");
   const [form, setForm] = useState<AppointmentFormState>({
     ...emptyForm,
     appointment_date: searchParams.get("date") || emptyForm.appointment_date
@@ -115,6 +120,18 @@ export function MedicalAppointmentsPage() {
     });
   }, [selectedId, token, dateFilter]);
 
+  useEffect(() => {
+    if (!form.patient_id) {
+      setPatientSearch("");
+      return;
+    }
+
+    const selectedPatient = patients.find((patient) => String(patient.id) === form.patient_id);
+    if (selectedPatient) {
+      setPatientSearch(buildPatientSearchLabel(selectedPatient));
+    }
+  }, [form.patient_id, patients]);
+
   function resetFeedback() {
     setError("");
     setInfo("");
@@ -124,6 +141,7 @@ export function MedicalAppointmentsPage() {
     resetFeedback();
     setMode("create");
     setForm({ ...emptyForm, appointment_date: dateFilter });
+    setPatientSearch("");
   }
 
   function startEdit() {
@@ -139,6 +157,12 @@ export function MedicalAppointmentsPage() {
       patient_id: patientId,
       client_id: selectedPatient ? String(selectedPatient.client_id) : ""
     }));
+  }
+
+  function handlePatientSearchChange(value: string) {
+    const matchedPatient = patients.find((patient) => buildPatientSearchLabel(patient).toLowerCase() === value.trim().toLowerCase());
+    setPatientSearch(value);
+    handlePatientChange(matchedPatient ? String(matchedPatient.id) : "");
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -174,7 +198,7 @@ export function MedicalAppointmentsPage() {
   }
 
   return (
-    <section className="page-grid two-columns">
+    <section className="page-grid">
       <div className="panel">
         <div className="panel-header">
           <div>
@@ -207,13 +231,13 @@ export function MedicalAppointmentsPage() {
                 <span className={`status-badge appointment-status-${appointment.status}`}>{appointment.status}</span>
               </div>
               <div>{appointment.patient_name}</div>
-              <div className="muted">{appointment.client_name} · {appointment.area}</div>
+              <div className="muted">{appointment.client_name} - {appointment.area}</div>
             </button>
           ))}
           {!appointments.length ? (
             <div className="empty-state-card">
               <strong>Sin citas para {shortDate(dateFilter)}.</strong>
-              <span className="muted">Crea la primera cita del dia desde el panel derecho.</span>
+              <span className="muted">Crea la primera cita del dia desde el formulario inferior.</span>
             </div>
           ) : null}
         </div>
@@ -230,11 +254,16 @@ export function MedicalAppointmentsPage() {
         <form className="grid-form" onSubmit={handleSubmit}>
           <label>
             Paciente *
-            <select value={form.patient_id} onChange={(event) => handlePatientChange(event.target.value)}>
-              <option value="">Selecciona un paciente</option>
-              {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name} · {patient.client_name}</option>)}
-            </select>
+            <input
+              list="appointment-patient-options"
+              placeholder="Busca paciente o responsable"
+              value={patientSearch}
+              onChange={(event) => handlePatientSearchChange(event.target.value)}
+            />
           </label>
+          <datalist id="appointment-patient-options">
+            {patients.map((patient) => <option key={patient.id} value={buildPatientSearchLabel(patient)} />)}
+          </datalist>
           <label>
             Cliente
             <input disabled value={patients.find((patient) => String(patient.id) === form.patient_id)?.client_name || ""} />

@@ -27,6 +27,7 @@ const importConfirmValidation = [
 ];
 const createValidation = [
   body("name").trim().notEmpty(),
+  body("reason").optional({ values: "falsy" }).trim(),
   body("sku").optional().trim(),
   body("barcode").optional({ values: "falsy" }).trim().matches(/^\d+$/),
   body("category").optional({ values: "falsy" }).trim(),

@@ -37,6 +37,10 @@ function consultationToForm(consultation: ClinicalConsultation | null): Consulta
   };
 }
 
+function buildPatientSearchLabel(patient: ClinicalPatientSummary) {
+  return `${patient.name} - ${patient.client_name || "Sin cliente"}`;
+}
+
 export function MedicalConsultationsPage() {
   const { token } = useAuth();
   const navigate = useNavigate();
@@ -45,6 +49,7 @@ export function MedicalConsultationsPage() {
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalConsultation | null>(null);
+  const [patientSearch, setPatientSearch] = useState("");
   const [form, setForm] = useState<ConsultationFormState>(emptyForm);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [search, setSearch] = useState("");
@@ -53,6 +58,7 @@ export function MedicalConsultationsPage() {
   const [info, setInfo] = useState("");
   const selectedPatient = patients.find((patient) => String(patient.id) === form.patient_id) || null;
   const detailPatient = patients.find((patient) => patient.id === detail?.patient_id) || null;
+  const visibleConsultations = search.trim() ? consultations : consultations.slice(0, 5);
 
   async function loadPatients() {
     if (!token) return;
@@ -109,6 +115,18 @@ export function MedicalConsultationsPage() {
     });
   }, [selectedId, token]);
 
+  useEffect(() => {
+    if (!form.patient_id) {
+      setPatientSearch("");
+      return;
+    }
+
+    const matchedPatient = patients.find((patient) => String(patient.id) === form.patient_id);
+    if (matchedPatient) {
+      setPatientSearch(buildPatientSearchLabel(matchedPatient));
+    }
+  }, [form.patient_id, patients]);
+
   function resetFeedback() {
     setError("");
     setInfo("");
@@ -118,6 +136,7 @@ export function MedicalConsultationsPage() {
     resetFeedback();
     setMode("create");
     setForm({ ...emptyForm, consultation_date: new Date().toISOString().slice(0, 16) });
+    setPatientSearch("");
   }
 
   function startEdit() {
@@ -127,12 +146,18 @@ export function MedicalConsultationsPage() {
   }
 
   function handlePatientChange(patientId: string) {
-    const selectedPatient = patients.find((patient) => String(patient.id) === patientId);
+    const matchedPatient = patients.find((patient) => String(patient.id) === patientId);
     setForm((current) => ({
       ...current,
       patient_id: patientId,
-      client_id: selectedPatient ? String(selectedPatient.client_id) : ""
+      client_id: matchedPatient ? String(matchedPatient.client_id) : ""
     }));
+  }
+
+  function handlePatientSearchChange(value: string) {
+    const matchedPatient = patients.find((patient) => buildPatientSearchLabel(patient).toLowerCase() === value.trim().toLowerCase());
+    setPatientSearch(value);
+    handlePatientChange(matchedPatient ? String(matchedPatient.id) : "");
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -187,12 +212,12 @@ export function MedicalConsultationsPage() {
   }
 
   return (
-    <section className="page-grid two-columns">
+    <section className="page-grid">
       <div className="panel">
         <div className="panel-header">
           <div>
             <h2>Consultas medicas</h2>
-            <p className="muted">CRUD clinico completo con autollenado de cliente desde paciente.</p>
+            <p className="muted">Se muestran arriba las 5 mas recientes; la busqueda mantiene el listado completo.</p>
           </div>
           <div className="inline-actions">
             <input className="search-input" placeholder="Buscar paciente o diagnostico" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -212,7 +237,7 @@ export function MedicalConsultationsPage() {
               </tr>
             </thead>
             <tbody>
-              {consultations.map((consultation) => (
+              {visibleConsultations.map((consultation) => (
                 <tr className={consultation.id === selectedId ? "table-row-active" : ""} key={consultation.id} onClick={() => setSelectedId(consultation.id)}>
                   <td>{consultation.patient_name}</td>
                   <td>{consultation.client_name}</td>
@@ -220,7 +245,7 @@ export function MedicalConsultationsPage() {
                   <td>{consultation.motivo_consulta}</td>
                 </tr>
               ))}
-              {!consultations.length ? (
+              {!visibleConsultations.length ? (
                 <tr>
                   <td className="muted" colSpan={4}>Aun no hay consultas registradas.</td>
                 </tr>
@@ -249,11 +274,16 @@ export function MedicalConsultationsPage() {
         <form className="grid-form" onSubmit={handleSubmit}>
           <label>
             Paciente *
-            <select value={form.patient_id} onChange={(event) => handlePatientChange(event.target.value)}>
-              <option value="">Selecciona un paciente</option>
-              {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name} · {patient.client_name}</option>)}
-            </select>
+            <input
+              list="consultation-patient-options"
+              placeholder="Busca paciente o responsable"
+              value={patientSearch}
+              onChange={(event) => handlePatientSearchChange(event.target.value)}
+            />
           </label>
+          <datalist id="consultation-patient-options">
+            {patients.map((patient) => <option key={patient.id} value={buildPatientSearchLabel(patient)} />)}
+          </datalist>
           <label>
             Cliente
             <input disabled value={patients.find((patient) => String(patient.id) === form.patient_id)?.client_name || ""} />

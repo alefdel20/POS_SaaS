@@ -6,6 +6,7 @@ const { buildStoredImagePath, deleteStoredImage } = require("../utils/productIma
 const { saveAuditLog } = require("./auditLogService");
 const { emitActorAutomationEvent } = require("./automationEventService");
 const { canUseExpiryDate, canUseIeps, normalizePosType } = require("../utils/business");
+const { normalizeRole } = require("../utils/roles");
 
 const SKU_CONFUSING_CHARACTERS = { O: "0", I: "1" };
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"];
@@ -1223,6 +1224,12 @@ async function listRestockProducts(filters = {}, actor) {
 
 async function createProduct(payload, actor) {
   const businessId = requireActorBusinessId(actor);
+  const actorRole = normalizeRole(actor?.role);
+  const creationReason = String(payload?.reason || "").trim();
+
+  if (actorRole === "cajero" && !creationReason) {
+    throw new ApiError(400, "Reason is required to create a product");
+  }
   const client = await pool.connect();
 
   try {
@@ -1309,8 +1316,12 @@ async function createProduct(payload, actor) {
       entidad_id: rows[0].id,
       detalle_anterior: {},
       detalle_nuevo: { entity: "product", entity_id: rows[0].id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
-      motivo: actor?.support_context?.reason || "",
-      metadata: buildProductAuditMetadata(actor)
+      motivo: creationReason || actor?.support_context?.reason || "",
+      metadata: buildProductAuditMetadata(actor, {
+        actor_role: actorRole,
+        creation_source: payload?.source || "products_module",
+        product_name: rows[0].name
+      })
     }, { client });
     await client.query("COMMIT");
     return mapProductRow(rows[0]);
