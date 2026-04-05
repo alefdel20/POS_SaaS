@@ -10,18 +10,63 @@ const {
 } = require("../utils/business");
 
 const DEFAULT_UNITS = ["pieza", "kg", "litro", "caja"];
+const HEALTHCARE_MODULES_BY_POS_TYPE = {
+  Veterinaria: [
+    "catalog",
+    "inventory_batches",
+    "veterinary_records",
+    "veterinary_consultations",
+    "prescriptions",
+    "dispensing",
+    "temperature_humidity"
+  ],
+  Dentista: [
+    "catalog",
+    "clinical_records",
+    "clinical_consultations",
+    "prescriptions"
+  ],
+  Farmacia: [
+    "catalog",
+    "inventory_batches",
+    "dispensing",
+    "temperature_humidity"
+  ],
+  FarmaciaConsultorio: [
+    "catalog",
+    "inventory_batches",
+    "clinical_records",
+    "clinical_consultations",
+    "prescriptions",
+    "dispensing",
+    "antibiotic_control",
+    "temperature_humidity"
+  ],
+  ClinicaChica: [
+    "catalog",
+    "clinical_records",
+    "clinical_consultations",
+    "prescriptions"
+  ],
+  Otro: ["catalog"]
+};
+
+function getHealthcareModules(posType) {
+  return HEALTHCARE_MODULES_BY_POS_TYPE[posType] || HEALTHCARE_MODULES_BY_POS_TYPE.Otro;
+}
+
 const DEFAULT_TEMPLATES = {
   Tienda: {
     categories: ["Abarrotes", "Bebidas", "Botanas", "Limpieza", "Higiene personal"],
-    settings: { default_sale_unit: "pieza" }
+    settings: { default_sale_unit: "pieza", enabled_modules: ["sales", "products", "suppliers"] }
   },
   Tlapaleria: {
     categories: ["Herramientas", "Tornilleria", "Pintura", "Electricidad", "Plomeria"],
-    settings: { default_sale_unit: "pieza" }
+    settings: { default_sale_unit: "pieza", enabled_modules: ["sales", "products", "suppliers"] }
   },
   Papeleria: {
     categories: ["Cuadernos", "Escritura", "Oficina", "Arte", "Escolar"],
-    settings: { default_sale_unit: "pieza" }
+    settings: { default_sale_unit: "pieza", enabled_modules: ["sales", "products", "suppliers"] }
   },
   Veterinaria: {
     categories: [
@@ -44,28 +89,50 @@ const DEFAULT_TEMPLATES = {
         "medical_appointments",
         "medical_consultations",
         "medical_history"
-      ]
+      ],
+      healthcare_modules: getHealthcareModules("Veterinaria"),
+      compliance_profile: "veterinary"
     }
   },
   Dentista: {
     categories: ["Material dental", "Instrumental", "Limpieza", "Consulta", "Consumibles"],
-    settings: { default_sale_unit: "pieza" }
+    settings: {
+      default_sale_unit: "pieza",
+      enabled_modules: ["sales", "products", "services", "clients", "patients", "medical_appointments", "medical_consultations", "medical_history"],
+      healthcare_modules: getHealthcareModules("Dentista"),
+      compliance_profile: "clinical_basic"
+    }
   },
   Farmacia: {
     categories: ["Medicamentos", "Vitaminas", "Cuidado personal", "Curacion", "Bebes"],
-    settings: { default_sale_unit: "pieza" }
+    settings: {
+      default_sale_unit: "pieza",
+      enabled_modules: ["sales", "products", "suppliers", "inventory_batches", "dispensing"],
+      healthcare_modules: getHealthcareModules("Farmacia"),
+      compliance_profile: "pharmacy_basic"
+    }
   },
   FarmaciaConsultorio: {
     categories: ["Medicamentos", "Consulta", "Curacion", "Equipo medico", "Cuidado personal"],
-    settings: { default_sale_unit: "pieza" }
+    settings: {
+      default_sale_unit: "pieza",
+      enabled_modules: ["sales", "products", "services", "suppliers", "clients", "patients", "medical_appointments", "medical_consultations", "medical_history", "inventory_batches", "dispensing"],
+      healthcare_modules: getHealthcareModules("FarmaciaConsultorio"),
+      compliance_profile: "pharmacy_consultorio"
+    }
   },
   ClinicaChica: {
     categories: ["Consulta", "Curacion", "Medicamento", "Laboratorio", "Equipo medico"],
-    settings: { default_sale_unit: "pieza" }
+    settings: {
+      default_sale_unit: "pieza",
+      enabled_modules: ["sales", "products", "services", "clients", "patients", "medical_appointments", "medical_consultations", "medical_history"],
+      healthcare_modules: getHealthcareModules("ClinicaChica"),
+      compliance_profile: "clinical_basic"
+    }
   },
   Otro: {
     categories: ["General"],
-    settings: { default_sale_unit: "pieza" }
+    settings: { default_sale_unit: "pieza", enabled_modules: ["sales", "products", "suppliers"] }
   }
 };
 
@@ -107,6 +174,8 @@ async function loadTemplate(client, posType, type) {
 }
 
 function buildOnboardingSettings(currentSettings, posType, categories, actor) {
+  const healthcareModules = getHealthcareModules(posType);
+
   return {
     ...(currentSettings || {}),
     onboarding: {
@@ -127,11 +196,28 @@ function buildOnboardingSettings(currentSettings, posType, categories, actor) {
       ...(currentSettings?.business_features || {}),
       daily_cut: true,
       credit_collections: canUseCreditCollections(posType),
-      billing_enabled: true
+      billing_enabled: true,
+      healthcare_modules: healthcareModules,
+      regulated_dispensing: ["Farmacia", "FarmaciaConsultorio"].includes(posType),
+      clinical_records_enabled: ["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"].includes(posType)
     },
     navigation: {
       ...(currentSettings?.navigation || {}),
       sidebar_variant: posType === "Veterinaria" ? "veterinary" : "default"
+    },
+    compliance: {
+      ...(currentSettings?.compliance || {}),
+      profile:
+        posType === "Veterinaria"
+          ? "veterinary"
+          : ["Farmacia", "FarmaciaConsultorio"].includes(posType)
+            ? "pharmacy"
+            : ["Dentista", "ClinicaChica"].includes(posType)
+              ? "clinical"
+              : "general",
+      access_audit_required: ["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"].includes(posType),
+      append_only_corrections: true,
+      retain_regulatory_records: true
     }
   };
 }
