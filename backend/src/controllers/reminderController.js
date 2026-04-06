@@ -1,26 +1,32 @@
-const { body, param } = require("express-validator");
+const { body, param, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const reminderService = require("../services/reminderService");
+const { REMINDER_CATEGORIES, REMINDER_STATUSES } = require("../utils/domainEnums");
 
 const idValidation = [param("id").isInt(), validateRequest];
+const listValidation = [
+  query("category").optional().isIn(REMINDER_CATEGORIES),
+  query("status").optional().isIn(REMINDER_STATUSES),
+  validateRequest
+];
 const createValidation = [
   body("title").trim().notEmpty(),
-  body("status").optional().isIn(["pending", "in_progress", "completed", "cancelled"]),
+  body("status").optional().isIn(REMINDER_STATUSES),
   body("due_date").optional({ nullable: true }).isISO8601(),
   body("assigned_to").optional({ nullable: true }).isInt(),
   body("reminder_type").optional().trim(),
-  body("category").optional().isIn(["administrative", "clinical"]),
+  body("category").optional().isIn(REMINDER_CATEGORIES),
   body("patient_id").optional({ nullable: true }).isInt(),
   validateRequest
 ];
 const updateValidation = [
   body("title").optional().trim().notEmpty(),
-  body("status").optional().isIn(["pending", "in_progress", "completed", "cancelled"]),
+  body("status").optional().isIn(REMINDER_STATUSES),
   body("due_date").optional({ nullable: true }).isISO8601(),
   body("assigned_to").optional({ nullable: true }).isInt(),
   body("reminder_type").optional().trim(),
-  body("category").optional().isIn(["administrative", "clinical"]),
+  body("category").optional().isIn(REMINDER_CATEGORIES),
   body("patient_id").optional({ nullable: true }).isInt(),
   validateRequest
 ];
@@ -37,7 +43,7 @@ const webhookValidation = [
 ];
 
 const listReminders = asyncHandler(async (req, res) => {
-  res.json(await reminderService.listReminders(req.user));
+  res.json(await reminderService.listReminders(req.user, req.query));
 });
 
 const createReminder = asyncHandler(async (req, res) => {
@@ -66,6 +72,7 @@ const receiveAutomationWebhook = asyncHandler(async (req, res) => {
 
 module.exports = {
   idValidation,
+  listValidation,
   createValidation,
   updateValidation,
   sendValidation,

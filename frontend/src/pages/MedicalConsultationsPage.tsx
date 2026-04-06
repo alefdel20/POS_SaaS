@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiDownload, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalConsultation, ClinicalPatientSummary, MedicalPrescription, Product } from "../types";
+import { PRESCRIPTION_STATUSES } from "../utils/domainEnums";
 import { shortDateTime } from "../utils/format";
 import { getConsultationModeFromPath } from "../utils/navigation";
 import { canAccessSales } from "../utils/roles";
@@ -667,9 +668,7 @@ export function MedicalConsultationsPage() {
                 <label>
                   Estado
                   <select value={prescriptionForm.status} onChange={(event) => setPrescriptionForm({ ...prescriptionForm, status: event.target.value as PrescriptionFormState["status"] })}>
-                    <option value="draft">Borrador</option>
-                    <option value="issued">Emitida</option>
-                    <option value="cancelled">Cancelada</option>
+                    {PRESCRIPTION_STATUSES.map((status) => <option key={status} value={status}>{status === "draft" ? "Borrador" : status === "issued" ? "Emitida" : "Cancelada"}</option>)}
                   </select>
                 </label>
               </div>

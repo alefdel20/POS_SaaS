@@ -2,6 +2,7 @@ const { body, param, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const clinicalService = require("../services/clinicalService");
+const { PRESCRIPTION_STATUSES } = require("../utils/domainEnums");
 
 const prescriptionItemValidation = [
   body("items").optional().isArray(),
@@ -17,7 +18,7 @@ const prescriptionItemValidation = [
 const listValidation = [
   query("patient_id").optional().isInt(),
   query("consultation_id").optional().isInt(),
-  query("status").optional().isIn(["draft", "issued", "cancelled"]),
+  query("status").optional().isIn(PRESCRIPTION_STATUSES),
   validateRequest
 ];
 
@@ -26,7 +27,7 @@ const createValidation = [
   body("consultation_id").optional({ values: "falsy" }).isInt(),
   body("diagnosis").optional().trim(),
   body("indications").optional().trim(),
-  body("status").optional().isIn(["draft", "issued", "cancelled"]),
+  body("status").optional().isIn(PRESCRIPTION_STATUSES),
   ...prescriptionItemValidation,
   validateRequest
 ];
@@ -43,7 +44,7 @@ const idValidation = [
 
 const statusValidation = [
   param("id").isInt(),
-  body("status").isIn(["draft", "issued", "cancelled"]),
+  body("status").isIn(PRESCRIPTION_STATUSES),
   validateRequest
 ];
 

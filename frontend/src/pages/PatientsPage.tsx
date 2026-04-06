@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalClientSummary, ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
+import { PREVENTIVE_EVENT_STATUSES, PREVENTIVE_EVENT_TYPES } from "../utils/domainEnums";
 import { getClinicalPatientLabel, showsPatientSpecies } from "../utils/pos";
 import { shortDate, shortDateTime } from "../utils/format";
 
@@ -519,8 +520,7 @@ export function PatientsPage() {
               <label>
                 Tipo
                 <select value={preventiveForm.event_type} onChange={(event) => setPreventiveForm({ ...preventiveForm, event_type: event.target.value as PreventiveFormState["event_type"] })}>
-                  <option value="vaccination">Vacunacion</option>
-                  <option value="deworming">Desparasitacion</option>
+                  {PREVENTIVE_EVENT_TYPES.map((value) => <option key={value} value={value}>{value === "vaccination" ? "Vacunacion" : "Desparasitacion"}</option>)}
                 </select>
               </label>
               <label>
@@ -549,9 +549,7 @@ export function PatientsPage() {
               <label>
                 Estado
                 <select value={preventiveForm.status} onChange={(event) => setPreventiveForm({ ...preventiveForm, status: event.target.value as PreventiveFormState["status"] })}>
-                  <option value="completed">Completado</option>
-                  <option value="scheduled">Programado</option>
-                  <option value="cancelled">Cancelado</option>
+                  {PREVENTIVE_EVENT_STATUSES.map((value) => <option key={value} value={value}>{value === "scheduled" ? "Programado" : value === "completed" ? "Completado" : "Cancelado"}</option>)}
                 </select>
               </label>
               <label>

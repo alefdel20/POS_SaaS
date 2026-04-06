@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { AuthResponse, Business, Role, User } from "../types";
+import { USER_ROLES } from "../utils/domainEnums";
 import { getRoleLabel } from "../utils/uiLabels";
 import { canViewUsers, normalizeRole } from "../utils/roles";
 
@@ -58,7 +59,7 @@ export function UsersPage() {
 
   const roleOptions = useMemo(() => {
     if (currentRole === "superusuario") {
-      return ["superusuario", "admin", "clinico", "cajero", "soporte"] as const;
+      return USER_ROLES;
     }
 
     if (currentRole === "admin") {

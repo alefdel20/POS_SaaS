@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalPatientSummary, Reminder } from "../types";
+import { REMINDER_CATEGORIES, REMINDER_STATUSES } from "../utils/domainEnums";
 import { dateLabel } from "../utils/format";
 import { getReminderStatusLabel } from "../utils/uiLabels";
 
@@ -175,17 +176,13 @@ export function RemindersPage() {
         <label>
           Estado
           <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "pending" | "in_progress" | "completed" | "cancelled" })}>
-            <option value="pending">{getReminderStatusLabel("pending")}</option>
-            <option value="in_progress">{getReminderStatusLabel("in_progress")}</option>
-            <option value="completed">{getReminderStatusLabel("completed")}</option>
-            <option value="cancelled">Cancelado</option>
+            {REMINDER_STATUSES.map((status) => <option key={status} value={status}>{getReminderStatusLabel(status)}</option>)}
           </select>
         </label>
         <label>
           Categoria
           <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value as "administrative" | "clinical", patient_id: event.target.value === "clinical" ? form.patient_id : "" })}>
-            <option value="administrative">Administrativo</option>
-            <option value="clinical">Clinico</option>
+            {REMINDER_CATEGORIES.map((category) => <option key={category} value={category}>{category === "clinical" ? "Clinico" : "Administrativo"}</option>)}
           </select>
         </label>
         {form.category === "clinical" ? (

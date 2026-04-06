@@ -7,6 +7,10 @@ const { requireActorBusinessId } = require("../utils/tenant");
 const { TIME_ZONE, getMexicoCityDate, getMexicoCityDateTime } = require("../utils/timezone");
 const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
+const {
+  normalizeReminderCategory,
+  normalizeReminderStatus
+} = require("../utils/domainEnums");
 
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
@@ -26,23 +30,50 @@ function getBusinessId(actor) {
   return requireActorBusinessId(actor);
 }
 
-async function listReminders(actor) {
+async function assertReminderPatientAccess(patientId, businessId, client = pool) {
+  if (!patientId) {
+    return;
+  }
+  const { rows } = await client.query(
+    "SELECT id FROM patients WHERE id = $1 AND business_id = $2",
+    [Number(patientId), businessId]
+  );
+  if (!rows[0]) {
+    throw new ApiError(404, "Patient not found");
+  }
+}
+
+async function listReminders(actor, filters = {}) {
   await ensureAutomaticReminders(actor);
   const businessId = getBusinessId(actor);
+  const params = [businessId];
+  const conditions = ["reminders.business_id = $1"];
+  const category = filters.category ? normalizeReminderCategory(filters.category) : null;
+  const status = filters.status ? normalizeReminderStatus(filters.status) : null;
+  if (filters.category && !category) throw new ApiError(400, "Invalid reminder category");
+  if (filters.status && !status) throw new ApiError(400, "Invalid reminder status");
+  if (category) {
+    params.push(category);
+    conditions.push(`reminders.category = $${params.length}`);
+  }
+  if (status) {
+    params.push(status);
+    conditions.push(`reminders.status = $${params.length}`);
+  }
   const { rows } = await pool.query(
     `SELECT reminders.*, users.full_name AS assigned_to_name, patients.name AS patient_name
      FROM reminders
      LEFT JOIN users ON users.id = reminders.assigned_to AND users.business_id = reminders.business_id
      LEFT JOIN patients ON patients.id = reminders.patient_id AND patients.business_id = reminders.business_id
-     WHERE reminders.business_id = $1
+     WHERE ${conditions.join(" AND ")}
      ORDER BY reminders.is_completed ASC, reminders.due_date ASC NULLS LAST, reminders.created_at DESC`,
-    [businessId]
+    params
   );
   return rows;
 }
 
 function assertClinicalReminderAccess(payload, actor) {
-  const category = String(payload?.category || "administrative").trim().toLowerCase();
+  const category = normalizeReminderCategory(payload?.category) || "administrative";
   if (category === "clinical" && !["superusuario", "admin", "clinico"].includes(normalizeRole(actor?.role) || "")) {
     throw new ApiError(403, "Forbidden");
   }
@@ -51,21 +82,24 @@ function assertClinicalReminderAccess(payload, actor) {
 async function createReminder(payload, actor) {
   const businessId = getBusinessId(actor);
   assertClinicalReminderAccess(payload, actor);
+  const category = normalizeReminderCategory(payload.category) || (payload.patient_id ? "clinical" : "administrative");
+  const status = normalizeReminderStatus(payload.status) || "pending";
+  await assertReminderPatientAccess(payload.patient_id, businessId);
   const { rows } = await pool.query(
     `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
-    [payload.title, payload.notes || "", payload.status || "pending", payload.due_date || null, payload.source_key || null, payload.assigned_to || null, payload.created_by, payload.is_completed ?? false, businessId, payload.reminder_type || "general", payload.category || "administrative", payload.patient_id || null, JSON.stringify(payload.metadata || {})]
+    [String(payload.title || "").trim(), String(payload.notes || "").trim(), status, payload.due_date || null, payload.source_key || null, payload.assigned_to || null, payload.created_by, payload.is_completed ?? false, businessId, payload.reminder_type || "general", category, payload.patient_id || null, JSON.stringify(payload.metadata || {})]
   );
   await saveAuditLog({
     business_id: businessId,
     usuario_id: actor?.id || null,
     modulo: "reminders",
-    accion: payload.category === "clinical" ? "create_clinical_reminder" : "create_reminder",
+    accion: category === "clinical" ? "create_clinical_reminder" : "create_reminder",
     entidad_tipo: "reminder",
     entidad_id: rows[0].id,
     detalle_nuevo: { snapshot: rows[0] },
-    metadata: { category: payload.category || "administrative", patient_id: payload.patient_id || null }
+    metadata: { category, patient_id: payload.patient_id || null }
   }, { strict: false });
   return rows[0];
 }
@@ -75,25 +109,28 @@ async function updateReminder(id, payload, actor) {
   const { rows: existingRows } = await pool.query("SELECT * FROM reminders WHERE id = $1 AND business_id = $2", [id, businessId]);
   const current = existingRows[0];
   if (!current) throw new ApiError(404, "Reminder not found");
-  assertClinicalReminderAccess({ category: payload.category || current.category }, actor);
+  const nextCategory = normalizeReminderCategory(payload.category) || normalizeReminderCategory(current.category) || "administrative";
+  const nextStatus = normalizeReminderStatus(payload.status) || normalizeReminderStatus(current.status) || "pending";
+  assertClinicalReminderAccess({ category: nextCategory }, actor);
+  await assertReminderPatientAccess(payload.patient_id ?? current.patient_id, businessId);
 
   const { rows } = await pool.query(
     `UPDATE reminders
      SET title = $1, notes = $2, status = $3, due_date = $4, assigned_to = $5, is_completed = $6, source_key = $7, reminder_type = $8, category = $9, patient_id = $10, metadata = $11, updated_at = NOW()
      WHERE id = $12 AND business_id = $13
      RETURNING *`,
-    [payload.title ?? current.title, payload.notes ?? current.notes, payload.status ?? current.status, payload.due_date ?? current.due_date, payload.assigned_to ?? current.assigned_to, payload.is_completed ?? current.is_completed, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, payload.category ?? current.category, payload.patient_id ?? current.patient_id, JSON.stringify(payload.metadata ?? current.metadata ?? {}), id, businessId]
+    [String(payload.title ?? current.title ?? "").trim(), String(payload.notes ?? current.notes ?? "").trim(), nextStatus, payload.due_date ?? current.due_date, payload.assigned_to ?? current.assigned_to, payload.is_completed ?? current.is_completed, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, nextCategory, payload.patient_id ?? current.patient_id, JSON.stringify(payload.metadata ?? current.metadata ?? {}), id, businessId]
   );
   await saveAuditLog({
     business_id: businessId,
     usuario_id: actor?.id || null,
     modulo: "reminders",
-    accion: (payload.category || current.category) === "clinical" ? "update_clinical_reminder" : "update_reminder",
+    accion: nextCategory === "clinical" ? "update_clinical_reminder" : "update_reminder",
     entidad_tipo: "reminder",
     entidad_id: id,
     detalle_anterior: { snapshot: current },
     detalle_nuevo: { snapshot: rows[0] },
-    metadata: { category: payload.category || current.category, patient_id: payload.patient_id ?? current.patient_id ?? null }
+    metadata: { category: nextCategory, patient_id: payload.patient_id ?? current.patient_id ?? null }
   }, { strict: false });
   return rows[0];
 }

@@ -4,7 +4,7 @@ const { requireRole } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-router.get("/", requireRole(["superadmin", "superusuario", "admin", "clinico", "user", "cajero"]), controller.listReminders);
+router.get("/", requireRole(["superadmin", "superusuario", "admin", "clinico", "user", "cajero"]), controller.listValidation, controller.listReminders);
 router.post("/", requireRole(["superadmin", "superusuario", "admin", "clinico", "user", "cajero"]), controller.createValidation, controller.createReminder);
 router.post("/send", requireRole(["superadmin", "admin"]), controller.sendValidation, controller.sendReminder);
 router.put("/:id", requireRole(["superadmin", "superusuario", "admin", "clinico", "user", "cajero"]), controller.idValidation, controller.updateValidation, controller.updateReminder);

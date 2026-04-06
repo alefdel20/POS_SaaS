@@ -3,6 +3,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const productService = require("../services/productService");
 const { getProductBarcodeSvg } = require("../services/adminInvoiceService");
+const { PRODUCT_CATALOG_TYPES } = require("../utils/domainEnums");
 
 const listValidation = [
   query("search").optional().trim(),
@@ -37,7 +38,7 @@ const createValidation = [
   body("sku").optional().trim(),
   body("barcode").optional({ values: "falsy" }).trim().matches(/^\d+$/),
   body("category").optional({ values: "falsy" }).trim(),
-  body("catalog_type").optional({ values: "falsy" }).isIn(["accessories", "medications"]),
+  body("catalog_type").optional({ values: "falsy" }).isIn(PRODUCT_CATALOG_TYPES),
   body("unidad_de_venta").optional({ values: "falsy" }).isIn(["pieza", "kg", "litro", "caja"]),
   body("porcentaje_ganancia").optional({ values: "falsy" }).isFloat(),
   body("ieps").optional({ values: "falsy" }).isFloat({ min: 0 }),
@@ -76,7 +77,7 @@ const updateValidation = [
   body("sku").optional().trim(),
   body("barcode").optional({ values: "falsy" }).trim().matches(/^\d+$/),
   body("category").optional({ values: "falsy" }).trim(),
-  body("catalog_type").optional({ values: "falsy" }).isIn(["accessories", "medications"]),
+  body("catalog_type").optional({ values: "falsy" }).isIn(PRODUCT_CATALOG_TYPES),
   body("unidad_de_venta").optional({ values: "falsy" }).isIn(["pieza", "kg", "litro", "caja"]),
   body("porcentaje_ganancia").optional({ values: "falsy" }).isFloat(),
   body("ieps").optional({ values: "falsy" }).isFloat({ min: 0 }),

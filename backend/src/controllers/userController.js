@@ -2,13 +2,15 @@ const { body, param } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const userService = require("../services/userService");
+const { normalizeRole } = require("../utils/roles");
+const { USER_ROLES } = require("../utils/domainEnums");
 
 const idValidation = [param("id").isInt(), validateRequest];
 const createValidation = [
   body("username").trim().notEmpty(),
   body("email").isEmail(),
   body("full_name").trim().notEmpty(),
-  body("role").isIn(["superusuario", "superadmin", "admin", "clinico", "cajero", "cashier", "user", "soporte", "support"]),
+  body("role").custom((value) => Boolean(value && USER_ROLES.includes(normalizeRole(value)))),
   body("password").isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
   body("must_change_password").optional().isBoolean(),
@@ -18,7 +20,7 @@ const updateValidation = [
   body("username").optional().trim().notEmpty(),
   body("email").optional().isEmail(),
   body("full_name").optional().trim().notEmpty(),
-  body("role").optional().isIn(["superusuario", "superadmin", "admin", "clinico", "cajero", "cashier", "user", "soporte", "support"]),
+  body("role").optional().custom((value) => Boolean(value && USER_ROLES.includes(normalizeRole(value)))),
   body("password").optional().isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
   body("must_change_password").optional().isBoolean(),

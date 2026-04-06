@@ -7,6 +7,7 @@ const { saveAuditLog } = require("./auditLogService");
 const { emitActorAutomationEvent } = require("./automationEventService");
 const { canUseExpiryDate, canUseIeps, normalizePosType } = require("../utils/business");
 const { normalizeRole } = require("../utils/roles");
+const { normalizeProductCatalogType } = require("../utils/domainEnums");
 
 const SKU_CONFUSING_CHARACTERS = { O: "0", I: "1" };
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"];
@@ -65,7 +66,7 @@ function normalizeCatalogScope(value) {
 }
 
 function normalizeCatalogType(value) {
-  return ["accessories", "medications"].includes(String(value || "").trim()) ? String(value).trim() : null;
+  return normalizeProductCatalogType(value);
 }
 
 function resolveCatalogTypeFromScope(scope) {

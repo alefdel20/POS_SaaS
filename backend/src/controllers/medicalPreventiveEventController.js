@@ -2,22 +2,23 @@ const { body, param, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const clinicalService = require("../services/clinicalService");
+const { PREVENTIVE_EVENT_STATUSES, PREVENTIVE_EVENT_TYPES } = require("../utils/domainEnums");
 
 const listValidation = [
   query("patient_id").optional().isInt(),
-  query("event_type").optional().isIn(["vaccination", "deworming"]),
+  query("event_type").optional().isIn(PREVENTIVE_EVENT_TYPES),
   validateRequest
 ];
 
 const createValidation = [
   body("patient_id").isInt(),
-  body("event_type").isIn(["vaccination", "deworming"]),
+  body("event_type").isIn(PREVENTIVE_EVENT_TYPES),
   body("product_id").optional({ values: "falsy" }).isInt(),
   body("product_name_snapshot").optional().trim(),
   body("dose").optional().trim(),
   body("date_administered").optional({ values: "falsy" }).isISO8601(),
   body("next_due_date").optional({ values: "falsy" }).isISO8601(),
-  body("status").optional().isIn(["scheduled", "completed", "cancelled"]),
+  body("status").optional().isIn(PREVENTIVE_EVENT_STATUSES),
   body("notes").optional().trim(),
   validateRequest
 ];

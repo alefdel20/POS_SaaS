@@ -1,4 +1,5 @@
 import type { Role } from "../types";
+import { normalizeUserRole } from "./domainEnums";
 
 export const ROLE_SUPERUSER = "superusuario" as const;
 export const ROLE_ADMIN = "admin" as const;
@@ -17,32 +18,7 @@ export const ROUTE_ROLES = {
 } as const;
 
 export function normalizeRole(role?: string | null): Role | null {
-  if (!role) {
-    return null;
-  }
-
-  const normalized = role.toLowerCase();
-  if (normalized === "superusuario" || normalized === "superadmin") {
-    return "superusuario";
-  }
-
-  if (normalized === "admin") {
-    return "admin";
-  }
-
-  if (normalized === "clinico" || normalized === "medico" || normalized === "veterinario") {
-    return "clinico";
-  }
-
-  if (normalized === "soporte" || normalized === "support") {
-    return "soporte";
-  }
-
-  if (normalized === "cajero" || normalized === "cashier" || normalized === "user") {
-    return "cajero";
-  }
-
-  return null;
+  return normalizeUserRole(role);
 }
 
 export function hasAnyRole(role: string | null | undefined, allowedRoles: readonly string[]) {

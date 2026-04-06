@@ -4,7 +4,12 @@ const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { saveAuditLog } = require("./auditLogService");
 const { resolveStoredBusinessAssetAbsolutePath } = require("../utils/businessAssets");
-const { upsertAutomaticReminder, removeAutomaticReminder, createReminder: createSystemReminder } = require("./reminderService");
+const { upsertAutomaticReminder, removeAutomaticReminder } = require("./reminderService");
+const {
+  normalizePrescriptionStatus,
+  normalizePreventiveEventStatus,
+  normalizePreventiveEventType
+} = require("../utils/domainEnums");
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -97,12 +102,12 @@ function mapPrescription(row) {
 function buildPrescriptionPayload(payload = {}) {
   const patientId = Number(payload.patient_id);
   const consultationId = payload.consultation_id ? Number(payload.consultation_id) : null;
-  const status = normalizeText(payload.status || "draft").toLowerCase();
+  const status = normalizePrescriptionStatus(payload.status || "draft");
   const items = Array.isArray(payload.items) ? payload.items : [];
 
   if (!Number.isInteger(patientId) || patientId <= 0) throw new ApiError(400, "Patient is required");
   if (consultationId !== null && (!Number.isInteger(consultationId) || consultationId <= 0)) throw new ApiError(400, "Consultation is invalid");
-  if (!["draft", "issued", "cancelled"].includes(status)) throw new ApiError(400, "Prescription status is invalid");
+  if (!status) throw new ApiError(400, "Prescription status is invalid");
 
   const normalizedItems = items.map((item) => {
     const productId = Number(item.product_id);
@@ -389,7 +394,7 @@ function buildPatientPayload(payload = {}) {
     throw new ApiError(400, "Client is required");
   }
   if (!name) throw new ApiError(400, "Patient name is required");
-  if (weight !== null && (!Number.isFinite(weight) || weight < 0)) {
+  if (weight !== null && (!Number.isFinite(weight) || weight < 0 || weight > 500)) {
     throw new ApiError(400, "Patient weight is invalid");
   }
 
@@ -410,14 +415,14 @@ function buildPatientPayload(payload = {}) {
 function buildPreventiveEventPayload(payload = {}) {
   const patientId = Number(payload.patient_id);
   const productId = payload.product_id ? Number(payload.product_id) : null;
-  const eventType = normalizeText(payload.event_type).toLowerCase();
+  const eventType = normalizePreventiveEventType(payload.event_type);
   const productNameSnapshot = normalizeText(payload.product_name_snapshot);
-  const status = normalizeText(payload.status || "completed").toLowerCase();
+  const status = normalizePreventiveEventStatus(payload.status || "completed");
 
   if (!Number.isInteger(patientId) || patientId <= 0) throw new ApiError(400, "Patient is required");
   if (productId !== null && (!Number.isInteger(productId) || productId <= 0)) throw new ApiError(400, "Product is invalid");
-  if (!["vaccination", "deworming"].includes(eventType)) throw new ApiError(400, "Preventive event type is invalid");
-  if (!["scheduled", "completed", "cancelled"].includes(status)) throw new ApiError(400, "Preventive event status is invalid");
+  if (!eventType) throw new ApiError(400, "Preventive event type is invalid");
+  if (!status) throw new ApiError(400, "Preventive event status is invalid");
 
   return {
     patient_id: patientId,
@@ -1102,7 +1107,11 @@ async function listPrescriptions(filters = {}, actor) {
   }
 
   if (filters.status) {
-    params.push(normalizeText(filters.status).toLowerCase());
+    const normalizedStatus = normalizePrescriptionStatus(filters.status);
+    if (!normalizedStatus) {
+      throw new ApiError(400, "Prescription status is invalid");
+    }
+    params.push(normalizedStatus);
     conditions.push(`mp.status = $${params.length}`);
   }
 
@@ -1288,8 +1297,8 @@ async function updatePrescription(id, payload, actor) {
 async function setPrescriptionStatus(id, status, actor) {
   const businessId = requireActorBusinessId(actor);
   const current = await getPrescriptionDetail(id, actor);
-  const nextStatus = normalizeText(status).toLowerCase();
-  if (!["draft", "issued", "cancelled"].includes(nextStatus)) {
+  const nextStatus = normalizePrescriptionStatus(status);
+  if (!nextStatus) {
     throw new ApiError(400, "Prescription status is invalid");
   }
 
@@ -1356,7 +1365,11 @@ async function listPreventiveEvents(filters = {}, actor) {
   }
 
   if (filters.event_type) {
-    params.push(normalizeText(filters.event_type).toLowerCase());
+    const normalizedEventType = normalizePreventiveEventType(filters.event_type);
+    if (!normalizedEventType) {
+      throw new ApiError(400, "Preventive event type is invalid");
+    }
+    params.push(normalizedEventType);
     conditions.push(`mpe.event_type = $${params.length}`);
   }
 

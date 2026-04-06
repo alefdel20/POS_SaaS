@@ -1,23 +1,7 @@
-const roleAliases = {
-  superusuario: "superusuario",
-  superadmin: "superusuario",
-  admin: "admin",
-  clinico: "clinico",
-  medico: "clinico",
-  veterinario: "clinico",
-  soporte: "soporte",
-  support: "soporte",
-  cajero: "cajero",
-  cashier: "cajero",
-  user: "cajero"
-};
+const { USER_ROLES, normalizeUserRole } = require("./domainEnums");
 
 function normalizeRole(role) {
-  if (!role) {
-    return null;
-  }
-
-  return roleAliases[String(role).toLowerCase()] || null;
+  return normalizeUserRole(role);
 }
 
 function isManagementRole(role) {
@@ -29,7 +13,7 @@ function getAssignableRoles(actorRole) {
   const normalizedRole = normalizeRole(actorRole);
 
   if (normalizedRole === "superusuario") {
-    return ["superusuario", "admin", "clinico", "cajero", "soporte"];
+    return [...USER_ROLES];
   }
 
   if (normalizedRole === "admin") {
