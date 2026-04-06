@@ -15,13 +15,15 @@ const saleTypeLabels: Record<Sale["sale_type"], string> = {
 const reminderStatusLabels: Record<Reminder["status"], string> = {
   pending: "pendiente",
   in_progress: "en proceso",
-  completed: "completado"
+  completed: "completado",
+  cancelled: "cancelado"
 };
 
 const roleLabels: Record<Role, string> = {
   superusuario: "superusuario",
   superadmin: "superadministrador",
   admin: "administrador",
+  clinico: "medico / veterinario",
   soporte: "soporte",
   support: "soporte",
   user: "cajero",
@@ -88,7 +90,12 @@ const errorTranslations: Record<string, string> = {
   "Owner loan not found": "Movimiento del dueno no encontrado",
   "Owner loan is already voided": "El movimiento del dueno ya fue anulado",
   "Fixed expense not found": "Gasto fijo no encontrado",
-  "Reminder not found": "Recordatorio no encontrado"
+  "Reminder not found": "Recordatorio no encontrado",
+  "Preventive event not found": "Evento preventivo no encontrado",
+  "Preventive event type is invalid": "El tipo de evento preventivo es invalido",
+  "Preventive event status is invalid": "El estado del evento preventivo es invalido",
+  "Patient weight is invalid": "El peso del paciente es invalido",
+  "Prescription not found": "Receta no encontrada"
 };
 
 export function getPaymentMethodLabel(value: Sale["payment_method"]) {

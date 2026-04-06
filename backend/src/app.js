@@ -5,6 +5,7 @@ const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
 const { ensureDatabaseCompatibility } = require("./db/init");
 const { ensureUploadsDirectory } = require("./utils/productImages");
+const { ensureBusinessAssetsDirectory } = require("./utils/businessAssets");
 
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -27,6 +28,8 @@ const clinicalPatientRoutes = require("./routes/clinicalPatientRoutes");
 const clinicalConsultationRoutes = require("./routes/clinicalConsultationRoutes");
 const clinicalAppointmentRoutes = require("./routes/clinicalAppointmentRoutes");
 const clinicalHistoryRoutes = require("./routes/clinicalHistoryRoutes");
+const medicalPrescriptionRoutes = require("./routes/medicalPrescriptionRoutes");
+const medicalPreventiveEventRoutes = require("./routes/medicalPreventiveEventRoutes");
 const productUpdateRequestRoutes = require("./routes/productUpdateRequestRoutes");
 
 const app = express();
@@ -68,7 +71,9 @@ const routes = [
   { path: "/patients", router: clinicalPatientRoutes, auth: true },
   { path: "/medical-consultations", router: clinicalConsultationRoutes, auth: true },
   { path: "/medical-appointments", router: clinicalAppointmentRoutes, auth: true },
-  { path: "/medical-history", router: clinicalHistoryRoutes, auth: true }
+  { path: "/medical-history", router: clinicalHistoryRoutes, auth: true },
+  { path: "/medical-prescriptions", router: medicalPrescriptionRoutes, auth: true },
+  { path: "/medical-preventive-events", router: medicalPreventiveEventRoutes, auth: true }
 ];
 
 routes.forEach((route) => {
@@ -82,6 +87,7 @@ app.use(errorHandler);
 async function startServer(port = Number(process.env.PORT || 3000)) {
   await ensureDatabaseCompatibility();
   await ensureUploadsDirectory();
+  await ensureBusinessAssetsDirectory();
 
   return new Promise((resolve) => {
     const server = app.listen(port, "0.0.0.0", () => {

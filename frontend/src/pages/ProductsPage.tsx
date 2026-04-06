@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type {
@@ -21,6 +21,7 @@ import {
   getProductModuleLabel,
   isVeterinaryPos
 } from "../utils/pos";
+import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
@@ -279,6 +280,7 @@ function formatRestockQuantity(value: number, unit?: string | null) {
 
 export function ProductsPage() {
   const { token, user } = useAuth();
+  const location = useLocation();
   const defaultSaleUnit = getDefaultUnitForPosType();
   const emptyProductState = useMemo(() => buildEmptyProduct(defaultSaleUnit), [defaultSaleUnit]);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -327,7 +329,10 @@ export function ProductsPage() {
   const showIepsField = canUseIeps(user?.pos_type);
   const showExpiryField = canUseExpiryDate(user?.pos_type);
   const isVeterinaryView = isVeterinaryPos(user?.pos_type);
+  const catalogScope = getCatalogScopeFromPath(location.pathname);
+  const catalogType = getCatalogTypeFromScope(catalogScope);
   const productModuleLabel = getProductModuleLabel(user?.pos_type);
+  const scopedModuleLabel = catalogScope ? getCatalogScopeLabel(catalogScope) : productModuleLabel;
   const veterinaryCategoryFilters = [...VETERINARY_PRODUCT_CATEGORIES];
   const importableRows = importPreview?.rows.filter((row) => row.action === "import" && row.errors.length === 0) || [];
 
@@ -359,6 +364,9 @@ export function ProductsPage() {
     if (nextCategoryFilter.trim()) {
       params.set("category", nextCategoryFilter.trim());
     }
+    if (catalogScope) {
+      params.set("catalog_scope", catalogScope);
+    }
 
     const response = await apiRequest<PaginatedProductsResponse>(`/products?${params.toString()}`, { token });
     setProducts(response.items);
@@ -382,6 +390,9 @@ export function ProductsPage() {
     if (searchTerm.trim()) {
       params.set("search", searchTerm.trim());
     }
+    if (catalogScope) {
+      params.set("catalog_scope", catalogScope);
+    }
     const response = await apiRequest<string[]>(`/products/categories?${params.toString()}`, { token });
     setCategories(response);
   }
@@ -399,6 +410,9 @@ export function ProductsPage() {
       }
       if (nextSupplier.trim()) {
         params.set("supplier", nextSupplier.trim());
+      }
+      if (catalogScope) {
+        params.set("catalog_scope", catalogScope);
       }
       const response = await apiRequest<RestockProductItem[]>(`/products/restock?${params.toString()}`, { token });
       setRestockItems(response);
@@ -484,7 +498,7 @@ export function ProductsPage() {
     });
     loadSuppliers().catch(console.error);
     loadCategories().catch(console.error);
-  }, [token, page, pageSize, categoryFilter]);
+  }, [catalogScope, token, page, pageSize, categoryFilter]);
 
   useEffect(() => {
     if (!searchFromQuery || search === searchFromQuery) {
@@ -504,7 +518,7 @@ export function ProductsPage() {
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [search, pageSize, token, categoryFilter]);
+  }, [catalogScope, search, pageSize, token, categoryFilter]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -514,7 +528,7 @@ export function ProductsPage() {
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [restockSearch, restockCategoryFilter, restockSupplierFilter, token]);
+  }, [catalogScope, restockSearch, restockCategoryFilter, restockSupplierFilter, token]);
 
   useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
@@ -827,6 +841,7 @@ export function ProductsPage() {
       sku: form.sku.trim(),
       barcode: form.barcode.trim(),
       category: form.category.trim(),
+      catalog_type: catalogType,
       description: form.description.trim(),
       price,
       cost_price: costPrice,
@@ -1401,7 +1416,7 @@ export function ProductsPage() {
       <div className="panel">
         <div className="panel-header product-catalog-header">
           <div>
-            <h2>{productModuleLabel}</h2>
+            <h2>{scopedModuleLabel}</h2>
             <p className="muted">Buscador, paginación y alertas por stock mínimo.</p>
           </div>
           <div className="inline-actions">
@@ -1425,7 +1440,7 @@ export function ProductsPage() {
             <button className={`button ghost ${categoryFilter === "" ? "active-filter" : ""}`} onClick={() => { setCategoryFilter(""); setPage(1); }} type="button">
               Todas
             </button>
-            {veterinaryCategoryFilters.map((category) => (
+            {(catalogScope ? categories : veterinaryCategoryFilters).map((category) => (
               <button
                 className={`button ghost ${categoryFilter === category ? "active-filter" : ""}`}
                 key={category}
@@ -1519,7 +1534,7 @@ export function ProductsPage() {
           </table>
         </div>
       <div className="panel-header product-table-footer">
-          <p className="muted">{totalProducts} {isVeterinaryView ? "productos e insumos" : "productos"} encontrados</p>
+          <p className="muted">{totalProducts} {catalogScope ? scopedModuleLabel.toLowerCase() : isVeterinaryView ? "productos e insumos" : "productos"} encontrados</p>
           <div className="inline-actions">
             <button className="button ghost" disabled={page <= 1} onClick={() => setPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
             <span className="muted">Pagina {page} de {totalPages}</span>

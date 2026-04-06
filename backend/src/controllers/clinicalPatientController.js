@@ -17,6 +17,8 @@ const createValidation = [
   body("breed").optional().trim(),
   body("sex").optional().trim(),
   body("birth_date").optional({ values: "falsy" }).isISO8601(),
+  body("weight").optional({ values: "falsy" }).isFloat({ min: 0 }),
+  body("allergies").optional().trim(),
   body("notes").optional().trim(),
   validateRequest
 ];
@@ -29,6 +31,8 @@ const updateValidation = [
   body("breed").optional().trim(),
   body("sex").optional().trim(),
   body("birth_date").optional({ values: "falsy" }).isISO8601(),
+  body("weight").optional({ values: "falsy" }).isFloat({ min: 0 }),
+  body("allergies").optional().trim(),
   body("notes").optional().trim(),
   body("is_active").optional().isBoolean(),
   validateRequest

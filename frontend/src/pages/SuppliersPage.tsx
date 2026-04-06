@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type {
@@ -12,6 +12,7 @@ import type {
   SupplierDetail
 } from "../types";
 import { currency, shortDateTime } from "../utils/format";
+import { getCatalogScopeFromPath, getCatalogScopeLabel } from "../utils/navigation";
 
 type SupplierSummary = {
   id: number;
@@ -101,7 +102,10 @@ function buildCatalogQuery(filters: CatalogFilters) {
 
 export function SuppliersPage() {
   const { token } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
+  const catalogScope = getCatalogScopeFromPath(location.pathname);
+  const suppliersTitle = catalogScope ? `Proveedores · ${getCatalogScopeLabel(catalogScope)}` : "Proveedores";
   const [suppliers, setSuppliers] = useState<SupplierSummary[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(null);
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierDetail | null>(null);
@@ -379,7 +383,7 @@ export function SuppliersPage() {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Proveedores</h2>
+            <h2>{suppliersTitle}</h2>
             <p className="muted">Desde aqui cargas la lista de cada proveedor. Tus productos de venta siguen administrandose en Productos.</p>
           </div>
           <div className="inline-actions">

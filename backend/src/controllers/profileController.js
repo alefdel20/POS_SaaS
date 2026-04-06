@@ -1,4 +1,4 @@
-const { body } = require("express-validator");
+const { body, param } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const profileService = require("../services/profileService");
@@ -11,6 +11,7 @@ const generalValidation = [
   body("address").optional().trim(),
   body("theme").optional().isIn(["light", "dark"]),
   body("accent_palette").optional().isIn(["default", "ocean", "forest", "ember"]),
+  body("professional_license").optional({ values: "falsy" }).trim(),
   body("reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
@@ -47,6 +48,11 @@ const stampsValidation = [
   validateRequest
 ];
 
+const assetTypeValidation = [
+  param("assetType").isIn(["business_image", "signature"]),
+  validateRequest
+];
+
 const getProfile = asyncHandler(async (req, res) => {
   res.json(await profileService.getProfile(req.user));
 });
@@ -67,14 +73,25 @@ const updateStamps = asyncHandler(async (req, res) => {
   res.json(await profileService.updateProfileSection(req.body, req.user, "stamps"));
 });
 
+const uploadAsset = asyncHandler(async (req, res) => {
+  res.json(await profileService.uploadProfileAsset(req.params.assetType, req.file, req.user));
+});
+
+const removeAsset = asyncHandler(async (req, res) => {
+  res.json(await profileService.removeProfileAsset(req.params.assetType, req.user));
+});
+
 module.exports = {
   generalValidation,
   bankingValidation,
   fiscalValidation,
   stampsValidation,
+  assetTypeValidation,
   getProfile,
   updateGeneral,
   updateBanking,
   updateFiscal,
-  updateStamps
+  updateStamps,
+  uploadAsset,
+  removeAsset
 };

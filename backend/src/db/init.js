@@ -69,6 +69,7 @@ async function ensureSchema(client) {
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'activo'",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS category VARCHAR(120)",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS catalog_type VARCHAR(20)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_type VARCHAR(20)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_value NUMERIC(12, 2)",
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_start TIMESTAMP",
@@ -231,6 +232,10 @@ async function ensureSchema(client) {
 
     "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS source_key VARCHAR(160)",
+    "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS reminder_type VARCHAR(40) NOT NULL DEFAULT 'general'",
+    "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS category VARCHAR(30) NOT NULL DEFAULT 'administrative'",
+    "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS patient_id INTEGER",
+    "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
 
     `CREATE TABLE IF NOT EXISTS expenses (
       id SERIAL PRIMARY KEY,
@@ -478,6 +483,8 @@ async function ensureSchema(client) {
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS breed VARCHAR(120)",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS sex VARCHAR(20)",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS birth_date DATE",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS weight NUMERIC(10, 3)",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS allergies TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
@@ -518,6 +525,60 @@ async function ensureSchema(client) {
     "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
     "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
 
+    `CREATE TABLE IF NOT EXISTS medical_prescriptions (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      patient_id INTEGER NOT NULL,
+      consultation_id INTEGER,
+      doctor_user_id INTEGER REFERENCES users(id),
+      diagnosis TEXT NOT NULL DEFAULT '',
+      indications TEXT NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'draft',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by INTEGER REFERENCES users(id),
+      updated_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS patient_id INTEGER",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS consultation_id INTEGER",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS doctor_user_id INTEGER REFERENCES users(id)",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS diagnosis TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS indications TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'draft'",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
+    `CREATE TABLE IF NOT EXISTS medical_prescription_items (
+      id BIGSERIAL PRIMARY KEY,
+      prescription_id BIGINT NOT NULL,
+      product_id INTEGER NOT NULL,
+      medication_name_snapshot VARCHAR(200) NOT NULL,
+      presentation_snapshot VARCHAR(160),
+      dose VARCHAR(160),
+      frequency VARCHAR(160),
+      duration VARCHAR(160),
+      route_of_administration VARCHAR(160),
+      notes TEXT NOT NULL DEFAULT '',
+      stock_snapshot NUMERIC(12, 3),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS prescription_id BIGINT",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS product_id INTEGER",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS medication_name_snapshot VARCHAR(200)",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS presentation_snapshot VARCHAR(160)",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS dose VARCHAR(160)",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS frequency VARCHAR(160)",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS duration VARCHAR(160)",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS route_of_administration VARCHAR(160)",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS stock_snapshot NUMERIC(12, 3)",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
     `CREATE TABLE IF NOT EXISTS appointments (
       id SERIAL PRIMARY KEY,
       business_id INTEGER,
@@ -551,6 +612,54 @@ async function ensureSchema(client) {
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
+    `CREATE TABLE IF NOT EXISTS medical_preventive_events (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      patient_id INTEGER NOT NULL,
+      event_type VARCHAR(20) NOT NULL,
+      product_id INTEGER,
+      product_name_snapshot VARCHAR(200) NOT NULL DEFAULT '',
+      dose VARCHAR(160),
+      date_administered DATE,
+      next_due_date DATE,
+      status VARCHAR(20) NOT NULL DEFAULT 'completed',
+      notes TEXT NOT NULL DEFAULT '',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by INTEGER REFERENCES users(id),
+      updated_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS patient_id INTEGER",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS event_type VARCHAR(20)",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS product_id INTEGER",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS product_name_snapshot VARCHAR(200) NOT NULL DEFAULT ''",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS dose VARCHAR(160)",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS date_administered DATE",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS next_due_date DATE",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'completed'",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    "ALTER TABLE medical_preventive_events ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
+    `CREATE TABLE IF NOT EXISTS sale_prescription_links (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      prescription_id BIGINT NOT NULL,
+      sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE sale_prescription_links ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE sale_prescription_links ADD COLUMN IF NOT EXISTS prescription_id BIGINT",
+    "ALTER TABLE sale_prescription_links ADD COLUMN IF NOT EXISTS sale_id INTEGER",
+    "ALTER TABLE sale_prescription_links ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE sale_prescription_links ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
 
     `CREATE TABLE IF NOT EXISTS reports (
       id SERIAL PRIMARY KEY,
@@ -1061,7 +1170,190 @@ async function ensureConstraints(client) {
       END IF;
 
       ALTER TABLE users
-      ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'cajero', 'soporte'));
+      ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'clinico', 'cajero', 'soporte'));
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$;
+    `
+  );
+
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      UPDATE products
+      SET catalog_type = CASE
+        WHEN LOWER(COALESCE(category, '')) SIMILAR TO '%(medicament|farmac|insumo|vacun|antibiot|curacion|quirurg)%'
+          OR LOWER(COALESCE(name, '')) SIMILAR TO '%(medicament|farmac|insumo|vacun|antibiot|curacion|quirurg)%'
+        THEN 'medications'
+        WHEN LOWER(COALESCE(category, '')) SIMILAR TO '%(alimento|accesor|snack|juguete|collar|correa|cama|arena)%'
+          OR LOWER(COALESCE(name, '')) SIMILAR TO '%(alimento|accesor|snack|juguete|collar|correa|cama|arena)%'
+        THEN 'accessories'
+        ELSE COALESCE(catalog_type, 'accessories')
+      END
+      WHERE catalog_type IS NULL OR BTRIM(catalog_type) = '';
+
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'products_catalog_type_check'
+          AND conrelid = 'products'::regclass
+      ) THEN
+        ALTER TABLE products DROP CONSTRAINT products_catalog_type_check;
+      END IF;
+
+      ALTER TABLE products
+      ADD CONSTRAINT products_catalog_type_check CHECK (catalog_type IN ('accessories', 'medications'));
+
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'reminders_status_check'
+          AND conrelid = 'reminders'::regclass
+      ) THEN
+        ALTER TABLE reminders DROP CONSTRAINT reminders_status_check;
+      END IF;
+
+      ALTER TABLE reminders
+      ADD CONSTRAINT reminders_status_check CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled'));
+
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'reminders_category_check'
+          AND conrelid = 'reminders'::regclass
+      ) THEN
+        ALTER TABLE reminders DROP CONSTRAINT reminders_category_check;
+      END IF;
+
+      ALTER TABLE reminders
+      ADD CONSTRAINT reminders_category_check CHECK (category IN ('administrative', 'clinical'));
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_reminders_patient'
+          AND conrelid = 'reminders'::regclass
+      ) THEN
+        ALTER TABLE reminders
+        ADD CONSTRAINT fk_reminders_patient
+        FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE SET NULL;
+      END IF;
+
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'medical_prescriptions_status_check'
+          AND conrelid = 'medical_prescriptions'::regclass
+      ) THEN
+        ALTER TABLE medical_prescriptions DROP CONSTRAINT medical_prescriptions_status_check;
+      END IF;
+
+      ALTER TABLE medical_prescriptions
+      ADD CONSTRAINT medical_prescriptions_status_check CHECK (status IN ('draft', 'issued', 'cancelled'));
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_medical_prescriptions_patient'
+          AND conrelid = 'medical_prescriptions'::regclass
+      ) THEN
+        ALTER TABLE medical_prescriptions
+        ADD CONSTRAINT fk_medical_prescriptions_patient
+        FOREIGN KEY (patient_id) REFERENCES patients(id);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_medical_prescriptions_consultation'
+          AND conrelid = 'medical_prescriptions'::regclass
+      ) THEN
+        ALTER TABLE medical_prescriptions
+        ADD CONSTRAINT fk_medical_prescriptions_consultation
+        FOREIGN KEY (consultation_id) REFERENCES consultations(id);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_medical_prescription_items_prescription'
+          AND conrelid = 'medical_prescription_items'::regclass
+      ) THEN
+        ALTER TABLE medical_prescription_items
+        ADD CONSTRAINT fk_medical_prescription_items_prescription
+        FOREIGN KEY (prescription_id) REFERENCES medical_prescriptions(id) ON DELETE CASCADE;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_medical_prescription_items_product'
+          AND conrelid = 'medical_prescription_items'::regclass
+      ) THEN
+        ALTER TABLE medical_prescription_items
+        ADD CONSTRAINT fk_medical_prescription_items_product
+        FOREIGN KEY (product_id) REFERENCES products(id);
+      END IF;
+
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'medical_preventive_events_type_check'
+          AND conrelid = 'medical_preventive_events'::regclass
+      ) THEN
+        ALTER TABLE medical_preventive_events DROP CONSTRAINT medical_preventive_events_type_check;
+      END IF;
+
+      ALTER TABLE medical_preventive_events
+      ADD CONSTRAINT medical_preventive_events_type_check CHECK (event_type IN ('vaccination', 'deworming'));
+
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'medical_preventive_events_status_check'
+          AND conrelid = 'medical_preventive_events'::regclass
+      ) THEN
+        ALTER TABLE medical_preventive_events DROP CONSTRAINT medical_preventive_events_status_check;
+      END IF;
+
+      ALTER TABLE medical_preventive_events
+      ADD CONSTRAINT medical_preventive_events_status_check CHECK (status IN ('scheduled', 'completed', 'cancelled'));
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_medical_preventive_events_patient'
+          AND conrelid = 'medical_preventive_events'::regclass
+      ) THEN
+        ALTER TABLE medical_preventive_events
+        ADD CONSTRAINT fk_medical_preventive_events_patient
+        FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_medical_preventive_events_product'
+          AND conrelid = 'medical_preventive_events'::regclass
+      ) THEN
+        ALTER TABLE medical_preventive_events
+        ADD CONSTRAINT fk_medical_preventive_events_product
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_sale_prescription_links_prescription'
+          AND conrelid = 'sale_prescription_links'::regclass
+      ) THEN
+        ALTER TABLE sale_prescription_links
+        ADD CONSTRAINT fk_sale_prescription_links_prescription
+        FOREIGN KEY (prescription_id) REFERENCES medical_prescriptions(id) ON DELETE CASCADE;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_sale_prescription_links_sale'
+          AND conrelid = 'sale_prescription_links'::regclass
+      ) THEN
+        ALTER TABLE sale_prescription_links
+        ADD CONSTRAINT fk_sale_prescription_links_sale
+        FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE;
+      END IF;
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$;
     `
@@ -1199,6 +1491,7 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_users_business_id ON users(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_suppliers_business_id ON suppliers(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_products_business_id ON products(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_products_business_catalog_type ON products(business_id, catalog_type)",
     "CREATE INDEX IF NOT EXISTS idx_products_business_image_path ON products(business_id) WHERE image_path IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_product_update_requests_business_status_created ON product_update_requests(business_id, status, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_product_update_requests_business_requester_created ON product_update_requests(business_id, requested_by_user_id, created_at DESC)",
@@ -1210,6 +1503,8 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_credit_payments_business_id ON credit_payments(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_daily_cuts_business_id ON daily_cuts(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_reminders_business_id ON reminders(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_reminders_business_category_due_date ON reminders(business_id, category, due_date)",
+    "CREATE INDEX IF NOT EXISTS idx_reminders_patient_id ON reminders(patient_id)",
     "CREATE INDEX IF NOT EXISTS idx_product_categories_business_id ON product_categories(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_supplier_catalog_items_business_id ON supplier_catalog_items(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_supplier_catalog_items_supplier_id ON supplier_catalog_items(supplier_id)",
@@ -1246,6 +1541,14 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_patients_business_id_active_name ON patients(business_id, is_active, LOWER(name))",
     "CREATE INDEX IF NOT EXISTS idx_patients_client_id ON patients(business_id, client_id)",
     "CREATE INDEX IF NOT EXISTS idx_consultations_business_patient_date ON consultations(business_id, patient_id, consultation_date DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_medical_prescriptions_business_patient_created ON medical_prescriptions(business_id, patient_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_medical_prescriptions_consultation_id ON medical_prescriptions(consultation_id)",
+    "CREATE INDEX IF NOT EXISTS idx_medical_prescriptions_doctor_user_id ON medical_prescriptions(doctor_user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_medical_prescription_items_prescription_id ON medical_prescription_items(prescription_id)",
+    "CREATE INDEX IF NOT EXISTS idx_medical_preventive_events_business_patient_date ON medical_preventive_events(business_id, patient_id, date_administered DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_medical_preventive_events_business_due_date ON medical_preventive_events(business_id, next_due_date)",
+    "CREATE INDEX IF NOT EXISTS idx_sale_prescription_links_prescription_id ON sale_prescription_links(prescription_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sale_prescription_links_sale_id ON sale_prescription_links(sale_id)",
     "CREATE INDEX IF NOT EXISTS idx_consultations_business_client_date ON consultations(business_id, client_id, consultation_date DESC)",
     "CREATE INDEX IF NOT EXISTS idx_appointments_business_date_area ON appointments(business_id, appointment_date, area, start_time, end_time)",
     "CREATE INDEX IF NOT EXISTS idx_appointments_business_patient_date ON appointments(business_id, patient_id, appointment_date DESC)"

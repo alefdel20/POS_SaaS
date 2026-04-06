@@ -5,6 +5,8 @@ const { getReminderContext } = require("./creditCollectionService");
 const { emitActorAutomationEvent } = require("./automationEventService");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { TIME_ZONE, getMexicoCityDate, getMexicoCityDateTime } = require("../utils/timezone");
+const { saveAuditLog } = require("./auditLogService");
+const { normalizeRole } = require("../utils/roles");
 
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
@@ -28,9 +30,10 @@ async function listReminders(actor) {
   await ensureAutomaticReminders(actor);
   const businessId = getBusinessId(actor);
   const { rows } = await pool.query(
-    `SELECT reminders.*, users.full_name AS assigned_to_name
+    `SELECT reminders.*, users.full_name AS assigned_to_name, patients.name AS patient_name
      FROM reminders
      LEFT JOIN users ON users.id = reminders.assigned_to AND users.business_id = reminders.business_id
+     LEFT JOIN patients ON patients.id = reminders.patient_id AND patients.business_id = reminders.business_id
      WHERE reminders.business_id = $1
      ORDER BY reminders.is_completed ASC, reminders.due_date ASC NULLS LAST, reminders.created_at DESC`,
     [businessId]
@@ -38,14 +41,32 @@ async function listReminders(actor) {
   return rows;
 }
 
+function assertClinicalReminderAccess(payload, actor) {
+  const category = String(payload?.category || "administrative").trim().toLowerCase();
+  if (category === "clinical" && !["superusuario", "admin", "clinico"].includes(normalizeRole(actor?.role) || "")) {
+    throw new ApiError(403, "Forbidden");
+  }
+}
+
 async function createReminder(payload, actor) {
   const businessId = getBusinessId(actor);
+  assertClinicalReminderAccess(payload, actor);
   const { rows } = await pool.query(
-    `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
-    [payload.title, payload.notes || "", payload.status || "pending", payload.due_date || null, payload.source_key || null, payload.assigned_to || null, payload.created_by, payload.is_completed ?? false, businessId]
+    [payload.title, payload.notes || "", payload.status || "pending", payload.due_date || null, payload.source_key || null, payload.assigned_to || null, payload.created_by, payload.is_completed ?? false, businessId, payload.reminder_type || "general", payload.category || "administrative", payload.patient_id || null, JSON.stringify(payload.metadata || {})]
   );
+  await saveAuditLog({
+    business_id: businessId,
+    usuario_id: actor?.id || null,
+    modulo: "reminders",
+    accion: payload.category === "clinical" ? "create_clinical_reminder" : "create_reminder",
+    entidad_tipo: "reminder",
+    entidad_id: rows[0].id,
+    detalle_nuevo: { snapshot: rows[0] },
+    metadata: { category: payload.category || "administrative", patient_id: payload.patient_id || null }
+  }, { strict: false });
   return rows[0];
 }
 
@@ -54,14 +75,26 @@ async function updateReminder(id, payload, actor) {
   const { rows: existingRows } = await pool.query("SELECT * FROM reminders WHERE id = $1 AND business_id = $2", [id, businessId]);
   const current = existingRows[0];
   if (!current) throw new ApiError(404, "Reminder not found");
+  assertClinicalReminderAccess({ category: payload.category || current.category }, actor);
 
   const { rows } = await pool.query(
     `UPDATE reminders
-     SET title = $1, notes = $2, status = $3, due_date = $4, assigned_to = $5, is_completed = $6, source_key = $7, updated_at = NOW()
-     WHERE id = $8 AND business_id = $9
+     SET title = $1, notes = $2, status = $3, due_date = $4, assigned_to = $5, is_completed = $6, source_key = $7, reminder_type = $8, category = $9, patient_id = $10, metadata = $11, updated_at = NOW()
+     WHERE id = $12 AND business_id = $13
      RETURNING *`,
-    [payload.title ?? current.title, payload.notes ?? current.notes, payload.status ?? current.status, payload.due_date ?? current.due_date, payload.assigned_to ?? current.assigned_to, payload.is_completed ?? current.is_completed, payload.source_key ?? current.source_key, id, businessId]
+    [payload.title ?? current.title, payload.notes ?? current.notes, payload.status ?? current.status, payload.due_date ?? current.due_date, payload.assigned_to ?? current.assigned_to, payload.is_completed ?? current.is_completed, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, payload.category ?? current.category, payload.patient_id ?? current.patient_id, JSON.stringify(payload.metadata ?? current.metadata ?? {}), id, businessId]
   );
+  await saveAuditLog({
+    business_id: businessId,
+    usuario_id: actor?.id || null,
+    modulo: "reminders",
+    accion: (payload.category || current.category) === "clinical" ? "update_clinical_reminder" : "update_reminder",
+    entidad_tipo: "reminder",
+    entidad_id: id,
+    detalle_anterior: { snapshot: current },
+    detalle_nuevo: { snapshot: rows[0] },
+    metadata: { category: payload.category || current.category, patient_id: payload.patient_id ?? current.patient_id ?? null }
+  }, { strict: false });
   return rows[0];
 }
 
@@ -92,20 +125,30 @@ async function upsertAutomaticReminder(payload, actor) {
     const { rows } = await pool.query(
       `UPDATE reminders
        SET title = $1, notes = $2, due_date = $3, status = CASE WHEN is_completed THEN status ELSE 'pending' END,
-           is_completed = CASE WHEN is_completed THEN is_completed ELSE FALSE END, updated_at = NOW()
-       WHERE source_key = $4 AND business_id = $5
+           is_completed = CASE WHEN is_completed THEN is_completed ELSE FALSE END, reminder_type = $4, category = $5, patient_id = $6, metadata = $7, updated_at = NOW()
+       WHERE source_key = $8 AND business_id = $9
        RETURNING *`,
-      [payload.title, payload.notes || "", payload.due_date || null, payload.source_key, businessId]
+      [payload.title, payload.notes || "", payload.due_date || null, payload.reminder_type || "general", payload.category || "administrative", payload.patient_id || null, JSON.stringify(payload.metadata || {}), payload.source_key, businessId]
     );
     return rows[0];
   }
   const { rows } = await pool.query(
-    `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id)
-     VALUES ($1, $2, 'pending', $3, $4, NULL, NULL, FALSE, $5)
+    `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
+     VALUES ($1, $2, 'pending', $3, $4, NULL, NULL, FALSE, $5, $6, $7, $8, $9)
      RETURNING *`,
-    [payload.title, payload.notes || "", payload.due_date || null, payload.source_key, businessId]
+    [payload.title, payload.notes || "", payload.due_date || null, payload.source_key, businessId, payload.reminder_type || "general", payload.category || "administrative", payload.patient_id || null, JSON.stringify(payload.metadata || {})]
   );
   return rows[0];
+}
+
+async function removeAutomaticReminder(sourceKey, actor, client = pool) {
+  const businessId = getBusinessId(actor);
+  await client.query(
+    `DELETE FROM reminders
+     WHERE business_id = $1
+       AND source_key = $2`,
+    [businessId, sourceKey]
+  );
 }
 
 async function removeLegacyLowStockReminders(businessId) {
@@ -185,6 +228,54 @@ async function ensureAutomaticReminders(actor) {
       title: `Gasto proximo: ${expense.name}`,
       notes: `Vence el ${upcomingDate}. Categoria ${expense.category}. Monto estimado ${Number(expense.default_amount).toFixed(2)}.`,
       due_date: upcomingDate
+    }, actor);
+  }
+
+  const [preventiveRows, appointmentRows] = await Promise.all([
+    pool.query(
+      `SELECT mpe.id, mpe.patient_id, mpe.event_type, mpe.product_name_snapshot, mpe.next_due_date, p.name AS patient_name
+       FROM medical_preventive_events mpe
+       INNER JOIN patients p ON p.id = mpe.patient_id AND p.business_id = mpe.business_id
+       WHERE mpe.business_id = $1
+         AND mpe.status <> 'cancelled'
+         AND mpe.next_due_date BETWEEN $2::date AND $3::date`,
+      [businessId, today, upcomingDate]
+    ),
+    pool.query(
+      `SELECT ma.id, ma.patient_id, ma.appointment_date, ma.area, p.name AS patient_name
+       FROM appointments ma
+       INNER JOIN patients p ON p.id = ma.patient_id AND p.business_id = ma.business_id
+       WHERE ma.business_id = $1
+         AND ma.is_active = TRUE
+         AND ma.status IN ('scheduled', 'confirmed')
+         AND ma.appointment_date BETWEEN $2::date AND $3::date`,
+      [businessId, today, upcomingDate]
+    )
+  ]);
+
+  for (const event of preventiveRows.rows) {
+    await upsertAutomaticReminder({
+      source_key: `auto:clinical:${businessId}:preventive:${event.id}`,
+      title: `${event.event_type === "vaccination" ? "Vacuna" : "Desparasitacion"} proxima: ${event.patient_name}`,
+      notes: `${event.product_name_snapshot || "Evento preventivo"} programado para ${event.next_due_date}.`,
+      due_date: event.next_due_date,
+      reminder_type: event.event_type,
+      category: "clinical",
+      patient_id: event.patient_id,
+      metadata: { preventive_event_id: event.id, event_type: event.event_type }
+    }, actor);
+  }
+
+  for (const appointment of appointmentRows.rows) {
+    await upsertAutomaticReminder({
+      source_key: `auto:clinical:${businessId}:appointment:${appointment.id}`,
+      title: `Cita proxima: ${appointment.patient_name}`,
+      notes: `Area ${appointment.area}. Fecha ${appointment.appointment_date}.`,
+      due_date: appointment.appointment_date,
+      reminder_type: "appointment",
+      category: "clinical",
+      patient_id: appointment.patient_id,
+      metadata: { appointment_id: appointment.id, area: appointment.area }
     }, actor);
   }
 }
@@ -278,6 +369,8 @@ module.exports = {
   completeReminder,
   deleteReminder,
   sendReminder,
+  upsertAutomaticReminder,
+  removeAutomaticReminder,
   ensureAutomaticReminders,
   ensureLowStockRemindersForProductIds,
   receiveAutomationWebhook

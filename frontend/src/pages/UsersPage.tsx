@@ -58,11 +58,11 @@ export function UsersPage() {
 
   const roleOptions = useMemo(() => {
     if (currentRole === "superusuario") {
-      return ["superusuario", "admin", "cajero", "soporte"] as const;
+      return ["superusuario", "admin", "clinico", "cajero", "soporte"] as const;
     }
 
     if (currentRole === "admin") {
-      return ["admin", "cajero"] as const;
+      return ["admin", "clinico", "cajero"] as const;
     }
 
     return [] as const;
@@ -334,6 +334,7 @@ export function UsersPage() {
                       >
                         <option value="superusuario">Superusuario</option>
                         <option value="admin">Admin</option>
+                        <option value="clinico">Clinico</option>
                         <option value="cajero">Cajero</option>
                         <option value="soporte">Soporte</option>
                       </select>

@@ -102,7 +102,21 @@ function requireRole(roles) {
   };
 }
 
+function requireClinicalAccess(req, res, next) {
+  if (!req.user) {
+    return next(new ApiError(401, "Authentication required"));
+  }
+
+  const userRole = normalizeRole(req.user.role);
+  if (!["superusuario", "admin", "clinico"].includes(userRole || "")) {
+    return next(new ApiError(403, "Forbidden"));
+  }
+
+  next();
+}
+
 module.exports = {
   requireAuth,
   requireRole,
+  requireClinicalAccess,
 };

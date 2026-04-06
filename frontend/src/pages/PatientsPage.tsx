@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalClientSummary, ClinicalPatientDetail, ClinicalPatientSummary } from "../types";
+import type { ClinicalClientSummary, ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
 import { getClinicalPatientLabel, showsPatientSpecies } from "../utils/pos";
 import { shortDate, shortDateTime } from "../utils/format";
 
@@ -13,6 +13,20 @@ type PatientFormState = {
   breed: string;
   sex: string;
   birth_date: string;
+  weight: string;
+  allergies: string;
+  notes: string;
+  is_active: boolean;
+};
+
+type PreventiveFormState = {
+  event_type: "vaccination" | "deworming";
+  product_id: string;
+  product_name_snapshot: string;
+  dose: string;
+  date_administered: string;
+  next_due_date: string;
+  status: "scheduled" | "completed" | "cancelled";
   notes: string;
 };
 
@@ -23,6 +37,20 @@ const emptyForm: PatientFormState = {
   breed: "",
   sex: "",
   birth_date: "",
+  weight: "",
+  allergies: "",
+  notes: "",
+  is_active: true
+};
+
+const emptyPreventiveForm: PreventiveFormState = {
+  event_type: "vaccination",
+  product_id: "",
+  product_name_snapshot: "",
+  dose: "",
+  date_administered: "",
+  next_due_date: "",
+  status: "completed",
   notes: ""
 };
 
@@ -34,7 +62,10 @@ function detailToForm(detail: ClinicalPatientDetail | null): PatientFormState {
     breed: detail?.breed || "",
     sex: detail?.sex || "",
     birth_date: detail?.birth_date || "",
-    notes: detail?.notes || ""
+    weight: detail?.weight === undefined || detail?.weight === null ? "" : String(detail.weight),
+    allergies: detail?.allergies || "",
+    notes: detail?.notes || "",
+    is_active: detail?.is_active ?? true
   };
 }
 
@@ -48,13 +79,16 @@ export function PatientsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
   const [clients, setClients] = useState<ClinicalClientSummary[]>([]);
+  const [medications, setMedications] = useState<Product[]>([]);
   const [detail, setDetail] = useState<ClinicalPatientDetail | null>(null);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState<PatientFormState>(emptyForm);
   const [clientSearch, setClientSearch] = useState("");
   const [mode, setMode] = useState<"create" | "edit">("create");
+  const [preventiveForm, setPreventiveForm] = useState<PreventiveFormState>(emptyPreventiveForm);
   const [saving, setSaving] = useState(false);
+  const [preventiveSaving, setPreventiveSaving] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const patientLabel = getClinicalPatientLabel(user?.pos_type);
@@ -77,6 +111,12 @@ export function PatientsPage() {
     setClients(response.filter((client) => client.is_active));
   }
 
+  async function loadMedications() {
+    if (!token) return;
+    const response = await apiRequest<{ items: Product[] }>("/products?catalog_scope=medications-supplies&page=1&pageSize=50", { token });
+    setMedications(response.items);
+  }
+
   async function loadDetail(id: number) {
     if (!token) return;
     const response = await apiRequest<ClinicalPatientDetail>(`/patients/${id}`, { token });
@@ -89,6 +129,9 @@ export function PatientsPage() {
   useEffect(() => {
     loadClients().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar clientes");
+    });
+    loadMedications().catch(() => {
+      setMedications([]);
     });
   }, [token]);
 
@@ -167,7 +210,10 @@ export function PatientsPage() {
         ...form,
         client_id: Number(form.client_id),
         species: showSpecies ? form.species : "",
-        breed: showSpecies ? form.breed : ""
+        breed: showSpecies ? form.breed : "",
+        weight: form.weight ? Number(form.weight) : null,
+        allergies: form.allergies,
+        is_active: form.is_active
       };
       const method = mode === "edit" && selectedId ? "PUT" : "POST";
       const path = mode === "edit" && selectedId ? `/patients/${selectedId}` : "/patients";
@@ -188,6 +234,39 @@ export function PatientsPage() {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el paciente");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handlePreventiveSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !selectedId) return;
+
+    try {
+      setPreventiveSaving(true);
+      resetFeedback();
+      const matchedProduct = medications.find((item) => String(item.id) === preventiveForm.product_id);
+      await apiRequest<MedicalPreventiveEvent>("/medical-preventive-events", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          patient_id: selectedId,
+          event_type: preventiveForm.event_type,
+          product_id: preventiveForm.product_id ? Number(preventiveForm.product_id) : undefined,
+          product_name_snapshot: preventiveForm.product_name_snapshot || matchedProduct?.name || "",
+          dose: preventiveForm.dose,
+          date_administered: preventiveForm.date_administered || undefined,
+          next_due_date: preventiveForm.next_due_date || undefined,
+          status: preventiveForm.status,
+          notes: preventiveForm.notes
+        })
+      });
+      setPreventiveForm(emptyPreventiveForm);
+      setInfo("Evento preventivo guardado");
+      await loadDetail(selectedId);
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el evento preventivo");
+    } finally {
+      setPreventiveSaving(false);
     }
   }
 
@@ -307,6 +386,21 @@ export function PatientsPage() {
             <input type="date" value={form.birth_date} onChange={(event) => setForm({ ...form, birth_date: event.target.value })} />
           </label>
           <label>
+            Peso
+            <input type="number" min="0" step="0.001" value={form.weight} onChange={(event) => setForm({ ...form, weight: event.target.value })} />
+          </label>
+          <label>
+            Alergias
+            <textarea value={form.allergies} onChange={(event) => setForm({ ...form, allergies: event.target.value })} />
+          </label>
+          <label>
+            Estado
+            <select value={form.is_active ? "active" : "inactive"} onChange={(event) => setForm({ ...form, is_active: event.target.value === "active" })}>
+              <option value="active">Activo</option>
+              <option value="inactive">Inactivo</option>
+            </select>
+          </label>
+          <label>
             Notas
             <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </label>
@@ -321,9 +415,18 @@ export function PatientsPage() {
             <div className="info-card">
               <p><strong>Paciente:</strong> {detail.name}</p>
               <p><strong>Responsable:</strong> {detail.client_name}</p>
+              <p><strong>Estado:</strong> {detail.is_active ? "Activo" : "Inactivo"}</p>
+              <p><strong>Telefono responsable:</strong> {detail.client_phone || "-"}</p>
+              <p><strong>Correo responsable:</strong> {detail.client_email || "-"}</p>
+              <p><strong>Direccion responsable:</strong> {detail.client_address || "-"}</p>
+              <p><strong>Sexo:</strong> {detail.sex || "-"}</p>
               <p><strong>Nacimiento:</strong> {shortDate(detail.birth_date || null)}</p>
+              <p><strong>Peso:</strong> {detail.weight ?? "-"}</p>
+              <p><strong>Alergias:</strong> {detail.allergies || "-"}</p>
+              {showSpecies ? <p><strong>Especie / raza:</strong> {detail.species || "-"} / {detail.breed || "-"}</p> : null}
               <p><strong>Consultas:</strong> {detail.consultation_count}</p>
               <p><strong>Citas:</strong> {detail.appointment_count}</p>
+              <p><strong>Notas:</strong> {detail.notes || "-"}</p>
             </div>
 
             <div className="table-wrap">
@@ -372,6 +475,125 @@ export function PatientsPage() {
                   {!detail.appointments.length ? (
                     <tr>
                       <td className="muted" colSpan={3}>Sin citas registradas.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Preventivos</th>
+                    <th>Aplicada</th>
+                    <th>Proxima</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.preventive_events?.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.event_type === "vaccination" ? "Vacuna" : "Desparasitacion"} · {item.product_name_snapshot || "-"}</td>
+                      <td>{shortDate(item.date_administered || null)}</td>
+                      <td>{shortDate(item.next_due_date || null)}</td>
+                      <td>{item.status}</td>
+                    </tr>
+                  ))}
+                  {!detail.preventive_events?.length ? (
+                    <tr>
+                      <td className="muted" colSpan={4}>Sin eventos preventivos registrados.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <form className="grid-form" onSubmit={handlePreventiveSubmit}>
+              <div className="panel-header">
+                <div>
+                  <h3>Registrar preventivo</h3>
+                  <p className="muted">Vacunacion y desparasitacion se registran sin afectar inventario ni ventas.</p>
+                </div>
+              </div>
+              <label>
+                Tipo
+                <select value={preventiveForm.event_type} onChange={(event) => setPreventiveForm({ ...preventiveForm, event_type: event.target.value as PreventiveFormState["event_type"] })}>
+                  <option value="vaccination">Vacunacion</option>
+                  <option value="deworming">Desparasitacion</option>
+                </select>
+              </label>
+              <label>
+                Producto
+                <select value={preventiveForm.product_id} onChange={(event) => setPreventiveForm({ ...preventiveForm, product_id: event.target.value })}>
+                  <option value="">Manual</option>
+                  {medications.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+                </select>
+              </label>
+              <label>
+                Snapshot
+                <input value={preventiveForm.product_name_snapshot} onChange={(event) => setPreventiveForm({ ...preventiveForm, product_name_snapshot: event.target.value })} />
+              </label>
+              <label>
+                Dosis / aplicacion
+                <input value={preventiveForm.dose} onChange={(event) => setPreventiveForm({ ...preventiveForm, dose: event.target.value })} />
+              </label>
+              <label>
+                Fecha aplicada
+                <input type="date" value={preventiveForm.date_administered} onChange={(event) => setPreventiveForm({ ...preventiveForm, date_administered: event.target.value })} />
+              </label>
+              <label>
+                Proxima fecha
+                <input type="date" value={preventiveForm.next_due_date} onChange={(event) => setPreventiveForm({ ...preventiveForm, next_due_date: event.target.value })} />
+              </label>
+              <label>
+                Estado
+                <select value={preventiveForm.status} onChange={(event) => setPreventiveForm({ ...preventiveForm, status: event.target.value as PreventiveFormState["status"] })}>
+                  <option value="completed">Completado</option>
+                  <option value="scheduled">Programado</option>
+                  <option value="cancelled">Cancelado</option>
+                </select>
+              </label>
+              <label>
+                Notas
+                <textarea value={preventiveForm.notes} onChange={(event) => setPreventiveForm({ ...preventiveForm, notes: event.target.value })} />
+              </label>
+              <div className="inline-actions">
+                <button className="button" disabled={preventiveSaving} type="submit">{preventiveSaving ? "Guardando..." : "Guardar preventivo"}</button>
+              </div>
+            </form>
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Recetas</th>
+                    <th>Fecha</th>
+                    <th>Estado</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.prescriptions?.map((prescription) => (
+                    <tr key={prescription.id}>
+                      <td>{prescription.items.map((item) => item.medication_name_snapshot).join(", ") || `Receta #${prescription.id}`}</td>
+                      <td>{shortDateTime(prescription.created_at)}</td>
+                      <td>{prescription.status}</td>
+                      <td>
+                        <button
+                          className="button ghost"
+                          disabled={!prescription.consultation_id}
+                          onClick={() => navigate(`/medical-consultations?consultation=${prescription.consultation_id}`)}
+                          type="button"
+                        >
+                          Ver consulta
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!detail.prescriptions?.length ? (
+                    <tr>
+                      <td className="muted" colSpan={4}>Sin recetas registradas.</td>
                     </tr>
                   ) : null}
                 </tbody>

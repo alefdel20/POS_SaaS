@@ -3,6 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { setStoredTheme } from "../services/storage";
 import type { CompanyProfile } from "../types";
+import { resolveUploadedAssetUrl } from "../utils/assets";
 import { normalizeRole } from "../utils/roles";
 
 type ProfileFormState = {
@@ -11,6 +12,7 @@ type ProfileFormState = {
   phone: string;
   email: string;
   address: string;
+  professional_license: string;
   theme: "light" | "dark";
   accent_palette: "default" | "ocean" | "forest" | "ember";
   bank_name: string;
@@ -36,6 +38,7 @@ const emptyForm: ProfileFormState = {
   phone: "",
   email: "",
   address: "",
+  professional_license: "",
   theme: "dark",
   accent_palette: "default",
   bank_name: "",
@@ -62,6 +65,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
     phone: profile?.phone || "",
     email: profile?.email || "",
     address: profile?.address || "",
+    professional_license: profile?.professional_license || "",
     theme: profile?.theme || "dark",
     accent_palette: profile?.accent_palette || "default",
     bank_name: profile?.bank_name || "",
@@ -83,7 +87,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
 }
 
 const sectionFields = {
-  general: ["owner_name", "company_name", "phone", "email", "address", "theme", "accent_palette"],
+  general: ["owner_name", "company_name", "phone", "email", "address", "professional_license", "theme", "accent_palette"],
   banking: ["bank_name", "bank_clabe", "bank_beneficiary", "card_terminal", "card_bank", "card_instructions", "card_commission"],
   fiscal: ["fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address"],
   stamps: ["pac_provider", "pac_mode", "stamps_available", "stamp_alert_threshold"]
@@ -95,6 +99,7 @@ export function ProfilePage() {
   const [formData, setFormData] = useState<ProfileFormState>(emptyForm);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const [assetLoading, setAssetLoading] = useState<"business_image" | "signature" | "">("");
   const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "stamps" | "">("");
   const currentRole = normalizeRole(user?.role);
   const canEditStamps = currentRole === "superusuario";
@@ -162,6 +167,51 @@ export function ProfilePage() {
     }
   }
 
+  async function handleAssetUpload(assetType: "business_image" | "signature", file: File | null) {
+    if (!token || !file) return;
+
+    try {
+      setAssetLoading(assetType);
+      setError("");
+      setInfo("");
+      const formData = new FormData();
+      formData.append("asset", file);
+      const response = await apiRequest<CompanyProfile>(`/profile/assets/${assetType}`, {
+        method: "POST",
+        token,
+        body: formData
+      });
+      setProfile(response);
+      setFormData(profileToForm(response));
+      setInfo("Imagen actualizada correctamente");
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "No fue posible subir la imagen");
+    } finally {
+      setAssetLoading("");
+    }
+  }
+
+  async function handleAssetDelete(assetType: "business_image" | "signature") {
+    if (!token) return;
+
+    try {
+      setAssetLoading(assetType);
+      setError("");
+      setInfo("");
+      const response = await apiRequest<CompanyProfile>(`/profile/assets/${assetType}`, {
+        method: "DELETE",
+        token
+      });
+      setProfile(response);
+      setFormData(profileToForm(response));
+      setInfo("Imagen eliminada correctamente");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar la imagen");
+    } finally {
+      setAssetLoading("");
+    }
+  }
+
   return (
     <section className="page-grid">
       <div className="panel">
@@ -193,6 +243,7 @@ export function ProfilePage() {
         phone: formData.phone,
         email: formData.email,
         address: formData.address,
+        professional_license: formData.professional_license,
         theme: formData.theme,
         accent_palette: formData.accent_palette
       })}>
@@ -223,6 +274,10 @@ export function ProfilePage() {
           <textarea value={formData.address} onChange={(event) => updateField("address", event.target.value)} />
         </label>
         <label>
+          Cedula profesional
+          <input value={formData.professional_license} onChange={(event) => updateField("professional_license", event.target.value)} />
+        </label>
+        <label>
           Tema
           <select value={formData.theme} onChange={(event) => updateField("theme", event.target.value as "light" | "dark")}>
             <option value="dark">Oscuro</option>
@@ -238,6 +293,36 @@ export function ProfilePage() {
             <option value="ember">Ember</option>
           </select>
         </label>
+        <div className="info-card form-span-2">
+          <div className="panel-header">
+            <div>
+              <h3>Imagen del negocio</h3>
+              <p className="muted">Se usara despues en recetas e historial medico PDF.</p>
+            </div>
+            {profile?.business_image_path ? (
+              <button className="button ghost" disabled={assetLoading === "business_image"} onClick={() => handleAssetDelete("business_image")} type="button">
+                Quitar
+              </button>
+            ) : null}
+          </div>
+          {profile?.business_image_path ? <img alt="Imagen del negocio" className="profile-asset-preview" src={resolveUploadedAssetUrl(profile.business_image_path) || ""} /> : null}
+          <input accept=".jpg,.jpeg,.png,.webp" disabled={assetLoading === "business_image"} onChange={(event) => handleAssetUpload("business_image", event.target.files?.[0] || null)} type="file" />
+        </div>
+        <div className="info-card form-span-2">
+          <div className="panel-header">
+            <div>
+              <h3>Firma</h3>
+              <p className="muted">Se podra usar despues en recetas y documentos clinicos.</p>
+            </div>
+            {profile?.signature_image_path ? (
+              <button className="button ghost" disabled={assetLoading === "signature"} onClick={() => handleAssetDelete("signature")} type="button">
+                Quitar
+              </button>
+            ) : null}
+          </div>
+          {profile?.signature_image_path ? <img alt="Firma del negocio" className="profile-asset-preview" src={resolveUploadedAssetUrl(profile.signature_image_path) || ""} /> : null}
+          <input accept=".jpg,.jpeg,.png,.webp" disabled={assetLoading === "signature"} onChange={(event) => handleAssetUpload("signature", event.target.files?.[0] || null)} type="file" />
+        </div>
         <button className="button" disabled={savingSection === "general"} type="submit">
           {savingSection === "general" ? "Guardando..." : "Guardar información general"}
         </button>

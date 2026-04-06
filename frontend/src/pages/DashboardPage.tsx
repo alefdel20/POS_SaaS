@@ -127,6 +127,59 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {summary?.clinical ? (
+        <div className="page-grid two-columns dashboard-grid">
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Operacion clinica</h2>
+                <p className="muted">Lectura rapida del dia para citas, preventivos y recetas.</p>
+              </div>
+            </div>
+            <div className="dashboard-note-list">
+              <div className="info-card">
+                <p>Citas del dia: <strong>{summary.clinical.appointments_today.length}</strong></p>
+                <p>Recordatorios clinicos: <strong>{summary.clinical.pending_clinical_reminders}</strong></p>
+                <p>Recetas recientes: <strong>{summary.clinical.recent_prescriptions.length}</strong></p>
+              </div>
+              <div className="info-card">
+                <p>Pacientes atendidos recientemente: <strong>{summary.clinical.recent_patients.length}</strong></p>
+                <p>Proximos preventivos: <strong>{summary.clinical.upcoming_preventive_events.length}</strong></p>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Agenda y preventivos</h2>
+                <p className="muted">Lo importante para seguimiento clinico inmediato.</p>
+              </div>
+            </div>
+            <div className="stack-list">
+              {summary.clinical.appointments_today.map((appointment) => (
+                <article className="info-card" key={`appt-${appointment.id}`}>
+                  <strong>{appointment.patient_name}</strong>
+                  <p>{appointment.start_time} · {appointment.area}</p>
+                </article>
+              ))}
+              {summary.clinical.upcoming_preventive_events.map((event) => (
+                <article className="info-card" key={`preventive-${event.id}`}>
+                  <strong>{event.event_type === "vaccination" ? "Vacuna" : "Desparasitacion"}</strong>
+                  <p>{event.product_name_snapshot || "-"}</p>
+                  <p>Proxima fecha: {event.next_due_date || "-"}</p>
+                </article>
+              ))}
+              {!summary.clinical.appointments_today.length && !summary.clinical.upcoming_preventive_events.length ? (
+                <div className="info-card">
+                  <p>No hay pendientes clinicos inmediatos.</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="page-grid two-columns dashboard-grid">
         <div className="panel">
           <div className="panel-header">

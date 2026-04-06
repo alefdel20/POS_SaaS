@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalAppointment, ClinicalPatientSummary } from "../types";
 import { shortDate } from "../utils/format";
+import { getAppointmentAreaFromPath } from "../utils/navigation";
 
 type AppointmentFormState = {
   patient_id: string;
@@ -46,8 +47,10 @@ function buildPatientSearchLabel(patient: ClinicalPatientSummary) {
 
 export function MedicalAppointmentsPage() {
   const { token } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const forcedArea = getAppointmentAreaFromPath(location.pathname);
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
   const [appointments, setAppointments] = useState<ClinicalAppointment[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -55,11 +58,12 @@ export function MedicalAppointmentsPage() {
   const [patientSearch, setPatientSearch] = useState("");
   const [form, setForm] = useState<AppointmentFormState>({
     ...emptyForm,
+    area: forcedArea || emptyForm.area,
     appointment_date: searchParams.get("date") || emptyForm.appointment_date
   });
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [dateFilter, setDateFilter] = useState(searchParams.get("date") || emptyForm.appointment_date);
-  const [areaFilter, setAreaFilter] = useState("");
+  const [areaFilter, setAreaFilter] = useState(forcedArea || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -98,6 +102,13 @@ export function MedicalAppointmentsPage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar pacientes");
     });
   }, [token]);
+
+  useEffect(() => {
+    if (forcedArea) {
+      setAreaFilter(forcedArea);
+      setForm((current) => ({ ...current, area: current.area || forcedArea }));
+    }
+  }, [forcedArea]);
 
   useEffect(() => {
     loadAppointments().catch((loadError) => {
@@ -202,7 +213,7 @@ export function MedicalAppointmentsPage() {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Agenda diaria</h2>
+            <h2>{forcedArea === "ESTETICA" ? "Citas · Estetica" : forcedArea === "CLINICA" ? "Citas · Medica" : "Agenda diaria"}</h2>
             <p className="muted">Timeline diario con bloqueo de traslapes solo dentro de la misma area.</p>
           </div>
           <button className="button" onClick={startCreate} type="button">Nueva cita</button>
@@ -214,14 +225,21 @@ export function MedicalAppointmentsPage() {
             Fecha
             <input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} />
           </label>
-          <label>
-            Area
-            <select value={areaFilter} onChange={(event) => setAreaFilter(event.target.value)}>
-              <option value="">Todas</option>
-              <option value="CLINICA">Clinica</option>
-              <option value="ESTETICA">Estetica</option>
-            </select>
-          </label>
+          {forcedArea ? (
+            <label>
+              Area
+              <input disabled value={forcedArea === "ESTETICA" ? "Estetica" : "Clinica"} />
+            </label>
+          ) : (
+            <label>
+              Area
+              <select value={areaFilter} onChange={(event) => setAreaFilter(event.target.value)}>
+                <option value="">Todas</option>
+                <option value="CLINICA">Clinica</option>
+                <option value="ESTETICA">Estetica</option>
+              </select>
+            </label>
+          )}
         </div>
         <div className="timeline-list">
           {appointments.map((appointment) => (
@@ -280,13 +298,20 @@ export function MedicalAppointmentsPage() {
             Hora fin *
             <input type="time" value={form.end_time} onChange={(event) => setForm({ ...form, end_time: event.target.value })} />
           </label>
-          <label>
-            Area *
-            <select value={form.area} onChange={(event) => setForm({ ...form, area: event.target.value as AppointmentFormState["area"] })}>
-              <option value="CLINICA">Clinica</option>
-              <option value="ESTETICA">Estetica</option>
-            </select>
-          </label>
+          {forcedArea ? (
+            <label>
+              Area *
+              <input disabled value={forcedArea === "ESTETICA" ? "Estetica" : "Clinica"} />
+            </label>
+          ) : (
+            <label>
+              Area *
+              <select value={form.area} onChange={(event) => setForm({ ...form, area: event.target.value as AppointmentFormState["area"] })}>
+                <option value="CLINICA">Clinica</option>
+                <option value="ESTETICA">Estetica</option>
+              </select>
+            </label>
+          )}
           <label>
             Estado *
             <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as AppointmentFormState["status"] })}>

@@ -351,9 +351,21 @@ async function createSale(payload, user) {
   }
 
   const businessId = requireActorBusinessId(user);
+  const prescriptionId = payload.prescription_id ? Number(payload.prescription_id) : null;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    let prescriptionSnapshot = null;
+    if (prescriptionId) {
+      const { rows: prescriptionRows } = await client.query(
+        `SELECT mp.id, mp.patient_id, mp.status
+         FROM medical_prescriptions mp
+         WHERE mp.id = $1 AND mp.business_id = $2`,
+        [prescriptionId, businessId]
+      );
+      if (!prescriptionRows[0]) throw new ApiError(404, "Prescription not found");
+      prescriptionSnapshot = prescriptionRows[0];
+    }
     const productIds = payload.items.map((item) => item.product_id);
     const { rows: productRows } = await client.query(
       `WITH sales_30 AS (
@@ -498,6 +510,14 @@ async function createSale(payload, user) {
       sale.administrative_invoice_id = administrativeInvoice.id;
     }
 
+    if (prescriptionId) {
+      await client.query(
+        `INSERT INTO sale_prescription_links (business_id, prescription_id, sale_id, created_by)
+         VALUES ($1, $2, $3, $4)`,
+        [businessId, prescriptionId, sale.id, user.id]
+      );
+    }
+
     await emitActorAutomationEvent(user, "sale_created", {
       sale_id: sale.id,
       payment_method: sale.payment_method,
@@ -540,8 +560,20 @@ async function createSale(payload, user) {
         version: 1
       },
       motivo: user?.support_context?.reason || payload.notes || "",
-      metadata: buildSaleAuditMetadata(user, { warnings_count: warnings.length })
+      metadata: buildSaleAuditMetadata(user, { warnings_count: warnings.length, prescription_id: prescriptionId || null })
     }, { strict: false });
+    if (prescriptionId) {
+      await saveAuditLog({
+        business_id: businessId,
+        usuario_id: user.id,
+        modulo: "clinical",
+        accion: "generate_sale_from_prescription",
+        entidad_tipo: "medical_prescription",
+        entidad_id: prescriptionId,
+        detalle_nuevo: { sale_id: sale.id },
+        metadata: { patient_id: prescriptionSnapshot?.patient_id || null }
+      }, { strict: false });
+    }
     return { sale, warnings, receipt: { bank_details: payload.payment_method === "transfer" ? transferSnapshot : null, balance_due: balanceDue, invoice_status: invoiceStatus, stamp_status: stampStatus } };
   } catch (error) {
     await client.query("ROLLBACK");

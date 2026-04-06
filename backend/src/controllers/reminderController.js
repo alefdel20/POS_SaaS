@@ -6,16 +6,22 @@ const reminderService = require("../services/reminderService");
 const idValidation = [param("id").isInt(), validateRequest];
 const createValidation = [
   body("title").trim().notEmpty(),
-  body("status").optional().isIn(["pending", "in_progress", "completed"]),
+  body("status").optional().isIn(["pending", "in_progress", "completed", "cancelled"]),
   body("due_date").optional({ nullable: true }).isISO8601(),
   body("assigned_to").optional({ nullable: true }).isInt(),
+  body("reminder_type").optional().trim(),
+  body("category").optional().isIn(["administrative", "clinical"]),
+  body("patient_id").optional({ nullable: true }).isInt(),
   validateRequest
 ];
 const updateValidation = [
   body("title").optional().trim().notEmpty(),
-  body("status").optional().isIn(["pending", "in_progress", "completed"]),
+  body("status").optional().isIn(["pending", "in_progress", "completed", "cancelled"]),
   body("due_date").optional({ nullable: true }).isISO8601(),
   body("assigned_to").optional({ nullable: true }).isInt(),
+  body("reminder_type").optional().trim(),
+  body("category").optional().isIn(["administrative", "clinical"]),
+  body("patient_id").optional({ nullable: true }).isInt(),
   validateRequest
 ];
 const sendValidation = [

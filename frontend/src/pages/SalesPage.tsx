@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { CompanyProfile, Product, Sale, SaleReceipt, Supplier } from "../types";
+import type { CompanyProfile, MedicalPrescription, Product, Sale, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { isCashierRole, isManagementRole } from "../utils/roles";
 import { resolveProductImageUrl } from "../utils/assets";
 import { canUseCreditCollections, getDefaultUnitForPosType } from "../utils/pos";
+import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
@@ -139,7 +141,12 @@ function formatSaleQuantity(quantity: number, unit?: string | null) {
 
 export function SalesPage() {
   const { token, user } = useAuth();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const defaultSaleUnit = getDefaultUnitForPosType();
+  const catalogScope = getCatalogScopeFromPath(location.pathname);
+  const catalogType = getCatalogTypeFromScope(catalogScope);
+  const salesTitle = catalogScope ? `Ventas · ${getCatalogScopeLabel(catalogScope)}` : "Ventas";
   const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
@@ -168,10 +175,14 @@ export function SalesPage() {
   const [quickProductSaving, setQuickProductSaving] = useState(false);
   const [scannerFeedback, setScannerFeedback] = useState("");
   const [scannerSelectionId, setScannerSelectionId] = useState<number | null>(null);
+  const [prescriptionSeedId, setPrescriptionSeedId] = useState<number | null>(Number(searchParams.get("prescription_id") || 0) || null);
 
   async function loadProducts(term = "") {
     if (!token) return;
     const params = new URLSearchParams({ activeOnly: "true" });
+    if (catalogScope) {
+      params.set("catalog_scope", catalogScope);
+    }
     const trimmedTerm = term.trim();
     if (trimmedTerm) {
       params.set("search", trimmedTerm);
@@ -204,6 +215,9 @@ export function SalesPage() {
     const params = new URLSearchParams();
     if (term.trim()) {
       params.set("search", term.trim());
+    }
+    if (catalogScope) {
+      params.set("catalog_scope", catalogScope);
     }
     const response = await apiRequest<string[]>(`/products/categories?${params.toString()}`, { token });
     setCategories(response);
@@ -260,7 +274,7 @@ export function SalesPage() {
     } else {
       setCategories([]);
     }
-  }, [token, user?.role]);
+  }, [catalogScope, token, user?.role]);
 
   useEffect(() => {
     const delay = setTimeout(() => {
@@ -269,7 +283,17 @@ export function SalesPage() {
       });
     }, 250);
     return () => clearTimeout(delay);
-  }, [search, token]);
+  }, [catalogScope, search, token]);
+
+  useEffect(() => {
+    if (!prescriptionSeedId) {
+      return;
+    }
+
+    loadPrescriptionIntoCart(prescriptionSeedId).catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar la receta en venta");
+    });
+  }, [prescriptionSeedId, token]);
 
   const total = useMemo(
     () => cart.reduce((sum, item) => sum + Number(item.product.effective_price ?? item.product.price) * item.quantity, 0),
@@ -382,6 +406,29 @@ export function SalesPage() {
     setScannerSelectionId(product.id);
   }
 
+  async function loadPrescriptionIntoCart(prescriptionId: number) {
+    if (!token) return;
+    const prescription = await apiRequest<MedicalPrescription>(`/medical-prescriptions/${prescriptionId}`, { token });
+    const nextWarnings: string[] = [];
+    const seededCart: CartItem[] = [];
+
+    for (const item of prescription.items) {
+      try {
+        const product = await apiRequest<Product>(`/products/${item.product_id}`, { token });
+        seededCart.push({ product, quantity: 1 });
+      } catch {
+        nextWarnings.push(`El producto recetado "${item.medication_name_snapshot}" ya no existe o no esta disponible.`);
+      }
+    }
+
+    if (seededCart.length) {
+      setCart(seededCart);
+    }
+    if (nextWarnings.length) {
+      setWarnings(nextWarnings);
+    }
+  }
+
   function openQuickAddModal() {
     const suggestedCategory = cart[cart.length - 1]?.product.category || categories[0] || "";
     setQuickProductForm({
@@ -471,7 +518,11 @@ export function SalesPage() {
 
     try {
       setError("");
-      const response = await apiRequest<Product[]>(`/products?activeOnly=true&search=${encodeURIComponent(normalizedCode)}`, { token });
+      const params = new URLSearchParams({ activeOnly: "true", search: normalizedCode });
+      if (catalogScope) {
+        params.set("catalog_scope", catalogScope);
+      }
+      const response = await apiRequest<Product[]>(`/products?${params.toString()}`, { token });
       const exactProduct = response.find((product) => normalizeScannerCode(product.barcode || "") === normalizedCode);
 
       if (!exactProduct) {
@@ -557,6 +608,7 @@ export function SalesPage() {
           stock_minimo: 0,
           stock_maximo: stock,
           category: quickProductForm.category.trim(),
+          catalog_type: catalogType,
           barcode: sanitizedBarcode || undefined,
           supplier_name: quickProductForm.supplier_name.trim() || undefined,
           supplier_email: quickProductForm.supplier_email.trim() || undefined,
@@ -610,6 +662,7 @@ export function SalesPage() {
         method: "POST",
         token,
         body: JSON.stringify({
+          prescription_id: prescriptionSeedId || undefined,
           payment_method: paymentMethod,
           cash_received: paymentMethod === "cash" ? cashReceivedAmount : undefined,
           sale_type: saleType,
@@ -655,6 +708,11 @@ export function SalesPage() {
       setLastSaleItems(cart);
       setLastSale(response.sale);
       resetSaleForm();
+      setPrescriptionSeedId(null);
+      setSearchParams((current) => {
+        current.delete("prescription_id");
+        return current;
+      }, { replace: true });
       await loadProducts(search);
       await loadRecentSales();
       await loadProfile();
@@ -716,7 +774,7 @@ export function SalesPage() {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Ventas retail</h2>
+            <h2>{salesTitle}</h2>
             <p className="muted">Busca por nombre, SKU, código de barras o proveedor.</p>
           </div>
           <div className="inline-actions">

@@ -12,6 +12,7 @@ router.get("/suppliers", requireRole(["superusuario", "superadmin", "admin"]), c
 router.get("/categories", requireRole(["superusuario", "superadmin", "admin"]), controller.categoryListValidation, controller.listCategories);
 router.post("/import/preview", requireRole(["superusuario", "superadmin", "admin"]), uploadProductImportFile, controller.previewProductImport);
 router.post("/import/confirm", requireRole(["superusuario", "superadmin", "admin"]), controller.importConfirmValidation, controller.confirmProductImport);
+router.get("/:id", controller.idValidation, controller.getProductDetail);
 router.get("/:id/barcode.svg", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.getProductBarcode);
 router.post("/remate/bulk", requireRole(["superusuario", "superadmin", "admin"]), controller.bulkDiscountValidation, controller.applyBulkDiscount);
 router.post("/", requireRole(["superadmin", "admin", "cajero"]), controller.createValidation, controller.createProduct);

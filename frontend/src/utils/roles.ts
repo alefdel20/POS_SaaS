@@ -2,6 +2,7 @@ import type { Role } from "../types";
 
 export const ROLE_SUPERUSER = "superusuario" as const;
 export const ROLE_ADMIN = "admin" as const;
+export const ROLE_CLINICAL = "clinico" as const;
 export const ROLE_SUPPORT = "soporte" as const;
 export const ROLE_CASHIER = "cajero" as const;
 
@@ -10,6 +11,7 @@ export const ROUTE_ROLES = {
   users: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_SUPPORT] as const,
   dailyCut: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_CASHIER] as const,
   management: [ROLE_SUPERUSER, ROLE_ADMIN] as const,
+  clinical: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_CLINICAL] as const,
   invoices: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_SUPPORT] as const,
   businesses: [ROLE_SUPERUSER] as const,
 } as const;
@@ -26,6 +28,10 @@ export function normalizeRole(role?: string | null): Role | null {
 
   if (normalized === "admin") {
     return "admin";
+  }
+
+  if (normalized === "clinico" || normalized === "medico" || normalized === "veterinario") {
+    return "clinico";
   }
 
   if (normalized === "soporte" || normalized === "support") {
@@ -46,6 +52,10 @@ export function hasAnyRole(role: string | null | undefined, allowedRoles: readon
 
 export function isManagementRole(role?: string | null) {
   return hasAnyRole(role, ROUTE_ROLES.management);
+}
+
+export function canAccessClinical(role?: string | null) {
+  return hasAnyRole(role, ROUTE_ROLES.clinical);
 }
 
 export function canViewUsers(role?: string | null) {
@@ -80,6 +90,10 @@ export function getDefaultRouteForRole(role?: string | null) {
   const normalized = normalizeRole(role);
   if (normalized === ROLE_SUPPORT) {
     return "/users";
+  }
+
+  if (normalized === ROLE_CLINICAL) {
+    return "/health/patients";
   }
 
   return isManagementRole(role) ? "/dashboard" : "/sales";

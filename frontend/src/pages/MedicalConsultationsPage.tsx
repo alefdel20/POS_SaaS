@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { apiRequest } from "../api/client";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { apiDownload, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalConsultation, ClinicalPatientSummary } from "../types";
+import type { ClinicalConsultation, ClinicalPatientSummary, MedicalPrescription, Product } from "../types";
 import { shortDateTime } from "../utils/format";
+import { getConsultationModeFromPath } from "../utils/navigation";
+import { canAccessSales } from "../utils/roles";
 
 type ConsultationFormState = {
   patient_id: string;
@@ -15,6 +17,25 @@ type ConsultationFormState = {
   notas: string;
 };
 
+type PrescriptionItemForm = {
+  product_id: number;
+  medication_name_snapshot: string;
+  presentation_snapshot: string;
+  dose: string;
+  frequency: string;
+  duration: string;
+  route_of_administration: string;
+  notes: string;
+  stock_snapshot: number | null;
+};
+
+type PrescriptionFormState = {
+  diagnosis: string;
+  indications: string;
+  status: "draft" | "issued" | "cancelled";
+  items: PrescriptionItemForm[];
+};
+
 const emptyForm: ConsultationFormState = {
   patient_id: "",
   client_id: "",
@@ -23,6 +44,13 @@ const emptyForm: ConsultationFormState = {
   diagnostico: "",
   tratamiento: "",
   notas: ""
+};
+
+const emptyPrescriptionForm: PrescriptionFormState = {
+  diagnosis: "",
+  indications: "",
+  status: "draft",
+  items: []
 };
 
 function consultationToForm(consultation: ClinicalConsultation | null): ConsultationFormState {
@@ -37,23 +65,71 @@ function consultationToForm(consultation: ClinicalConsultation | null): Consulta
   };
 }
 
+function prescriptionToForm(prescription: MedicalPrescription | null, consultation: ClinicalConsultation | null): PrescriptionFormState {
+  if (!prescription) {
+    return {
+      diagnosis: consultation?.diagnostico || "",
+      indications: consultation?.tratamiento || "",
+      status: "draft",
+      items: []
+    };
+  }
+
+  return {
+    diagnosis: prescription.diagnosis || consultation?.diagnostico || "",
+    indications: prescription.indications || consultation?.tratamiento || "",
+    status: prescription.status,
+    items: prescription.items.map((item) => ({
+      product_id: item.product_id,
+      medication_name_snapshot: item.medication_name_snapshot,
+      presentation_snapshot: item.presentation_snapshot || "",
+      dose: item.dose || "",
+      frequency: item.frequency || "",
+      duration: item.duration || "",
+      route_of_administration: item.route_of_administration || "",
+      notes: item.notes || "",
+      stock_snapshot: item.stock_snapshot ?? null
+    }))
+  };
+}
+
 function buildPatientSearchLabel(patient: ClinicalPatientSummary) {
   return `${patient.name} - ${patient.client_name || "Sin cliente"}`;
 }
 
+function getMedicationStockLabel(product: Product) {
+  if (product.stock <= 0) return { label: "Sin stock", className: "error-text" };
+  if (product.is_low_stock || product.stock <= (product.stock_minimo || 0)) return { label: "Stock bajo", className: "warning-text" };
+  return { label: "Disponible", className: "success-text" };
+}
+
+function getSnapshotStockLabel(stock: number | null) {
+  if (stock === null || stock === undefined) return { label: "Sin dato", className: "muted" };
+  if (stock <= 0) return { label: "Sin stock", className: "error-text" };
+  if (stock <= 3) return { label: "Stock bajo", className: "warning-text" };
+  return { label: "Disponible", className: "success-text" };
+}
+
 export function MedicalConsultationsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const consultationMode = getConsultationModeFromPath(location.pathname);
   const [consultations, setConsultations] = useState<ClinicalConsultation[]>([]);
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
+  const [medications, setMedications] = useState<Product[]>([]);
+  const [medicationSearch, setMedicationSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalConsultation | null>(null);
+  const [prescription, setPrescription] = useState<MedicalPrescription | null>(null);
   const [patientSearch, setPatientSearch] = useState("");
   const [form, setForm] = useState<ConsultationFormState>(emptyForm);
+  const [prescriptionForm, setPrescriptionForm] = useState<PrescriptionFormState>(emptyPrescriptionForm);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  const [prescriptionSaving, setPrescriptionSaving] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const selectedPatient = patients.find((patient) => String(patient.id) === form.patient_id) || null;
@@ -77,6 +153,28 @@ export function MedicalConsultationsPage() {
     });
   }
 
+  async function loadMedications(term = "") {
+    if (!token) return;
+    const params = new URLSearchParams({
+      catalog_scope: "medications-supplies",
+      page: "1",
+      pageSize: "15"
+    });
+    if (term.trim()) {
+      params.set("search", term.trim());
+    }
+    const response = await apiRequest<{ items: Product[] }>(`/products?${params.toString()}`, { token });
+    setMedications(response.items);
+  }
+
+  async function loadPrescription(consultationId: number, consultationDetail?: ClinicalConsultation | null) {
+    if (!token) return;
+    const response = await apiRequest<MedicalPrescription[]>(`/medical-prescriptions?consultation_id=${consultationId}`, { token });
+    const currentPrescription = response[0] || null;
+    setPrescription(currentPrescription);
+    setPrescriptionForm(prescriptionToForm(currentPrescription, consultationDetail || detail));
+  }
+
   async function loadDetail(id: number) {
     if (!token) return;
     const response = await apiRequest<ClinicalConsultation>(`/medical-consultations/${id}`, { token });
@@ -84,6 +182,7 @@ export function MedicalConsultationsPage() {
     if (mode === "edit") {
       setForm(consultationToForm(response));
     }
+    await loadPrescription(id, response);
   }
 
   useEffect(() => {
@@ -91,6 +190,15 @@ export function MedicalConsultationsPage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar pacientes");
     });
   }, [token]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      loadMedications(medicationSearch).catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar medicamentos");
+      });
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [medicationSearch, token]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -104,6 +212,8 @@ export function MedicalConsultationsPage() {
   useEffect(() => {
     if (!selectedId) {
       setDetail(null);
+      setPrescription(null);
+      setPrescriptionForm(emptyPrescriptionForm);
       return;
     }
     setSearchParams((current) => {
@@ -135,6 +245,10 @@ export function MedicalConsultationsPage() {
   function startCreate() {
     resetFeedback();
     setMode("create");
+    setSelectedId(null);
+    setDetail(null);
+    setPrescription(null);
+    setPrescriptionForm(emptyPrescriptionForm);
     setForm({ ...emptyForm, consultation_date: new Date().toISOString().slice(0, 16) });
     setPatientSearch("");
   }
@@ -160,6 +274,50 @@ export function MedicalConsultationsPage() {
     handlePatientChange(matchedPatient ? String(matchedPatient.id) : "");
   }
 
+  function addMedicationToPrescription(product: Product) {
+    setPrescriptionForm((current) => {
+      if (current.items.some((item) => item.product_id === product.id)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        items: [
+          ...current.items,
+          {
+            product_id: product.id,
+            medication_name_snapshot: product.name,
+            presentation_snapshot: product.unidad_de_venta || product.category || "",
+            dose: "",
+            frequency: "",
+            duration: "",
+            route_of_administration: "",
+            notes: "",
+            stock_snapshot: product.stock ?? null
+          }
+        ]
+      };
+    });
+  }
+
+  function updatePrescriptionItem(index: number, field: keyof PrescriptionItemForm, value: string) {
+    setPrescriptionForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => (
+        itemIndex === index
+          ? { ...item, [field]: value }
+          : item
+      ))
+    }));
+  }
+
+  function removePrescriptionItem(index: number) {
+    setPrescriptionForm((current) => ({
+      ...current,
+      items: current.items.filter((_, itemIndex) => itemIndex !== index)
+    }));
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
@@ -169,7 +327,7 @@ export function MedicalConsultationsPage() {
       resetFeedback();
       const method = mode === "edit" && selectedId ? "PUT" : "POST";
       const path = mode === "edit" && selectedId ? `/medical-consultations/${selectedId}` : "/medical-consultations";
-      await apiRequest<ClinicalConsultation>(path, {
+      const saved = await apiRequest<ClinicalConsultation>(path, {
         method,
         token,
         body: JSON.stringify({
@@ -180,15 +338,58 @@ export function MedicalConsultationsPage() {
       });
       setInfo(mode === "edit" ? "Consulta actualizada" : "Consulta guardada y agregada al historial");
       await loadConsultations(search);
-      if (mode === "edit" && selectedId) {
-        await loadDetail(selectedId);
-      } else {
-        startCreate();
-      }
+      setSelectedId(saved.id);
+      setMode("edit");
+      setForm(consultationToForm(saved));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar la consulta");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function savePrescription() {
+    if (!token || !detail) return;
+    try {
+      setPrescriptionSaving(true);
+      resetFeedback();
+      const payload = {
+        patient_id: detail.patient_id,
+        consultation_id: detail.id,
+        diagnosis: prescriptionForm.diagnosis,
+        indications: prescriptionForm.indications,
+        status: prescriptionForm.status,
+        items: prescriptionForm.items.map((item) => ({
+          product_id: item.product_id,
+          presentation_snapshot: item.presentation_snapshot,
+          dose: item.dose,
+          frequency: item.frequency,
+          duration: item.duration,
+          route_of_administration: item.route_of_administration,
+          notes: item.notes
+        }))
+      };
+
+      const saved = prescription
+        ? await apiRequest<MedicalPrescription>(`/medical-prescriptions/${prescription.id}`, {
+          method: "PUT",
+          token,
+          body: JSON.stringify(payload)
+        })
+        : await apiRequest<MedicalPrescription>("/medical-prescriptions", {
+          method: "POST",
+          token,
+          body: JSON.stringify(payload)
+        });
+
+      setPrescription(saved);
+      setPrescriptionForm(prescriptionToForm(saved, detail));
+      setInfo("Receta guardada");
+      await Promise.all([loadConsultations(search), loadDetail(detail.id)]);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "No fue posible guardar la receta");
+    } finally {
+      setPrescriptionSaving(false);
     }
   }
 
@@ -211,12 +412,41 @@ export function MedicalConsultationsPage() {
     }
   }
 
+  async function handleDownloadPrescriptionPdf() {
+    if (!token || !prescription) return;
+    try {
+      resetFeedback();
+      const blob = await apiDownload(`/medical-prescriptions/${prescription.id}/export/pdf`, { token });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `receta-medica-${prescription.id}.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setInfo("PDF de receta descargado");
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "No fue posible descargar la receta");
+    }
+  }
+
+  function handleSharePrescription(channel: "whatsapp" | "email") {
+    if (!prescription || !detail) return;
+    const message = `Receta medica de ${detail.patient_name}. Consulta ${shortDateTime(detail.consultation_date)}.`;
+    const currentUrl = `${window.location.origin}/medical-consultations?consultation=${detail.id}`;
+    if (channel === "whatsapp") {
+      window.open(`https://wa.me/?text=${encodeURIComponent(`${message} ${currentUrl}`)}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    window.location.href = `mailto:?subject=${encodeURIComponent(`Receta medica - ${detail.patient_name}`)}&body=${encodeURIComponent(`${message}\n\n${currentUrl}`)}`;
+  }
+
   return (
     <section className="page-grid">
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Consultas medicas</h2>
+            <h2>{consultationMode === "recipes" ? "Consultas y recetas" : "Consultas medicas"}</h2>
             <p className="muted">Se muestran arriba las 5 mas recientes; la busqueda mantiene el listado completo.</p>
           </div>
           <div className="inline-actions">
@@ -234,6 +464,7 @@ export function MedicalConsultationsPage() {
                 <th>Cliente</th>
                 <th>Fecha</th>
                 <th>Motivo</th>
+                <th>Receta</th>
               </tr>
             </thead>
             <tbody>
@@ -243,11 +474,12 @@ export function MedicalConsultationsPage() {
                   <td>{consultation.client_name}</td>
                   <td>{shortDateTime(consultation.consultation_date)}</td>
                   <td>{consultation.motivo_consulta}</td>
+                  <td>{consultation.has_prescription ? `${consultation.prescription_count || 0} item(s)` : "Sin receta"}</td>
                 </tr>
               ))}
               {!visibleConsultations.length ? (
                 <tr>
-                  <td className="muted" colSpan={4}>Aun no hay consultas registradas.</td>
+                  <td className="muted" colSpan={5}>Aun no hay consultas registradas.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -258,7 +490,7 @@ export function MedicalConsultationsPage() {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>{mode === "edit" ? "Editar consulta" : "Nueva consulta"}</h2>
+            <h2>{mode === "edit" ? "Editar consulta" : consultationMode === "recipes" ? "Consulta con receta" : "Nueva consulta"}</h2>
             <p className="muted">El historial clinico se deriva directamente de estas consultas.</p>
           </div>
           {detail ? (
@@ -324,25 +556,173 @@ export function MedicalConsultationsPage() {
           </div>
         </form>
 
-        {detail ? (
-          <div className="info-card">
-            <p><strong>Paciente:</strong> {detail.patient_name}</p>
-            <p><strong>Cliente:</strong> {detail.client_name}</p>
-            <p><strong>Telefono:</strong> {detailPatient?.client_phone || "-"}</p>
-            <p><strong>Correo:</strong> {detailPatient?.client_email || "-"}</p>
-            <p><strong>Especie / raza:</strong> {detail.species || detailPatient?.species || "-"} / {detail.breed || detailPatient?.breed || "-"}</p>
-            <p><strong>Sexo:</strong> {detailPatient?.sex || "-"}</p>
-            <p><strong>Nacimiento:</strong> {detailPatient?.birth_date || "-"}</p>
-            <p><strong>Fecha:</strong> {shortDateTime(detail.consultation_date)}</p>
-            <p><strong>Motivo:</strong> {detail.motivo_consulta}</p>
-            <p><strong>Diagnostico:</strong> {detail.diagnostico}</p>
-            <p><strong>Tratamiento:</strong> {detail.tratamiento}</p>
-            <div className="inline-actions">
-              <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver historial</button>
-              <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver paciente</button>
-              <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver cliente</button>
+        <div className="info-card">
+          <div className="panel-header">
+            <div>
+              <h3>Medicamentos</h3>
+              <p className="muted">Consulta disponibilidad antes de recetar. Los medicamentos se muestran aunque no tengan stock.</p>
             </div>
+            <input
+              className="search-input"
+              placeholder="Buscar medicamento o insumo"
+              value={medicationSearch}
+              onChange={(event) => setMedicationSearch(event.target.value)}
+            />
           </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Medicamento</th>
+                  <th>Categoria</th>
+                  <th>Stock</th>
+                  <th>Estado</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {medications.map((product) => {
+                  const stockState = getMedicationStockLabel(product);
+                  return (
+                    <tr key={`medication-${product.id}`}>
+                      <td>{product.name}</td>
+                      <td>{product.category || "-"}</td>
+                      <td>{product.stock}</td>
+                      <td><span className={stockState.className}>{stockState.label}</span></td>
+                      <td>
+                        <button className="button ghost" disabled={!detail} onClick={() => addMedicationToPrescription(product)} type="button">
+                          Agregar a receta
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!medications.length ? (
+                  <tr>
+                    <td className="muted" colSpan={5}>No se encontraron medicamentos con ese criterio.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {detail ? (
+          <>
+            <div className="info-card">
+              <p><strong>Paciente:</strong> {detail.patient_name}</p>
+              <p><strong>Cliente:</strong> {detail.client_name}</p>
+              <p><strong>Telefono:</strong> {detailPatient?.client_phone || "-"}</p>
+              <p><strong>Correo:</strong> {detailPatient?.client_email || "-"}</p>
+              <p><strong>Especie / raza:</strong> {detail.species || detailPatient?.species || "-"} / {detail.breed || detailPatient?.breed || "-"}</p>
+              <p><strong>Sexo:</strong> {detailPatient?.sex || "-"}</p>
+              <p><strong>Nacimiento:</strong> {detailPatient?.birth_date || "-"}</p>
+              <p><strong>Fecha:</strong> {shortDateTime(detail.consultation_date)}</p>
+              <p><strong>Motivo:</strong> {detail.motivo_consulta}</p>
+              <p><strong>Diagnostico:</strong> {detail.diagnostico}</p>
+              <p><strong>Tratamiento:</strong> {detail.tratamiento}</p>
+              <p><strong>Receta asociada:</strong> {detail.has_prescription ? `Si, ${detail.prescription_count || 0} item(s)` : "No"}</p>
+              <div className="inline-actions">
+                <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver historial</button>
+                <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver paciente</button>
+                <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver cliente</button>
+              </div>
+            </div>
+
+            <div className="info-card">
+              <div className="panel-header">
+                <div>
+                  <h3>Receta medica</h3>
+                  <p className="muted">La receta se guarda como entidad real vinculada a la consulta y al paciente.</p>
+                </div>
+                <div className="inline-actions">
+                  <button className="button" disabled={prescriptionSaving} onClick={savePrescription} type="button">
+                    {prescriptionSaving ? "Guardando..." : "Guardar receta"}
+                  </button>
+                  <button className="button ghost" disabled={!prescription} onClick={handleDownloadPrescriptionPdf} type="button">Descargar PDF</button>
+                  {canAccessSales(user?.role) ? (
+                    <button className="button ghost" disabled={!prescription} onClick={() => navigate(`/sales?prescription_id=${prescription?.id || ""}`)} type="button">
+                      Generar venta desde receta
+                    </button>
+                  ) : null}
+                  <details className="share-actions">
+                    <summary className={`button ghost ${!prescription ? "button-disabled" : ""}`}>Compartir</summary>
+                    <div className="share-actions-menu">
+                      <button className="button ghost" disabled={!prescription} onClick={() => handleSharePrescription("whatsapp")} type="button">WhatsApp</button>
+                      <button className="button ghost" disabled={!prescription} onClick={() => handleSharePrescription("email")} type="button">Correo</button>
+                    </div>
+                  </details>
+                </div>
+              </div>
+
+              <div className="form-section-grid">
+                <label>
+                  Diagnostico
+                  <textarea value={prescriptionForm.diagnosis} onChange={(event) => setPrescriptionForm({ ...prescriptionForm, diagnosis: event.target.value })} />
+                </label>
+                <label>
+                  Indicaciones generales
+                  <textarea value={prescriptionForm.indications} onChange={(event) => setPrescriptionForm({ ...prescriptionForm, indications: event.target.value })} />
+                </label>
+                <label>
+                  Estado
+                  <select value={prescriptionForm.status} onChange={(event) => setPrescriptionForm({ ...prescriptionForm, status: event.target.value as PrescriptionFormState["status"] })}>
+                    <option value="draft">Borrador</option>
+                    <option value="issued">Emitida</option>
+                    <option value="cancelled">Cancelada</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Medicamento</th>
+                      <th>Dosis</th>
+                      <th>Frecuencia</th>
+                      <th>Duracion</th>
+                      <th>Via</th>
+                      <th>Estado</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {prescriptionForm.items.map((item, index) => {
+                      const stockState = getSnapshotStockLabel(item.stock_snapshot);
+                      return (
+                        <tr key={`${item.product_id}-${index}`}>
+                          <td>
+                            <strong>{item.medication_name_snapshot}</strong>
+                            <div className="muted">{item.presentation_snapshot || "-"}</div>
+                          </td>
+                          <td><input value={item.dose} onChange={(event) => updatePrescriptionItem(index, "dose", event.target.value)} /></td>
+                          <td><input value={item.frequency} onChange={(event) => updatePrescriptionItem(index, "frequency", event.target.value)} /></td>
+                          <td><input value={item.duration} onChange={(event) => updatePrescriptionItem(index, "duration", event.target.value)} /></td>
+                          <td><input value={item.route_of_administration} onChange={(event) => updatePrescriptionItem(index, "route_of_administration", event.target.value)} /></td>
+                          <td><span className={stockState.className}>{stockState.label}</span></td>
+                          <td><button className="button ghost" onClick={() => removePrescriptionItem(index)} type="button">Quitar</button></td>
+                        </tr>
+                      );
+                    })}
+                    {!prescriptionForm.items.length ? (
+                      <tr>
+                        <td className="muted" colSpan={7}>Agrega medicamentos desde el panel superior. Si no hay stock, aun asi puedes recetar y el snapshot queda guardado.</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              {prescription?.linked_sales?.length ? (
+                <div className="info-card">
+                  <p><strong>Ventas generadas:</strong> {prescription.linked_sales.length}</p>
+                  {prescription.linked_sales.map((saleLink) => (
+                    <p className="muted" key={`sale-link-${saleLink.id}`}>Venta #{saleLink.sale_id} · {saleLink.sale_date} · {saleLink.total}</p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </>
         ) : (
           <div className="empty-state-card">
             <strong>Selecciona una consulta o crea una nueva.</strong>

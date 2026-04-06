@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate, Outlet } from "react-router-dom";
+import { Link, Navigate, Outlet } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Role } from "../types";
@@ -81,7 +81,17 @@ export function ProtectedRoute({ roles }: { roles?: Role[] }) {
 
   if (roles) {
     if (!hasAnyRole(user.role, roles)) {
-      return <Navigate to={getDefaultRouteForRole(user.role)} replace />;
+      return (
+        <div className="screen-center">
+          <div className="panel access-denied-panel">
+            <h2>Acceso denegado</h2>
+            <p className="muted">Tu rol no tiene permisos para usar este modulo clinico u operativo.</p>
+            <div className="inline-actions">
+              <Link className="button" to={getDefaultRouteForRole(user.role)}>Ir a mi inicio</Link>
+            </div>
+          </div>
+        </div>
+      );
     }
   }
 

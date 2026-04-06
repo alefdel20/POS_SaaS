@@ -1,4 +1,4 @@
-export type Role = "superusuario" | "superadmin" | "admin" | "soporte" | "support" | "cajero" | "cashier" | "user";
+export type Role = "superusuario" | "superadmin" | "admin" | "clinico" | "soporte" | "support" | "cajero" | "cashier" | "user";
 export type BusinessType = "Tienda" | "Tlapaleria" | "Papeleria" | "Veterinaria" | "Dentista" | "Farmacia" | "FarmaciaConsultorio" | "ClinicaChica" | "Otro";
 export type PosType = string;
 
@@ -214,6 +214,7 @@ export interface Product {
   unidad_de_venta?: "pieza" | "kg" | "litro" | "caja" | null;
   porcentaje_ganancia?: number | null;
   category?: string | null;
+  catalog_type?: "accessories" | "medications" | null;
   description: string;
   price: number;
   cost_price: number;
@@ -357,6 +358,7 @@ export interface ServiceCatalogItem {
   description: string;
   price: number;
   category?: string | null;
+  catalog_type?: "accessories" | "medications" | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -387,6 +389,8 @@ export interface ClinicalPatientSummary {
   breed?: string | null;
   sex?: string | null;
   birth_date?: string | null;
+  weight?: number | null;
+  allergies?: string | null;
   notes?: string | null;
   is_active: boolean;
   client_name?: string;
@@ -412,6 +416,8 @@ export interface ClinicalConsultation {
   diagnostico: string;
   tratamiento: string;
   notas: string;
+  has_prescription?: boolean;
+  prescription_count?: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -445,6 +451,9 @@ export interface ClinicalPatientDetail extends ClinicalPatientSummary {
   client_address?: string | null;
   consultations: ClinicalConsultation[];
   appointments: ClinicalAppointment[];
+  prescriptions?: MedicalPrescription[];
+  preventive_events?: MedicalPreventiveEvent[];
+  next_events?: MedicalPreventiveEvent[];
 }
 
 export interface ClinicalHistoryResponse {
@@ -457,8 +466,71 @@ export interface ClinicalHistoryResponse {
   summary: {
     total_consultations: number;
     total_treatments: number;
+    total_prescriptions?: number;
+    total_preventive_events?: number;
   };
-  timeline: Array<ClinicalConsultation & { type: "consultation" }>;
+  timeline: Array<(ClinicalConsultation & { type: "consultation"; prescriptions?: MedicalPrescription[] })>;
+  prescriptions?: MedicalPrescription[];
+  preventive_events?: MedicalPreventiveEvent[];
+}
+
+export interface MedicalPrescriptionItem {
+  id: number;
+  prescription_id: number;
+  product_id: number;
+  medication_name_snapshot: string;
+  presentation_snapshot?: string | null;
+  dose?: string | null;
+  frequency?: string | null;
+  duration?: string | null;
+  route_of_administration?: string | null;
+  notes?: string | null;
+  stock_snapshot?: number | null;
+  created_at: string;
+}
+
+export interface MedicalPrescription {
+  id: number;
+  business_id: number;
+  patient_id: number;
+  consultation_id?: number | null;
+  doctor_user_id?: number | null;
+  doctor_name?: string | null;
+  patient_name?: string | null;
+  client_name?: string | null;
+  diagnosis?: string | null;
+  indications?: string | null;
+  status: "draft" | "issued" | "cancelled";
+  created_at: string;
+  updated_at: string;
+  items: MedicalPrescriptionItem[];
+  linked_sales?: Array<{
+    id: number;
+    sale_id: number;
+    created_at: string;
+    total: number;
+    sale_date: string;
+    payment_method: Sale["payment_method"];
+    status: string;
+  }>;
+}
+
+export interface MedicalPreventiveEvent {
+  id: number;
+  business_id: number;
+  patient_id: number;
+  patient_name?: string | null;
+  client_name?: string | null;
+  event_type: "vaccination" | "deworming";
+  product_id?: number | null;
+  product_name_snapshot: string;
+  dose?: string | null;
+  date_administered?: string | null;
+  next_due_date?: string | null;
+  status: "scheduled" | "completed" | "cancelled";
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Sale {
@@ -551,6 +623,9 @@ export interface CompanyProfile {
   general_settings?: Record<string, unknown>;
   theme?: "light" | "dark";
   accent_palette?: "default" | "ocean" | "forest" | "ember";
+  business_image_path?: string | null;
+  professional_license?: string | null;
+  signature_image_path?: string | null;
   bank_name?: string | null;
   bank_clabe?: string | null;
   bank_beneficiary?: string | null;
@@ -602,10 +677,14 @@ export interface Reminder {
   title: string;
   notes: string;
   source_key?: string | null;
-  status: "pending" | "in_progress" | "completed";
+  status: "pending" | "in_progress" | "completed" | "cancelled";
   due_date: string | null;
   assigned_to: number | null;
   assigned_to_name?: string;
+  reminder_type?: string;
+  category?: "administrative" | "clinical";
+  patient_id?: number | null;
+  patient_name?: string | null;
   is_completed: boolean;
   updated_at?: string;
 }
@@ -654,6 +733,28 @@ export interface DashboardSummary {
     units_sold: number;
     total_sales: number;
   }>;
+  clinical?: {
+    appointments_today: Array<{
+      id: number;
+      appointment_date: string;
+      start_time: string;
+      area: string;
+      patient_name: string;
+    }>;
+    recent_patients: Array<{
+      id: number;
+      name: string;
+      consultation_date: string;
+    }>;
+    upcoming_preventive_events: Array<MedicalPreventiveEvent>;
+    recent_prescriptions: Array<{
+      id: number;
+      patient_id: number;
+      status: "draft" | "issued" | "cancelled";
+      created_at: string;
+    }>;
+    pending_clinical_reminders: number;
+  };
 }
 
 export interface Expense {

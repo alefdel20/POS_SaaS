@@ -26,6 +26,17 @@ const IMPORT_COLUMN_ALIASES = {
   supplier: ["proveedor", "supplier", "marca", "brand"]
 };
 
+const PRODUCT_CATALOG_SCOPES = {
+  "food-accessories": {
+    exactCategories: ["Insumos alimentos", "Accesorios e insumos", "Alimentos", "Accesorios"],
+    likePatterns: ["%alimento%", "%accesor%", "%snack%", "%juguete%", "%collar%", "%correa%", "%cama%", "%arena%"]
+  },
+  "medications-supplies": {
+    exactCategories: ["Medicamentos", "Insumos medicamentos", "Insumos medicos/farmacos", "Medicinas", "Insumos medicos"],
+    likePatterns: ["%medicament%", "%farmac%", "%insumo%", "%vacun%", "%antibiot%", "%curacion%", "%quirurg%"]
+  }
+};
+
 function stripAccents(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
@@ -47,6 +58,45 @@ function normalizeImportCell(value) {
 
 function normalizeImportText(value) {
   return normalizeImportCell(value);
+}
+
+function normalizeCatalogScope(value) {
+  return PRODUCT_CATALOG_SCOPES[value] ? value : null;
+}
+
+function normalizeCatalogType(value) {
+  return ["accessories", "medications"].includes(String(value || "").trim()) ? String(value).trim() : null;
+}
+
+function resolveCatalogTypeFromScope(scope) {
+  if (scope === "food-accessories") return "accessories";
+  if (scope === "medications-supplies") return "medications";
+  return null;
+}
+
+function buildCatalogScopeCondition(columnExpression, scope, params, fallbackCategoryExpression = null, fallbackNameExpression = null) {
+  const definition = PRODUCT_CATALOG_SCOPES[normalizeCatalogScope(scope)];
+  if (!definition) return null;
+  const catalogType = resolveCatalogTypeFromScope(scope);
+
+  params.push(catalogType);
+  const typeParamIndex = params.length;
+  params.push(definition.exactCategories);
+  const exactParamIndex = params.length;
+  params.push(definition.likePatterns);
+  const likeParamIndex = params.length;
+
+  return `(
+    COALESCE(${columnExpression}, '') = $${typeParamIndex}
+    ${fallbackCategoryExpression ? `OR (
+      COALESCE(${columnExpression}, '') = ''
+      AND (
+        COALESCE(${fallbackCategoryExpression}, '') = ANY($${exactParamIndex}::text[])
+        OR COALESCE(${fallbackCategoryExpression}, '') ILIKE ANY($${likeParamIndex}::text[])
+        ${fallbackNameExpression ? `OR COALESCE(${fallbackNameExpression}, '') ILIKE ANY($${likeParamIndex}::text[])` : ""}
+      )
+    )` : ""}
+  )`;
 }
 
 function normalizeAlphaNumeric(value) {
@@ -228,12 +278,13 @@ function normalizeListOptions(search, options) {
     return {
       search: search || "",
       category: options.category ? String(options.category).trim() : "",
+      catalog_scope: normalizeCatalogScope(options.catalog_scope),
       activeOnly: Boolean(options.activeOnly),
       page: options.page ? Number(options.page) : null,
       pageSize: options.pageSize ? Number(options.pageSize) : null
     };
   }
-  return { search: search || "", category: "", activeOnly: Boolean(options), page: null, pageSize: null };
+  return { search: search || "", category: "", catalog_scope: null, activeOnly: Boolean(options), page: null, pageSize: null };
 }
 
 function normalizeSupplierEntries(payload) {
@@ -590,8 +641,24 @@ function mapProductRow(row) {
   return {
     ...row,
     image_path: row.image_path || null,
+    catalog_type: normalizeCatalogType(row.catalog_type),
     unidad_de_venta: normalizeSaleUnit(row.unidad_de_venta)
   };
+}
+
+function resolveProductCatalogType(payload, currentProduct = null) {
+  const explicit = normalizeCatalogType(payload.catalog_type);
+  if (explicit) return explicit;
+
+  const current = normalizeCatalogType(currentProduct?.catalog_type);
+  if (current) return current;
+
+  const source = `${payload.category || currentProduct?.category || ""} ${payload.name || currentProduct?.name || ""}`.toLowerCase();
+  if (/(medicament|farmac|insumo|vacun|antibiot|curacion|quirurg)/.test(source)) {
+    return "medications";
+  }
+
+  return "accessories";
 }
 
 async function listProducts(search, activeOnlyOrOptions = false, actor) {
@@ -609,6 +676,10 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
   if (options.category) {
     filters.push(options.category);
     conditions.push(`product_data.category = $${filters.length}`);
+  }
+  const catalogScopeCondition = buildCatalogScopeCondition("product_data.catalog_type", options.catalog_scope, filters, "product_data.category", "product_data.name");
+  if (catalogScopeCondition) {
+    conditions.push(catalogScopeCondition);
   }
   if (options.search) {
     filters.push(`%${options.search}%`);
@@ -665,6 +736,26 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
   };
 }
 
+async function getProductDetail(id, actor) {
+  const effectivePriceCase = buildEffectivePriceCase();
+  const params = [...buildSearchFilter(actor).params, Number(id)];
+  const baseFilter = buildSearchFilter(actor);
+  const conditions = [];
+  if (baseFilter.clause) conditions.push(baseFilter.clause.replace(/^WHERE /, ""));
+  conditions.push(`product_data.id = $${params.length}`);
+  const { rows } = await pool.query(
+    `
+      ${buildProductDataBaseQuery(effectivePriceCase)}
+      WHERE ${conditions.join(" AND ")}
+      LIMIT 1
+    `,
+    params
+  );
+  const product = mapProductRow(rows[0]);
+  if (!product) throw new ApiError(404, "Product not found");
+  return product;
+}
+
 async function listSuppliers(search, actor) {
   const term = search?.trim() || "";
   const params = [requireActorBusinessId(actor)];
@@ -697,11 +788,17 @@ async function ensureCategoryReference(category, businessId, actor, client = poo
   );
 }
 
-async function listCategories(search, actor) {
-  const term = search?.trim();
+async function listCategories(filters = {}, actor) {
+  const term = filters?.search?.trim();
   const params = [requireActorBusinessId(actor)];
   const productConditions = ["category IS NOT NULL", "category <> ''", `business_id = $${params.length}`];
   const templateConditions = ["name IS NOT NULL", "name <> ''", `business_id = $${params.length}`];
+  const productScopeCondition = buildCatalogScopeCondition("catalog_type", filters.catalog_scope, params, "category", "name");
+  if (productScopeCondition) {
+    productConditions.push(productScopeCondition);
+  }
+  const templateScopeCondition = buildCatalogScopeCondition("'accessories'", filters.catalog_scope, params, "name", "name");
+  if (templateScopeCondition) templateConditions.push(templateScopeCondition);
   if (term) {
     params.push(`%${term}%`);
     productConditions.push(`category ILIKE $${params.length}`);
@@ -1163,6 +1260,11 @@ async function listRestockProducts(filters = {}, actor) {
     conditions.push(`product_data.category = $${values.length}`);
   }
 
+  const catalogScopeCondition = buildCatalogScopeCondition("product_data.catalog_type", filters.catalog_scope, values, "product_data.category", "product_data.name");
+  if (catalogScopeCondition) {
+    conditions.push(catalogScopeCondition);
+  }
+
   if (filters.supplier) {
     values.push(`%${String(filters.supplier).trim()}%`);
     conditions.push(`COALESCE(product_suppliers.name, '') ILIKE $${values.length}`);
@@ -1237,6 +1339,7 @@ async function createProduct(payload, actor) {
     const sanitizedPayload = sanitizeProductPayloadByPosType(payload, actor);
     const discountFields = normalizeDiscountFields(sanitizedPayload);
     const ieps = normalizeIepsValue(sanitizedPayload.ieps);
+    const catalogType = resolveProductCatalogType(sanitizedPayload);
     const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(sanitizedPayload);
     const requestedBarcode = sanitizeBarcode(sanitizedPayload.barcode || "");
     const primarySupplierId = await ensureSupplierReference(sanitizedPayload, businessId, client);
@@ -1257,14 +1360,14 @@ async function createProduct(payload, actor) {
       try {
         ({ rows } = await client.query(
           `INSERT INTO products (
-            name, sku, barcode, category, description, price, cost_price, liquidation_price, stock, expires_at,
+            name, sku, barcode, category, catalog_type, description, price, cost_price, liquidation_price, stock, expires_at,
             is_active, supplier_id, status, discount_type, discount_value, discount_start, discount_end,
             stock_minimo, stock_maximo, business_id, unidad_de_venta, porcentaje_ganancia, ieps
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
           RETURNING *`,
           [
-            sanitizedPayload.name.trim(), resolvedSku, resolvedBarcode, sanitizedPayload.category || null, sanitizedPayload.description || "",
+            sanitizedPayload.name.trim(), resolvedSku, resolvedBarcode, sanitizedPayload.category || null, catalogType, sanitizedPayload.description || "",
             price, costPrice, liquidationPrice, stock,
             sanitizedPayload.expires_at || null, sanitizedPayload.is_active ?? true, primarySupplierId, sanitizedPayload.status || "activo",
             discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end,
@@ -1350,6 +1453,7 @@ async function updateProduct(id, payload, actor) {
     const businessId = Number(current.business_id);
     const sanitizedPayload = sanitizeProductPayloadByPosType(payload, actor, current);
     const ieps = normalizeIepsValue(sanitizedPayload.ieps, current);
+    const catalogType = resolveProductCatalogType(sanitizedPayload, current);
     const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(sanitizedPayload, current);
     const resolvedSku = sanitizedPayload.sku !== undefined ? await resolveSku(sanitizedPayload, businessId, current, client) : current.sku;
     const nextBarcodeSource = sanitizedPayload.barcode !== undefined ? sanitizedPayload.barcode : current.barcode;
@@ -1368,14 +1472,14 @@ async function updateProduct(id, payload, actor) {
 
     const { rows } = await client.query(
       `UPDATE products
-       SET name = $1, sku = $2, barcode = $3, category = $4, description = $5, price = $6, cost_price = $7,
-           liquidation_price = $8, stock = $9, expires_at = $10, is_active = $11, supplier_id = $12, status = $13,
-           discount_type = $14, discount_value = $15, discount_start = $16, discount_end = $17,
-           stock_minimo = $18, stock_maximo = $19, unidad_de_venta = $20, porcentaje_ganancia = $21, ieps = $22, updated_at = NOW()
-       WHERE id = $23 AND business_id = $24
+       SET name = $1, sku = $2, barcode = $3, category = $4, catalog_type = $5, description = $6, price = $7, cost_price = $8,
+           liquidation_price = $9, stock = $10, expires_at = $11, is_active = $12, supplier_id = $13, status = $14,
+           discount_type = $15, discount_value = $16, discount_start = $17, discount_end = $18,
+           stock_minimo = $19, stock_maximo = $20, unidad_de_venta = $21, porcentaje_ganancia = $22, ieps = $23, updated_at = NOW()
+       WHERE id = $24 AND business_id = $25
        RETURNING *`,
       [
-        sanitizedPayload.name ?? current.name, resolvedSku, resolvedBarcode, sanitizedPayload.category ?? current.category,
+        sanitizedPayload.name ?? current.name, resolvedSku, resolvedBarcode, sanitizedPayload.category ?? current.category, catalogType,
         sanitizedPayload.description ?? current.description, sanitizedPayload.price !== undefined ? price : current.price, sanitizedPayload.cost_price !== undefined ? costPrice : current.cost_price,
         nextLiquidationPrice,
         sanitizedPayload.stock !== undefined ? stock : current.stock,
@@ -1651,6 +1755,7 @@ async function applyBulkDiscount(productIds, payload, actor) {
 
 module.exports = {
   listProducts,
+  getProductDetail,
   listSuppliers,
   listCategories,
   previewProductImport,

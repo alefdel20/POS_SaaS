@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { Reminder } from "../types";
+import type { ClinicalPatientSummary, Reminder } from "../types";
 import { dateLabel } from "../utils/format";
 import { getReminderStatusLabel } from "../utils/uiLabels";
 
@@ -9,12 +9,15 @@ const emptyReminder = {
   title: "",
   notes: "",
   status: "pending",
-  due_date: ""
+  due_date: "",
+  category: "administrative" as "administrative" | "clinical",
+  patient_id: ""
 };
 
 export function RemindersPage() {
   const { token } = useAuth();
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
   const [form, setForm] = useState(emptyReminder);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -33,8 +36,16 @@ export function RemindersPage() {
       });
   }
 
+  function loadPatients() {
+    if (!token) return;
+    apiRequest<ClinicalPatientSummary[]>("/patients", { token })
+      .then(setPatients)
+      .catch(() => setPatients([]));
+  }
+
   useEffect(() => {
     loadReminders();
+    loadPatients();
   }, [token]);
 
   async function handleSubmit(event: FormEvent) {
@@ -46,7 +57,11 @@ export function RemindersPage() {
       await apiRequest<Reminder>(editingId ? `/reminders/${editingId}` : "/reminders", {
         method: editingId ? "PUT" : "POST",
         token,
-        body: JSON.stringify(form)
+        body: JSON.stringify({
+          ...form,
+          reminder_type: form.category === "clinical" ? "manual_clinical" : "general",
+          patient_id: form.patient_id ? Number(form.patient_id) : undefined
+        })
       });
       resetForm();
       loadReminders();
@@ -73,12 +88,14 @@ export function RemindersPage() {
 
   function startEditing(reminder: Reminder) {
     setEditingId(reminder.id);
-    setForm({
-      title: reminder.title,
-      notes: reminder.notes || "",
-      status: reminder.status,
-      due_date: reminder.due_date || ""
-    });
+      setForm({
+        title: reminder.title,
+        notes: reminder.notes || "",
+        status: reminder.status,
+        due_date: reminder.due_date || "",
+        category: reminder.category || "administrative",
+        patient_id: reminder.patient_id ? String(reminder.patient_id) : ""
+      });
   }
 
   async function deleteReminder(id: number) {
@@ -112,6 +129,8 @@ export function RemindersPage() {
               <div>
                 <strong>{reminder.title}</strong>
                 <p className="muted reminder-notes">{reminder.notes}</p>
+                <small>{reminder.category === "clinical" ? "Clinico" : "Administrativo"}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
+                <br />
                 <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(reminder.due_date)}</small>
               </div>
               <div className="inline-actions">
@@ -155,12 +174,29 @@ export function RemindersPage() {
         </label>
         <label>
           Estado
-          <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "pending" | "in_progress" | "completed" })}>
+          <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "pending" | "in_progress" | "completed" | "cancelled" })}>
             <option value="pending">{getReminderStatusLabel("pending")}</option>
             <option value="in_progress">{getReminderStatusLabel("in_progress")}</option>
             <option value="completed">{getReminderStatusLabel("completed")}</option>
+            <option value="cancelled">Cancelado</option>
           </select>
         </label>
+        <label>
+          Categoria
+          <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value as "administrative" | "clinical", patient_id: event.target.value === "clinical" ? form.patient_id : "" })}>
+            <option value="administrative">Administrativo</option>
+            <option value="clinical">Clinico</option>
+          </select>
+        </label>
+        {form.category === "clinical" ? (
+          <label>
+            Paciente
+            <select value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value })}>
+              <option value="">Sin paciente</option>
+              {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}</option>)}
+            </select>
+          </label>
+        ) : null}
         <label>
           Vencimiento
           <input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} />

@@ -3,6 +3,7 @@ const ApiError = require("../utils/ApiError");
 const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { buildStoredBusinessAssetPath, deleteStoredBusinessAsset } = require("../utils/businessAssets");
 
 function mapProfile(profile) {
   if (!profile) return null;
@@ -24,6 +25,9 @@ function mapProfile(profile) {
     accent_palette: ["default", "ocean", "forest", "ember"].includes(generalSettings.accent_palette)
       ? generalSettings.accent_palette
       : "default",
+    business_image_path: generalSettings.business_image_path || null,
+    professional_license: generalSettings.professional_license || null,
+    signature_image_path: generalSettings.signature_image_path || null,
     bank_name: profile.bank_name,
     bank_clabe: profile.bank_clabe,
     bank_beneficiary: profile.bank_beneficiary,
@@ -105,6 +109,9 @@ async function updateProfileSection(payload, actor, section) {
         ? payload.accent_palette
         : "default";
     }
+    if (section === "general" && payload.professional_license !== undefined) {
+      generalSettings.professional_license = payload.professional_license || "";
+    }
     if (section === "banking") {
       Object.assign(updates, { bank_name: payload.bank_name ?? current.bank_name, bank_clabe: payload.bank_clabe ?? current.bank_clabe, bank_beneficiary: payload.bank_beneficiary ?? current.bank_beneficiary });
       generalSettings.card_terminal = payload.card_terminal ?? generalSettings.card_terminal ?? "";
@@ -135,4 +142,76 @@ async function updateProfileSection(payload, actor, section) {
   }
 }
 
-module.exports = { getProfile, updateProfileSection };
+function resolveProfileAssetSettingKey(assetType) {
+  if (assetType === "business_image") return "business_image_path";
+  if (assetType === "signature") return "signature_image_path";
+  throw new ApiError(400, "Invalid profile asset type");
+}
+
+async function uploadProfileAsset(assetType, file, actor) {
+  if (!file) throw new ApiError(400, "Profile image file is required");
+
+  const client = await pool.connect();
+  let previousAssetPath = null;
+  try {
+    await client.query("BEGIN");
+    const current = await ensureDefaultProfile(actor, client);
+    const generalSettings = { ...(current.general_settings || {}) };
+    const settingKey = resolveProfileAssetSettingKey(assetType);
+    previousAssetPath = generalSettings[settingKey] || null;
+    generalSettings[settingKey] = buildStoredBusinessAssetPath(file.filename);
+
+    const { rows } = await client.query(
+      `UPDATE company_profiles
+       SET general_settings = $1, updated_by = $2, updated_at = NOW()
+       WHERE id = $3 AND business_id = $4
+       RETURNING *`,
+      [JSON.stringify(generalSettings), actor.id, current.id, current.business_id]
+    );
+
+    await client.query("COMMIT");
+    if (previousAssetPath && previousAssetPath !== generalSettings[settingKey]) {
+      await deleteStoredBusinessAsset(previousAssetPath).catch(() => {});
+    }
+    return mapProfile(rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    await deleteStoredBusinessAsset(buildStoredBusinessAssetPath(file.filename)).catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function removeProfileAsset(assetType, actor) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const current = await ensureDefaultProfile(actor, client);
+    const generalSettings = { ...(current.general_settings || {}) };
+    const settingKey = resolveProfileAssetSettingKey(assetType);
+    const previousAssetPath = generalSettings[settingKey] || null;
+    generalSettings[settingKey] = null;
+
+    const { rows } = await client.query(
+      `UPDATE company_profiles
+       SET general_settings = $1, updated_by = $2, updated_at = NOW()
+       WHERE id = $3 AND business_id = $4
+       RETURNING *`,
+      [JSON.stringify(generalSettings), actor.id, current.id, current.business_id]
+    );
+
+    await client.query("COMMIT");
+    if (previousAssetPath) {
+      await deleteStoredBusinessAsset(previousAssetPath).catch(() => {});
+    }
+    return mapProfile(rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { getProfile, updateProfileSection, uploadProfileAsset, removeProfileAsset };

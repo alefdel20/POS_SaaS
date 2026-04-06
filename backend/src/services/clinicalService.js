@@ -3,6 +3,8 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { saveAuditLog } = require("./auditLogService");
+const { resolveStoredBusinessAssetAbsolutePath } = require("../utils/businessAssets");
+const { upsertAutomaticReminder, removeAutomaticReminder, createReminder: createSystemReminder } = require("./reminderService");
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -55,6 +57,8 @@ function mapConsultation(row) {
   if (!row) return null;
   return {
     ...row,
+    has_prescription: Boolean(row.has_prescription),
+    prescription_count: Number(row.prescription_count || 0),
     is_active: Boolean(row.is_active)
   };
 }
@@ -64,6 +68,64 @@ function mapAppointment(row) {
   return {
     ...row,
     is_active: Boolean(row.is_active)
+  };
+}
+
+function mapPreventiveEvent(row) {
+  if (!row) return null;
+  return row;
+}
+
+function mapPrescriptionItem(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    stock_snapshot: row.stock_snapshot === null || row.stock_snapshot === undefined ? null : Number(row.stock_snapshot)
+  };
+}
+
+function mapPrescription(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    items: Array.isArray(row.items) ? row.items.map(mapPrescriptionItem) : [],
+    linked_sales: Array.isArray(row.linked_sales) ? row.linked_sales : [],
+    has_items: Number(row.item_count || 0) > 0
+  };
+}
+
+function buildPrescriptionPayload(payload = {}) {
+  const patientId = Number(payload.patient_id);
+  const consultationId = payload.consultation_id ? Number(payload.consultation_id) : null;
+  const status = normalizeText(payload.status || "draft").toLowerCase();
+  const items = Array.isArray(payload.items) ? payload.items : [];
+
+  if (!Number.isInteger(patientId) || patientId <= 0) throw new ApiError(400, "Patient is required");
+  if (consultationId !== null && (!Number.isInteger(consultationId) || consultationId <= 0)) throw new ApiError(400, "Consultation is invalid");
+  if (!["draft", "issued", "cancelled"].includes(status)) throw new ApiError(400, "Prescription status is invalid");
+
+  const normalizedItems = items.map((item) => {
+    const productId = Number(item.product_id);
+    if (!Number.isInteger(productId) || productId <= 0) throw new ApiError(400, "Prescription item product is required");
+
+    return {
+      product_id: productId,
+      dose: normalizeNullableText(item.dose),
+      frequency: normalizeNullableText(item.frequency),
+      duration: normalizeNullableText(item.duration),
+      route_of_administration: normalizeNullableText(item.route_of_administration),
+      notes: normalizeText(item.notes),
+      presentation_snapshot: normalizeNullableText(item.presentation_snapshot)
+    };
+  });
+
+  return {
+    patient_id: patientId,
+    consultation_id: consultationId,
+    diagnosis: normalizeText(payload.diagnosis),
+    indications: normalizeText(payload.indications),
+    status,
+    items: normalizedItems
   };
 }
 
@@ -99,11 +161,15 @@ async function getOwnedConsultation(id, actor, client = pool) {
   const { rows } = await client.query(
     `SELECT mc.*,
             p.name AS patient_name,
-            c.name AS client_name
+            c.name AS client_name,
+            COUNT(DISTINCT mp.id)::int AS prescription_count,
+            BOOL_OR(mp.id IS NOT NULL) AS has_prescription
      FROM consultations mc
      INNER JOIN patients p ON p.id = mc.patient_id AND p.business_id = mc.business_id
      INNER JOIN clients c ON c.id = mc.client_id AND c.business_id = mc.business_id
-     WHERE mc.id = $1 AND mc.business_id = $2`,
+     LEFT JOIN medical_prescriptions mp ON mp.consultation_id = mc.id AND mp.business_id = mc.business_id
+     WHERE mc.id = $1 AND mc.business_id = $2
+     GROUP BY mc.id, p.name, c.name`,
     [id, businessId]
   );
   const owned = rows[0];
@@ -128,6 +194,45 @@ async function getOwnedAppointment(id, actor, client = pool) {
   return owned;
 }
 
+async function getOwnedPrescription(id, actor, client = pool) {
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await client.query(
+    `SELECT mp.*,
+            p.name AS patient_name,
+            c.name AS client_name,
+            u.full_name AS doctor_name,
+            COUNT(mpi.id)::int AS item_count
+     FROM medical_prescriptions mp
+     INNER JOIN patients p ON p.id = mp.patient_id AND p.business_id = mp.business_id
+     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
+     LEFT JOIN users u ON u.id = mp.doctor_user_id
+     LEFT JOIN medical_prescription_items mpi ON mpi.prescription_id = mp.id
+     WHERE mp.id = $1 AND mp.business_id = $2
+     GROUP BY mp.id, p.name, c.name, u.full_name`,
+    [id, businessId]
+  );
+  const owned = rows[0];
+  if (!owned) throw new ApiError(404, "Prescription not found");
+  return owned;
+}
+
+async function getOwnedPreventiveEvent(id, actor, client = pool) {
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await client.query(
+    `SELECT mpe.*,
+            p.name AS patient_name,
+            c.name AS client_name
+     FROM medical_preventive_events mpe
+     INNER JOIN patients p ON p.id = mpe.patient_id AND p.business_id = mpe.business_id
+     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = mpe.business_id
+     WHERE mpe.id = $1 AND mpe.business_id = $2`,
+    [id, businessId]
+  );
+  const owned = rows[0];
+  if (!owned) throw new ApiError(404, "Preventive event not found");
+  return owned;
+}
+
 async function validateClinicalRelationship({ patientId, clientId, actor, client = pool }) {
   const patient = await getOwnedPatient(patientId, actor, client);
   const ownedClient = await getOwnedClient(clientId, actor, client);
@@ -145,6 +250,67 @@ async function validateClinicalRelationship({ patientId, clientId, actor, client
   }
 
   return { patient, client: ownedClient };
+}
+
+async function getPrescriptionItems(prescriptionId, actor, client = pool) {
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await client.query(
+    `SELECT mpi.*
+     FROM medical_prescription_items mpi
+     INNER JOIN medical_prescriptions mp ON mp.id = mpi.prescription_id AND mp.business_id = $2
+     WHERE mpi.prescription_id = $1
+     ORDER BY mpi.id ASC`,
+    [prescriptionId, businessId]
+  );
+  return rows.map(mapPrescriptionItem);
+}
+
+async function getPrescriptionSaleLinks(prescriptionId, actor, client = pool) {
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await client.query(
+    `SELECT spl.id,
+            spl.sale_id,
+            spl.created_at,
+            s.total,
+            s.sale_date,
+            s.payment_method,
+            COALESCE(s.status, 'completed') AS status
+     FROM sale_prescription_links spl
+     INNER JOIN sales s ON s.id = spl.sale_id AND s.business_id = spl.business_id
+     WHERE spl.prescription_id = $1 AND spl.business_id = $2
+     ORDER BY spl.created_at DESC`,
+    [prescriptionId, businessId]
+  );
+  return rows.map((row) => ({
+    ...row,
+    total: Number(row.total || 0)
+  }));
+}
+
+async function resolvePrescriptionItemSnapshots(items, actor, client = pool) {
+  if (!items.length) return [];
+  const businessId = requireActorBusinessId(actor);
+  const ids = items.map((item) => item.product_id);
+  const { rows } = await client.query(
+    `SELECT id, name, unidad_de_venta, stock, category, catalog_type
+     FROM products
+     WHERE business_id = $1
+       AND id = ANY($2::int[])`,
+    [businessId, ids]
+  );
+  const catalog = new Map(rows.map((row) => [Number(row.id), row]));
+
+  return items.map((item) => {
+    const product = catalog.get(item.product_id);
+    if (!product) throw new ApiError(404, "Product not found");
+
+    return {
+      ...item,
+      medication_name_snapshot: product.name,
+      presentation_snapshot: item.presentation_snapshot || product.unidad_de_venta || product.category || null,
+      stock_snapshot: product.stock === null || product.stock === undefined ? null : Number(product.stock)
+    };
+  });
 }
 
 async function ensureAppointmentAvailability({
@@ -217,11 +383,15 @@ function buildClientPayload(payload = {}) {
 function buildPatientPayload(payload = {}) {
   const clientId = Number(payload.client_id);
   const name = normalizeText(payload.name);
+  const weight = payload.weight === undefined || payload.weight === null || payload.weight === "" ? null : Number(payload.weight);
 
   if (!Number.isInteger(clientId) || clientId <= 0) {
     throw new ApiError(400, "Client is required");
   }
   if (!name) throw new ApiError(400, "Patient name is required");
+  if (weight !== null && (!Number.isFinite(weight) || weight < 0)) {
+    throw new ApiError(400, "Patient weight is invalid");
+  }
 
   return {
     client_id: clientId,
@@ -230,8 +400,35 @@ function buildPatientPayload(payload = {}) {
     breed: normalizeNullableText(payload.breed),
     sex: normalizeNullableText(payload.sex),
     birth_date: normalizeDateValue(payload.birth_date),
+    weight,
+    allergies: normalizeText(payload.allergies),
     notes: normalizeText(payload.notes),
     is_active: normalizeBooleanFlag(payload.is_active, true)
+  };
+}
+
+function buildPreventiveEventPayload(payload = {}) {
+  const patientId = Number(payload.patient_id);
+  const productId = payload.product_id ? Number(payload.product_id) : null;
+  const eventType = normalizeText(payload.event_type).toLowerCase();
+  const productNameSnapshot = normalizeText(payload.product_name_snapshot);
+  const status = normalizeText(payload.status || "completed").toLowerCase();
+
+  if (!Number.isInteger(patientId) || patientId <= 0) throw new ApiError(400, "Patient is required");
+  if (productId !== null && (!Number.isInteger(productId) || productId <= 0)) throw new ApiError(400, "Product is invalid");
+  if (!["vaccination", "deworming"].includes(eventType)) throw new ApiError(400, "Preventive event type is invalid");
+  if (!["scheduled", "completed", "cancelled"].includes(status)) throw new ApiError(400, "Preventive event status is invalid");
+
+  return {
+    patient_id: patientId,
+    event_type: eventType,
+    product_id: productId,
+    product_name_snapshot: productNameSnapshot,
+    dose: normalizeNullableText(payload.dose || payload.application),
+    date_administered: normalizeDateValue(payload.date_administered),
+    next_due_date: normalizeDateValue(payload.next_due_date),
+    status,
+    notes: normalizeText(payload.notes)
   };
 }
 
@@ -359,6 +556,8 @@ async function getClientDetail(id, actor) {
        p.breed,
        p.sex,
        p.birth_date,
+       p.weight,
+       p.allergies,
        p.notes,
        p.is_active,
        p.created_at,
@@ -510,6 +709,8 @@ async function listPatients(filters = {}, actor) {
        p.breed,
        p.sex,
        p.birth_date,
+       p.weight,
+       p.allergies,
        p.notes,
        p.is_active,
        p.created_at,
@@ -578,9 +779,19 @@ async function getPatientDetail(id, actor) {
 
   const detail = mapPatient(detailRows[0]) || patient;
   const { rows: consultationRows } = await pool.query(
-    `SELECT id, consultation_date, motivo_consulta, diagnostico, tratamiento, notas, is_active
-     FROM consultations
-     WHERE patient_id = $1 AND business_id = $2
+    `SELECT mc.id,
+            mc.consultation_date,
+            mc.motivo_consulta,
+            mc.diagnostico,
+            mc.tratamiento,
+            mc.notas,
+            mc.is_active,
+            COUNT(DISTINCT mp.id)::int AS prescription_count,
+            BOOL_OR(mp.id IS NOT NULL) AS has_prescription
+     FROM consultations mc
+     LEFT JOIN medical_prescriptions mp ON mp.consultation_id = mc.id AND mp.business_id = mc.business_id
+     WHERE mc.patient_id = $1 AND mc.business_id = $2
+     GROUP BY mc.id
      ORDER BY consultation_date DESC, id DESC
      LIMIT 10`,
     [id, businessId]
@@ -595,10 +806,19 @@ async function getPatientDetail(id, actor) {
     [id, businessId]
   );
 
+  const prescriptions = await listPrescriptions({ patient_id: id }, actor);
+  const preventive_events = await listPreventiveEvents({ patient_id: id }, actor);
+
   return {
     ...detail,
     consultations: consultationRows.map(mapConsultation),
-    appointments: appointmentRows.map(mapAppointment)
+    appointments: appointmentRows.map(mapAppointment),
+    prescriptions,
+    preventive_events,
+    next_events: preventive_events
+      .filter((item) => item.next_due_date && item.status !== "cancelled")
+      .sort((left, right) => String(left.next_due_date).localeCompare(String(right.next_due_date)))
+      .slice(0, 5)
   };
 }
 
@@ -612,11 +832,11 @@ async function createPatient(payload, actor) {
     await client.query("BEGIN");
     const { rows } = await client.query(
       `INSERT INTO patients (
-        business_id, client_id, name, species, breed, sex, birth_date, notes, is_active, created_by, updated_by
+        business_id, client_id, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, created_by, updated_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
       RETURNING *`,
-      [businessId, data.client_id, data.name, data.species, data.breed, data.sex, data.birth_date, data.notes, data.is_active, actor.id]
+      [businessId, data.client_id, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id]
     );
 
     await saveAuditLog({
@@ -657,13 +877,15 @@ async function updatePatient(id, payload, actor) {
            breed = $4,
            sex = $5,
            birth_date = $6,
-           notes = $7,
-           is_active = $8,
-           updated_by = $9,
+           weight = $7,
+           allergies = $8,
+           notes = $9,
+           is_active = $10,
+           updated_by = $11,
            updated_at = NOW()
-       WHERE id = $10 AND business_id = $11
+       WHERE id = $12 AND business_id = $13
        RETURNING *`,
-      [data.client_id, data.name, data.species, data.breed, data.sex, data.birth_date, data.notes, data.is_active, actor.id, id, businessId]
+      [data.client_id, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id, id, businessId]
     );
 
     await saveAuditLog({
@@ -730,11 +952,15 @@ async function listConsultations(filters = {}, actor) {
        p.name AS patient_name,
        p.species,
        p.breed,
-       c.name AS client_name
+       c.name AS client_name,
+       COUNT(DISTINCT mp.id)::int AS prescription_count,
+       BOOL_OR(mp.id IS NOT NULL) AS has_prescription
      FROM consultations mc
      INNER JOIN patients p ON p.id = mc.patient_id AND p.business_id = mc.business_id
      INNER JOIN clients c ON c.id = mc.client_id AND c.business_id = mc.business_id
+     LEFT JOIN medical_prescriptions mp ON mp.consultation_id = mc.id AND mp.business_id = mc.business_id
      WHERE ${conditions.join(" AND ")}
+     GROUP BY mc.id, p.name, p.species, p.breed, c.name
      ORDER BY mc.consultation_date DESC, mc.id DESC`,
     params
   );
@@ -858,6 +1084,405 @@ async function updateConsultation(id, payload, actor) {
 
 async function setConsultationStatus(id, isActive, actor) {
   return updateConsultation(id, { ...(await getOwnedConsultation(id, actor)), is_active: isActive }, actor);
+}
+
+async function listPrescriptions(filters = {}, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const params = [businessId];
+  const conditions = ["mp.business_id = $1"];
+
+  if (filters.patient_id) {
+    params.push(Number(filters.patient_id));
+    conditions.push(`mp.patient_id = $${params.length}`);
+  }
+
+  if (filters.consultation_id) {
+    params.push(Number(filters.consultation_id));
+    conditions.push(`mp.consultation_id = $${params.length}`);
+  }
+
+  if (filters.status) {
+    params.push(normalizeText(filters.status).toLowerCase());
+    conditions.push(`mp.status = $${params.length}`);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT mp.*,
+            p.name AS patient_name,
+            c.name AS client_name,
+            u.full_name AS doctor_name,
+            COUNT(mpi.id)::int AS item_count
+     FROM medical_prescriptions mp
+     INNER JOIN patients p ON p.id = mp.patient_id AND p.business_id = mp.business_id
+     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = mp.business_id
+     LEFT JOIN users u ON u.id = mp.doctor_user_id
+     LEFT JOIN medical_prescription_items mpi ON mpi.prescription_id = mp.id
+     WHERE ${conditions.join(" AND ")}
+     GROUP BY mp.id, p.name, c.name, u.full_name
+     ORDER BY mp.created_at DESC, mp.id DESC`,
+    params
+  );
+
+  const prescriptions = [];
+  for (const row of rows) {
+    prescriptions.push(mapPrescription({
+      ...row,
+      items: await getPrescriptionItems(row.id, actor),
+      linked_sales: await getPrescriptionSaleLinks(row.id, actor)
+    }));
+  }
+  return prescriptions;
+}
+
+async function getPrescriptionDetail(id, actor) {
+  const prescription = await getOwnedPrescription(id, actor);
+  return mapPrescription({
+    ...prescription,
+    items: await getPrescriptionItems(id, actor),
+    linked_sales: await getPrescriptionSaleLinks(id, actor)
+  });
+}
+
+async function createPrescription(payload, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const data = buildPrescriptionPayload(payload);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const patient = await getOwnedPatient(data.patient_id, actor, client);
+    if (data.consultation_id) {
+      const consultation = await getOwnedConsultation(data.consultation_id, actor, client);
+      if (Number(consultation.patient_id) !== Number(data.patient_id)) {
+        throw new ApiError(409, "Consultation does not belong to the selected patient");
+      }
+    }
+
+    const resolvedItems = await resolvePrescriptionItemSnapshots(data.items, actor, client);
+    const { rows } = await client.query(
+      `INSERT INTO medical_prescriptions (
+        business_id, patient_id, consultation_id, doctor_user_id, diagnosis, indications, status, created_by, updated_by
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+      RETURNING *`,
+      [businessId, data.patient_id, data.consultation_id, actor.id, data.diagnosis, data.indications, data.status, actor.id]
+    );
+
+    const prescription = rows[0];
+    for (const item of resolvedItems) {
+      await client.query(
+        `INSERT INTO medical_prescription_items (
+          prescription_id, product_id, medication_name_snapshot, presentation_snapshot, dose, frequency, duration, route_of_administration, notes, stock_snapshot
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          prescription.id,
+          item.product_id,
+          item.medication_name_snapshot,
+          item.presentation_snapshot,
+          item.dose,
+          item.frequency,
+          item.duration,
+          item.route_of_administration,
+          item.notes,
+          item.stock_snapshot
+        ]
+      );
+    }
+
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "clinical",
+      accion: "create_prescription",
+      entidad_tipo: "medical_prescription",
+      entidad_id: prescription.id,
+      detalle_nuevo: { snapshot: { ...prescription, items: resolvedItems } },
+      metadata: { patient_id: patient.id, consultation_id: data.consultation_id }
+    }, { client });
+
+    await client.query("COMMIT");
+    return getPrescriptionDetail(prescription.id, actor);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function updatePrescription(id, payload, actor) {
+  const current = await getPrescriptionDetail(id, actor);
+  const data = buildPrescriptionPayload({ ...current, ...payload });
+  const businessId = requireActorBusinessId(actor);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await getOwnedPatient(data.patient_id, actor, client);
+    if (data.consultation_id) {
+      const consultation = await getOwnedConsultation(data.consultation_id, actor, client);
+      if (Number(consultation.patient_id) !== Number(data.patient_id)) {
+        throw new ApiError(409, "Consultation does not belong to the selected patient");
+      }
+    }
+
+    const resolvedItems = await resolvePrescriptionItemSnapshots(data.items, actor, client);
+    const { rows } = await client.query(
+      `UPDATE medical_prescriptions
+       SET patient_id = $1,
+           consultation_id = $2,
+           diagnosis = $3,
+           indications = $4,
+           status = $5,
+           updated_by = $6,
+           updated_at = NOW()
+       WHERE id = $7 AND business_id = $8
+       RETURNING *`,
+      [data.patient_id, data.consultation_id, data.diagnosis, data.indications, data.status, actor.id, id, businessId]
+    );
+    await client.query("DELETE FROM medical_prescription_items WHERE prescription_id = $1", [id]);
+    for (const item of resolvedItems) {
+      await client.query(
+        `INSERT INTO medical_prescription_items (
+          prescription_id, product_id, medication_name_snapshot, presentation_snapshot, dose, frequency, duration, route_of_administration, notes, stock_snapshot
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          id,
+          item.product_id,
+          item.medication_name_snapshot,
+          item.presentation_snapshot,
+          item.dose,
+          item.frequency,
+          item.duration,
+          item.route_of_administration,
+          item.notes,
+          item.stock_snapshot
+        ]
+      );
+    }
+
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "clinical",
+      accion: "update_prescription",
+      entidad_tipo: "medical_prescription",
+      entidad_id: id,
+      detalle_anterior: { snapshot: current },
+      detalle_nuevo: { snapshot: { ...rows[0], items: resolvedItems } },
+      metadata: { consultation_id: data.consultation_id }
+    }, { client });
+
+    await client.query("COMMIT");
+    return getPrescriptionDetail(id, actor);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function setPrescriptionStatus(id, status, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const current = await getPrescriptionDetail(id, actor);
+  const nextStatus = normalizeText(status).toLowerCase();
+  if (!["draft", "issued", "cancelled"].includes(nextStatus)) {
+    throw new ApiError(400, "Prescription status is invalid");
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE medical_prescriptions
+       SET status = $1,
+           updated_by = $2,
+           updated_at = NOW()
+       WHERE id = $3 AND business_id = $4`,
+      [nextStatus, actor.id, id, businessId]
+    );
+
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "clinical",
+      accion: "update_prescription_status",
+      entidad_tipo: "medical_prescription",
+      entidad_id: id,
+      detalle_anterior: { status: current.status },
+      detalle_nuevo: { status: nextStatus },
+      metadata: { patient_id: current.patient_id, consultation_id: current.consultation_id }
+    }, { client });
+
+    await client.query("COMMIT");
+    return getPrescriptionDetail(id, actor);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function syncPreventiveReminder(event, actor, client = pool) {
+  if (!event.next_due_date || event.status === "cancelled") {
+    await removeAutomaticReminder(`auto:clinical:${requireActorBusinessId(actor)}:preventive:${event.id}`, actor, client);
+    return null;
+  }
+
+  return upsertAutomaticReminder({
+    source_key: `auto:clinical:${requireActorBusinessId(actor)}:preventive:${event.id}`,
+    title: `${event.event_type === "vaccination" ? "Vacuna" : "Desparasitacion"} proxima: ${event.patient_name || "Paciente"}`,
+    notes: `${event.product_name_snapshot || "Evento preventivo"} programado para ${event.next_due_date}.`,
+    due_date: event.next_due_date,
+    reminder_type: event.event_type,
+    category: "clinical",
+    patient_id: event.patient_id,
+    metadata: { preventive_event_id: event.id, event_type: event.event_type }
+  }, actor, { client });
+}
+
+async function listPreventiveEvents(filters = {}, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const params = [businessId];
+  const conditions = ["mpe.business_id = $1"];
+
+  if (filters.patient_id) {
+    params.push(Number(filters.patient_id));
+    conditions.push(`mpe.patient_id = $${params.length}`);
+  }
+
+  if (filters.event_type) {
+    params.push(normalizeText(filters.event_type).toLowerCase());
+    conditions.push(`mpe.event_type = $${params.length}`);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT mpe.*,
+            p.name AS patient_name,
+            c.name AS client_name
+     FROM medical_preventive_events mpe
+     INNER JOIN patients p ON p.id = mpe.patient_id AND p.business_id = mpe.business_id
+     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = mpe.business_id
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY COALESCE(mpe.date_administered, mpe.next_due_date) DESC NULLS LAST, mpe.id DESC`,
+    params
+  );
+
+  return rows.map(mapPreventiveEvent);
+}
+
+async function createPreventiveEvent(payload, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const data = buildPreventiveEventPayload(payload);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await getOwnedPatient(data.patient_id, actor, client);
+    let productNameSnapshot = data.product_name_snapshot;
+    if (data.product_id) {
+      const { rows: productRows } = await client.query(
+        "SELECT id, name FROM products WHERE id = $1 AND business_id = $2",
+        [data.product_id, businessId]
+      );
+      if (!productRows[0]) throw new ApiError(404, "Product not found");
+      productNameSnapshot = productNameSnapshot || productRows[0].name;
+    }
+
+    const { rows } = await client.query(
+      `INSERT INTO medical_preventive_events (
+        business_id, patient_id, event_type, product_id, product_name_snapshot, dose, date_administered, next_due_date, status, notes, created_by, updated_by
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+      RETURNING *`,
+      [businessId, data.patient_id, data.event_type, data.product_id, productNameSnapshot, data.dose, data.date_administered, data.next_due_date, data.status, data.notes, actor.id]
+    );
+
+    const event = { ...(await getOwnedPreventiveEvent(rows[0].id, actor, client)), product_name_snapshot: productNameSnapshot };
+    await syncPreventiveReminder(event, actor, client);
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "clinical",
+      accion: `create_${data.event_type}`,
+      entidad_tipo: "medical_preventive_event",
+      entidad_id: rows[0].id,
+      detalle_nuevo: { snapshot: event },
+      metadata: { patient_id: data.patient_id, event_type: data.event_type }
+    }, { client });
+
+    await client.query("COMMIT");
+    return mapPreventiveEvent(event);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function updatePreventiveEvent(id, payload, actor) {
+  const current = mapPreventiveEvent(await getOwnedPreventiveEvent(id, actor));
+  const data = buildPreventiveEventPayload({ ...current, ...payload });
+  const businessId = requireActorBusinessId(actor);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await getOwnedPatient(data.patient_id, actor, client);
+    let productNameSnapshot = data.product_name_snapshot || current.product_name_snapshot;
+    if (data.product_id) {
+      const { rows: productRows } = await client.query(
+        "SELECT id, name FROM products WHERE id = $1 AND business_id = $2",
+        [data.product_id, businessId]
+      );
+      if (!productRows[0]) throw new ApiError(404, "Product not found");
+      productNameSnapshot = data.product_name_snapshot || productRows[0].name;
+    }
+
+    await client.query(
+      `UPDATE medical_preventive_events
+       SET patient_id = $1,
+           event_type = $2,
+           product_id = $3,
+           product_name_snapshot = $4,
+           dose = $5,
+           date_administered = $6,
+           next_due_date = $7,
+           status = $8,
+           notes = $9,
+           updated_by = $10,
+           updated_at = NOW()
+       WHERE id = $11 AND business_id = $12`,
+      [data.patient_id, data.event_type, data.product_id, productNameSnapshot, data.dose, data.date_administered, data.next_due_date, data.status, data.notes, actor.id, id, businessId]
+    );
+
+    const event = await getOwnedPreventiveEvent(id, actor, client);
+    await syncPreventiveReminder(event, actor, client);
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "clinical",
+      accion: `update_${data.event_type}`,
+      entidad_tipo: "medical_preventive_event",
+      entidad_id: id,
+      detalle_anterior: { snapshot: current },
+      detalle_nuevo: { snapshot: event },
+      metadata: { patient_id: data.patient_id, event_type: data.event_type }
+    }, { client });
+
+    await client.query("COMMIT");
+    return mapPreventiveEvent(event);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function listAppointments(filters = {}, actor) {
@@ -1096,18 +1721,39 @@ async function getClinicalHistory(filters = {}, actor) {
        p.breed,
        c.name AS client_name,
        c.phone AS client_phone,
-       c.email AS client_email
+       c.email AS client_email,
+       COUNT(DISTINCT mp.id)::int AS prescription_count,
+       BOOL_OR(mp.id IS NOT NULL) AS has_prescription
      FROM consultations mc
      INNER JOIN patients p ON p.id = mc.patient_id AND p.business_id = mc.business_id
      INNER JOIN clients c ON c.id = mc.client_id AND c.business_id = mc.business_id
+     LEFT JOIN medical_prescriptions mp ON mp.consultation_id = mc.id AND mp.business_id = mc.business_id
      WHERE ${conditions.join(" AND ")}
+     GROUP BY mc.id, p.name, p.species, p.breed, c.name, c.phone, c.email
      ORDER BY mc.consultation_date DESC, mc.id DESC`,
     params
   );
 
+  const prescriptions = await listPrescriptions({
+    patient_id: filters.patient_id,
+    consultation_id: filters.consultation_id,
+    status: filters.status
+  }, actor);
+  const preventive_events = await listPreventiveEvents({
+    patient_id: filters.patient_id
+  }, actor);
+  const prescriptionsByConsultation = new Map();
+  prescriptions.forEach((prescription) => {
+    if (!prescription.consultation_id) return;
+    const current = prescriptionsByConsultation.get(prescription.consultation_id) || [];
+    current.push(prescription);
+    prescriptionsByConsultation.set(prescription.consultation_id, current);
+  });
+
   const timeline = rows.map((row) => ({
     type: "consultation",
-    ...mapConsultation(row)
+    ...mapConsultation(row),
+    prescriptions: prescriptionsByConsultation.get(Number(row.id)) || []
   }));
 
   return {
@@ -1119,22 +1765,34 @@ async function getClinicalHistory(filters = {}, actor) {
     },
     summary: {
       total_consultations: timeline.length,
-      total_treatments: timeline.filter((item) => normalizeText(item.tratamiento)).length
+      total_treatments: timeline.filter((item) => normalizeText(item.tratamiento)).length,
+      total_prescriptions: prescriptions.length,
+      total_preventive_events: preventive_events.length
     },
-    timeline
+    timeline,
+    prescriptions,
+    preventive_events
   };
 }
 
 async function getBusinessProfile(actor) {
   const businessId = requireActorBusinessId(actor);
   const { rows } = await pool.query(
-    `SELECT company_name, owner_name, phone, email, address, fiscal_business_name
+    `SELECT company_name, owner_name, phone, email, address, fiscal_business_name, general_settings
      FROM company_profiles
      WHERE business_id = $1 AND profile_key = 'default'
      LIMIT 1`,
     [businessId]
   );
-  return rows[0] || null;
+  const profile = rows[0] || null;
+  if (!profile) return null;
+  const generalSettings = profile.general_settings || {};
+  return {
+    ...profile,
+    professional_license: generalSettings.professional_license || null,
+    business_image_path: generalSettings.business_image_path || null,
+    signature_image_path: generalSettings.signature_image_path || null
+  };
 }
 
 async function exportClinicalHistoryPdf(filters = {}, actor) {
@@ -1151,12 +1809,26 @@ async function exportClinicalHistoryPdf(filters = {}, actor) {
   const chunks = [];
   document.on("data", (chunk) => chunks.push(chunk));
 
+  const businessImagePath = resolveStoredBusinessAssetAbsolutePath(business?.business_image_path);
+  const signatureImagePath = resolveStoredBusinessAssetAbsolutePath(business?.signature_image_path);
+  if (businessImagePath) {
+    try {
+      document.image(businessImagePath, 36, 28, { fit: [90, 90], align: "left" });
+      document.moveDown(3);
+    } catch (error) {
+      // Ignore invalid images so the PDF remains compatible.
+    }
+  }
+
   document.fontSize(16).text("Historial clinico", { align: "center" });
   document.moveDown();
   document.fontSize(11).text(`Negocio: ${business?.company_name || business?.fiscal_business_name || "-"}`);
   document.text(`Telefono: ${business?.phone || "-"}`);
   document.text(`Correo: ${business?.email || "-"}`);
   document.text(`Direccion: ${business?.address || "-"}`);
+  if (business?.professional_license) {
+    document.text(`Cedula profesional: ${business.professional_license}`);
+  }
   document.moveDown();
   document.text(`Paciente: ${patient.name}`);
   document.text(`Cliente / Responsable: ${client.name}`);
@@ -1168,7 +1840,25 @@ async function exportClinicalHistoryPdf(filters = {}, actor) {
   if (patient.birth_date) {
     document.text(`Fecha de nacimiento: ${patient.birth_date}`);
   }
+  if (patient.weight !== null && patient.weight !== undefined) {
+    document.text(`Peso: ${patient.weight}`);
+  }
+  if (patient.allergies) {
+    document.text(`Alergias: ${patient.allergies}`);
+  }
   document.moveDown();
+  if (patient.preventive_events?.length) {
+    document.fontSize(12).text("Carnet preventivo");
+    document.moveDown(0.5);
+    patient.preventive_events.forEach((entry, index) => {
+      document.fontSize(10).text(`${index + 1}. ${entry.event_type === "vaccination" ? "Vacuna" : "Desparasitacion"} - ${entry.product_name_snapshot || "-"}`);
+      document.text(`Aplicada: ${entry.date_administered || "-"}`);
+      document.text(`Proxima fecha: ${entry.next_due_date || "-"}`);
+      document.text(`Estado: ${entry.status || "-"}`);
+      document.moveDown(0.5);
+    });
+    document.moveDown();
+  }
   document.fontSize(12).text("Consultas cronologicas");
   document.moveDown(0.5);
 
@@ -1181,11 +1871,91 @@ async function exportClinicalHistoryPdf(filters = {}, actor) {
     document.moveDown(0.75);
   });
 
+  if (signatureImagePath) {
+    try {
+      document.moveDown();
+      document.fontSize(11).text("Firma", { align: "left" });
+      document.image(signatureImagePath, { fit: [160, 80], align: "left" });
+    } catch (error) {
+      // Ignore invalid images so the PDF remains compatible.
+    }
+  }
+
   document.end();
   await new Promise((resolve) => document.on("end", resolve));
   return {
     buffer: Buffer.concat(chunks),
     filename: `historial-clinico-${patient.id}.pdf`
+  };
+}
+
+async function exportPrescriptionPdf(id, actor) {
+  const prescription = await getPrescriptionDetail(id, actor);
+  const patient = await getPatientDetail(Number(prescription.patient_id), actor);
+  const business = await getBusinessProfile(actor);
+  const document = new PDFDocument({ margin: 36 });
+  const chunks = [];
+  document.on("data", (chunk) => chunks.push(chunk));
+
+  const businessImagePath = resolveStoredBusinessAssetAbsolutePath(business?.business_image_path);
+  const signatureImagePath = resolveStoredBusinessAssetAbsolutePath(business?.signature_image_path);
+  if (businessImagePath) {
+    try {
+      document.image(businessImagePath, 36, 28, { fit: [90, 90], align: "left" });
+      document.moveDown(3);
+    } catch (error) {
+      // Ignore invalid images so the PDF remains compatible.
+    }
+  }
+
+  document.fontSize(16).text("Receta medica", { align: "center" });
+  document.moveDown();
+  document.fontSize(11).text(`Negocio: ${business?.company_name || business?.fiscal_business_name || "-"}`);
+  document.text(`Telefono: ${business?.phone || "-"}`);
+  document.text(`Correo: ${business?.email || "-"}`);
+  if (business?.professional_license) {
+    document.text(`Cedula profesional: ${business.professional_license}`);
+  }
+  document.moveDown();
+  document.text(`Paciente: ${patient.name}`);
+  document.text(`Cliente / tutor: ${patient.client_name || "-"}`);
+  document.text(`Medico: ${prescription.doctor_name || actor.full_name || "-"}`);
+  document.text(`Fecha de emision: ${prescription.created_at}`);
+  document.text(`Estado: ${prescription.status}`);
+  document.moveDown();
+  document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
+  document.text(`Indicaciones generales: ${prescription.indications || "-"}`);
+  document.moveDown();
+  document.fontSize(12).text("Medicamentos");
+  document.moveDown(0.5);
+
+  prescription.items.forEach((item, index) => {
+    document.fontSize(10).text(`${index + 1}. ${item.medication_name_snapshot}`);
+    document.text(`Presentacion: ${item.presentation_snapshot || "-"}`);
+    document.text(`Dosis: ${item.dose || "-"}`);
+    document.text(`Frecuencia: ${item.frequency || "-"}`);
+    document.text(`Duracion: ${item.duration || "-"}`);
+    document.text(`Via: ${item.route_of_administration || "-"}`);
+    document.text(`Notas: ${item.notes || "-"}`);
+    document.text(`Stock al recetar: ${item.stock_snapshot ?? "-"}`);
+    document.moveDown(0.75);
+  });
+
+  if (signatureImagePath) {
+    try {
+      document.moveDown();
+      document.fontSize(11).text("Firma", { align: "left" });
+      document.image(signatureImagePath, { fit: [160, 80], align: "left" });
+    } catch (error) {
+      // Ignore invalid images so the PDF remains compatible.
+    }
+  }
+
+  document.end();
+  await new Promise((resolve) => document.on("end", resolve));
+  return {
+    buffer: Buffer.concat(chunks),
+    filename: `receta-medica-${prescription.id}.pdf`
   };
 }
 
@@ -1205,6 +1975,15 @@ module.exports = {
   createConsultation,
   updateConsultation,
   setConsultationStatus,
+  listPrescriptions,
+  getPrescriptionDetail,
+  createPrescription,
+  updatePrescription,
+  setPrescriptionStatus,
+  exportPrescriptionPdf,
+  listPreventiveEvents,
+  createPreventiveEvent,
+  updatePreventiveEvent,
   listAppointments,
   getAppointmentDetail,
   createAppointment,

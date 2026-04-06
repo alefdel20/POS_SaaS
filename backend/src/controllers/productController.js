@@ -7,15 +7,21 @@ const { getProductBarcodeSvg } = require("../services/adminInvoiceService");
 const listValidation = [
   query("search").optional().trim(),
   query("category").optional({ values: "falsy" }).trim(),
+  query("catalog_scope").optional().isIn(["food-accessories", "medications-supplies"]),
   query("activeOnly").optional().isBoolean(),
   query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
   query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
   validateRequest
 ];
-const categoryListValidation = [query("search").optional().trim(), validateRequest];
+const categoryListValidation = [
+  query("search").optional().trim(),
+  query("catalog_scope").optional().isIn(["food-accessories", "medications-supplies"]),
+  validateRequest
+];
 const restockValidation = [
   query("search").optional().trim(),
   query("category").optional({ values: "falsy" }).trim(),
+  query("catalog_scope").optional().isIn(["food-accessories", "medications-supplies"]),
   query("supplier").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
@@ -31,6 +37,7 @@ const createValidation = [
   body("sku").optional().trim(),
   body("barcode").optional({ values: "falsy" }).trim().matches(/^\d+$/),
   body("category").optional({ values: "falsy" }).trim(),
+  body("catalog_type").optional({ values: "falsy" }).isIn(["accessories", "medications"]),
   body("unidad_de_venta").optional({ values: "falsy" }).isIn(["pieza", "kg", "litro", "caja"]),
   body("porcentaje_ganancia").optional({ values: "falsy" }).isFloat(),
   body("ieps").optional({ values: "falsy" }).isFloat({ min: 0 }),
@@ -69,6 +76,7 @@ const updateValidation = [
   body("sku").optional().trim(),
   body("barcode").optional({ values: "falsy" }).trim().matches(/^\d+$/),
   body("category").optional({ values: "falsy" }).trim(),
+  body("catalog_type").optional({ values: "falsy" }).isIn(["accessories", "medications"]),
   body("unidad_de_venta").optional({ values: "falsy" }).isIn(["pieza", "kg", "litro", "caja"]),
   body("porcentaje_ganancia").optional({ values: "falsy" }).isFloat(),
   body("ieps").optional({ values: "falsy" }).isFloat({ min: 0 }),
@@ -127,6 +135,7 @@ const deleteValidation = [
 const listProducts = asyncHandler(async (req, res) => {
   res.json(await productService.listProducts(req.query.search, {
     category: req.query.category,
+    catalog_scope: req.query.catalog_scope,
     activeOnly: req.query.activeOnly === "true",
     page: req.query.page,
     pageSize: req.query.pageSize
@@ -138,13 +147,17 @@ const listSuppliers = asyncHandler(async (req, res) => {
 });
 
 const listCategories = asyncHandler(async (req, res) => {
-  res.json(await productService.listCategories(req.query.search, req.user));
+  res.json(await productService.listCategories({
+    search: req.query.search,
+    catalog_scope: req.query.catalog_scope
+  }, req.user));
 });
 
 const listRestockProducts = asyncHandler(async (req, res) => {
   res.json(await productService.listRestockProducts({
     search: req.query.search,
     category: req.query.category,
+    catalog_scope: req.query.catalog_scope,
     supplier: req.query.supplier
   }, req.user));
 });
@@ -161,6 +174,10 @@ const getProductBarcode = asyncHandler(async (req, res) => {
   const result = await getProductBarcodeSvg(Number(req.params.id), req.user);
   res.setHeader("Content-Type", "image/svg+xml");
   res.send(result.svg);
+});
+
+const getProductDetail = asyncHandler(async (req, res) => {
+  res.json(await productService.getProductDetail(Number(req.params.id), req.user));
 });
 
 const createProduct = asyncHandler(async (req, res) => {
@@ -209,6 +226,7 @@ module.exports = {
   listRestockProducts,
   previewProductImport,
   confirmProductImport,
+  getProductDetail,
   getProductBarcode,
   createProduct,
   updateProduct,

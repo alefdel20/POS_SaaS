@@ -21,3 +21,5 @@ export function resolveProductImageUrl(imagePath?: string | null) {
   const origin = getApiOrigin();
   return origin ? `${origin}${imagePath}` : imagePath;
 }
+
+export const resolveUploadedAssetUrl = resolveProductImageUrl;

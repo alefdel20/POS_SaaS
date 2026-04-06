@@ -224,7 +224,55 @@ td {
   gap: 0.55rem;
 }
 
+.nav-tree,
+.nav-tree-children {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.nav-tree-item {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.nav-tree-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.nav-tree-toggle.active,
+.nav-tree-toggle:hover {
+  background: rgba(var(--accent-rgb), 0.1);
+  border-color: rgba(var(--accent-rgb), 0.26);
+}
+
+.nav-tree-indicator {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.nav-tree-level-1,
+.nav-link-level-1 {
+  margin-left: 0.7rem;
+}
+
+.nav-tree-level-2,
+.nav-link-level-2 {
+  margin-left: 1.4rem;
+}
+
 .nav-link {
+  display: block;
   padding: 0.9rem 1rem;
   border-radius: 14px;
   background: transparent;
@@ -772,8 +820,17 @@ td {
   color: var(--warning-text);
 }
 
+.warning-text {
+  color: var(--warning-text);
+}
+
 .success-text {
   color: #9ae6b4;
+}
+
+.access-denied-panel {
+  max-width: 480px;
+  text-align: center;
 }
 
 .offer-badge {
@@ -1143,4 +1200,49 @@ td {
   .login-brand-tagline {
     letter-spacing: 0.28em;
   }
+
+  .profile-asset-preview {
+    width: 100%;
+  }
+}
+
+.profile-asset-preview {
+  width: min(280px, 100%);
+  max-height: 180px;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--field-bg);
+  padding: 0.5rem;
+}
+
+.share-actions {
+  position: relative;
+}
+
+.share-actions summary {
+  list-style: none;
+}
+
+.share-actions summary::-webkit-details-marker {
+  display: none;
+}
+
+.share-actions-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  display: grid;
+  gap: 0.35rem;
+  min-width: 150px;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  z-index: 5;
+}
+
+.button-disabled {
+  opacity: 0.6;
+  pointer-events: none;
 }

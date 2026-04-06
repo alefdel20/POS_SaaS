@@ -34,6 +34,7 @@ const createValidation = [
   body("initial_payment").optional().isFloat({ min: 0 }),
   body("requires_administrative_invoice").optional().isBoolean(),
   body("invoice_data").optional().isObject(),
+  body("prescription_id").optional({ values: "falsy" }).isInt(),
   body("items").isArray({ min: 1 }),
   body("items.*.product_id").isInt(),
   body("items.*.quantity").isFloat({ gt: 0 }),

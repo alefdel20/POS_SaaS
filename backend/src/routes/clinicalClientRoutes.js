@@ -1,13 +1,13 @@
 const express = require("express");
 const controller = require("../controllers/clinicalClientController");
-const { requireRole } = require("../middleware/authMiddleware");
+const { requireClinicalAccess } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-router.get("/", requireRole(["superusuario", "superadmin", "admin"]), controller.listValidation, controller.listClients);
-router.post("/", requireRole(["superusuario", "superadmin", "admin"]), controller.createValidation, controller.createClient);
-router.get("/:id", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.getClientDetail);
-router.put("/:id", requireRole(["superusuario", "superadmin", "admin"]), controller.updateValidation, controller.updateClient);
-router.patch("/:id/status", requireRole(["superusuario", "superadmin", "admin"]), controller.statusValidation, controller.updateClientStatus);
+router.get("/", requireClinicalAccess, controller.listValidation, controller.listClients);
+router.post("/", requireClinicalAccess, controller.createValidation, controller.createClient);
+router.get("/:id", requireClinicalAccess, controller.idValidation, controller.getClientDetail);
+router.put("/:id", requireClinicalAccess, controller.updateValidation, controller.updateClient);
+router.patch("/:id/status", requireClinicalAccess, controller.statusValidation, controller.updateClientStatus);
 
 module.exports = router;
