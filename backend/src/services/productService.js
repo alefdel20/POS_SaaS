@@ -1202,6 +1202,62 @@ function sanitizeImportedRow(row, context) {
 
   return payload;
 }
+async function confirmProductImport(rows, actor) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new ApiError(400, "Import rows are required");
+  }
+  if (rows.length > PRODUCT_IMPORT_LIMIT) {
+    throw new ApiError(400, `Import limit is ${PRODUCT_IMPORT_LIMIT} rows per request`);
+  }
+
+  const context = await getImportContext(actor);
+  const results = [];
+  const seenSkus = new Set();
+  const seenBarcodes = new Set();
+
+  for (const row of rows) {
+    try {
+      const payload = sanitizeImportedRow(row, context);
+      const normalizedSku = String(payload.sku || "").toUpperCase();
+      const normalizedBarcode = String(payload.barcode || "");
+
+      if (normalizedSku && (context.existingSkus.has(normalizedSku) || seenSkus.has(normalizedSku))) {
+        payload.sku = "";
+      }
+      if (normalizedBarcode && (context.existingBarcodes.has(normalizedBarcode) || seenBarcodes.has(normalizedBarcode))) {
+        payload.barcode = "";
+      }
+
+      const created = await createProduct(payload, actor);
+
+      results.push({
+        row_number: row?.row_number || row?.index || null,
+        status: "imported",
+        product_id: created.id,
+        product_name: created.name
+      });
+
+      if (normalizedSku) seenSkus.add(normalizedSku);
+      if (normalizedBarcode) seenBarcodes.add(normalizedBarcode);
+    } catch (error) {
+      results.push({
+        row_number: row?.row_number || row?.index || null,
+        status: "error",
+        message: error instanceof Error ? error.message : "Import row failed"
+      });
+    }
+  }
+
+  return {
+    results,
+    summary: {
+      total: rows.length,
+      imported: results.filter((row) => row.status === "imported").length,
+      errors: results.filter((row) => row.status === "error").length,
+      omitted: 0
+    }
+  };
+}
 
 async function createProduct(payload, actor) {
   const businessId = requireActorBusinessId(actor);
