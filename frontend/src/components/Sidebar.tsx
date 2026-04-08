@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { AnkodeLogo } from "./AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
+import { apiRequest } from "../api/client";
 import { getSidebarSectionsForVertical, type SidebarMenuItem } from "../utils/navigation";
 import { canUseCreditCollections } from "../utils/pos";
+import type { ProductUpdateRequestPendingSummary } from "../types";
+import { isManagementRole } from "../utils/roles";
 
 function itemIsActive(item: SidebarMenuItem, pathname: string) {
   const matches = item.activeMatch || (item.to ? [item.to] : []);
@@ -16,12 +19,14 @@ function itemIsActive(item: SidebarMenuItem, pathname: string) {
 type SidebarBranchProps = {
   item: SidebarMenuItem;
   pathname: string;
+  badges?: Record<string, number>;
   level?: number;
 };
 
-function SidebarBranch({ item, pathname, level = 0 }: SidebarBranchProps) {
+function SidebarBranch({ item, pathname, badges = {}, level = 0 }: SidebarBranchProps) {
   const isActive = itemIsActive(item, pathname);
   const [isOpen, setIsOpen] = useState(isActive);
+  const badgeValue = item.to ? badges[item.to] || 0 : 0;
 
   useEffect(() => {
     if (isActive) {
@@ -43,7 +48,7 @@ function SidebarBranch({ item, pathname, level = 0 }: SidebarBranchProps) {
         {isOpen ? (
           <div className="nav-tree-children">
             {item.children.map((child) => (
-              <SidebarBranch item={child} key={`${item.label}-${child.label}-${child.to || "group"}`} level={level + 1} pathname={pathname} />
+              <SidebarBranch item={child} key={`${item.label}-${child.label}-${child.to || "group"}`} badges={badges} level={level + 1} pathname={pathname} />
             ))}
           </div>
         ) : null}
@@ -59,20 +64,54 @@ function SidebarBranch({ item, pathname, level = 0 }: SidebarBranchProps) {
       className={({ isActive: isCurrentRoute }) => `nav-link nav-link-level-${level} ${isCurrentRoute || isActive ? "active" : ""}`}
       end
     >
-      {item.label}
+      <span>{item.label}</span>
+      {badgeValue > 0 ? <span className="status-badge">{badgeValue}</span> : null}
     </NavLink>
   );
 }
 
 export function Sidebar() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const location = useLocation();
   const currentRole = user?.role;
   const canShowCreditCollections = canUseCreditCollections(user?.pos_type);
+  const [badges, setBadges] = useState<Record<string, number>>({});
   const sections = useMemo(
     () => getSidebarSectionsForVertical(user?.pos_type, currentRole, canShowCreditCollections),
     [canShowCreditCollections, currentRole, user?.pos_type]
   );
+
+  useEffect(() => {
+    if (!token || !user?.business_id || !isManagementRole(user.role)) {
+      setBadges({});
+      return;
+    }
+
+    let cancelled = false;
+    async function loadBadges() {
+      const response = await apiRequest<ProductUpdateRequestPendingSummary>("/product-update-requests/pending-summary", { token });
+      if (!cancelled) {
+        setBadges({
+          "/product-update-requests": response.pending_count
+        });
+      }
+    }
+
+    function refreshBadges() {
+      loadBadges().catch(() => {
+        if (!cancelled) {
+          setBadges({});
+        }
+      });
+    }
+
+    refreshBadges();
+    window.addEventListener("product-update-requests:refresh-banner", refreshBadges);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("product-update-requests:refresh-banner", refreshBadges);
+    };
+  }, [token, user?.business_id, user?.role]);
 
   return (
     <aside className="sidebar">
@@ -89,7 +128,7 @@ export function Sidebar() {
             <p className="nav-section-title">{section.title}</p>
             <div className="nav-tree">
               {section.items.map((item) => (
-                <SidebarBranch item={item} key={`${section.title}-${item.label}-${item.to || "group"}`} pathname={location.pathname} />
+                <SidebarBranch item={item} key={`${section.title}-${item.label}-${item.to || "group"}`} badges={badges} pathname={location.pathname} />
               ))}
             </div>
           </div>

@@ -12,6 +12,14 @@ export interface User {
   business_name?: string;
   business_slug?: string;
   pos_type?: PosType;
+  phone?: string | null;
+  professional_license?: string | null;
+  specialty?: string | null;
+  theme_preference?: "light" | "dark";
+  status?: string | null;
+  today_appointments?: number;
+  pending_today?: number;
+  next_appointments?: number;
   is_active: boolean;
   must_change_password?: boolean;
   support_mode_active?: boolean;
@@ -264,8 +272,14 @@ export interface ProductUpdateRequest {
   requested_price?: number | null;
   current_stock_snapshot: number;
   requested_stock?: number | null;
+  request_type?: string;
+  before_snapshot?: Record<string, unknown> | null;
+  after_snapshot?: Record<string, unknown> | null;
+  changed_fields?: string[];
   review_note: string;
   reviewed_at?: string | null;
+  resolved_by_user_id?: number | null;
+  resolved_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -280,6 +294,33 @@ export interface ProductUpdateRequestPendingSummary {
     requested_by_name?: string | null;
     created_at: string;
   }>;
+}
+
+export interface ProductUpdateRequestSummary {
+  pending: number;
+  approved: number;
+  rejected: number;
+  today: number;
+  recent: Array<{
+    id: number;
+    status: "pending" | "approved" | "rejected";
+    created_at: string;
+    reviewed_at?: string | null;
+    product_name: string;
+    product_sku?: string | null;
+    requested_by_name?: string | null;
+  }>;
+}
+
+export interface ProductUpdateRequestListResponse {
+  items: ProductUpdateRequest[];
+  summary: ProductUpdateRequestSummary;
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export interface ProductImportPreviewRow {
@@ -430,12 +471,15 @@ export interface ClinicalAppointment {
   client_id: number;
   patient_name: string;
   client_name: string;
+  doctor_user_id?: number | null;
+  doctor_name?: string | null;
   species?: string | null;
   breed?: string | null;
   appointment_date: string;
   start_time: string;
   end_time: string;
   area: "CLINICA" | "ESTETICA";
+  specialty?: string | null;
   status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show";
   notes: string;
   is_active: boolean;
@@ -755,6 +799,79 @@ export interface DashboardSummary {
     }>;
     pending_clinical_reminders: number;
   };
+  operations?: {
+    role: "admin" | "clinico" | "cajero";
+    approvals?: ProductUpdateRequestSummary;
+    appointments_today?: Array<{
+      id: number;
+      patient_name: string;
+      appointment_date: string;
+      start_time: string;
+      end_time: string;
+      doctor_name?: string | null;
+      specialty?: string | null;
+      status: string;
+    }>;
+    recent_manual_cuts?: Array<{
+      id: number;
+      cut_date: string;
+      cut_type: string;
+      notes: string;
+      performed_by_name_snapshot: string;
+      created_at: string;
+    }>;
+    doctor?: {
+      status: string;
+      appointments_today: Array<{
+        id: number;
+        patient_id: number;
+        patient_name: string;
+        appointment_date: string;
+        start_time: string;
+        end_time: string;
+        specialty?: string | null;
+        status: string;
+      }>;
+      next_appointments: Array<{
+        id: number;
+        patient_name: string;
+        appointment_date: string;
+        start_time: string;
+        end_time: string;
+        specialty?: string | null;
+        status: string;
+      }>;
+      patients_today: number;
+    };
+    shortcuts?: Array<{
+      label: string;
+      path: string;
+    }>;
+  };
+}
+
+export interface ManualCut {
+  id: number;
+  business_id: number;
+  cut_date: string;
+  cut_type: string;
+  notes: string;
+  performed_by_user_id?: number | null;
+  performed_by_name_snapshot: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DoctorProfile {
+  id: number;
+  business_id: number;
+  full_name: string;
+  email: string;
+  phone: string;
+  professional_license: string;
+  specialty: string;
+  theme_preference: "light" | "dark";
+  role?: string | null;
 }
 
 export interface Expense {

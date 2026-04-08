@@ -16,6 +16,16 @@ const generalValidation = [
   validateRequest
 ];
 
+const doctorValidation = [
+  body("full_name").optional().trim().notEmpty(),
+  body("email").optional().isEmail(),
+  body("phone").optional({ values: "falsy" }).trim(),
+  body("professional_license").optional({ values: "falsy" }).trim(),
+  body("specialty").optional({ values: "falsy" }).trim(),
+  body("theme_preference").optional().isIn(["light", "dark"]),
+  validateRequest
+];
+
 const bankingValidation = [
   body("bank_name").optional({ values: "falsy" }).trim(),
   body("bank_clabe").optional({ values: "falsy" }).trim().isLength({ min: 10, max: 32 }),
@@ -57,6 +67,10 @@ const getProfile = asyncHandler(async (req, res) => {
   res.json(await profileService.getProfile(req.user));
 });
 
+const getDoctorProfile = asyncHandler(async (req, res) => {
+  res.json(await profileService.getDoctorProfile(req.user));
+});
+
 const updateGeneral = asyncHandler(async (req, res) => {
   res.json(await profileService.updateProfileSection(req.body, req.user, "general"));
 });
@@ -81,17 +95,24 @@ const removeAsset = asyncHandler(async (req, res) => {
   res.json(await profileService.removeProfileAsset(req.params.assetType, req.user));
 });
 
+const updateDoctorProfile = asyncHandler(async (req, res) => {
+  res.json(await profileService.updateDoctorProfile(req.body, req.user));
+});
+
 module.exports = {
   generalValidation,
+  doctorValidation,
   bankingValidation,
   fiscalValidation,
   stampsValidation,
   assetTypeValidation,
   getProfile,
+  getDoctorProfile,
   updateGeneral,
   updateBanking,
   updateFiscal,
   updateStamps,
   uploadAsset,
-  removeAsset
+  removeAsset,
+  updateDoctorProfile
 };

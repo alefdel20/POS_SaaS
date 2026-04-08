@@ -64,7 +64,7 @@ function ForcedPasswordChange() {
   );
 }
 
-export function ProtectedRoute({ roles }: { roles?: Role[] }) {
+export function ProtectedRoute({ roles, posTypes }: { roles?: Role[]; posTypes?: string[] }) {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -93,6 +93,20 @@ export function ProtectedRoute({ roles }: { roles?: Role[] }) {
         </div>
       );
     }
+  }
+
+  if (posTypes?.length && user.pos_type && !posTypes.includes(user.pos_type)) {
+    return (
+      <div className="screen-center">
+        <div className="panel access-denied-panel">
+          <h2>Acceso denegado</h2>
+          <p className="muted">Este modulo no esta disponible para el tipo de POS actual.</p>
+          <div className="inline-actions">
+            <Link className="button" to={getDefaultRouteForRole(user.role)}>Ir a mi inicio</Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return <Outlet />;

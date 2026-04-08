@@ -2,6 +2,8 @@ const pool = require("../db/pool");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
 const { listRestockProducts } = require("./productService");
+const { normalizeRole } = require("../utils/roles");
+const { getProductUpdateRequestSummary } = require("./productUpdateRequestService");
 
 const VALID_SALE_STATUS_SQL = "COALESCE(sales.status, 'completed') <> 'cancelled'";
 
@@ -12,6 +14,7 @@ function toNumber(value) {
 async function getSummary(actor) {
   const businessId = requireActorBusinessId(actor);
   const today = getMexicoCityDate();
+  const role = normalizeRole(actor?.role);
   const isClinicalVertical = ["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"].includes(String(actor?.pos_type || ""));
 
   const [summaryResult, topProductsResult, lowStockItems, profileResult] = await Promise.all([
@@ -124,6 +127,7 @@ async function getSummary(actor) {
   };
 
   if (!isClinicalVertical) {
+    summaryPayload.operations = await getOperationalSummary({ actor, businessId, today, role, isClinicalVertical });
     return summaryPayload;
   }
 
@@ -185,7 +189,174 @@ async function getSummary(actor) {
     pending_clinical_reminders: toNumber(pendingClinicalReminders.rows[0]?.total)
   };
 
+  summaryPayload.operations = await getOperationalSummary({ actor, businessId, today, role, isClinicalVertical });
   return summaryPayload;
+}
+
+async function getOperationalSummary({ actor, businessId, today, role, isClinicalVertical }) {
+  if (role === "cajero") {
+    const requestSummary = await getProductUpdateRequestSummary(actor);
+    return {
+      role: "cajero",
+      approvals: requestSummary,
+      shortcuts: [
+        { label: "Ir a ventas", path: "/sales" },
+        { label: "Ver productos", path: "/health/products/medications" }
+      ]
+    };
+  }
+
+  if (role === "clinico") {
+    const [todayAppointmentsResult, nextAppointmentsResult, patientCountResult, currentStatusResult] = await Promise.all([
+      pool.query(
+        `SELECT id, patient_id, patient_name, appointment_date, start_time, end_time, specialty, status
+         FROM (
+           SELECT
+             a.id,
+             a.patient_id,
+             p.name AS patient_name,
+             a.appointment_date,
+             a.start_time,
+             a.end_time,
+             COALESCE(a.specialty, u.specialty, a.area) AS specialty,
+             a.status
+           FROM appointments a
+           INNER JOIN patients p ON p.id = a.patient_id AND p.business_id = a.business_id
+           LEFT JOIN users u ON u.id = a.doctor_user_id AND u.business_id = a.business_id
+           WHERE a.business_id = $1
+             AND a.doctor_user_id = $2
+             AND a.is_active = TRUE
+             AND a.status IN ('scheduled', 'confirmed')
+             AND a.appointment_date = $3::date
+         ) today_appointments
+         ORDER BY start_time ASC, id ASC
+         LIMIT 6`,
+        [businessId, actor.id, today]
+      ),
+      pool.query(
+        `SELECT
+           a.id,
+           p.name AS patient_name,
+           a.appointment_date,
+           a.start_time,
+           a.end_time,
+           COALESCE(a.specialty, u.specialty, a.area) AS specialty,
+           a.status
+         FROM appointments a
+         INNER JOIN patients p ON p.id = a.patient_id AND p.business_id = a.business_id
+         LEFT JOIN users u ON u.id = a.doctor_user_id AND u.business_id = a.business_id
+         WHERE a.business_id = $1
+           AND a.doctor_user_id = $2
+           AND a.is_active = TRUE
+           AND a.status IN ('scheduled', 'confirmed')
+           AND (
+             a.appointment_date > $3::date
+             OR (a.appointment_date = $3::date AND a.start_time > CURRENT_TIME)
+           )
+         ORDER BY a.appointment_date ASC, a.start_time ASC, a.id ASC
+         LIMIT 4`,
+        [businessId, actor.id, today]
+      ),
+      pool.query(
+        `SELECT COUNT(DISTINCT patient_id)::int AS total
+         FROM appointments
+         WHERE business_id = $1
+           AND doctor_user_id = $2
+           AND appointment_date = $3::date
+           AND is_active = TRUE
+           AND status IN ('scheduled', 'confirmed')`,
+        [businessId, actor.id, today]
+      ),
+      pool.query(
+        `SELECT CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM appointments
+              WHERE business_id = $1
+                AND doctor_user_id = $2
+                AND appointment_date = $3::date
+                AND is_active = TRUE
+                AND status IN ('scheduled', 'confirmed')
+                AND start_time <= CURRENT_TIME
+                AND end_time >= CURRENT_TIME
+            ) THEN 'en_consulta'
+            ELSE 'activo'
+          END AS status`,
+        [businessId, actor.id, today]
+      )
+    ]);
+
+    return {
+      role: "clinico",
+      doctor: {
+        status: currentStatusResult.rows[0]?.status || "activo",
+        appointments_today: todayAppointmentsResult.rows,
+        next_appointments: nextAppointmentsResult.rows,
+        patients_today: Number(patientCountResult.rows[0]?.total || 0)
+      },
+      shortcuts: [
+        { label: "Abrir agenda", path: "/medical-appointments" },
+        { label: "Ver pacientes", path: "/patients" },
+        { label: "Editar perfil", path: "/profile" }
+      ]
+    };
+  }
+
+  const [requestSummary, todayAppointmentsResult, recentManualCutsResult] = await Promise.all([
+    getProductUpdateRequestSummary(actor),
+    isClinicalVertical
+      ? pool.query(
+        `SELECT
+           a.id,
+           p.name AS patient_name,
+           a.appointment_date,
+           a.start_time,
+           a.end_time,
+           u.full_name AS doctor_name,
+           COALESCE(a.specialty, u.specialty, a.area) AS specialty,
+           a.status
+         FROM appointments a
+         INNER JOIN patients p ON p.id = a.patient_id AND p.business_id = a.business_id
+         LEFT JOIN users u ON u.id = a.doctor_user_id AND u.business_id = a.business_id
+         WHERE a.business_id = $1
+           AND a.is_active = TRUE
+           AND a.status IN ('scheduled', 'confirmed')
+           AND a.appointment_date = $2::date
+         ORDER BY a.start_time ASC, a.id ASC
+         LIMIT 6`,
+        [businessId, today]
+      )
+      : Promise.resolve({ rows: [] }),
+    pool.query(
+      `SELECT id, cut_date, cut_type, notes, performed_by_name_snapshot, created_at
+       FROM manual_cuts
+       WHERE business_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT 4`,
+      [businessId]
+    )
+  ]);
+
+  return {
+    role: "admin",
+    approvals: requestSummary,
+    appointments_today: todayAppointmentsResult.rows,
+    recent_manual_cuts: recentManualCutsResult.rows.map((row) => ({
+      id: Number(row.id),
+      cut_date: row.cut_date,
+      cut_type: row.cut_type,
+      notes: row.notes || "",
+      performed_by_name_snapshot: row.performed_by_name_snapshot,
+      created_at: row.created_at
+    })),
+    shortcuts: [
+      { label: "Abrir aprobaciones", path: "/product-update-requests" },
+      isClinicalVertical
+        ? { label: "Ver agenda", path: "/medical-appointments" }
+        : { label: "Ver productos", path: "/products" },
+      { label: "Ir a corte diario", path: "/daily-cut" }
+    ]
+  };
 }
 
 module.exports = { getSummary };

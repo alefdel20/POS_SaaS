@@ -30,6 +30,10 @@ function getBusinessId(actor) {
   return requireActorBusinessId(actor);
 }
 
+function isSchemaError(error) {
+  return ["42P01", "42703", "42704", "23505"].includes(String(error?.code || ""));
+}
+
 async function assertReminderPatientAccess(patientId, businessId, client = pool) {
   if (!patientId) {
     return;
@@ -44,7 +48,15 @@ async function assertReminderPatientAccess(patientId, businessId, client = pool)
 }
 
 async function listReminders(actor, filters = {}) {
-  await ensureAutomaticReminders(actor);
+  try {
+    await ensureAutomaticReminders(actor);
+  } catch (error) {
+    if (isSchemaError(error)) {
+      console.error("[REMINDERS] Automatic sync skipped due to schema issue", error);
+    } else {
+      throw error;
+    }
+  }
   const businessId = getBusinessId(actor);
   const params = [businessId];
   const conditions = ["reminders.business_id = $1"];
@@ -155,11 +167,13 @@ async function deleteReminder(id, actor) {
   return rows[0];
 }
 
-async function upsertAutomaticReminder(payload, actor) {
+async function upsertAutomaticReminder(payload, actor, options = {}) {
   const businessId = getBusinessId(actor);
-  const { rows: existingRows } = await pool.query("SELECT * FROM reminders WHERE source_key = $1 AND business_id = $2 LIMIT 1", [payload.source_key, businessId]);
+  const client = options.client || pool;
+  console.info("[REMINDERS] Upserting automatic reminder", { businessId, sourceKey: payload.source_key });
+  const { rows: existingRows } = await client.query("SELECT * FROM reminders WHERE source_key = $1 AND business_id = $2 LIMIT 1", [payload.source_key, businessId]);
   if (existingRows[0]) {
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `UPDATE reminders
        SET title = $1, notes = $2, due_date = $3, status = CASE WHEN is_completed THEN status ELSE 'pending' END,
            is_completed = CASE WHEN is_completed THEN is_completed ELSE FALSE END, reminder_type = $4, category = $5, patient_id = $6, metadata = $7, updated_at = NOW()
@@ -169,7 +183,7 @@ async function upsertAutomaticReminder(payload, actor) {
     );
     return rows[0];
   }
-  const { rows } = await pool.query(
+  const { rows } = await client.query(
     `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
      VALUES ($1, $2, 'pending', $3, $4, NULL, NULL, FALSE, $5, $6, $7, $8, $9)
      RETURNING *`,
@@ -180,8 +194,23 @@ async function upsertAutomaticReminder(payload, actor) {
 
 async function removeAutomaticReminder(sourceKey, actor, client = pool) {
   const businessId = getBusinessId(actor);
+  console.info("[REMINDERS] Removing automatic reminder", { businessId, sourceKey });
   await client.query(
     `DELETE FROM reminders
+     WHERE business_id = $1
+       AND source_key = $2`,
+    [businessId, sourceKey]
+  );
+}
+
+async function cancelAutomaticReminder(sourceKey, actor, client = pool) {
+  const businessId = getBusinessId(actor);
+  console.info("[REMINDERS] Cancelling automatic reminder", { businessId, sourceKey });
+  await client.query(
+    `UPDATE reminders
+     SET status = 'cancelled',
+         is_completed = TRUE,
+         updated_at = NOW()
      WHERE business_id = $1
        AND source_key = $2`,
     [businessId, sourceKey]
@@ -408,6 +437,7 @@ module.exports = {
   sendReminder,
   upsertAutomaticReminder,
   removeAutomaticReminder,
+  cancelAutomaticReminder,
   ensureAutomaticReminders,
   ensureLowStockRemindersForProductIds,
   receiveAutomationWebhook

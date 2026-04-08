@@ -42,6 +42,10 @@ export function canAccessSales(role?: string | null) {
   return hasAnyRole(role, ROUTE_ROLES.sales);
 }
 
+export function canManageProducts(role?: string | null) {
+  return isManagementRole(role) || isCashierRole(role);
+}
+
 export function canAccessDailyCut(role?: string | null) {
   return hasAnyRole(role, ROUTE_ROLES.dailyCut);
 }

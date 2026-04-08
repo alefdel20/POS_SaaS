@@ -1,9 +1,14 @@
 const ExcelJS = require("exceljs");
 const pool = require("../db/pool");
+const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate, getMonthRange } = require("../utils/timezone");
 
 const VALID_SALE_STATUS_SQL = "COALESCE(sales.status, 'completed') <> 'cancelled'";
+
+function isSchemaError(error) {
+  return ["42P01", "42703", "42704"].includes(String(error?.code || ""));
+}
 
 function getLocalIsoDate() {
   return getMexicoCityDate();
@@ -180,4 +185,70 @@ async function exportDailyCutsExcel(period = "daily", filters = {}, actor) {
   return { buffer, filename: `corte-${suffix}-${getLocalIsoDate()}.xlsx` };
 }
 
-module.exports = { recomputeDailyCut, listDailyCuts, getTodayDailyCut, exportDailyCutsExcel };
+async function listManualCuts(filters = {}, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const params = [businessId];
+  const conditions = ["business_id = $1"];
+  if (filters.date) {
+    params.push(filters.date);
+    conditions.push(`cut_date = $${params.length}`);
+  }
+
+  let rows;
+  try {
+    ({ rows } = await pool.query(
+      `SELECT id, business_id, cut_date, cut_type, notes, performed_by_user_id, performed_by_name_snapshot, created_at, updated_at
+       FROM manual_cuts
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY cut_date DESC, created_at DESC, id DESC`,
+      params
+    ));
+  } catch (error) {
+    if (isSchemaError(error)) {
+      console.error("[MANUAL-CUT] Schema error while listing manual cuts", error);
+      throw new ApiError(503, "Feature schema is not ready");
+    }
+    throw error;
+  }
+  return rows.map((row) => ({
+    ...row,
+    id: Number(row.id),
+    business_id: Number(row.business_id),
+    performed_by_user_id: row.performed_by_user_id ? Number(row.performed_by_user_id) : null
+  }));
+}
+
+async function createManualCut(payload = {}, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const cutDate = payload.cut_date || getLocalIsoDate();
+  const notes = String(payload.notes || "").trim();
+  const performedByNameSnapshot = String(actor.full_name || "").trim() || `Usuario #${actor.id}`;
+  console.info("[MANUAL-CUT] Creating manual cut", { businessId, actorId: actor.id, cutDate });
+
+  let rows;
+  try {
+    ({ rows } = await pool.query(
+      `INSERT INTO manual_cuts (
+        business_id, cut_date, cut_type, notes, performed_by_user_id, performed_by_name_snapshot
+       )
+       VALUES ($1, $2, 'manual', $3, $4, $5)
+       RETURNING id, business_id, cut_date, cut_type, notes, performed_by_user_id, performed_by_name_snapshot, created_at, updated_at`,
+      [businessId, cutDate, notes, actor.id, performedByNameSnapshot]
+    ));
+  } catch (error) {
+    if (isSchemaError(error)) {
+      console.error("[MANUAL-CUT] Schema error while creating manual cut", error);
+      throw new ApiError(503, "Feature schema is not ready");
+    }
+    throw error;
+  }
+
+  return {
+    ...rows[0],
+    id: Number(rows[0].id),
+    business_id: Number(rows[0].business_id),
+    performed_by_user_id: rows[0].performed_by_user_id ? Number(rows[0].performed_by_user_id) : null
+  };
+}
+
+module.exports = { recomputeDailyCut, listDailyCuts, getTodayDailyCut, exportDailyCutsExcel, listManualCuts, createManualCut };

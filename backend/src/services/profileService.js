@@ -5,6 +5,10 @@ const { normalizeRole } = require("../utils/roles");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { buildStoredBusinessAssetPath, deleteStoredBusinessAsset } = require("../utils/businessAssets");
 
+function isSchemaError(error) {
+  return ["42P01", "42703", "42704"].includes(String(error?.code || ""));
+}
+
 function mapProfile(profile) {
   if (!profile) return null;
   const generalSettings = profile.general_settings || {};
@@ -90,6 +94,123 @@ async function ensureDefaultProfile(actor, client = pool) {
 
 async function getProfile(actor) {
   return mapProfile(await ensureDefaultProfile(actor));
+}
+
+async function getDoctorProfile(actor) {
+  const businessId = getTargetBusinessId(actor);
+  let rows;
+  try {
+    ({ rows } = await pool.query(
+      `SELECT id, business_id, full_name, email, phone, professional_license, specialty, theme_preference, role
+       FROM users
+       WHERE id = $1 AND business_id = $2
+       LIMIT 1`,
+      [actor.id, businessId]
+    ));
+  } catch (error) {
+    if (isSchemaError(error)) {
+      console.error("[DOCTOR-PROFILE] Schema error while loading profile", error);
+      throw new ApiError(503, "Feature schema is not ready");
+    }
+    throw error;
+  }
+  if (!rows[0]) {
+    throw new ApiError(404, "User not found");
+  }
+
+  return {
+    id: Number(rows[0].id),
+    business_id: Number(rows[0].business_id),
+    full_name: rows[0].full_name,
+    email: rows[0].email,
+    phone: rows[0].phone || "",
+    professional_license: rows[0].professional_license || "",
+    specialty: rows[0].specialty || "",
+    theme_preference: rows[0].theme_preference === "light" ? "light" : "dark",
+    role: normalizeRole(rows[0].role)
+  };
+}
+
+async function updateDoctorProfile(payload, actor) {
+  const businessId = getTargetBusinessId(actor);
+  const actorRole = normalizeRole(actor?.role);
+  if (!["superusuario", "admin", "clinico"].includes(actorRole || "")) {
+    throw new ApiError(403, "Forbidden");
+  }
+  console.info("[DOCTOR-PROFILE] Updating doctor profile", { businessId, actorId: actor.id });
+
+  const { rows: currentRows } = await pool.query(
+    `SELECT id, business_id, full_name, email, phone, professional_license, specialty, theme_preference, role
+     FROM users
+     WHERE id = $1 AND business_id = $2
+     LIMIT 1`,
+    [actor.id, businessId]
+  );
+  if (!currentRows[0]) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const current = currentRows[0];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `UPDATE users
+       SET full_name = $1,
+           email = $2,
+           phone = $3,
+           professional_license = $4,
+           specialty = $5,
+           theme_preference = $6,
+           updated_at = NOW()
+       WHERE id = $7 AND business_id = $8
+       RETURNING id, business_id, full_name, email, phone, professional_license, specialty, theme_preference, role`,
+      [
+        payload.full_name ?? current.full_name,
+        payload.email ?? current.email,
+        payload.phone ?? current.phone,
+        payload.professional_license ?? current.professional_license,
+        payload.specialty ?? current.specialty,
+        payload.theme_preference === "light" ? "light" : "dark",
+        actor.id,
+        businessId
+      ]
+    );
+
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "doctor_profile",
+      accion: "update_doctor_profile",
+      entidad_tipo: "user",
+      entidad_id: actor.id,
+      detalle_anterior: { snapshot: current },
+      detalle_nuevo: { snapshot: rows[0] },
+      metadata: { log_tag: "[DOCTOR-PROFILE]" }
+    }, { client });
+
+    await client.query("COMMIT");
+    return {
+      id: Number(rows[0].id),
+      business_id: Number(rows[0].business_id),
+      full_name: rows[0].full_name,
+      email: rows[0].email,
+      phone: rows[0].phone || "",
+      professional_license: rows[0].professional_license || "",
+      specialty: rows[0].specialty || "",
+      theme_preference: rows[0].theme_preference === "light" ? "light" : "dark",
+      role: normalizeRole(rows[0].role)
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (isSchemaError(error)) {
+      console.error("[DOCTOR-PROFILE] Schema error while updating profile", error);
+      throw new ApiError(503, "Feature schema is not ready");
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function updateProfileSection(payload, actor, section) {
@@ -214,4 +335,4 @@ async function removeProfileAsset(assetType, actor) {
   }
 }
 
-module.exports = { getProfile, updateProfileSection, uploadProfileAsset, removeProfileAsset };
+module.exports = { getProfile, getDoctorProfile, updateDoctorProfile, updateProfileSection, uploadProfileAsset, removeProfileAsset };

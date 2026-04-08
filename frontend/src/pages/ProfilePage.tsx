@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { setStoredTheme } from "../services/storage";
-import type { CompanyProfile } from "../types";
+import type { CompanyProfile, DoctorProfile } from "../types";
 import { resolveUploadedAssetUrl } from "../utils/assets";
 import { normalizeRole } from "../utils/roles";
 
@@ -95,8 +95,20 @@ const sectionFields = {
 
 export function ProfilePage() {
   const { token, user } = useAuth();
+  const isDoctor = normalizeRole(user?.role) === "clinico";
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
+  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
   const [formData, setFormData] = useState<ProfileFormState>(emptyForm);
+  const [doctorForm, setDoctorForm] = useState<DoctorProfile>({
+    id: 0,
+    business_id: 0,
+    full_name: "",
+    email: "",
+    phone: "",
+    professional_license: "",
+    specialty: "",
+    theme_preference: "dark"
+  });
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [assetLoading, setAssetLoading] = useState<"business_image" | "signature" | "">("");
@@ -106,6 +118,12 @@ export function ProfilePage() {
 
   async function loadProfile() {
     if (!token) return;
+    if (isDoctor) {
+      const response = await apiRequest<DoctorProfile>("/profile/doctor", { token });
+      setDoctorProfile(response);
+      setDoctorForm(response);
+      return;
+    }
     const response = await apiRequest<CompanyProfile>("/profile", { token });
     setProfile(response);
     setFormData(profileToForm(response));
@@ -115,7 +133,97 @@ export function ProfilePage() {
     loadProfile().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil");
     });
-  }, [token]);
+  }, [token, isDoctor]);
+
+  async function saveDoctorProfile(event: FormEvent) {
+    event.preventDefault();
+    if (!token) return;
+    try {
+      setSavingSection("general");
+      setError("");
+      setInfo("");
+      const response = await apiRequest<DoctorProfile>("/profile/doctor", {
+        method: "PUT",
+        token,
+        body: JSON.stringify(doctorForm)
+      });
+      setDoctorProfile(response);
+      setDoctorForm(response);
+      document.documentElement.dataset.theme = response.theme_preference || "dark";
+      if (user?.business_id) {
+        setStoredTheme(user.business_id, response.theme_preference || "dark");
+      }
+      setInfo("Perfil actualizado correctamente");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el perfil");
+    } finally {
+      setSavingSection("");
+    }
+  }
+
+  if (isDoctor) {
+    return (
+      <section className="page-grid">
+        <form className="panel grid-form" onSubmit={saveDoctorProfile}>
+          <div className="panel-header">
+            <div>
+              <h2>Perfil del doctor</h2>
+              <p className="muted">Actualiza tus datos personales y preferencia visual.</p>
+            </div>
+          </div>
+          {error ? <p className="error-text">{error}</p> : null}
+          {info ? <p className="success-text">{info}</p> : null}
+          <label>
+            Nombre
+            <input value={doctorForm.full_name} onChange={(event) => setDoctorForm({ ...doctorForm, full_name: event.target.value })} />
+          </label>
+          <label>
+            Correo
+            <input type="email" value={doctorForm.email} onChange={(event) => setDoctorForm({ ...doctorForm, email: event.target.value })} />
+          </label>
+          <label>
+            Telefono
+            <input value={doctorForm.phone} onChange={(event) => setDoctorForm({ ...doctorForm, phone: event.target.value })} />
+          </label>
+          <label>
+            Cedula profesional
+            <input value={doctorForm.professional_license} onChange={(event) => setDoctorForm({ ...doctorForm, professional_license: event.target.value })} />
+          </label>
+          <label>
+            Especialidad
+            <input value={doctorForm.specialty} onChange={(event) => setDoctorForm({ ...doctorForm, specialty: event.target.value })} />
+          </label>
+          <label>
+            Tema
+            <select value={doctorForm.theme_preference} onChange={(event) => setDoctorForm({ ...doctorForm, theme_preference: event.target.value as "light" | "dark" })}>
+              <option value="dark">Oscuro</option>
+              <option value="light">Claro</option>
+            </select>
+          </label>
+          <button className="button" disabled={savingSection === "general"} type="submit">
+            {savingSection === "general" ? "Guardando..." : "Guardar perfil"}
+          </button>
+        </form>
+        {doctorProfile ? (
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Resumen</h2>
+                <p className="muted">Tus datos se usan en panel de doctores y agenda.</p>
+              </div>
+            </div>
+            <div className="info-card">
+              <p><strong>Doctor:</strong> {doctorProfile.full_name}</p>
+              <p><strong>Correo:</strong> {doctorProfile.email}</p>
+              <p><strong>Telefono:</strong> {doctorProfile.phone || "-"}</p>
+              <p><strong>Cedula:</strong> {doctorProfile.professional_license || "-"}</p>
+              <p><strong>Especialidad:</strong> {doctorProfile.specialty || "-"}</p>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
 
   function updateField<K extends keyof ProfileFormState>(field: K, value: ProfileFormState[K]) {
     setFormData((current) => ({ ...current, [field]: value }));

@@ -5,6 +5,7 @@ const { requireActorBusinessId } = require("../utils/tenant");
 const { buildStoredImagePath, deleteStoredImage } = require("../utils/productImages");
 const { saveAuditLog } = require("./auditLogService");
 const { emitActorAutomationEvent } = require("./automationEventService");
+const productUpdateRequestService = require("./productUpdateRequestService");
 const { canUseExpiryDate, canUseIeps, normalizePosType } = require("../utils/business");
 const { normalizeRole } = require("../utils/roles");
 const { normalizeProductCatalogType } = require("../utils/domainEnums");
@@ -1445,6 +1446,9 @@ async function getOwnedProduct(id, actor, client = pool) {
 }
 
 async function updateProduct(id, payload, actor) {
+  if (normalizeRole(actor?.role) === "cajero") {
+    return productUpdateRequestService.createProductChangeRequestFromEdit(id, payload, actor);
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

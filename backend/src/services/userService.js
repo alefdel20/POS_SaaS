@@ -24,6 +24,10 @@ function mapUser(user) {
     role: normalizeRole(user.role),
     business_id: Number(user.business_id),
     pos_type: user.business_pos_type || user.pos_type || "Otro",
+    phone: user.phone || null,
+    professional_license: user.professional_license || null,
+    specialty: user.specialty || null,
+    theme_preference: user.theme_preference === "light" ? "light" : "dark",
     must_change_password: Boolean(user.must_change_password),
     support_mode_active: Boolean(user.support_mode_active)
   };
@@ -184,6 +188,19 @@ async function listUsers(actor) {
   return rows.map(mapUser);
 }
 
+async function listUsersWithFilters(actor, filters = {}) {
+  const allUsers = await listUsers(actor);
+  return allUsers.filter((user) => {
+    if (filters.role && normalizeRole(filters.role) !== user.role) {
+      return false;
+    }
+    if (filters.active !== undefined && filters.active !== null && filters.active !== "") {
+      return Boolean(filters.active) === Boolean(user.is_active);
+    }
+    return true;
+  });
+}
+
 async function resolveTargetBusiness(payload, actor, client = pool) {
   // CORRECCIÓN: Si el payload trae business_id y eres SuperUser, se respeta ese ID.
   // De lo contrario, se usa el ID del actor (comportamiento multi-tenant normal).
@@ -222,9 +239,10 @@ async function createUser(payload, actor) {
     const { rows } = await client.query(
       `INSERT INTO users (
         username, email, full_name, password_hash, role, pos_type, business_id,
+        phone, professional_license, specialty, theme_preference,
         is_active, must_change_password, password_changed_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
       RETURNING *`,
       [
         payload.username,
@@ -234,6 +252,10 @@ async function createUser(payload, actor) {
         normalizedRole,
         business.pos_type,
         business.id,
+        payload.phone || null,
+        payload.professional_license || null,
+        payload.specialty || null,
+        payload.theme_preference === "light" ? "light" : "dark",
         payload.is_active ?? true,
         payload.must_change_password ?? false
       ]
@@ -291,11 +313,15 @@ async function updateUser(id, payload, actor) {
            role = $5,
            business_id = $6,
            pos_type = $7,
-           is_active = $8,
-           must_change_password = $9,
-           password_changed_at = CASE WHEN $10::boolean THEN NOW() ELSE password_changed_at END,
+           phone = $8,
+           professional_license = $9,
+           specialty = $10,
+           theme_preference = $11,
+           is_active = $12,
+           must_change_password = $13,
+           password_changed_at = CASE WHEN $14::boolean THEN NOW() ELSE password_changed_at END,
            updated_at = NOW()
-       WHERE id = $11 AND business_id = $12
+       WHERE id = $15 AND business_id = $16
        RETURNING *`,
       [
         payload.username ?? current.username,
@@ -305,6 +331,10 @@ async function updateUser(id, payload, actor) {
         nextRole,
         business.id,
         business.pos_type,
+        payload.phone ?? current.phone,
+        payload.professional_license ?? current.professional_license,
+        payload.specialty ?? current.specialty,
+        payload.theme_preference ?? current.theme_preference ?? "dark",
         nextIsActive,
         payload.must_change_password ?? current.must_change_password ?? false,
         Boolean(payload.password),
@@ -665,6 +695,7 @@ module.exports = {
   getSupportSessionById,
   getUserByLogin,
   listUsers,
+  listUsersWithFilters,
   createUser,
   updateUser,
   updateUserStatus,

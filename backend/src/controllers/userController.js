@@ -10,6 +10,10 @@ const createValidation = [
   body("username").trim().notEmpty(),
   body("email").isEmail(),
   body("full_name").trim().notEmpty(),
+  body("phone").optional({ values: "falsy" }).trim(),
+  body("professional_license").optional({ values: "falsy" }).trim(),
+  body("specialty").optional({ values: "falsy" }).trim(),
+  body("theme_preference").optional().isIn(["light", "dark"]),
   body("role").custom((value) => Boolean(value && USER_ROLES.includes(normalizeRole(value)))),
   body("password").isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
@@ -20,6 +24,10 @@ const updateValidation = [
   body("username").optional().trim().notEmpty(),
   body("email").optional().isEmail(),
   body("full_name").optional().trim().notEmpty(),
+  body("phone").optional({ values: "falsy" }).trim(),
+  body("professional_license").optional({ values: "falsy" }).trim(),
+  body("specialty").optional({ values: "falsy" }).trim(),
+  body("theme_preference").optional().isIn(["light", "dark"]),
   body("role").optional().custom((value) => Boolean(value && USER_ROLES.includes(normalizeRole(value)))),
   body("password").optional().isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
@@ -45,7 +53,10 @@ const supportModeValidation = [
 ];
 
 const listUsers = asyncHandler(async (req, res) => {
-  res.json(await userService.listUsers(req.user));
+  res.json(await userService.listUsersWithFilters(req.user, {
+    role: req.query.role,
+    active: req.query.active === undefined ? undefined : req.query.active === "true"
+  }));
 });
 
 const createUser = asyncHandler(async (req, res) => {

@@ -4,7 +4,9 @@ const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { saveAuditLog } = require("./auditLogService");
 const { resolveStoredBusinessAssetAbsolutePath } = require("../utils/businessAssets");
-const { upsertAutomaticReminder, removeAutomaticReminder } = require("./reminderService");
+const { upsertAutomaticReminder, removeAutomaticReminder, cancelAutomaticReminder } = require("./reminderService");
+const { hidesAesthetics, usesHumanPatientsOnly } = require("../utils/business");
+const { normalizeRole } = require("../utils/roles");
 const {
   normalizePrescriptionStatus,
   normalizePreventiveEventStatus,
@@ -36,6 +38,10 @@ function normalizeBooleanFlag(value, defaultValue = true) {
   if (typeof value === "number") return value > 0;
   const normalized = String(value).trim().toLowerCase();
   return ["1", "true", "si", "sí", "yes", "on", "activo", "active"].includes(normalized);
+}
+
+function isSchemaError(error) {
+  return ["42P01", "42703", "42704"].includes(String(error?.code || ""));
 }
 
 function mapClient(row) {
@@ -72,6 +78,7 @@ function mapAppointment(row) {
   if (!row) return null;
   return {
     ...row,
+    doctor_user_id: row.doctor_user_id ? Number(row.doctor_user_id) : null,
     is_active: Boolean(row.is_active)
   };
 }
@@ -161,6 +168,21 @@ async function getOwnedPatient(id, actor, client = pool) {
   return owned;
 }
 
+async function getOwnedDoctor(id, actor, client = pool) {
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await client.query(
+    `SELECT id, business_id, full_name, email, phone, professional_license, specialty, is_active
+     FROM users
+     WHERE id = $1
+       AND business_id = $2
+       AND role = 'clinico'`,
+    [id, businessId]
+  );
+  const owned = rows[0];
+  if (!owned) throw new ApiError(404, "Doctor not found");
+  return owned;
+}
+
 async function getOwnedConsultation(id, actor, client = pool) {
   const businessId = requireActorBusinessId(actor);
   const { rows } = await client.query(
@@ -187,10 +209,13 @@ async function getOwnedAppointment(id, actor, client = pool) {
   const { rows } = await client.query(
     `SELECT ma.*,
             p.name AS patient_name,
-            c.name AS client_name
+            c.name AS client_name,
+            u.full_name AS doctor_name,
+            u.specialty
      FROM appointments ma
      INNER JOIN patients p ON p.id = ma.patient_id AND p.business_id = ma.business_id
      INNER JOIN clients c ON c.id = ma.client_id AND c.business_id = ma.business_id
+     LEFT JOIN users u ON u.id = ma.doctor_user_id AND u.business_id = ma.business_id
      WHERE ma.id = $1 AND ma.business_id = $2`,
     [id, businessId]
   );
@@ -351,6 +376,42 @@ async function ensureAppointmentAvailability({
   }
 }
 
+async function ensureDoctorAppointmentAvailability({
+  businessId,
+  doctorUserId,
+  appointmentDate,
+  startTime,
+  endTime,
+  ignoreId = null,
+  client = pool
+}) {
+  if (!doctorUserId) {
+    return;
+  }
+
+  const params = [businessId, doctorUserId, appointmentDate, startTime, endTime];
+  let sql = `SELECT id
+             FROM appointments
+             WHERE business_id = $1
+               AND doctor_user_id = $2
+               AND appointment_date = $3
+               AND is_active = TRUE
+               AND status IN ('scheduled', 'confirmed')
+               AND start_time < $5
+               AND end_time > $4`;
+
+  if (ignoreId) {
+    params.push(ignoreId);
+    sql += ` AND id <> $${params.length}`;
+  }
+
+  sql += " LIMIT 1";
+  const { rows } = await client.query(sql, params);
+  if (rows[0]) {
+    throw new ApiError(409, "El doctor ya tiene una cita programada en ese horario");
+  }
+}
+
 async function acquireAppointmentAreaLock({
   businessId,
   appointmentDate,
@@ -361,6 +422,21 @@ async function acquireAppointmentAreaLock({
   await client.query(
     "SELECT pg_advisory_xact_lock($1::int, hashtext($2))",
     [businessId, `${appointmentDate}:${area}`]
+  );
+}
+
+async function acquireAppointmentDoctorLock({
+  businessId,
+  appointmentDate,
+  doctorUserId,
+  client = pool
+}) {
+  if (!doctorUserId) {
+    return;
+  }
+  await client.query(
+    "SELECT pg_advisory_xact_lock($1::int, hashtext($2))",
+    [businessId, `${appointmentDate}:doctor:${doctorUserId}`]
   );
 }
 
@@ -467,16 +543,19 @@ function buildConsultationPayload(payload = {}) {
 
 function buildAppointmentPayload(payload = {}) {
   const patientId = Number(payload.patient_id);
-  const clientId = Number(payload.client_id);
+  const clientId = payload.client_id === undefined || payload.client_id === null || payload.client_id === "" ? null : Number(payload.client_id);
+  const doctorUserId = payload.doctor_user_id === undefined || payload.doctor_user_id === null || payload.doctor_user_id === "" ? null : Number(payload.doctor_user_id);
   const appointmentDate = normalizeText(payload.appointment_date || payload.fecha);
   const startTime = normalizeTimeValue(payload.start_time || payload.hora_inicio);
   const endTime = normalizeTimeValue(payload.end_time || payload.hora_fin);
   const area = normalizeText(payload.area || "CLINICA").toUpperCase();
+  const specialty = normalizeNullableText(payload.specialty);
   const status = normalizeText(payload.status || "scheduled").toLowerCase();
   const notes = normalizeText(payload.notes || payload.notas);
 
   if (!Number.isInteger(patientId) || patientId <= 0) throw new ApiError(400, "Patient is required");
-  if (!Number.isInteger(clientId) || clientId <= 0) throw new ApiError(400, "Client is required");
+  if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) throw new ApiError(400, "Client is invalid");
+  if (doctorUserId !== null && (!Number.isInteger(doctorUserId) || doctorUserId <= 0)) throw new ApiError(400, "Doctor is invalid");
   if (!appointmentDate) throw new ApiError(400, "Appointment date is required");
   if (!startTime) throw new ApiError(400, "Start time is required");
   if (!endTime) throw new ApiError(400, "End time is required");
@@ -489,10 +568,12 @@ function buildAppointmentPayload(payload = {}) {
   return {
     patient_id: patientId,
     client_id: clientId,
+    doctor_user_id: doctorUserId,
     appointment_date: appointmentDate,
     start_time: startTime,
     end_time: endTime,
     area,
+    specialty,
     status,
     notes,
     is_active: normalizeBooleanFlag(payload.is_active, true)
@@ -1501,8 +1582,24 @@ async function updatePreventiveEvent(id, payload, actor) {
 async function listAppointments(filters = {}, actor) {
   const businessId = requireActorBusinessId(actor);
   const appointmentDate = normalizeDateValue(filters.date) || new Date().toISOString().slice(0, 10);
-  const params = [businessId, appointmentDate];
-  const conditions = ["ma.business_id = $1", "ma.appointment_date = $2"];
+  const params = [businessId];
+  const conditions = ["ma.business_id = $1"];
+
+  if (filters.date_from) {
+    params.push(normalizeDateValue(filters.date_from));
+    conditions.push(`ma.appointment_date >= $${params.length}`);
+  } else if (filters.date_to) {
+    params.push(appointmentDate);
+    conditions.push(`ma.appointment_date <= $${params.length}`);
+  } else {
+    params.push(appointmentDate);
+    conditions.push(`ma.appointment_date = $${params.length}`);
+  }
+
+  if (filters.date_to) {
+    params.push(normalizeDateValue(filters.date_to));
+    conditions.push(`ma.appointment_date <= $${params.length}`);
+  }
 
   if (filters.area) {
     params.push(normalizeText(filters.area).toUpperCase());
@@ -1519,25 +1616,52 @@ async function listAppointments(filters = {}, actor) {
     conditions.push(`ma.client_id = $${params.length}`);
   }
 
+  if (filters.doctor_user_id) {
+    params.push(Number(filters.doctor_user_id));
+    conditions.push(`ma.doctor_user_id = $${params.length}`);
+  }
+
+  if (filters.specialty) {
+    params.push(`%${normalizeText(filters.specialty)}%`);
+    conditions.push(`COALESCE(ma.specialty, u.specialty, '') ILIKE $${params.length}`);
+  }
+
+  if (filters.status) {
+    params.push(normalizeText(filters.status).toLowerCase());
+    conditions.push(`ma.status = $${params.length}`);
+  }
+
   if (filters.active !== undefined && filters.active !== "") {
     params.push(normalizeBooleanFlag(filters.active));
     conditions.push(`ma.is_active = $${params.length}`);
   }
 
-  const { rows } = await pool.query(
-    `SELECT
-       ma.*,
-       p.name AS patient_name,
-       p.species,
-       p.breed,
-       c.name AS client_name
-     FROM appointments ma
-     INNER JOIN patients p ON p.id = ma.patient_id AND p.business_id = ma.business_id
-     INNER JOIN clients c ON c.id = ma.client_id AND c.business_id = ma.business_id
-     WHERE ${conditions.join(" AND ")}
-     ORDER BY ma.start_time ASC, ma.area ASC, ma.id ASC`,
-    params
-  );
+  let rows;
+  try {
+    ({ rows } = await pool.query(
+      `SELECT
+         ma.*,
+         p.name AS patient_name,
+         p.species,
+         p.breed,
+         c.name AS client_name,
+         u.full_name AS doctor_name,
+         COALESCE(NULLIF(ma.specialty, ''), NULLIF(u.specialty, ''), NULL) AS specialty
+       FROM appointments ma
+       INNER JOIN patients p ON p.id = ma.patient_id AND p.business_id = ma.business_id
+       INNER JOIN clients c ON c.id = ma.client_id AND c.business_id = ma.business_id
+       LEFT JOIN users u ON u.id = ma.doctor_user_id AND u.business_id = ma.business_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY ma.appointment_date ASC, ma.start_time ASC, ma.area ASC, ma.id ASC`,
+      params
+    ));
+  } catch (error) {
+    if (isSchemaError(error)) {
+      console.error("[APPOINTMENTS] Schema error while listing appointments", error);
+      throw new ApiError(503, "Feature schema is not ready");
+    }
+    throw error;
+  }
 
   return {
     date: appointmentDate,
@@ -1552,17 +1676,32 @@ async function getAppointmentDetail(id, actor) {
 async function createAppointment(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const data = buildAppointmentPayload(payload);
+  console.info("[APPOINTMENTS] Creating appointment request", { businessId, actorId: actor.id, patientId: data.patient_id, area: data.area });
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
+    const patient = await getOwnedPatient(data.patient_id, actor, client);
+    const resolvedClientId = data.client_id || Number(patient.client_id);
+    if (hidesAesthetics(actor?.pos_type) && data.area === "ESTETICA") {
+      throw new ApiError(409, "Invalid appointment area");
+    }
+    if (data.doctor_user_id) {
+      await getOwnedDoctor(data.doctor_user_id, actor, client);
+    }
     await acquireAppointmentAreaLock({
       businessId,
       appointmentDate: data.appointment_date,
       area: data.area,
       client
     });
-    await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
+    await acquireAppointmentDoctorLock({
+      businessId,
+      appointmentDate: data.appointment_date,
+      doctorUserId: data.doctor_user_id,
+      client
+    });
+    await validateClinicalRelationship({ patientId: data.patient_id, clientId: resolvedClientId, actor, client });
     await ensureAppointmentAvailability({
       businessId,
       appointmentDate: data.appointment_date,
@@ -1571,28 +1710,40 @@ async function createAppointment(payload, actor) {
       area: data.area,
       client
     });
+    await ensureDoctorAppointmentAvailability({
+      businessId,
+      doctorUserId: data.doctor_user_id,
+      appointmentDate: data.appointment_date,
+      startTime: data.start_time,
+      endTime: data.end_time,
+      client
+    });
 
     const { rows } = await client.query(
       `INSERT INTO appointments (
         business_id, patient_id, client_id, appointment_date, start_time, end_time,
-        area, status, notes, is_active, created_by, updated_by
+        doctor_user_id, area, specialty, status, notes, is_active, created_by, updated_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
       RETURNING *`,
       [
         businessId,
         data.patient_id,
-        data.client_id,
+        resolvedClientId,
         data.appointment_date,
         data.start_time,
         data.end_time,
+        data.doctor_user_id,
         data.area,
+        data.specialty,
         data.status,
         data.notes,
         data.is_active,
         actor.id
       ]
     );
+    const appointment = await getOwnedAppointment(rows[0].id, actor, client);
+    await syncAppointmentReminder(appointment, actor, client);
 
     await saveAuditLog({
       business_id: businessId,
@@ -1601,14 +1752,18 @@ async function createAppointment(payload, actor) {
       accion: "create_appointment",
       entidad_tipo: "appointment",
       entidad_id: rows[0].id,
-      detalle_nuevo: { snapshot: mapAppointment(rows[0]) },
+      detalle_nuevo: { snapshot: mapAppointment(appointment) },
       metadata: {}
     }, { client });
 
     await client.query("COMMIT");
-    return mapAppointment(rows[0]);
+    return mapAppointment(appointment);
   } catch (error) {
     await client.query("ROLLBACK");
+    if (isSchemaError(error)) {
+      console.error("[APPOINTMENTS] Schema error while creating appointment", error);
+      throw new ApiError(503, "Feature schema is not ready");
+    }
     throw error;
   } finally {
     client.release();
@@ -1619,17 +1774,32 @@ async function updateAppointment(id, payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const current = mapAppointment(await getOwnedAppointment(id, actor));
   const data = buildAppointmentPayload({ ...current, ...payload });
+  console.info("[APPOINTMENTS] Updating appointment request", { businessId, actorId: actor.id, appointmentId: id, area: data.area });
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
+    const patient = await getOwnedPatient(data.patient_id, actor, client);
+    const resolvedClientId = data.client_id || Number(patient.client_id);
+    if (hidesAesthetics(actor?.pos_type) && data.area === "ESTETICA") {
+      throw new ApiError(409, "Invalid appointment area");
+    }
+    if (data.doctor_user_id) {
+      await getOwnedDoctor(data.doctor_user_id, actor, client);
+    }
     await acquireAppointmentAreaLock({
       businessId,
       appointmentDate: data.appointment_date,
       area: data.area,
       client
     });
-    await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
+    await acquireAppointmentDoctorLock({
+      businessId,
+      appointmentDate: data.appointment_date,
+      doctorUserId: data.doctor_user_id,
+      client
+    });
+    await validateClinicalRelationship({ patientId: data.patient_id, clientId: resolvedClientId, actor, client });
     await ensureAppointmentAvailability({
       businessId,
       appointmentDate: data.appointment_date,
@@ -1639,29 +1809,42 @@ async function updateAppointment(id, payload, actor) {
       ignoreId: id,
       client
     });
+    await ensureDoctorAppointmentAvailability({
+      businessId,
+      doctorUserId: data.doctor_user_id,
+      appointmentDate: data.appointment_date,
+      startTime: data.start_time,
+      endTime: data.end_time,
+      ignoreId: id,
+      client
+    });
 
     const { rows } = await client.query(
       `UPDATE appointments
        SET patient_id = $1,
            client_id = $2,
-           appointment_date = $3,
-           start_time = $4,
-           end_time = $5,
-           area = $6,
-           status = $7,
-           notes = $8,
-           is_active = $9,
-           updated_by = $10,
+           doctor_user_id = $3,
+           appointment_date = $4,
+           start_time = $5,
+           end_time = $6,
+           area = $7,
+           specialty = $8,
+           status = $9,
+           notes = $10,
+           is_active = $11,
+           updated_by = $12,
            updated_at = NOW()
-       WHERE id = $11 AND business_id = $12
+       WHERE id = $13 AND business_id = $14
        RETURNING *`,
       [
         data.patient_id,
-        data.client_id,
+        resolvedClientId,
+        data.doctor_user_id,
         data.appointment_date,
         data.start_time,
         data.end_time,
         data.area,
+        data.specialty,
         data.status,
         data.notes,
         data.is_active,
@@ -1670,6 +1853,8 @@ async function updateAppointment(id, payload, actor) {
         businessId
       ]
     );
+    const appointment = await getOwnedAppointment(id, actor, client);
+    await syncAppointmentReminder(appointment, actor, client);
 
     await saveAuditLog({
       business_id: businessId,
@@ -1679,14 +1864,18 @@ async function updateAppointment(id, payload, actor) {
       entidad_tipo: "appointment",
       entidad_id: id,
       detalle_anterior: { snapshot: current },
-      detalle_nuevo: { snapshot: mapAppointment(rows[0]) },
+      detalle_nuevo: { snapshot: mapAppointment(appointment) },
       metadata: {}
     }, { client });
 
     await client.query("COMMIT");
-    return mapAppointment(rows[0]);
+    return mapAppointment(appointment);
   } catch (error) {
     await client.query("ROLLBACK");
+    if (isSchemaError(error)) {
+      console.error("[APPOINTMENTS] Schema error while updating appointment", error);
+      throw new ApiError(503, "Feature schema is not ready");
+    }
     throw error;
   } finally {
     client.release();
@@ -1806,6 +1995,124 @@ async function getBusinessProfile(actor) {
     business_image_path: generalSettings.business_image_path || null,
     signature_image_path: generalSettings.signature_image_path || null
   };
+}
+
+function buildAppointmentReminderSourceKey(appointmentId, actor) {
+  return `auto:clinical:${requireActorBusinessId(actor)}:appointment:${appointmentId}`;
+}
+
+async function syncAppointmentReminder(appointment, actor, client = pool) {
+  const sourceKey = buildAppointmentReminderSourceKey(appointment.id, actor);
+  if (!appointment || !appointment.appointment_date) {
+    return null;
+  }
+
+  if (!appointment.is_active || ["cancelled", "completed", "no_show"].includes(String(appointment.status || "").toLowerCase())) {
+    await cancelAutomaticReminder(sourceKey, actor, client);
+    return null;
+  }
+
+  const dueDate = String(appointment.appointment_date).slice(0, 10);
+  return upsertAutomaticReminder({
+    source_key: sourceKey,
+    title: `Cita proxima: ${appointment.patient_name || "Paciente"}`,
+    notes: `Doctor ${appointment.doctor_name || "pendiente"}. ${appointment.specialty || appointment.area || "Consulta"} el ${dueDate} de ${String(appointment.start_time || "").slice(0, 5)} a ${String(appointment.end_time || "").slice(0, 5)}.`,
+    due_date: dueDate,
+    reminder_type: "appointment",
+    category: "clinical",
+    patient_id: appointment.patient_id,
+    metadata: {
+      appointment_id: appointment.id,
+      doctor_user_id: appointment.doctor_user_id || null,
+      specialty: appointment.specialty || null,
+      area: appointment.area
+    }
+  }, actor, { client });
+}
+
+async function listDoctors(actor) {
+  const businessId = requireActorBusinessId(actor);
+  const today = new Date().toISOString().slice(0, 10);
+  let rows;
+  try {
+    ({ rows } = await pool.query(
+      `SELECT
+         u.id,
+         u.full_name,
+         u.email,
+         u.phone,
+         u.professional_license,
+         u.specialty,
+         u.is_active,
+         COALESCE(today_metrics.today_appointments, 0)::int AS today_appointments,
+         COALESCE(today_metrics.pending_today, 0)::int AS pending_today,
+         COALESCE(next_metrics.next_appointments, 0)::int AS next_appointments,
+         CASE
+           WHEN u.is_active = FALSE THEN 'desconectado'
+           WHEN EXISTS (
+             SELECT 1
+             FROM appointments a
+             WHERE a.business_id = u.business_id
+               AND a.doctor_user_id = u.id
+               AND a.appointment_date = $2
+               AND a.status IN ('scheduled', 'confirmed')
+               AND a.start_time <= CURRENT_TIME
+               AND a.end_time >= CURRENT_TIME
+           ) THEN 'en_consulta'
+           ELSE 'activo'
+         END AS status
+       FROM users u
+       LEFT JOIN (
+         SELECT
+           doctor_user_id,
+           COUNT(*) AS today_appointments,
+           COUNT(*) FILTER (WHERE status IN ('scheduled', 'confirmed')) AS pending_today
+         FROM appointments
+         WHERE business_id = $1
+           AND appointment_date = $2
+           AND is_active = TRUE
+         GROUP BY doctor_user_id
+       ) AS today_metrics ON today_metrics.doctor_user_id = u.id
+       LEFT JOIN (
+         SELECT
+           doctor_user_id,
+           COUNT(*) AS next_appointments
+         FROM appointments
+         WHERE business_id = $1
+           AND is_active = TRUE
+           AND status IN ('scheduled', 'confirmed')
+           AND (
+             appointment_date > $2
+             OR (appointment_date = $2 AND start_time > CURRENT_TIME)
+           )
+         GROUP BY doctor_user_id
+       ) AS next_metrics ON next_metrics.doctor_user_id = u.id
+       WHERE u.business_id = $1
+         AND u.role = 'clinico'
+       ORDER BY u.is_active DESC, u.full_name ASC`,
+      [businessId, today]
+    ));
+  } catch (error) {
+    if (isSchemaError(error)) {
+      console.error("[APPOINTMENTS] Schema error while listing doctors", error);
+      throw new ApiError(503, "Feature schema is not ready");
+    }
+    throw error;
+  }
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    full_name: row.full_name,
+    email: row.email,
+    phone: row.phone || "",
+    professional_license: row.professional_license || "",
+    specialty: row.specialty || "",
+    is_active: Boolean(row.is_active),
+    status: row.status,
+    today_appointments: Number(row.today_appointments || 0),
+    pending_today: Number(row.pending_today || 0),
+    next_appointments: Number(row.next_appointments || 0)
+  }));
 }
 
 async function exportClinicalHistoryPdf(filters = {}, actor) {
@@ -1998,6 +2305,7 @@ module.exports = {
   createPreventiveEvent,
   updatePreventiveEvent,
   listAppointments,
+  listDoctors,
   getAppointmentDetail,
   createAppointment,
   updateAppointment,

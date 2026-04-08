@@ -8,11 +8,13 @@ import type {
   ProductImportConfirmResponse,
   ProductImportPreviewResponse,
   ProductImportPreviewRow,
+  ProductUpdateRequestSummary,
   RestockProductItem,
   Supplier
 } from "../types";
 import { currency, shortDateTime } from "../utils/format";
 import { resolveProductImageUrl } from "../utils/assets";
+import { isCashierRole } from "../utils/roles";
 import {
   VETERINARY_PRODUCT_CATEGORIES,
   canUseExpiryDate,
@@ -308,6 +310,7 @@ export function ProductsPage() {
   const [importConfirming, setImportConfirming] = useState(false);
   const [importResult, setImportResult] = useState<ProductImportConfirmResponse | null>(null);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -329,12 +332,14 @@ export function ProductsPage() {
   const showIepsField = canUseIeps(user?.pos_type);
   const showExpiryField = canUseExpiryDate(user?.pos_type);
   const isVeterinaryView = isVeterinaryPos(user?.pos_type);
+  const isCashier = isCashierRole(user?.role);
   const catalogScope = getCatalogScopeFromPath(location.pathname);
   const catalogType = getCatalogTypeFromScope(catalogScope);
   const productModuleLabel = getProductModuleLabel(user?.pos_type);
   const scopedModuleLabel = catalogScope ? getCatalogScopeLabel(catalogScope) : productModuleLabel;
   const veterinaryCategoryFilters = [...VETERINARY_PRODUCT_CATEGORIES];
   const importableRows = importPreview?.rows.filter((row) => row.action === "import" && row.errors.length === 0) || [];
+  const [requestSummary, setRequestSummary] = useState<ProductUpdateRequestSummary | null>(null);
 
   function buildFormSnapshot(state: ProductFormState) {
     return JSON.stringify({
@@ -421,6 +426,12 @@ export function ProductsPage() {
     }
   }
 
+  async function loadRequestSummary() {
+    if (!token || !isCashier) return;
+    const response = await apiRequest<ProductUpdateRequestSummary>("/product-update-requests/summary", { token });
+    setRequestSummary(response);
+  }
+
   function openImportModal() {
     setShowImportModal(true);
     setImportFile(null);
@@ -493,12 +504,17 @@ export function ProductsPage() {
     loadProducts(search, page, pageSize, categoryFilter).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
     });
-    loadRestockProducts().catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar productos por reabastecer");
-    });
+    if (!isCashier) {
+      loadRestockProducts().catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar productos por reabastecer");
+      });
+    }
     loadSuppliers().catch(console.error);
     loadCategories().catch(console.error);
-  }, [catalogScope, token, page, pageSize, categoryFilter]);
+    if (isCashier) {
+      loadRequestSummary().catch(console.error);
+    }
+  }, [catalogScope, token, page, pageSize, categoryFilter, isCashier]);
 
   useEffect(() => {
     if (!searchFromQuery || search === searchFromQuery) {
@@ -522,13 +538,15 @@ export function ProductsPage() {
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter).catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
-      });
+      if (!isCashier) {
+        loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter).catch((loadError) => {
+          setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
+        });
+      }
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [catalogScope, restockSearch, restockCategoryFilter, restockSupplierFilter, token]);
+  }, [catalogScope, restockSearch, restockCategoryFilter, restockSupplierFilter, token, isCashier]);
 
   useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
@@ -718,6 +736,7 @@ export function ProductsPage() {
     event.preventDefault();
     if (!token) return;
     const wasEditing = Boolean(editingId);
+    setInfo("");
 
     const price = Number(form.price);
     const stock = Number(form.stock);
@@ -880,7 +899,9 @@ export function ProductsPage() {
           body: JSON.stringify(payload)
         });
       }
-      await syncProductImage(savedProduct.id);
+      if (!isCashier && savedProduct?.id) {
+        await syncProductImage(savedProduct.id);
+      }
       setForm(emptyProductState);
       syncBaseline(emptyProductState);
       setEditingId(null);
@@ -901,10 +922,20 @@ export function ProductsPage() {
       });
       setSupplierDrafts([]);
       setShowSuppliersModal(false);
+      setError("");
+      if (isCashier) {
+        setSearch("");
+      }
       await loadProducts(wasEditing ? "" : search, wasEditing ? 1 : page, pageSize, categoryFilter);
       await loadSuppliers();
       await loadCategories();
-      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
+      if (!isCashier) {
+        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
+      }
+      if (isCashier) {
+        await loadRequestSummary();
+        setInfo("Tu cambio fue enviado para aprobacion. Puedes seguir su estatus desde este modulo.");
+      }
     } catch (submissionError) {
       if (savedProduct) {
         setEditingId(savedProduct.id);
@@ -913,6 +944,7 @@ export function ProductsPage() {
         syncBaseline(nextForm);
         setCurrentImagePath(savedProduct.image_path || null);
       }
+      setInfo("");
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el producto");
     } finally {
       setSaving(false);
@@ -1062,6 +1094,14 @@ export function ProductsPage() {
             ) : null}
           </div>
         </div>
+        {isCashier && requestSummary ? (
+          <div className="stats-grid">
+            <div className="info-card compact-box"><strong>{requestSummary.pending}</strong><span className="muted">Pendientes</span></div>
+            <div className="info-card compact-box"><strong>{requestSummary.approved}</strong><span className="muted">Aprobadas</span></div>
+            <div className="info-card compact-box"><strong>{requestSummary.rejected}</strong><span className="muted">Rechazadas</span></div>
+            <div className="info-card compact-box"><strong>{requestSummary.today}</strong><span className="muted">Enviadas hoy</span></div>
+          </div>
+        ) : null}
         <div className="product-form-grid product-form-grid-wide">
           <div className="form-span-2 product-image-panel">
             <div className="product-image-preview-frame">
@@ -1304,10 +1344,31 @@ export function ProductsPage() {
           </datalist>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
+        {info ? <p className="success-text">{info}</p> : null}
         <button className="button" disabled={saving} type="submit">
           {saving ? "Guardando..." : editingId ? "Actualizar producto" : "Guardar producto"}
         </button>
       </form>
+
+      {isCashier && requestSummary?.recent?.length ? (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Mis solicitudes recientes</h2>
+              <p className="muted">Seguimiento rapido para que no trabajes a ciegas.</p>
+            </div>
+          </div>
+          <div className="stack-list">
+            {requestSummary.recent.map((request) => (
+              <article className="info-card" key={`cashier-request-${request.id}`}>
+                <strong>{request.product_name}</strong>
+                <p>{request.product_sku || "-"}</p>
+                <p>{request.status === "approved" ? "Aprobada" : request.status === "rejected" ? "Rechazada" : "Pendiente"} · {shortDateTime(request.created_at)}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {showSuppliersModal ? (
         <div className="modal-backdrop" role="presentation">
@@ -1420,8 +1481,8 @@ export function ProductsPage() {
             <p className="muted">Buscador, paginación y alertas por stock mínimo.</p>
           </div>
           <div className="inline-actions">
-            <button className="button" onClick={resetProductEditor} type="button">Nuevo registro</button>
-            <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button>
+            <button className="button" onClick={resetProductEditor} type="button">{isCashier ? "Solicitar cambio" : "Nuevo registro"}</button>
+            {!isCashier ? <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button> : null}
             <input
               className="search-input"
               placeholder="Buscar por nombre, SKU, categoría o proveedor"
@@ -1508,19 +1569,21 @@ export function ProductsPage() {
                   <td>
                     <div className="inline-actions">
                       <button className="button ghost" onClick={() => handleEdit(product)} type="button">Editar</button>
-                      <button className="button ghost danger" onClick={() => deleteProduct(product)} type="button">Eliminar</button>
-                      <button
-                        className="button ghost"
-                        disabled={togglingId === product.id}
-                        onClick={() => toggleProductStatus(product)}
-                        type="button"
-                      >
-                        {togglingId === product.id
-                          ? "Actualizando..."
-                          : product.status === "inactivo"
-                            ? "Activar"
-                            : "Desactivar"}
-                      </button>
+                      {!isCashier ? <button className="button ghost danger" onClick={() => deleteProduct(product)} type="button">Eliminar</button> : null}
+                      {!isCashier ? (
+                        <button
+                          className="button ghost"
+                          disabled={togglingId === product.id}
+                          onClick={() => toggleProductStatus(product)}
+                          type="button"
+                        >
+                          {togglingId === product.id
+                            ? "Actualizando..."
+                            : product.status === "inactivo"
+                              ? "Activar"
+                              : "Desactivar"}
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -1543,6 +1606,7 @@ export function ProductsPage() {
         </div>
       </div>
 
+      {!isCashier ? (
       <div className="panel">
         <div className="panel-header product-catalog-header">
           <div>
@@ -1630,6 +1694,7 @@ export function ProductsPage() {
           </table>
         </div>
       </div>
+      ) : null}
 
       {showImportModal ? (
         <div className="modal-backdrop" role="presentation">

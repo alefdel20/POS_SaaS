@@ -23,7 +23,7 @@ const roleLabels: Record<Role, string> = {
   superusuario: "superusuario",
   superadmin: "superadministrador",
   admin: "administrador",
-  clinico: "medico / veterinario",
+  clinico: "doctor",
   soporte: "soporte",
   support: "soporte",
   user: "cajero",
@@ -96,6 +96,9 @@ const errorTranslations: Record<string, string> = {
   "Preventive event status is invalid": "El estado del evento preventivo es invalido",
   "Patient weight is invalid": "El peso del paciente es invalido",
   "Prescription not found": "Receta no encontrada"
+  ,"El doctor ya tiene una cita programada en ese horario": "El doctor ya tiene una cita programada en ese horario"
+  ,"Request has already been resolved": "La solicitud ya fue procesada"
+  ,"Feature schema is not ready": "La funcionalidad aun no esta lista en la base de datos"
 };
 
 export function getPaymentMethodLabel(value: Sale["payment_method"]) {

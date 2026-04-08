@@ -1,5 +1,6 @@
 import type { PosType } from "../types";
 import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessInvoices, canAccessSales, canViewUsers, isManagementRole, normalizeRole } from "./roles";
+import { hidesAesthetics, isPharmacyClinicPos, usesPatientLabel } from "./pos";
 
 export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "clinical" | "invoices" | "businesses" | "all";
 
@@ -22,6 +23,7 @@ export type BusinessVertical = "healthcare" | "retail";
 const HEALTHCARE_POS_TYPES = new Set<PosType>(["Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
 
 const ADMIN_LINKS: SidebarMenuItem[] = [
+  { label: "Aprobaciones", to: "/product-update-requests", roles: "management", activeMatch: ["/product-update-requests"] },
   { label: "Credito y Cobranza", to: "/credit-collections", roles: "management", activeMatch: ["/credit-collections"] },
   { label: "Corte Diario", to: "/daily-cut", roles: "dailyCut", activeMatch: ["/daily-cut"] },
   { label: "Finanzas", to: "/finances", roles: "management", activeMatch: ["/finances"] },
@@ -46,6 +48,32 @@ function isRoleAllowed(role?: string | null, roleGroup: SidebarRoleGroup = "all"
   if (roleGroup === "invoices") return canAccessInvoices(role);
   if (roleGroup === "businesses") return canAccessBusinesses(role);
   return false;
+}
+
+function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | null, role?: string | null): SidebarMenuItem[] {
+  const pharmacyClinic = isPharmacyClinicPos(posType);
+  const shouldHideAesthetics = hidesAesthetics(posType);
+  const patientLabelOnly = usesPatientLabel(posType);
+
+  return items
+    .map((item) => {
+      const children = item.children ? filterByBusinessContext(item.children, posType, role) : undefined;
+      const nextItem = children ? { ...item, children } : item;
+
+      if (shouldHideAesthetics && nextItem.to === "/health/appointments/estetica") return null;
+      if (patientLabelOnly && nextItem.to === "/health/clients") return null;
+      if (normalizeRole(role) === "cajero") {
+        if (nextItem.to === "/health/products/medications") return { ...nextItem, roles: "sales" };
+        if (nextItem.to && ["/health/sales/accessories", "/health/products/accessories", "/health/suppliers/accessories", "/health/suppliers/medications"].includes(nextItem.to)) {
+          return null;
+        }
+      }
+
+      if (pharmacyClinic && nextItem.to === "/health/medical-history/carnet") return null;
+      return nextItem;
+    })
+    .filter((item): item is SidebarMenuItem => Boolean(item))
+    .filter((item) => item.to || item.children?.length);
 }
 
 function filterMenuItems(items: SidebarMenuItem[], role?: string | null, canShowCreditCollections = true): SidebarMenuItem[] {
@@ -197,6 +225,8 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
               ...item,
               to: item.label === "Resumen"
                 ? "/health/admin/summary"
+                : item.label === "Aprobaciones"
+                  ? "/product-update-requests"
                 : item.label === "Usuarios"
                   ? "/health/admin/users"
                   : item.label === "Perfil"
@@ -237,6 +267,8 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
         ...item,
         to: item.to === "/credit-collections"
           ? "/retail/admin/credit-collections"
+          : item.to === "/product-update-requests"
+            ? "/product-update-requests"
           : item.to === "/daily-cut"
             ? "/retail/admin/daily-cut"
             : item.to === "/finances"
@@ -260,7 +292,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
   return baseSections
     .map((section) => ({
       ...section,
-      items: filterMenuItems(section.items, role, canShowCreditCollections)
+      items: filterByBusinessContext(filterMenuItems(section.items, role, canShowCreditCollections), posType, role)
     }))
     .filter((section) => section.items.length > 0);
 }

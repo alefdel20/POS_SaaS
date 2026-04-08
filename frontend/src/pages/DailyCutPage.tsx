@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { DailyCut, User } from "../types";
+import type { DailyCut, ManualCut, User } from "../types";
 import { currency, dateLabel, shortDate } from "../utils/format";
 import { isCashierRole } from "../utils/roles";
 
@@ -39,9 +39,13 @@ export function DailyCutPage() {
   const [today, setToday] = useState<DailyCut | null>(null);
   const [history, setHistory] = useState<DailyCut[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [manualCuts, setManualCuts] = useState<ManualCut[]>([]);
+  const [manualCutDate, setManualCutDate] = useState("");
+  const [manualCutNotes, setManualCutNotes] = useState("");
   const [filters, setFilters] = useState<FilterState>(emptyFilters);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState<"" | "daily" | "monthly">("");
+  const [savingManualCut, setSavingManualCut] = useState(false);
 
   async function loadToday() {
     if (!token) return;
@@ -61,6 +65,12 @@ export function DailyCutPage() {
     setUsers(response);
   }
 
+  async function loadManualCuts() {
+    if (!token || isCashierRole(user?.role)) return;
+    const response = await apiRequest<ManualCut[]>("/daily-cuts/manual", { token });
+    setManualCuts(response);
+  }
+
   useEffect(() => {
     if (!token) return;
 
@@ -73,6 +83,9 @@ export function DailyCutPage() {
     if (!isCashierRole(user?.role)) {
       loadUsers().catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar usuarios");
+      });
+      loadManualCuts().catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar cortes manuales");
       });
     } else {
       setUsers([]);
@@ -141,6 +154,29 @@ export function DailyCutPage() {
       setError(downloadError instanceof Error ? downloadError.message : "No fue posible exportar el corte");
     } finally {
       setExporting("");
+    }
+  }
+
+  async function createManualCut() {
+    if (!token || isCashier) return;
+    try {
+      setSavingManualCut(true);
+      setError("");
+      await apiRequest<ManualCut>("/daily-cuts/manual", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          cut_date: manualCutDate || undefined,
+          notes: manualCutNotes || undefined
+        })
+      });
+      setManualCutDate("");
+      setManualCutNotes("");
+      await loadManualCuts();
+    } catch (manualError) {
+      setError(manualError instanceof Error ? manualError.message : "No fue posible registrar el corte manual");
+    } finally {
+      setSavingManualCut(false);
     }
   }
 
@@ -264,6 +300,59 @@ export function DailyCutPage() {
           </table>
         </div>
       </div>
+
+      {!isCashier ? (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Corte manual</h2>
+              <p className="muted">Visible para administracion con snapshot del usuario que lo registro.</p>
+            </div>
+          </div>
+          <div className="grid-form">
+            <label>
+              Fecha
+              <input type="date" value={manualCutDate} onChange={(event) => setManualCutDate(event.target.value)} />
+            </label>
+            <label className="form-span-2">
+              Notas
+              <textarea value={manualCutNotes} onChange={(event) => setManualCutNotes(event.target.value)} />
+            </label>
+            <div className="inline-actions">
+              <button className="button" disabled={savingManualCut} onClick={createManualCut} type="button">
+                {savingManualCut ? "Registrando..." : "Registrar corte manual"}
+              </button>
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Tipo</th>
+                  <th>Registrado por</th>
+                  <th>Notas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {manualCuts.map((cut) => (
+                  <tr key={cut.id}>
+                    <td>{shortDate(cut.cut_date)}</td>
+                    <td>{cut.cut_type}</td>
+                    <td>{cut.performed_by_name_snapshot}</td>
+                    <td>{cut.notes || "-"}</td>
+                  </tr>
+                ))}
+                {!manualCuts.length ? (
+                  <tr>
+                    <td className="muted" colSpan={4}>No hay cortes manuales registrados.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import type { ClinicalClientSummary, ClinicalHistoryResponse, ClinicalPatientSummary } from "../types";
 import { shortDate, shortDateTime } from "../utils/format";
 import { getMedicalHistoryViewFromPath } from "../utils/navigation";
+import { isPharmacyClinicPos, usesHumanPatientsOnly } from "../utils/pos";
 
 function groupTimelineByDate(history: ClinicalHistoryResponse | null) {
   const grouped = new Map<string, ClinicalHistoryResponse["timeline"]>();
@@ -18,7 +19,7 @@ function groupTimelineByDate(history: ClinicalHistoryResponse | null) {
 }
 
 export function MedicalHistoryPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -209,14 +210,14 @@ export function MedicalHistoryPage() {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>{historyView === "calendar" ? "Calendario / Cardex" : "Carnet clinico"}</h2>
+            <h2>{historyView === "calendar" || isPharmacyClinicPos(user?.pos_type) ? "Calendario clinico" : "Carnet clinico"}</h2>
             <p className="muted">La experiencia se mantiene dentro del modulo Historial medico.</p>
           </div>
         </div>
         {selectedPatient ? (
           <div className="info-card">
             <p><strong>Paciente:</strong> {selectedPatient.name}</p>
-            <p><strong>Cliente / tutor:</strong> {selectedPatient.client_name}</p>
+            <p><strong>{usesHumanPatientsOnly(user?.pos_type) ? "Paciente" : "Cliente / tutor"}:</strong> {selectedPatient.client_name}</p>
             <p><strong>Estado:</strong> {selectedPatient.is_active ? "Activo" : "Inactivo"}</p>
             <p><strong>Especie / raza:</strong> {selectedPatient.species || "-"} / {selectedPatient.breed || "-"}</p>
             <p><strong>Peso:</strong> {selectedPatient.weight ?? "-"}</p>
@@ -243,7 +244,7 @@ export function MedicalHistoryPage() {
         ) : null}
         {loading ? <p className="muted">Cargando historial...</p> : null}
 
-        {historyView === "calendar" ? (
+        {historyView === "calendar" || isPharmacyClinicPos(user?.pos_type) ? (
           <div className="timeline-list">
             {groupedTimeline.map(([date, entries]) => (
               <div className="info-card" key={date}>

@@ -51,6 +51,10 @@ async function ensureSchema(client) {
     "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS business_type VARCHAR(80)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(40)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS professional_license VARCHAR(80)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS specialty VARCHAR(120)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS theme_preference VARCHAR(20) NOT NULL DEFAULT 'dark'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_by INTEGER REFERENCES users(id)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_at TIMESTAMP",
@@ -178,6 +182,10 @@ async function ensureSchema(client) {
     "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS requested_stock NUMERIC(12, 3)",
     "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS review_note TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS request_type VARCHAR(30) NOT NULL DEFAULT 'update'",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS before_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS after_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS changed_fields JSONB NOT NULL DEFAULT '[]'::jsonb",
     "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
     "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
 
@@ -229,6 +237,17 @@ async function ensureSchema(client) {
     "ALTER TABLE credit_payments ADD COLUMN IF NOT EXISTS business_id INTEGER",
 
     "ALTER TABLE daily_cuts ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    `CREATE TABLE IF NOT EXISTS manual_cuts (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      cut_date DATE NOT NULL,
+      cut_type VARCHAR(20) NOT NULL DEFAULT 'manual',
+      notes TEXT NOT NULL DEFAULT '',
+      performed_by_user_id INTEGER REFERENCES users(id),
+      performed_by_name_snapshot VARCHAR(180) NOT NULL DEFAULT '',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
 
     "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS source_key VARCHAR(160)",
@@ -584,10 +603,12 @@ async function ensureSchema(client) {
       business_id INTEGER,
       patient_id INTEGER NOT NULL,
       client_id INTEGER NOT NULL,
+      doctor_user_id INTEGER REFERENCES users(id),
       appointment_date DATE NOT NULL,
       start_time TIME NOT NULL,
       end_time TIME NOT NULL,
       area VARCHAR(20) NOT NULL DEFAULT 'CLINICA',
+      specialty VARCHAR(120),
       status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
       notes TEXT NOT NULL DEFAULT '',
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -600,10 +621,12 @@ async function ensureSchema(client) {
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_id INTEGER",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS client_id INTEGER",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS doctor_user_id INTEGER REFERENCES users(id)",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS appointment_date DATE",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS start_time TIME",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS end_time TIME",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS area VARCHAR(20) NOT NULL DEFAULT 'CLINICA'",
+    "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS specialty VARCHAR(120)",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'scheduled'",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
@@ -1592,6 +1615,7 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_sale_items_business_id ON sale_items(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_credit_payments_business_id ON credit_payments(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_daily_cuts_business_id ON daily_cuts(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_manual_cuts_business_cut_date ON manual_cuts(business_id, cut_date DESC, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_reminders_business_id ON reminders(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_reminders_business_category_due_date ON reminders(business_id, category, due_date)",
     "CREATE INDEX IF NOT EXISTS idx_reminders_patient_id ON reminders(patient_id)",
@@ -1641,7 +1665,9 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_sale_prescription_links_sale_id ON sale_prescription_links(sale_id)",
     "CREATE INDEX IF NOT EXISTS idx_consultations_business_client_date ON consultations(business_id, client_id, consultation_date DESC)",
     "CREATE INDEX IF NOT EXISTS idx_appointments_business_date_area ON appointments(business_id, appointment_date, area, start_time, end_time)",
-    "CREATE INDEX IF NOT EXISTS idx_appointments_business_patient_date ON appointments(business_id, patient_id, appointment_date DESC)"
+    "CREATE INDEX IF NOT EXISTS idx_appointments_business_patient_date ON appointments(business_id, patient_id, appointment_date DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_appointments_business_doctor_date ON appointments(business_id, doctor_user_id, appointment_date DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_appointments_business_doctor_schedule ON appointments(business_id, doctor_user_id, appointment_date, status, start_time, end_time)"
   ]);
 }
 

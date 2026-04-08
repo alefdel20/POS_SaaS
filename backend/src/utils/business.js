@@ -22,6 +22,8 @@ const POS_TYPES_WITH_EXPIRY = new Set([
   "ClinicaChica"
 ]);
 const POS_TYPES_WITH_CREDIT = new Set(POS_TYPE_OPTIONS.filter((value) => value !== "Dentista"));
+const POS_TYPES_WITHOUT_AESTHETICS = new Set(["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
+const POS_TYPES_WITH_HUMAN_PATIENTS_ONLY = new Set(["Farmacia", "FarmaciaConsultorio", "ClinicaChica", "Dentista"]);
 
 function stripAccents(value) {
   return String(value || "")
@@ -100,6 +102,18 @@ function canUseCreditCollections(posType) {
   return POS_TYPES_WITH_CREDIT.has(normalizePosType(posType));
 }
 
+function hidesAesthetics(posType) {
+  return POS_TYPES_WITHOUT_AESTHETICS.has(normalizePosType(posType));
+}
+
+function usesHumanPatientsOnly(posType) {
+  return POS_TYPES_WITH_HUMAN_PATIENTS_ONLY.has(normalizePosType(posType));
+}
+
+function isPharmacyClinicPos(posType) {
+  return normalizePosType(posType) === "FarmaciaConsultorio";
+}
+
 module.exports = {
   POS_TYPE_CATALOG,
   POS_TYPE_OPTIONS,
@@ -110,5 +124,8 @@ module.exports = {
   isKnownPosType,
   canUseIeps,
   canUseExpiryDate,
-  canUseCreditCollections
+  canUseCreditCollections,
+  hidesAesthetics,
+  usesHumanPatientsOnly,
+  isPharmacyClinicPos
 };

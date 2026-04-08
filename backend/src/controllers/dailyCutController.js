@@ -1,4 +1,4 @@
-const { query } = require("express-validator");
+const { body, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const dailyCutService = require("../services/dailyCutService");
@@ -22,6 +22,12 @@ const exportValidation = [
   validateRequest
 ];
 
+const manualCutValidation = [
+  body("cut_date").optional({ values: "falsy" }).isISO8601(),
+  body("notes").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
+
 const listDailyCuts = asyncHandler(async (req, res) => {
   res.json(await dailyCutService.listDailyCuts(req.query, req.user));
 });
@@ -38,10 +44,21 @@ const exportDailyCuts = asyncHandler(async (req, res) => {
   res.send(Buffer.from(buffer));
 });
 
+const listManualCuts = asyncHandler(async (req, res) => {
+  res.json(await dailyCutService.listManualCuts(req.query, req.user));
+});
+
+const createManualCut = asyncHandler(async (req, res) => {
+  res.status(201).json(await dailyCutService.createManualCut(req.body, req.user));
+});
+
 module.exports = {
   listValidation,
   exportValidation,
+  manualCutValidation,
   listDailyCuts,
   getTodayDailyCut,
-  exportDailyCuts
+  exportDailyCuts,
+  listManualCuts,
+  createManualCut
 };

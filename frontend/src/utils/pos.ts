@@ -33,6 +33,9 @@ const IEPS_POS_TYPES = new Set<PosType>(["Tienda"]);
 const EXPIRY_POS_TYPES = new Set<PosType>(["Tienda", "Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
 const CREDIT_POS_TYPES = new Set<PosType>(POS_TYPE_OPTIONS.map((option) => option.value).filter((value) => value !== "Dentista"));
 const CLINICAL_POS_TYPES = new Set<PosType>(["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"]);
+const PATIENT_LABEL_POS_TYPES = new Set<PosType>(["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
+const NO_AESTHETICS_POS_TYPES = new Set<PosType>(["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
+const HUMAN_PATIENT_POS_TYPES = new Set<PosType>(["Farmacia", "FarmaciaConsultorio", "ClinicaChica", "Dentista"]);
 
 const DEFAULT_SIDEBAR_SECTIONS: SidebarSection[] = [
   {
@@ -73,15 +76,37 @@ export function isClinicalPos(posType?: string | null) {
   return CLINICAL_POS_TYPES.has((posType || "Otro") as PosType);
 }
 
+export function isPharmacyClinicPos(posType?: string | null) {
+  return posType === "FarmaciaConsultorio";
+}
+
+export function usesPatientLabel(posType?: string | null) {
+  return PATIENT_LABEL_POS_TYPES.has((posType || "Otro") as PosType);
+}
+
+export function hidesAesthetics(posType?: string | null) {
+  return NO_AESTHETICS_POS_TYPES.has((posType || "Otro") as PosType);
+}
+
+export function usesHumanPatientsOnly(posType?: string | null) {
+  return HUMAN_PATIENT_POS_TYPES.has((posType || "Otro") as PosType);
+}
+
 export function showsPatientSpecies(posType?: string | null) {
   return isVeterinaryPos(posType);
 }
 
 export function getClinicalClientLabel(posType?: string | null) {
+  if (usesPatientLabel(posType)) {
+    return "Pacientes";
+  }
   return isVeterinaryPos(posType) ? "Clientes / Duenos" : "Clientes / Responsables";
 }
 
 export function getClinicalPatientLabel(posType?: string | null) {
+  if (usesPatientLabel(posType)) {
+    return "Pacientes";
+  }
   return isVeterinaryPos(posType) ? "Pacientes / Mascotas" : "Pacientes";
 }
 
