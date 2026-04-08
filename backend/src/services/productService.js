@@ -1203,145 +1203,15 @@ function sanitizeImportedRow(row, context) {
   return payload;
 }
 
-async function confirmProductImport(rows, actor) {
-  if (!Array.isArray(rows) || rows.length === 0) {
-    throw new ApiError(400, "Import rows are required");
-  }
-  if (rows.length > PRODUCT_IMPORT_LIMIT) {
-    throw new ApiError(400, `Import limit is ${PRODUCT_IMPORT_LIMIT} rows per request`);
-  }
-
-  const context = await getImportContext(actor);
-  const results = [];
-  const seenSkus = new Set();
-  const seenBarcodes = new Set();
-
-  for (const row of rows) {
-    try {
-      const payload = sanitizeImportedRow(row, context);
-      const normalizedSku = String(payload.sku || "").toUpperCase();
-      const normalizedBarcode = String(payload.barcode || "");
-      if (normalizedSku && (context.existingSkus.has(normalizedSku) || seenSkus.has(normalizedSku))) {
-        payload.sku = "";
-      }
-      if (normalizedBarcode && (context.existingBarcodes.has(normalizedBarcode) || seenBarcodes.has(normalizedBarcode))) {
-        payload.barcode = "";
-      }
-
-      const created = await createProduct(payload, actor);
-      results.push({
-        row_number: row?.row_number || row?.index || null,
-        status: "imported",
-        product_id: created.id,
-        product_name: created.name
-      });
-      if (normalizedSku) seenSkus.add(normalizedSku);
-      if (normalizedBarcode) seenBarcodes.add(normalizedBarcode);
-    } catch (error) {
-      results.push({
-        row_number: row?.row_number || row?.index || null,
-        status: "error",
-        message: error instanceof Error ? error.message : "Import row failed"
-      });
-    }
-  }
-
-  return {
-    results,
-    summary: {
-      total: rows.length,
-      imported: results.filter((row) => row.status === "imported").length,
-      errors: results.filter((row) => row.status === "error").length,
-      omitted: 0
-    }
-  };
-}
-
-async function listRestockProducts(filters = {}, actor) {
-  const businessId = requireActorBusinessId(actor);
-  const values = [businessId];
-  const conditions = [
-    "product_data.business_id = $1",
-    "product_data.is_active = TRUE",
-    "product_data.status = 'activo'",
-    "product_data.stock <= product_data.stock_minimo"
-  ];
-
-  if (filters.category) {
-    values.push(String(filters.category).trim());
-    conditions.push(`product_data.category = $${values.length}`);
-  }
-
-  const catalogScopeCondition = buildCatalogScopeCondition("product_data.catalog_type", filters.catalog_scope, values, "product_data.category", "product_data.name");
-  if (catalogScopeCondition) {
-    conditions.push(catalogScopeCondition);
-  }
-
-  if (filters.supplier) {
-    values.push(`%${String(filters.supplier).trim()}%`);
-    conditions.push(`COALESCE(product_suppliers.name, '') ILIKE $${values.length}`);
-  }
-
-  if (filters.search) {
-    values.push(`%${String(filters.search).trim()}%`);
-    conditions.push(`(
-      product_data.name ILIKE $${values.length}
-      OR product_data.sku ILIKE $${values.length}
-      OR COALESCE(product_data.category, '') ILIKE $${values.length}
-      OR COALESCE(product_suppliers.name, '') ILIKE $${values.length}
-    )`);
-  }
-
-  const { rows } = await pool.query(
-    `SELECT
-       product_data.id,
-       product_data.name,
-       product_data.sku,
-       product_data.category,
-       product_data.stock,
-       product_data.stock_minimo,
-       product_data.stock_maximo,
-       product_data.cost_price,
-       product_data.unidad_de_venta,
-       product_suppliers.name AS supplier_name,
-       product_suppliers.whatsapp AS supplier_whatsapp,
-       product_suppliers.purchase_cost AS recent_purchase_cost,
-       product_suppliers.cost_updated_at,
-       GREATEST(COALESCE(product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0), 0) AS shortage,
-       GREATEST(COALESCE(product_data.stock_maximo, product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0), 0) AS suggested_restock
-     FROM products product_data
-     LEFT JOIN LATERAL (
-       SELECT ps.*, s.name, s.whatsapp
-       FROM product_suppliers ps
-       INNER JOIN suppliers s ON s.id = ps.supplier_id AND s.business_id = ps.business_id
-       WHERE ps.product_id = product_data.id
-         AND ps.business_id = product_data.business_id
-       ORDER BY ps.is_primary DESC, ps.cost_updated_at DESC NULLS LAST, s.name ASC
-       LIMIT 1
-     ) AS product_suppliers ON TRUE
-     WHERE ${conditions.join(" AND ")}
-     ORDER BY shortage DESC, suggested_restock DESC, product_data.name ASC`,
-    values
-  );
-
-  return rows.map((row) => ({
-    ...row,
-    stock: Number(row.stock || 0),
-    stock_minimo: Number(row.stock_minimo || 0),
-    stock_maximo: Number(row.stock_maximo || 0),
-    cost_price: Number(row.cost_price || 0),
-    recent_purchase_cost: row.recent_purchase_cost === null || row.recent_purchase_cost === undefined ? null : Number(row.recent_purchase_cost),
-    shortage: Number(row.shortage || 0),
-    suggested_restock: Number(row.suggested_restock || 0)
-  }));
-}
-
 async function createProduct(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const actorRole = normalizeRole(actor?.role);
+  const creationReason = String(payload?.reason || "").trim();
+
   if (actorRole === "cajero") {
     throw new ApiError(403, "Cashiers cannot create products directly");
   }
+
   const client = await pool.connect();
 
   try {
@@ -1410,6 +1280,7 @@ async function createProduct(payload, actor) {
       supplier_id: primarySupplierId,
       source: payload?.source || "products_module"
     }, { client });
+
     if (Number(rows[0].stock || 0) <= Number(rows[0].stock_minimo || 0)) {
       await emitActorAutomationEvent(actor, "low_stock_detected", {
         product_id: rows[0].id,
@@ -1420,6 +1291,7 @@ async function createProduct(payload, actor) {
         source: "product_created"
       }, { client });
     }
+
     await saveAuditLog({
       business_id: businessId,
       usuario_id: actor.id,
@@ -1436,6 +1308,7 @@ async function createProduct(payload, actor) {
         product_name: rows[0].name
       })
     }, { client });
+
     await client.query("COMMIT");
     return mapProductRow(rows[0]);
   } catch (error) {
