@@ -9,6 +9,8 @@ const {
 } = require("../utils/business");
 
 const normalizeClassificationPayload = (req, _res, next) => {
+  console.log("[BEFORE_NORMALIZE]", req.body);
+
   if (req.body?.business_type) {
     const normalizedBusinessType = normalizePosType(req.body.business_type);
     if (normalizedBusinessType) {
@@ -22,6 +24,8 @@ const normalizeClassificationPayload = (req, _res, next) => {
       req.body.pos_type = normalizedPosType;
     }
   }
+
+  console.log("[AFTER_NORMALIZE]", req.body);
 
   next();
 };
@@ -46,7 +50,11 @@ const listBusinesses = asyncHandler(async (req, res) => {
 });
 
 const createBusiness = asyncHandler(async (req, res) => {
+  console.log("[BUSINESS_CREATE_BODY]", JSON.stringify(req.body, null, 2));
+
   res.status(201).json(await businessService.createBusiness(req.body, req.user));
 });
 
 module.exports = { createValidation, listBusinesses, createBusiness };
+
+
