@@ -6,6 +6,7 @@ import type { ClinicalConsultation, ClinicalPatientSummary, MedicalPrescription,
 import { PRESCRIPTION_STATUSES } from "../utils/domainEnums";
 import { shortDateTime } from "../utils/format";
 import { getConsultationModeFromPath } from "../utils/navigation";
+import { showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
 import { canAccessSales } from "../utils/roles";
 
 type ConsultationFormState = {
@@ -95,7 +96,7 @@ function prescriptionToForm(prescription: MedicalPrescription | null, consultati
 }
 
 function buildPatientSearchLabel(patient: ClinicalPatientSummary) {
-  return `${patient.name} - ${patient.client_name || "Sin cliente"}`;
+  return `${patient.name} - ${patient.client_name || "Sin contacto"}`;
 }
 
 function getMedicationStockLabel(product: Product) {
@@ -133,6 +134,8 @@ export function MedicalConsultationsPage() {
   const [prescriptionSaving, setPrescriptionSaving] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const showSpecies = showsPatientSpecies(user?.pos_type);
+  const humanPatientsOnly = usesHumanPatientsOnly(user?.pos_type);
   const selectedPatient = patients.find((patient) => String(patient.id) === form.patient_id) || null;
   const detailPatient = patients.find((patient) => patient.id === detail?.patient_id) || null;
   const visibleConsultations = search.trim() ? consultations : consultations.slice(0, 5);
@@ -462,7 +465,7 @@ export function MedicalConsultationsPage() {
             <thead>
               <tr>
                 <th>Paciente</th>
-                <th>Cliente</th>
+                <th>{humanPatientsOnly ? "Contacto" : "Cliente"}</th>
                 <th>Fecha</th>
                 <th>Motivo</th>
                 <th>Receta</th>
@@ -509,7 +512,7 @@ export function MedicalConsultationsPage() {
             Paciente *
             <input
               list="consultation-patient-options"
-              placeholder="Busca paciente o responsable"
+              placeholder={humanPatientsOnly ? "Busca paciente por nombre" : "Busca paciente o responsable"}
               value={patientSearch}
               onChange={(event) => handlePatientSearchChange(event.target.value)}
             />
@@ -517,16 +520,18 @@ export function MedicalConsultationsPage() {
           <datalist id="consultation-patient-options">
             {patients.map((patient) => <option key={patient.id} value={buildPatientSearchLabel(patient)} />)}
           </datalist>
-          <label>
-            Cliente
-            <input disabled value={patients.find((patient) => String(patient.id) === form.patient_id)?.client_name || ""} />
-          </label>
+          {!humanPatientsOnly ? (
+            <label>
+              Cliente
+              <input disabled value={patients.find((patient) => String(patient.id) === form.patient_id)?.client_name || ""} />
+            </label>
+          ) : null}
           {selectedPatient ? (
             <div className="info-card form-span-2">
-              <p><strong>Responsable:</strong> {selectedPatient.client_name || "-"}</p>
+              <p><strong>{humanPatientsOnly ? "Contacto" : "Responsable"}:</strong> {selectedPatient.client_name || "-"}</p>
               <p><strong>Telefono:</strong> {selectedPatient.client_phone || "-"}</p>
               <p><strong>Correo:</strong> {selectedPatient.client_email || "-"}</p>
-              <p><strong>Especie / raza:</strong> {selectedPatient.species || "-"} / {selectedPatient.breed || "-"}</p>
+              {showSpecies ? <p><strong>Especie / raza:</strong> {selectedPatient.species || "-"} / {selectedPatient.breed || "-"}</p> : null}
               <p><strong>Sexo:</strong> {selectedPatient.sex || "-"}</p>
               <p><strong>Nacimiento:</strong> {selectedPatient.birth_date || "-"}</p>
             </div>
@@ -612,10 +617,10 @@ export function MedicalConsultationsPage() {
           <>
             <div className="info-card">
               <p><strong>Paciente:</strong> {detail.patient_name}</p>
-              <p><strong>Cliente:</strong> {detail.client_name}</p>
+              {!humanPatientsOnly ? <p><strong>Cliente:</strong> {detail.client_name}</p> : null}
               <p><strong>Telefono:</strong> {detailPatient?.client_phone || "-"}</p>
               <p><strong>Correo:</strong> {detailPatient?.client_email || "-"}</p>
-              <p><strong>Especie / raza:</strong> {detail.species || detailPatient?.species || "-"} / {detail.breed || detailPatient?.breed || "-"}</p>
+              {showSpecies ? <p><strong>Especie / raza:</strong> {detail.species || detailPatient?.species || "-"} / {detail.breed || detailPatient?.breed || "-"}</p> : null}
               <p><strong>Sexo:</strong> {detailPatient?.sex || "-"}</p>
               <p><strong>Nacimiento:</strong> {detailPatient?.birth_date || "-"}</p>
               <p><strong>Fecha:</strong> {shortDateTime(detail.consultation_date)}</p>
@@ -626,7 +631,7 @@ export function MedicalConsultationsPage() {
               <div className="inline-actions">
                 <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver historial</button>
                 <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver paciente</button>
-                <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver cliente</button>
+                {!humanPatientsOnly ? <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver cliente</button> : null}
               </div>
             </div>
 

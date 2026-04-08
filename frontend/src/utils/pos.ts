@@ -110,6 +110,20 @@ export function getClinicalPatientLabel(posType?: string | null) {
   return isVeterinaryPos(posType) ? "Pacientes / Mascotas" : "Pacientes";
 }
 
+export function getHealthcareSidebarTitle(posType?: string | null) {
+  return isVeterinaryPos(posType) ? "Area Salud / Veterinaria" : "Area Salud";
+}
+
+export function getMedicalHistoryNavLabel(posType?: string | null) {
+  return usesHumanPatientsOnly(posType) ? "Carnet" : "Calendario / Cardex";
+}
+
+export function getPatientSearchPlaceholder(posType?: string | null) {
+  return usesHumanPatientsOnly(posType)
+    ? "Buscar paciente por nombre o telefono"
+    : "Nombre, tutor, especie o raza";
+}
+
 export function canUseIeps(posType?: string | null) {
   return IEPS_POS_TYPES.has((posType || "Otro") as PosType);
 }

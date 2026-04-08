@@ -738,6 +738,11 @@ export function ProductsPage() {
     const wasEditing = Boolean(editingId);
     setInfo("");
 
+    if (isCashier && !editingId) {
+      setError("Selecciona un producto existente para solicitar cambios");
+      return;
+    }
+
     const price = Number(form.price);
     const stock = Number(form.stock);
     const stockMinimo = Number(form.stock_minimo);
@@ -1072,7 +1077,7 @@ export function ProductsPage() {
     <section className="page-grid">
       <form className="panel product-form-panel product-form-panel-wide" onSubmit={handleSubmit}>
         <div className="panel-header">
-          <h2>{editingId ? `Editar ${productModuleLabel.toLowerCase()}` : `Nuevo ${productModuleLabel.toLowerCase()}`}</h2>
+          <h2>{isCashier ? (editingId ? `Solicitar cambio en ${productModuleLabel.toLowerCase()}` : "Solicitar cambio de producto") : editingId ? `Editar ${productModuleLabel.toLowerCase()}` : `Nuevo ${productModuleLabel.toLowerCase()}`}</h2>
           <div className="inline-actions">
             {editingId ? (
               <button
@@ -1100,6 +1105,12 @@ export function ProductsPage() {
             <div className="info-card compact-box"><strong>{requestSummary.approved}</strong><span className="muted">Aprobadas</span></div>
             <div className="info-card compact-box"><strong>{requestSummary.rejected}</strong><span className="muted">Rechazadas</span></div>
             <div className="info-card compact-box"><strong>{requestSummary.today}</strong><span className="muted">Enviadas hoy</span></div>
+          </div>
+        ) : null}
+        {isCashier && !editingId ? (
+          <div className="info-card">
+            <p><strong>Solicitud de cambios</strong></p>
+            <p>Selecciona un producto del listado y usa <strong>Editar</strong> para enviar cambios a aprobacion.</p>
           </div>
         ) : null}
         <div className="product-form-grid product-form-grid-wide">
@@ -1346,7 +1357,7 @@ export function ProductsPage() {
         {error ? <p className="error-text">{error}</p> : null}
         {info ? <p className="success-text">{info}</p> : null}
         <button className="button" disabled={saving} type="submit">
-          {saving ? "Guardando..." : editingId ? "Actualizar producto" : "Guardar producto"}
+          {saving ? "Guardando..." : isCashier ? "Enviar solicitud" : editingId ? "Actualizar producto" : "Guardar producto"}
         </button>
       </form>
 
@@ -1481,7 +1492,7 @@ export function ProductsPage() {
             <p className="muted">Buscador, paginación y alertas por stock mínimo.</p>
           </div>
           <div className="inline-actions">
-            <button className="button" onClick={resetProductEditor} type="button">{isCashier ? "Solicitar cambio" : "Nuevo registro"}</button>
+            {!isCashier ? <button className="button" onClick={resetProductEditor} type="button">Nuevo registro</button> : null}
             {!isCashier ? <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button> : null}
             <input
               className="search-input"

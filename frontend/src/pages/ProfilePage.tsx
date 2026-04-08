@@ -174,11 +174,11 @@ export function ProfilePage() {
           {error ? <p className="error-text">{error}</p> : null}
           {info ? <p className="success-text">{info}</p> : null}
           <label>
-            Nombre
+            Nombre completo
             <input value={doctorForm.full_name} onChange={(event) => setDoctorForm({ ...doctorForm, full_name: event.target.value })} />
           </label>
           <label>
-            Correo
+            Correo electronico
             <input type="email" value={doctorForm.email} onChange={(event) => setDoctorForm({ ...doctorForm, email: event.target.value })} />
           </label>
           <label>
@@ -190,11 +190,11 @@ export function ProfilePage() {
             <input value={doctorForm.professional_license} onChange={(event) => setDoctorForm({ ...doctorForm, professional_license: event.target.value })} />
           </label>
           <label>
-            Especialidad
+            Especialidad medica
             <input value={doctorForm.specialty} onChange={(event) => setDoctorForm({ ...doctorForm, specialty: event.target.value })} />
           </label>
           <label>
-            Tema
+            Preferencia de tema
             <select value={doctorForm.theme_preference} onChange={(event) => setDoctorForm({ ...doctorForm, theme_preference: event.target.value as "light" | "dark" })}>
               <option value="dark">Oscuro</option>
               <option value="light">Claro</option>

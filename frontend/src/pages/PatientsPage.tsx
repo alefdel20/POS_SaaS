@@ -4,7 +4,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalClientSummary, ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
 import { PREVENTIVE_EVENT_STATUSES, PREVENTIVE_EVENT_TYPES } from "../utils/domainEnums";
-import { getClinicalPatientLabel, showsPatientSpecies } from "../utils/pos";
+import { getClinicalPatientLabel, showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
 import { shortDate, shortDateTime } from "../utils/format";
 
 type PatientFormState = {
@@ -94,6 +94,7 @@ export function PatientsPage() {
   const [info, setInfo] = useState("");
   const patientLabel = getClinicalPatientLabel(user?.pos_type);
   const showSpecies = showsPatientSpecies(user?.pos_type);
+  const humanPatientsOnly = usesHumanPatientsOnly(user?.pos_type);
 
   async function loadPatients(term = "") {
     if (!token) return;
@@ -114,7 +115,7 @@ export function PatientsPage() {
 
   async function loadMedications() {
     if (!token) return;
-    const response = await apiRequest<{ items: Product[] }>("/products?catalog_scope=medications-supplies&page=1&pageSize=50", { token });
+    const response = await apiRequest<{ items: Product[] }>("/products?catalog_scope=medications-supplies&page=1&pageSize=15", { token });
     setMedications(response.items);
   }
 
@@ -131,10 +132,14 @@ export function PatientsPage() {
     loadClients().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar clientes");
     });
-    loadMedications().catch(() => {
+    if (!humanPatientsOnly) {
+      loadMedications().catch(() => {
+        setMedications([]);
+      });
+    } else {
       setMedications([]);
-    });
-  }, [token]);
+    }
+  }, [token, humanPatientsOnly]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -309,7 +314,7 @@ export function PatientsPage() {
             <thead>
               <tr>
                 <th>{patientLabel}</th>
-                <th>Responsable</th>
+                <th>{humanPatientsOnly ? "Contacto" : "Responsable"}</th>
                 <th>{showSpecies ? "Especie / raza" : "Consultas"}</th>
                 <th>Estado</th>
               </tr>
@@ -351,7 +356,7 @@ export function PatientsPage() {
 
         <form className="grid-form" onSubmit={handleSubmit}>
           <label>
-            Responsable *
+            {humanPatientsOnly ? "Contacto *" : "Responsable *"}
             <input
               list="patient-client-options"
               placeholder="Busca por nombre o telefono"
@@ -415,11 +420,11 @@ export function PatientsPage() {
           <>
             <div className="info-card">
               <p><strong>Paciente:</strong> {detail.name}</p>
-              <p><strong>Responsable:</strong> {detail.client_name}</p>
+              <p><strong>{humanPatientsOnly ? "Contacto" : "Responsable"}:</strong> {detail.client_name}</p>
               <p><strong>Estado:</strong> {detail.is_active ? "Activo" : "Inactivo"}</p>
-              <p><strong>Telefono responsable:</strong> {detail.client_phone || "-"}</p>
-              <p><strong>Correo responsable:</strong> {detail.client_email || "-"}</p>
-              <p><strong>Direccion responsable:</strong> {detail.client_address || "-"}</p>
+              <p><strong>{humanPatientsOnly ? "Telefono" : "Telefono responsable"}:</strong> {detail.client_phone || "-"}</p>
+              <p><strong>{humanPatientsOnly ? "Correo" : "Correo responsable"}:</strong> {detail.client_email || "-"}</p>
+              <p><strong>{humanPatientsOnly ? "Direccion" : "Direccion responsable"}:</strong> {detail.client_address || "-"}</p>
               <p><strong>Sexo:</strong> {detail.sex || "-"}</p>
               <p><strong>Nacimiento:</strong> {shortDate(detail.birth_date || null)}</p>
               <p><strong>Peso:</strong> {detail.weight ?? "-"}</p>
@@ -510,6 +515,7 @@ export function PatientsPage() {
               </table>
             </div>
 
+            {!humanPatientsOnly ? (
             <form className="grid-form" onSubmit={handlePreventiveSubmit}>
               <div className="panel-header">
                 <div>
@@ -560,6 +566,7 @@ export function PatientsPage() {
                 <button className="button" disabled={preventiveSaving} type="submit">{preventiveSaving ? "Guardando..." : "Guardar preventivo"}</button>
               </div>
             </form>
+            ) : null}
 
             <div className="table-wrap">
               <table>

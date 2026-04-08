@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import type { ClinicalClientSummary, ClinicalHistoryResponse, ClinicalPatientSummary } from "../types";
 import { shortDate, shortDateTime } from "../utils/format";
 import { getMedicalHistoryViewFromPath } from "../utils/navigation";
-import { isPharmacyClinicPos, usesHumanPatientsOnly } from "../utils/pos";
+import { getPatientSearchPlaceholder, showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
 
 function groupTimelineByDate(history: ClinicalHistoryResponse | null) {
   const grouped = new Map<string, ClinicalHistoryResponse["timeline"]>();
@@ -35,14 +35,16 @@ export function MedicalHistoryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const humanPatientsOnly = usesHumanPatientsOnly(user?.pos_type);
+  const showSpecies = showsPatientSpecies(user?.pos_type);
 
   const filteredPatients = useMemo(() => {
     const term = patientSearch.trim().toLowerCase();
     if (!term) return patients;
     return patients.filter((patient) =>
-      `${patient.name} ${patient.client_name || ""} ${patient.species || ""} ${patient.breed || ""}`.toLowerCase().includes(term)
+      `${patient.name} ${patient.client_name || ""} ${humanPatientsOnly ? `${patient.client_phone || ""} ${patient.client_email || ""}` : `${patient.species || ""} ${patient.breed || ""}`}`.toLowerCase().includes(term)
     );
-  }, [patientSearch, patients]);
+  }, [humanPatientsOnly, patientSearch, patients]);
 
   const selectedPatient = patients.find((patient) => String(patient.id) === patientId) || null;
   const groupedTimeline = useMemo(() => groupTimelineByDate(history), [history]);
@@ -160,15 +162,17 @@ export function MedicalHistoryPage() {
         <div className="form-section-grid">
           <label className="form-span-2">
             Buscar paciente
-            <input placeholder="Nombre, tutor, especie o raza" value={patientSearch} onChange={(event) => setPatientSearch(event.target.value)} />
+            <input placeholder={getPatientSearchPlaceholder(user?.pos_type)} value={patientSearch} onChange={(event) => setPatientSearch(event.target.value)} />
           </label>
-          <label>
-            Cliente
-            <select value={clientId} onChange={(event) => setClientId(event.target.value)}>
-              <option value="">Todos</option>
-              {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
-            </select>
-          </label>
+          {!humanPatientsOnly ? (
+            <label>
+              Cliente
+              <select value={clientId} onChange={(event) => setClientId(event.target.value)}>
+                <option value="">Todos</option>
+                {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+              </select>
+            </label>
+          ) : null}
           <label>
             Desde
             <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
@@ -183,18 +187,38 @@ export function MedicalHistoryPage() {
             <thead>
               <tr>
                 <th>Paciente</th>
-                <th>Cliente</th>
-                <th>Especie / raza</th>
-                <th>Consultas</th>
+                {humanPatientsOnly ? (
+                  <>
+                    <th>Telefono</th>
+                    <th>Consultas</th>
+                    <th>Correo</th>
+                  </>
+                ) : (
+                  <>
+                    <th>Cliente</th>
+                    <th>Especie / raza</th>
+                    <th>Consultas</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
               {filteredPatients.map((patient) => (
                 <tr className={String(patient.id) === patientId ? "table-row-active" : ""} key={patient.id} onClick={() => setPatientId(String(patient.id))}>
                   <td>{patient.name}</td>
-                  <td>{patient.client_name}</td>
-                  <td>{patient.species || "-"} / {patient.breed || "-"}</td>
-                  <td>{patient.consultation_count}</td>
+                  {humanPatientsOnly ? (
+                    <>
+                      <td>{patient.client_phone || "-"}</td>
+                      <td>{patient.consultation_count}</td>
+                      <td>{patient.client_email || "-"}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td>{patient.client_name}</td>
+                      <td>{showSpecies ? `${patient.species || "-"} / ${patient.breed || "-"}` : "-"}</td>
+                      <td>{patient.consultation_count}</td>
+                    </>
+                  )}
                 </tr>
               ))}
               {!filteredPatients.length ? (
@@ -210,16 +234,16 @@ export function MedicalHistoryPage() {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>{historyView === "calendar" || isPharmacyClinicPos(user?.pos_type) ? "Calendario clinico" : "Carnet clinico"}</h2>
+            <h2>{historyView === "calendar" ? "Calendario clinico" : "Carnet clinico"}</h2>
             <p className="muted">La experiencia se mantiene dentro del modulo Historial medico.</p>
           </div>
         </div>
         {selectedPatient ? (
           <div className="info-card">
             <p><strong>Paciente:</strong> {selectedPatient.name}</p>
-            <p><strong>{usesHumanPatientsOnly(user?.pos_type) ? "Paciente" : "Cliente / tutor"}:</strong> {selectedPatient.client_name}</p>
+            <p><strong>{humanPatientsOnly ? "Contacto" : "Cliente / tutor"}:</strong> {selectedPatient.client_name}</p>
             <p><strong>Estado:</strong> {selectedPatient.is_active ? "Activo" : "Inactivo"}</p>
-            <p><strong>Especie / raza:</strong> {selectedPatient.species || "-"} / {selectedPatient.breed || "-"}</p>
+            {showSpecies ? <p><strong>Especie / raza:</strong> {selectedPatient.species || "-"} / {selectedPatient.breed || "-"}</p> : null}
             <p><strong>Peso:</strong> {selectedPatient.weight ?? "-"}</p>
             <p><strong>Alergias:</strong> {selectedPatient.allergies || "-"}</p>
             <div className="inline-actions">
@@ -244,7 +268,7 @@ export function MedicalHistoryPage() {
         ) : null}
         {loading ? <p className="muted">Cargando historial...</p> : null}
 
-        {historyView === "calendar" || isPharmacyClinicPos(user?.pos_type) ? (
+        {historyView === "calendar" ? (
           <div className="timeline-list">
             {groupedTimeline.map(([date, entries]) => (
               <div className="info-card" key={date}>
@@ -272,7 +296,7 @@ export function MedicalHistoryPage() {
                   <strong>{entry.patient_name}</strong>
                   <span className="muted">{shortDateTime(entry.consultation_date)}</span>
                 </div>
-                <p><strong>Cliente:</strong> {entry.client_name}</p>
+                {!humanPatientsOnly ? <p><strong>Cliente:</strong> {entry.client_name}</p> : null}
                 <p><strong>Motivo:</strong> {entry.motivo_consulta}</p>
                 <p><strong>Diagnostico:</strong> {entry.diagnostico}</p>
                 <p><strong>Tratamiento:</strong> {entry.tratamiento}</p>

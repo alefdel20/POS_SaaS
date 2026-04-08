@@ -1,6 +1,6 @@
 import type { PosType } from "../types";
 import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessInvoices, canAccessSales, canViewUsers, isManagementRole, normalizeRole } from "./roles";
-import { hidesAesthetics, isPharmacyClinicPos, usesPatientLabel } from "./pos";
+import { getClinicalPatientLabel, getHealthcareSidebarTitle, getMedicalHistoryNavLabel, hidesAesthetics, usesPatientLabel, usesHumanPatientsOnly } from "./pos";
 
 export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "clinical" | "invoices" | "businesses" | "all";
 
@@ -51,9 +51,9 @@ function isRoleAllowed(role?: string | null, roleGroup: SidebarRoleGroup = "all"
 }
 
 function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | null, role?: string | null): SidebarMenuItem[] {
-  const pharmacyClinic = isPharmacyClinicPos(posType);
   const shouldHideAesthetics = hidesAesthetics(posType);
   const patientLabelOnly = usesPatientLabel(posType);
+  const humanPatientsOnly = usesHumanPatientsOnly(posType);
 
   return items
     .map((item) => {
@@ -69,7 +69,8 @@ function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | nu
         }
       }
 
-      if (pharmacyClinic && nextItem.to === "/health/medical-history/carnet") return null;
+      if (humanPatientsOnly && nextItem.to === "/health/medical-history/calendar") return null;
+      if (humanPatientsOnly && nextItem.to === "/clients") return null;
       return nextItem;
     })
     .filter((item): item is SidebarMenuItem => Boolean(item))
@@ -168,7 +169,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
 
   const healthcareSections: SidebarMenuSection[] = [
     {
-      title: "Area Salud / Veterinaria",
+      title: getHealthcareSidebarTitle(posType),
       items: [
         {
           label: "Alimentos y accesorios",
@@ -199,14 +200,15 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
             {
               label: "Consultas",
               children: [
-                { label: "Recetas", to: "/health/consultations/recetas", roles: "clinical", activeMatch: ["/health/consultations", "/medical-consultations"] }
+                { label: "Recetas", to: "/health/consultations/recetas", roles: "clinical", activeMatch: ["/health/consultations", "/medical-consultations"] },
+                { label: "Perfil", to: "/health/admin/profile", roles: "clinical", activeMatch: ["/health/admin/profile", "/profile"] }
               ]
             },
             {
               label: "Historial medico",
               children: [
                 { label: "Carnet", to: "/health/medical-history/carnet", roles: "clinical", activeMatch: withAlias("/health/medical-history/carnet", "/medical-history") },
-                { label: "Calendario / Cardex", to: "/health/medical-history/calendar", roles: "clinical", activeMatch: ["/health/medical-history/calendar"] }
+                { label: getMedicalHistoryNavLabel(posType), to: "/health/medical-history/calendar", roles: "clinical", activeMatch: ["/health/medical-history/calendar"] }
               ]
             }
           ]
@@ -215,7 +217,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
           label: "Clientes y pacientes",
           children: [
             { label: "Clientes / Tutor(es)", to: "/health/clients", roles: "clinical", activeMatch: withAlias("/health/clients", "/clients") },
-            { label: "Pacientes / Mascotas", to: "/health/patients", roles: "clinical", activeMatch: withAlias("/health/patients", "/patients") }
+            { label: getClinicalPatientLabel(posType), to: "/health/patients", roles: "clinical", activeMatch: withAlias("/health/patients", "/patients") }
           ]
         },
         {

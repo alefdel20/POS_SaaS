@@ -1329,10 +1329,8 @@ async function listRestockProducts(filters = {}, actor) {
 async function createProduct(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const actorRole = normalizeRole(actor?.role);
-  const creationReason = String(payload?.reason || "").trim();
-
-  if (actorRole === "cajero" && !creationReason) {
-    throw new ApiError(400, "Reason is required to create a product");
+  if (actorRole === "cajero") {
+    throw new ApiError(403, "Cashiers cannot create products directly");
   }
   const client = await pool.connect();
 
