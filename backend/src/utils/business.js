@@ -13,8 +13,28 @@ const POS_TYPE_CATALOG = [
 const POS_TYPE_OPTIONS = POS_TYPE_CATALOG.map((option) => option.value);
 const BUSINESS_TYPE_OPTIONS = [...POS_TYPE_OPTIONS];
 const POS_TYPES_WITH_IEPS = new Set(["Tienda"]);
-const POS_TYPES_WITH_EXPIRY = new Set(["Tienda", "Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
+const POS_TYPES_WITH_EXPIRY = new Set([
+  "Tienda",
+  "Veterinaria",
+  "Dentista",
+  "Farmacia",
+  "FarmaciaConsultorio",
+  "ClinicaChica"
+]);
 const POS_TYPES_WITH_CREDIT = new Set(POS_TYPE_OPTIONS.filter((value) => value !== "Dentista"));
+
+function stripAccents(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeKey(value) {
+  return stripAccents(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
 
 const POS_TYPE_SYNONYMS = new Map([
   ["tienda", "Tienda"],
@@ -25,22 +45,26 @@ const POS_TYPE_SYNONYMS = new Map([
   ["farmacia", "Farmacia"],
   ["farmacia consultorio", "FarmaciaConsultorio"],
   ["farmacia con consultorio", "FarmaciaConsultorio"],
-  ["clinicachica", "ClinicaChica"],
+  ["farmaciaconsultorio", "FarmaciaConsultorio"],
   ["clinica chica", "ClinicaChica"],
+  ["clinicachica", "ClinicaChica"],
   ["clinca chica", "ClinicaChica"],
   ["otro", "Otro"]
 ]);
-
-function stripAccents(value) {
-  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
 
 function normalizeBusinessValue(value) {
   return String(value || "").trim();
 }
 
 function normalizePosType(value) {
-  const normalized = stripAccents(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  if (POS_TYPE_OPTIONS.includes(raw)) {
+    return raw;
+  }
+
+  const normalized = normalizeKey(raw);
   return POS_TYPE_SYNONYMS.get(normalized) || null;
 }
 
@@ -80,6 +104,7 @@ module.exports = {
   POS_TYPE_CATALOG,
   POS_TYPE_OPTIONS,
   BUSINESS_TYPE_OPTIONS,
+  normalizeBusinessValue,
   normalizePosType,
   resolveBusinessClassification,
   isKnownPosType,
