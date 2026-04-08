@@ -24,10 +24,12 @@ export function DashboardPage() {
   useEffect(() => {
     if (!token) return;
 
-    Promise.all([
+    const requests: [Promise<DashboardSummary>, Promise<CompanyProfile | null>] = [
       apiRequest<DashboardSummary>("/dashboard/summary", { token }),
-      apiRequest<CompanyProfile>("/profile", { token })
-    ])
+      role === "clinico" ? Promise.resolve(null) : apiRequest<CompanyProfile>("/profile", { token })
+    ];
+
+    Promise.all(requests)
       .then(([summaryResponse, profileResponse]) => {
         setSummary(summaryResponse);
         setProfile(profileResponse);
@@ -35,7 +37,7 @@ export function DashboardPage() {
       .catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el dashboard");
       });
-  }, [token]);
+  }, [role, token]);
 
   const shortcuts = summary?.operations?.shortcuts || [];
   const doctorSummary = summary?.operations?.doctor;

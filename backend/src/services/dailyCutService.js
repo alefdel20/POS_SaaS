@@ -3,6 +3,8 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate, getMonthRange } = require("../utils/timezone");
+const { normalizeRole } = require("../utils/roles");
+const { saveAuditLog } = require("./auditLogService");
 
 const VALID_SALE_STATUS_SQL = "COALESCE(sales.status, 'completed') <> 'cancelled'";
 
@@ -186,6 +188,10 @@ async function exportDailyCutsExcel(period = "daily", filters = {}, actor) {
 }
 
 async function listManualCuts(filters = {}, actor) {
+  const actorRole = normalizeRole(actor?.role);
+  if (!["superusuario", "admin"].includes(actorRole || "")) {
+    throw new ApiError(403, "Forbidden");
+  }
   const businessId = requireActorBusinessId(actor);
   const params = [businessId];
   const conditions = ["business_id = $1"];
@@ -219,36 +225,67 @@ async function listManualCuts(filters = {}, actor) {
 }
 
 async function createManualCut(payload = {}, actor) {
+  const actorRole = normalizeRole(actor?.role);
+  if (!["superusuario", "admin", "cajero"].includes(actorRole || "")) {
+    throw new ApiError(403, "Forbidden");
+  }
   const businessId = requireActorBusinessId(actor);
   const cutDate = payload.cut_date || getLocalIsoDate();
   const notes = String(payload.notes || "").trim();
   const performedByNameSnapshot = String(actor.full_name || "").trim() || `Usuario #${actor.id}`;
   console.info("[MANUAL-CUT] Creating manual cut", { businessId, actorId: actor.id, cutDate });
 
-  let rows;
+  const client = await pool.connect();
   try {
-    ({ rows } = await pool.query(
+    await client.query("BEGIN");
+    const { rows } = await client.query(
       `INSERT INTO manual_cuts (
         business_id, cut_date, cut_type, notes, performed_by_user_id, performed_by_name_snapshot
        )
        VALUES ($1, $2, 'manual', $3, $4, $5)
        RETURNING id, business_id, cut_date, cut_type, notes, performed_by_user_id, performed_by_name_snapshot, created_at, updated_at`,
       [businessId, cutDate, notes, actor.id, performedByNameSnapshot]
-    ));
+    );
+
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "daily_cuts",
+      accion: "create_manual_cut",
+      entidad_tipo: "manual_cut",
+      entidad_id: rows[0].id,
+      detalle_anterior: {},
+      detalle_nuevo: {
+        cut_date: rows[0].cut_date,
+        cut_type: rows[0].cut_type,
+        notes: rows[0].notes,
+        performed_by_user_id: rows[0].performed_by_user_id,
+        performed_by_name_snapshot: rows[0].performed_by_name_snapshot
+      },
+      motivo: notes,
+      metadata: {
+        actor_role: actorRole
+      }
+    }, { client });
+
+    await client.query("COMMIT");
+
+    return {
+      ...rows[0],
+      id: Number(rows[0].id),
+      business_id: Number(rows[0].business_id),
+      performed_by_user_id: rows[0].performed_by_user_id ? Number(rows[0].performed_by_user_id) : null
+    };
   } catch (error) {
+    await client.query("ROLLBACK");
     if (isSchemaError(error)) {
       console.error("[MANUAL-CUT] Schema error while creating manual cut", error);
       throw new ApiError(503, "Feature schema is not ready");
     }
     throw error;
+  } finally {
+    client.release();
   }
-
-  return {
-    ...rows[0],
-    id: Number(rows[0].id),
-    business_id: Number(rows[0].business_id),
-    performed_by_user_id: rows[0].performed_by_user_id ? Number(rows[0].performed_by_user_id) : null
-  };
 }
 
 module.exports = { recomputeDailyCut, listDailyCuts, getTodayDailyCut, exportDailyCutsExcel, listManualCuts, createManualCut };

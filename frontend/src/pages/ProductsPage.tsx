@@ -8,6 +8,7 @@ import type {
   ProductImportConfirmResponse,
   ProductImportPreviewResponse,
   ProductImportPreviewRow,
+  ProductUpdateRequest,
   ProductUpdateRequestSummary,
   RestockProductItem,
   Supplier
@@ -891,7 +892,17 @@ export function ProductsPage() {
     let savedProduct: Product | null = null;
 
     try {
-      if (editingId) {
+      if (isCashier && editingId) {
+        await apiRequest<ProductUpdateRequest>("/product-update-requests", {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            product_id: editingId,
+            reason: `Cambio solicitado desde edicion de ${productModuleLabel.toLowerCase()}`,
+            new_values: payload
+          })
+        });
+      } else if (editingId) {
         savedProduct = await apiRequest<Product>(`/products/${editingId}`, {
           method: "PUT",
           token,
@@ -939,7 +950,8 @@ export function ProductsPage() {
       }
       if (isCashier) {
         await loadRequestSummary();
-        setInfo("Tu cambio fue enviado para aprobacion. Puedes seguir su estatus desde este modulo.");
+        window.dispatchEvent(new CustomEvent("product-update-requests:refresh-banner"));
+        setInfo("Cambio enviado y pendiente de aprobación.");
       }
     } catch (submissionError) {
       if (savedProduct) {
@@ -1552,6 +1564,9 @@ export function ProductsPage() {
                       <div>
                         <div>{product.name}</div>
                         {product.is_low_stock ? <small className="error-text">Stock bajo</small> : null}
+                        {product.has_pending_update_request ? (
+                          <small className="muted">Pendiente de aprobacion ({product.pending_update_request_count || 1})</small>
+                        ) : null}
                       </div>
                     </div>
                   </td>

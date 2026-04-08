@@ -586,6 +586,7 @@ function buildProductSelect(effectivePriceCase) {
       primary_supplier.observations AS supplier_observations,
       COALESCE(supplier_meta.suppliers_json, '[]'::jsonb) AS suppliers,
       COALESCE(supplier_meta.supplier_names, ARRAY[]::text[]) AS supplier_names,
+      COALESCE(pending_requests.pending_update_request_count, 0) AS pending_update_request_count,
       COALESCE(sales_21.recent_units_sold, 0) AS recent_units_sold,
       product_data.stock <= product_data.stock_minimo AS is_low_stock,
       COALESCE(sales_21.recent_units_sold, 0) = 0
@@ -635,6 +636,13 @@ function buildProductSelect(effectivePriceCase) {
       ORDER BY product_suppliers.is_primary DESC, suppliers.name ASC
       LIMIT 1
     ) primary_supplier ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS pending_update_request_count
+      FROM product_update_requests
+      WHERE product_update_requests.business_id = product_data.business_id
+        AND product_update_requests.product_id = product_data.id
+        AND product_update_requests.status = 'pending'
+    ) pending_requests ON TRUE
   `;
 }
 
@@ -644,7 +652,9 @@ function mapProductRow(row) {
     ...row,
     image_path: row.image_path || null,
     catalog_type: normalizeCatalogType(row.catalog_type),
-    unidad_de_venta: normalizeSaleUnit(row.unidad_de_venta)
+    unidad_de_venta: normalizeSaleUnit(row.unidad_de_venta),
+    has_pending_update_request: Number(row.pending_update_request_count || 0) > 0,
+    pending_update_request_count: Number(row.pending_update_request_count || 0)
   };
 }
 
@@ -1444,9 +1454,6 @@ async function getOwnedProduct(id, actor, client = pool) {
 }
 
 async function updateProduct(id, payload, actor) {
-  if (normalizeRole(actor?.role) === "cajero") {
-    return productUpdateRequestService.createProductChangeRequestFromEdit(id, payload, actor);
-  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

@@ -11,6 +11,10 @@ function toNumber(value) {
   return Number(value || 0);
 }
 
+function isHealthcareVertical(posType) {
+  return ["Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"].includes(String(posType || ""));
+}
+
 async function getSummary(actor) {
   const businessId = requireActorBusinessId(actor);
   const today = getMexicoCityDate();
@@ -297,7 +301,7 @@ async function getOperationalSummary({ actor, businessId, today, role, isClinica
       shortcuts: [
         { label: "Abrir agenda", path: "/medical-appointments" },
         { label: "Ver pacientes", path: "/patients" },
-        { label: "Editar perfil", path: "/profile" }
+        { label: "Editar perfil", path: "/health/doctor/profile" }
       ]
     };
   }
@@ -350,11 +354,11 @@ async function getOperationalSummary({ actor, businessId, today, role, isClinica
       created_at: row.created_at
     })),
     shortcuts: [
-      { label: "Abrir aprobaciones", path: "/product-update-requests" },
+      { label: "Abrir aprobaciones", path: isHealthcareVertical(actor?.pos_type) ? "/health/admin/approvals" : "/retail/admin/approvals" },
       isClinicalVertical
         ? { label: "Ver agenda", path: "/medical-appointments" }
         : { label: "Ver productos", path: "/products" },
-      { label: "Ir a corte diario", path: "/daily-cut" }
+      { label: "Ir a corte diario", path: isHealthcareVertical(actor?.pos_type) ? "/health/admin/daily-cut" : "/retail/admin/daily-cut" }
     ]
   };
 }

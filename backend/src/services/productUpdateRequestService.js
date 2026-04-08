@@ -28,18 +28,18 @@ function computeChangedFields(beforeSnapshot, afterSnapshot) {
 }
 
 function mapRequestRow(row) {
-  const beforeSnapshot = row.before_snapshot || null;
-  const afterSnapshot = row.after_snapshot || null;
   if (!row) return null;
+  const beforeSnapshot = row.old_values || row.before_snapshot || null;
+  const afterSnapshot = row.new_values || row.after_snapshot || null;
   return {
     id: Number(row.id),
     business_id: Number(row.business_id),
     product_id: Number(row.product_id),
     product_name: row.product_name,
     product_sku: row.product_sku,
-    requested_by_user_id: Number(row.requested_by_user_id),
+    requested_by_user_id: Number(row.requested_by || row.requested_by_user_id),
     requested_by_name: row.requested_by_name || null,
-    reviewed_by_user_id: row.reviewed_by_user_id ? Number(row.reviewed_by_user_id) : null,
+    reviewed_by_user_id: row.reviewed_by || row.reviewed_by_user_id ? Number(row.reviewed_by || row.reviewed_by_user_id) : null,
     reviewed_by_name: row.reviewed_by_name || null,
     status: row.status,
     reason: row.reason,
@@ -50,10 +50,12 @@ function mapRequestRow(row) {
     request_type: row.request_type || "update",
     before_snapshot: beforeSnapshot,
     after_snapshot: afterSnapshot,
+    old_values: beforeSnapshot,
+    new_values: afterSnapshot,
     changed_fields: Array.isArray(row.changed_fields) ? row.changed_fields : computeChangedFields(beforeSnapshot, afterSnapshot),
     review_note: row.review_note || "",
     reviewed_at: row.reviewed_at || null,
-    resolved_by_user_id: row.reviewed_by_user_id ? Number(row.reviewed_by_user_id) : null,
+    resolved_by_user_id: row.reviewed_by || row.reviewed_by_user_id ? Number(row.reviewed_by || row.reviewed_by_user_id) : null,
     resolved_at: row.reviewed_at || null,
     created_at: row.created_at,
     updated_at: row.updated_at
@@ -98,12 +100,14 @@ function normalizeOptionalNumeric(value, label, options = {}) {
 }
 
 function buildRequestSnapshot(row) {
+  const beforeSnapshot = row.old_values || row.before_snapshot || null;
+  const afterSnapshot = row.new_values || row.after_snapshot || null;
   return {
     id: Number(row.id),
     business_id: Number(row.business_id),
     product_id: Number(row.product_id),
-    requested_by_user_id: Number(row.requested_by_user_id),
-    reviewed_by_user_id: row.reviewed_by_user_id ? Number(row.reviewed_by_user_id) : null,
+    requested_by_user_id: Number(row.requested_by || row.requested_by_user_id),
+    reviewed_by_user_id: row.reviewed_by || row.reviewed_by_user_id ? Number(row.reviewed_by || row.reviewed_by_user_id) : null,
     status: row.status,
     reason: row.reason,
     current_price_snapshot: Number(row.current_price_snapshot),
@@ -112,9 +116,11 @@ function buildRequestSnapshot(row) {
     requested_stock: row.requested_stock === null || row.requested_stock === undefined ? null : Number(row.requested_stock),
     review_note: row.review_note || "",
     reviewed_at: row.reviewed_at || null,
-    before_snapshot: row.before_snapshot || null,
-    after_snapshot: row.after_snapshot || null,
-    changed_fields: Array.isArray(row.changed_fields) ? row.changed_fields : computeChangedFields(row.before_snapshot, row.after_snapshot),
+    before_snapshot: beforeSnapshot,
+    after_snapshot: afterSnapshot,
+    old_values: beforeSnapshot,
+    new_values: afterSnapshot,
+    changed_fields: Array.isArray(row.changed_fields) ? row.changed_fields : computeChangedFields(beforeSnapshot, afterSnapshot),
     created_at: row.created_at,
     updated_at: row.updated_at
   };
@@ -420,6 +426,13 @@ async function createProductUpdateRequest(payload, actor) {
     throw new ApiError(400, "Product is required");
   }
 
+  if (payload.new_values && typeof payload.new_values === "object" && !Array.isArray(payload.new_values)) {
+    return createProductChangeRequestFromEdit(productId, {
+      ...payload.new_values,
+      reason: payload.reason
+    }, actor);
+  }
+
   const reason = String(payload.reason || "").trim();
   if (!reason) {
     throw new ApiError(400, "Reason is required");
@@ -440,6 +453,13 @@ async function createProductUpdateRequest(payload, actor) {
     throw new ApiError(400, "At least one real change is required");
   }
 
+  const beforeSnapshot = buildProductSnapshot(currentProduct);
+  const afterSnapshot = buildAfterSnapshot(currentProduct, {
+    price: requestedPrice ?? currentProduct.price,
+    stock: requestedStock ?? currentProduct.stock
+  });
+  const changedFields = computeChangedFields(beforeSnapshot, afterSnapshot);
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -448,6 +468,7 @@ async function createProductUpdateRequest(payload, actor) {
         business_id,
         product_id,
         requested_by_user_id,
+        requested_by,
         request_type,
         status,
         reason,
@@ -455,12 +476,14 @@ async function createProductUpdateRequest(payload, actor) {
         requested_price,
         current_stock_snapshot,
         requested_stock,
+        old_values,
+        new_values,
         before_snapshot,
         after_snapshot,
         changed_fields,
         review_note
       )
-      VALUES ($1, $2, $3, 'update', 'pending', $4, $5, $6, $7, $8, $9, $10, $11, '')
+      VALUES ($1, $2, $3, $3, 'update', 'pending', $4, $5, $6, $7, $8, $9, $10, $9, $10, $11, '')
       RETURNING *`,
       [
         businessId,
@@ -471,18 +494,9 @@ async function createProductUpdateRequest(payload, actor) {
         requestedPrice,
         Number(currentProduct.stock),
         requestedStock,
-        buildProductSnapshot(currentProduct),
-        buildAfterSnapshot(currentProduct, {
-          price: requestedPrice ?? currentProduct.price,
-          stock: requestedStock ?? currentProduct.stock
-        }),
-        JSON.stringify(computeChangedFields(
-          buildProductSnapshot(currentProduct),
-          buildAfterSnapshot(currentProduct, {
-            price: requestedPrice ?? currentProduct.price,
-            stock: requestedStock ?? currentProduct.stock
-          })
-        ))
+        beforeSnapshot,
+        afterSnapshot,
+        JSON.stringify(changedFields)
       ]
     );
 
@@ -502,7 +516,8 @@ async function createProductUpdateRequest(payload, actor) {
       metadata: {
         product_id: Number(currentProduct.id),
         product_name: currentProduct.name,
-        product_sku: currentProduct.sku
+        product_sku: currentProduct.sku,
+        changed_fields: changedFields
       }
     }, { client });
 
@@ -543,56 +558,83 @@ async function createProductChangeRequestFromEdit(productId, payload, actor) {
 
   const reason = String(payload.reason || "").trim() || "Cambio solicitado por cajero";
   console.info("[APPROVALS] Queuing product change request", { businessId, productId, actorId: actor.id });
-  let rows;
+  const client = await pool.connect();
   try {
-    ({ rows } = await pool.query(
+    await client.query("BEGIN");
+    const { rows } = await client.query(
       `INSERT INTO product_update_requests (
         business_id,
         product_id,
         requested_by_user_id,
+        requested_by,
         request_type,
         status,
         reason,
         current_price_snapshot,
         requested_price,
         current_stock_snapshot,
-      requested_stock,
-      before_snapshot,
-      after_snapshot,
-      changed_fields,
-      review_note
-    )
-    VALUES ($1, $2, $3, 'update', 'pending', $4, $5, $6, $7, $8, $9, $10, $11, '')
-    RETURNING *`,
-    [
+        requested_stock,
+        old_values,
+        new_values,
+        before_snapshot,
+        after_snapshot,
+        changed_fields,
+        review_note
+      )
+      VALUES ($1, $2, $3, $3, 'update', 'pending', $4, $5, $6, $7, $8, $9, $10, $9, $10, $11, '')
+      RETURNING *`,
+      [
         businessId,
         productId,
         actor.id,
         reason,
         Number(currentProduct.price),
         afterSnapshot.price === undefined ? null : Number(afterSnapshot.price),
-      Number(currentProduct.stock),
-      afterSnapshot.stock === undefined ? null : Number(afterSnapshot.stock),
-      beforeSnapshot,
-      afterSnapshot,
-      JSON.stringify(computeChangedFields(beforeSnapshot, afterSnapshot))
-    ]
-  ));
+        Number(currentProduct.stock),
+        afterSnapshot.stock === undefined ? null : Number(afterSnapshot.stock),
+        beforeSnapshot,
+        afterSnapshot,
+        JSON.stringify(computeChangedFields(beforeSnapshot, afterSnapshot))
+      ]
+    );
+
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor.id,
+      modulo: "product_update_requests",
+      accion: "create_product_change_request_from_edit",
+      entidad_tipo: "product_update_request",
+      entidad_id: rows[0].id,
+      detalle_anterior: { product: beforeSnapshot },
+      detalle_nuevo: { request: buildRequestSnapshot(rows[0]), product: afterSnapshot },
+      motivo: reason,
+      metadata: {
+        product_id: Number(currentProduct.id),
+        product_name: currentProduct.name,
+        product_sku: currentProduct.sku,
+        changed_fields: computeChangedFields(beforeSnapshot, afterSnapshot)
+      }
+    }, { client });
+
+    await client.query("COMMIT");
+
+    return mapRequestRow({
+      ...rows[0],
+      product_name: currentProduct.name,
+      product_sku: currentProduct.sku,
+      requested_by_name: actor.full_name,
+      reviewed_by_name: null
+    });
   } catch (error) {
+    await client.query("ROLLBACK");
     if (isSchemaError(error)) {
       console.error("[APPROVALS] Schema error while creating request", error);
       throw new ApiError(503, "Feature schema is not ready");
     }
     throw error;
+  } finally {
+    client.release();
   }
-
-  return mapRequestRow({
-    ...rows[0],
-    product_name: currentProduct.name,
-    product_sku: currentProduct.sku,
-    requested_by_name: actor.full_name,
-    reviewed_by_name: null
-  });
 }
 
 async function reviewProductUpdateRequest(id, payload, actor) {
@@ -630,7 +672,8 @@ async function reviewProductUpdateRequest(id, payload, actor) {
     }
 
     const { rows: productRows } = await client.query(
-      `SELECT id, business_id, name, sku, price, stock, stock_minimo, stock_maximo, updated_at
+      `SELECT id, business_id, name, sku, barcode, category, description, price, cost_price, stock, stock_minimo, stock_maximo,
+              unidad_de_venta, expires_at, is_active, status, ieps, porcentaje_ganancia, updated_at
        FROM products
        WHERE id = $1 AND business_id = $2
        FOR UPDATE`,
@@ -705,6 +748,7 @@ async function reviewProductUpdateRequest(id, payload, actor) {
         `UPDATE product_update_requests
          SET status = 'approved',
              reviewed_by_user_id = $1,
+             reviewed_by = $1,
              review_note = $2,
              reviewed_at = NOW(),
              updated_at = NOW()
@@ -766,6 +810,7 @@ async function reviewProductUpdateRequest(id, payload, actor) {
       `UPDATE product_update_requests
        SET status = 'rejected',
            reviewed_by_user_id = $1,
+           reviewed_by = $1,
            review_note = $2,
            reviewed_at = NOW(),
            updated_at = NOW()

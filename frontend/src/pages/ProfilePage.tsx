@@ -94,7 +94,7 @@ const sectionFields = {
 } as const satisfies Record<string, readonly (keyof ProfileFormState)[]>;
 
 export function ProfilePage() {
-  const { token, user } = useAuth();
+  const { token, user, refreshUser } = useAuth();
   const isDoctor = normalizeRole(user?.role) === "clinico";
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
@@ -149,7 +149,9 @@ export function ProfilePage() {
       });
       setDoctorProfile(response);
       setDoctorForm(response);
+      await refreshUser();
       document.documentElement.dataset.theme = response.theme_preference || "dark";
+      document.documentElement.dataset.palette = "default";
       if (user?.business_id) {
         setStoredTheme(user.business_id, response.theme_preference || "dark");
       }

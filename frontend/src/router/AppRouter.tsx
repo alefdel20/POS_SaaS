@@ -50,7 +50,6 @@ export function AppRouter() {
               <Route path="/retail/sales" element={<SalesPage />} />
               <Route path="/health/sales/accessories" element={<SalesPage />} />
               <Route path="/health/sales/medications" element={<SalesPage />} />
-              <Route path="/product-update-requests" element={<ProductUpdateRequestsPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "cajero"]} posTypes={["FarmaciaConsultorio"]} />}>
               <Route path="/health/products/medications" element={<ProductsPage />} />
@@ -73,10 +72,16 @@ export function AppRouter() {
               <Route path="/retail/admin/summary" element={<DashboardPage />} />
               <Route path="/health/admin/summary" element={<DashboardPage />} />
             </Route>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.sales, ...ROUTE_ROLES.management]} />}>
+              <Route path="/product-update-requests" element={<ProductUpdateRequestsPage />} />
+              <Route path="/retail/admin/approvals" element={<ProductUpdateRequestsPage />} />
+              <Route path="/health/admin/approvals" element={<ProductUpdateRequestsPage />} />
+            </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "clinico"]} />}>
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/retail/admin/profile" element={<ProfilePage />} />
               <Route path="/health/admin/profile" element={<ProfilePage />} />
+              <Route path="/health/doctor/profile" element={<ProfilePage />} />
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/retail/products" element={<ProductsPage />} />
               <Route path="/health/products/accessories" element={<ProductsPage />} />

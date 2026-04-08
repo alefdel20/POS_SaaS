@@ -3,7 +3,8 @@ import { apiRequest } from "./api/client";
 import { AuthProvider } from "./context/AuthContext";
 import { useAuth } from "./context/AuthContext";
 import { getStoredTheme, setStoredTheme } from "./services/storage";
-import type { CompanyProfile } from "./types";
+import type { CompanyProfile, DoctorProfile } from "./types";
+import { normalizeRole } from "./utils/roles";
 import { AppRouter } from "./router/AppRouter";
 
 function RetailThemeSync() {
@@ -33,9 +34,13 @@ function RetailThemeSync() {
         return;
       }
 
-      const profile = await apiRequest<CompanyProfile>("/profile", { token });
-      const nextTheme = profile.theme === "light" ? "light" : "dark";
-      const nextPalette = profile.accent_palette || "default";
+      const isDoctor = normalizeRole(user.role) === "clinico";
+      const doctorProfile = isDoctor ? await apiRequest<DoctorProfile>("/profile/doctor", { token }) : null;
+      const companyProfile = isDoctor ? null : await apiRequest<CompanyProfile>("/profile", { token });
+      const nextTheme = isDoctor
+        ? (doctorProfile?.theme_preference === "light" ? "light" : "dark")
+        : (companyProfile?.theme === "light" ? "light" : "dark");
+      const nextPalette = isDoctor ? "default" : companyProfile?.accent_palette || "default";
       if (isCancelled) {
         return;
       }

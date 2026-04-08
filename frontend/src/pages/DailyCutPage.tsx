@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { DailyCut, ManualCut, User } from "../types";
-import { currency, dateLabel, shortDate } from "../utils/format";
+import { currency, dateLabel, shortDate, shortDateTime } from "../utils/format";
 import { isCashierRole } from "../utils/roles";
 
 type FilterState = {
@@ -158,7 +158,7 @@ export function DailyCutPage() {
   }
 
   async function createManualCut() {
-    if (!token || isCashier) return;
+    if (!token) return;
     try {
       setSavingManualCut(true);
       setError("");
@@ -172,7 +172,11 @@ export function DailyCutPage() {
       });
       setManualCutDate("");
       setManualCutNotes("");
-      await loadManualCuts();
+      await loadToday();
+      await loadHistory(filters);
+      if (!isCashier) {
+        await loadManualCuts();
+      }
     } catch (manualError) {
       setError(manualError instanceof Error ? manualError.message : "No fue posible registrar el corte manual");
     } finally {
@@ -301,29 +305,33 @@ export function DailyCutPage() {
         </div>
       </div>
 
-      {!isCashier ? (
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Corte manual</h2>
-              <p className="muted">Visible para administracion con snapshot del usuario que lo registro.</p>
-            </div>
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Corte Manual</h2>
+            <p className="muted">
+              {isCashier
+                ? "Registra tu corte manual. El admin podra consultarlo despues con tu nombre y fecha."
+                : "Registra cortes manuales y consulta el historial con trazabilidad por usuario."}
+            </p>
           </div>
-          <div className="grid-form">
-            <label>
-              Fecha
-              <input type="date" value={manualCutDate} onChange={(event) => setManualCutDate(event.target.value)} />
-            </label>
-            <label className="form-span-2">
-              Notas
-              <textarea value={manualCutNotes} onChange={(event) => setManualCutNotes(event.target.value)} />
-            </label>
-            <div className="inline-actions">
-              <button className="button" disabled={savingManualCut} onClick={createManualCut} type="button">
-                {savingManualCut ? "Registrando..." : "Registrar corte manual"}
-              </button>
-            </div>
+        </div>
+        <div className="grid-form">
+          <label>
+            Fecha
+            <input type="date" value={manualCutDate} onChange={(event) => setManualCutDate(event.target.value)} />
+          </label>
+          <label className="form-span-2">
+            Notas
+            <textarea value={manualCutNotes} onChange={(event) => setManualCutNotes(event.target.value)} />
+          </label>
+          <div className="inline-actions">
+            <button className="button" disabled={savingManualCut} onClick={createManualCut} type="button">
+              {savingManualCut ? "Registrando..." : "Registrar corte manual"}
+            </button>
           </div>
+        </div>
+        {!isCashier ? (
           <div className="table-wrap">
             <table>
               <thead>
@@ -331,6 +339,7 @@ export function DailyCutPage() {
                   <th>Fecha</th>
                   <th>Tipo</th>
                   <th>Registrado por</th>
+                  <th>Registrado en</th>
                   <th>Notas</th>
                 </tr>
               </thead>
@@ -340,19 +349,20 @@ export function DailyCutPage() {
                     <td>{shortDate(cut.cut_date)}</td>
                     <td>{cut.cut_type}</td>
                     <td>{cut.performed_by_name_snapshot}</td>
+                    <td>{shortDateTime(cut.created_at)}</td>
                     <td>{cut.notes || "-"}</td>
                   </tr>
                 ))}
                 {!manualCuts.length ? (
                   <tr>
-                    <td className="muted" colSpan={4}>No hay cortes manuales registrados.</td>
+                    <td className="muted" colSpan={5}>No hay cortes manuales registrados.</td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </section>
   );
 }

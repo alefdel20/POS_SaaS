@@ -250,6 +250,8 @@ export interface Product {
   is_low_rotation?: boolean;
   is_near_expiry?: boolean;
   is_on_sale?: boolean;
+  has_pending_update_request?: boolean;
+  pending_update_request_count?: number;
   stock: number;
   expires_at?: string | null;
   is_active: boolean;
@@ -275,6 +277,8 @@ export interface ProductUpdateRequest {
   request_type?: string;
   before_snapshot?: Record<string, unknown> | null;
   after_snapshot?: Record<string, unknown> | null;
+  old_values?: Record<string, unknown> | null;
+  new_values?: Record<string, unknown> | null;
   changed_fields?: string[];
   review_note: string;
   reviewed_at?: string | null;

@@ -8,7 +8,7 @@ import type {
   ProductUpdateRequestListResponse,
   ProductUpdateRequestSummary
 } from "../types";
-import { currency, shortDate, shortDateTime } from "../utils/format";
+import { currency, shortDateTime } from "../utils/format";
 import { isCashierRole, isManagementRole } from "../utils/roles";
 
 type RequestFormState = {
@@ -57,14 +57,24 @@ function formatChangeValue(value: unknown) {
 }
 
 function buildChangedFieldRows(request: ProductUpdateRequest) {
-  const beforeSnapshot = request.before_snapshot || {};
-  const afterSnapshot = request.after_snapshot || {};
+  const beforeSnapshot = request.old_values || request.before_snapshot || {};
+  const afterSnapshot = request.new_values || request.after_snapshot || {};
   const changedFields = request.changed_fields || [];
   return changedFields.map((field) => ({
     field,
     before: beforeSnapshot[field],
     after: afterSnapshot[field]
   }));
+}
+
+function summarizeChangedValues(request: ProductUpdateRequest, mode: "before" | "after") {
+  const rows = buildChangedFieldRows(request);
+  if (!rows.length) {
+    return "Sin diff";
+  }
+  return rows
+    .map((row) => `${row.field}: ${formatChangeValue(mode === "before" ? row.before : row.after)}`)
+    .join(" | ");
 }
 
 function getStatusLabel(status: ProductUpdateRequest["status"]) {
@@ -376,8 +386,10 @@ export function ProductUpdateRequestsPage() {
               <tr>
                 <th>Producto</th>
                 <th>Solicita</th>
+                <th>Tipo de cambio</th>
+                <th>Valor anterior</th>
+                <th>Valor propuesto</th>
                 <th>Estatus</th>
-                <th>Campos modificados</th>
                 <th>Fecha</th>
               </tr>
             </thead>
@@ -389,21 +401,20 @@ export function ProductUpdateRequestsPage() {
                     <small className="muted">{request.product_sku || "-"}</small>
                   </td>
                   <td>{request.requested_by_name || `Usuario #${request.requested_by_user_id}`}</td>
+                  <td>{request.changed_fields?.length ? request.changed_fields.join(", ") : request.request_type || "update"}</td>
+                  <td><small className="muted">{summarizeChangedValues(request, "before")}</small></td>
+                  <td><small className="muted">{summarizeChangedValues(request, "after")}</small></td>
                   <td>
                     <span className={`status-badge appointment-status-${request.status === "approved" ? "completed" : request.status === "rejected" ? "cancelled" : "scheduled"}`}>
                       {getStatusLabel(request.status)}
                     </span>
-                  </td>
-                  <td>
-                    <div>{request.changed_fields?.length ? request.changed_fields.join(", ") : "Sin diff"}</div>
-                    <small className="muted">{request.request_type || "update"}</small>
                   </td>
                   <td>{shortDateTime(request.created_at)}</td>
                 </tr>
               ))}
               {!requests.length ? (
                 <tr>
-                  <td className="muted" colSpan={5}>{loadingRequests ? "Cargando..." : "No hay solicitudes para este filtro."}</td>
+                  <td className="muted" colSpan={7}>{loadingRequests ? "Cargando..." : "No hay solicitudes para este filtro."}</td>
                 </tr>
               ) : null}
             </tbody>

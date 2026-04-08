@@ -9,6 +9,13 @@ import { getRoleLabel } from "../utils/uiLabels";
 export function Header() {
   const { token, user, logout, setSession } = useAuth();
   const [pendingSummary, setPendingSummary] = useState<ProductUpdateRequestPendingSummary | null>(null);
+  const approvalsPath = user?.pos_type === "Veterinaria"
+    || user?.pos_type === "Dentista"
+    || user?.pos_type === "Farmacia"
+    || user?.pos_type === "FarmaciaConsultorio"
+    || user?.pos_type === "ClinicaChica"
+    ? "/health/admin/approvals"
+    : "/retail/admin/approvals";
 
   async function exitSupportMode() {
     if (!token || !user?.support_context) return;
@@ -70,7 +77,7 @@ export function Header() {
             <strong>Solicitudes de producto pendientes</strong>
             <span>{pendingSummary.pending_count} pendientes por revisar en este negocio.</span>
           </div>
-          <Link className="button ghost" to="/product-update-requests">
+          <Link className="button ghost" to={approvalsPath}>
             Revisar solicitudes
           </Link>
         </div>

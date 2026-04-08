@@ -2,7 +2,7 @@ import type { PosType } from "../types";
 import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessInvoices, canAccessSales, canViewUsers, isManagementRole, normalizeRole } from "./roles";
 import { getClinicalPatientLabel, getHealthcareSidebarTitle, getMedicalHistoryNavLabel, hidesAesthetics, usesPatientLabel, usesHumanPatientsOnly } from "./pos";
 
-export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "clinical" | "invoices" | "businesses" | "all";
+export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "clinical" | "profile" | "invoices" | "businesses" | "all";
 
 export type SidebarMenuItem = {
   label: string;
@@ -23,7 +23,7 @@ export type BusinessVertical = "healthcare" | "retail";
 const HEALTHCARE_POS_TYPES = new Set<PosType>(["Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
 
 const ADMIN_LINKS: SidebarMenuItem[] = [
-  { label: "Aprobaciones", to: "/product-update-requests", roles: "management", activeMatch: ["/product-update-requests"] },
+  { label: "Aprobaciones", to: "/product-update-requests", roles: "management", activeMatch: ["/product-update-requests", "/retail/admin/approvals", "/health/admin/approvals"] },
   { label: "Credito y Cobranza", to: "/credit-collections", roles: "management", activeMatch: ["/credit-collections"] },
   { label: "Corte Diario", to: "/daily-cut", roles: "dailyCut", activeMatch: ["/daily-cut"] },
   { label: "Finanzas", to: "/finances", roles: "management", activeMatch: ["/finances"] },
@@ -31,7 +31,7 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Recordatorios", to: "/reminders", roles: "all", activeMatch: ["/reminders"] },
   { label: "Resumen", to: "/dashboard", roles: "management", activeMatch: ["/dashboard"] },
   { label: "Usuarios", to: "/users", roles: "users", activeMatch: ["/users"] },
-  { label: "Perfil", to: "/profile", roles: "management", activeMatch: ["/profile"] }
+  { label: "Perfil", to: "/profile", roles: "profile", activeMatch: ["/profile", "/retail/admin/profile", "/health/admin/profile", "/health/doctor/profile"] }
 ];
 
 function withAlias(aliasPath: string, targetPath: string) {
@@ -45,6 +45,7 @@ function isRoleAllowed(role?: string | null, roleGroup: SidebarRoleGroup = "all"
   if (roleGroup === "dailyCut") return canAccessDailyCut(role);
   if (roleGroup === "management") return isManagementRole(role);
   if (roleGroup === "clinical") return canAccessClinical(role);
+  if (roleGroup === "profile") return isManagementRole(role) || normalizeRole(role) === "clinico";
   if (roleGroup === "invoices") return canAccessInvoices(role);
   if (roleGroup === "businesses") return canAccessBusinesses(role);
   return false;
@@ -200,8 +201,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
             {
               label: "Consultas",
               children: [
-                { label: "Recetas", to: "/health/consultations/recetas", roles: "clinical", activeMatch: ["/health/consultations", "/medical-consultations"] },
-                { label: "Perfil", to: "/health/admin/profile", roles: "clinical", activeMatch: ["/health/admin/profile", "/profile"] }
+                { label: "Recetas", to: "/health/consultations/recetas", roles: "clinical", activeMatch: ["/health/consultations", "/medical-consultations"] }
               ]
             },
             {
@@ -220,6 +220,14 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
             { label: getClinicalPatientLabel(posType), to: "/health/patients", roles: "clinical", activeMatch: withAlias("/health/patients", "/patients") }
           ]
         },
+        ...(normalizeRole(role) === "clinico"
+          ? [{
+            label: "Mi perfil",
+            children: [
+              { label: "Perfil", to: "/health/doctor/profile", roles: "profile" as const, activeMatch: ["/health/doctor/profile", "/profile"] }
+            ]
+          }]
+          : []),
         {
           label: "Administracion",
           children: [
@@ -228,7 +236,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
               to: item.label === "Resumen"
                 ? "/health/admin/summary"
                 : item.label === "Aprobaciones"
-                  ? "/product-update-requests"
+                  ? "/health/admin/approvals"
                 : item.label === "Usuarios"
                   ? "/health/admin/users"
                   : item.label === "Perfil"
@@ -243,7 +251,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
                             ? "/health/admin/daily-cut"
                             : "/health/admin/credit-collections",
               activeMatch: item.activeMatch
-            }))
+            })).filter((item) => !(normalizeRole(role) === "clinico" && item.label === "Perfil"))
           ]
         }
       ]
@@ -270,7 +278,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
         to: item.to === "/credit-collections"
           ? "/retail/admin/credit-collections"
           : item.to === "/product-update-requests"
-            ? "/product-update-requests"
+            ? "/retail/admin/approvals"
           : item.to === "/daily-cut"
             ? "/retail/admin/daily-cut"
             : item.to === "/finances"

@@ -101,7 +101,7 @@ async function getDoctorProfile(actor) {
   let rows;
   try {
     ({ rows } = await pool.query(
-      `SELECT id, business_id, full_name, email, phone, professional_license, specialty, theme_preference, role
+      `SELECT id, business_id, full_name, email, phone, professional_license, COALESCE(medical_specialty, specialty) AS specialty, theme_preference, role
        FROM users
        WHERE id = $1 AND business_id = $2
        LIMIT 1`,
@@ -140,7 +140,7 @@ async function updateDoctorProfile(payload, actor) {
   console.info("[DOCTOR-PROFILE] Updating doctor profile", { businessId, actorId: actor.id });
 
   const { rows: currentRows } = await pool.query(
-    `SELECT id, business_id, full_name, email, phone, professional_license, specialty, theme_preference, role
+    `SELECT id, business_id, full_name, email, phone, professional_license, COALESCE(medical_specialty, specialty) AS specialty, theme_preference, role
      FROM users
      WHERE id = $1 AND business_id = $2
      LIMIT 1`,
@@ -161,10 +161,11 @@ async function updateDoctorProfile(payload, actor) {
            phone = $3,
            professional_license = $4,
            specialty = $5,
+           medical_specialty = $5,
            theme_preference = $6,
            updated_at = NOW()
        WHERE id = $7 AND business_id = $8
-       RETURNING id, business_id, full_name, email, phone, professional_license, specialty, theme_preference, role`,
+       RETURNING id, business_id, full_name, email, phone, professional_license, COALESCE(medical_specialty, specialty) AS specialty, theme_preference, role`,
       [
         payload.full_name ?? current.full_name,
         payload.email ?? current.email,
