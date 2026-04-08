@@ -244,14 +244,7 @@ function productToForm(product: Product): ProductFormState {
     status: product.status || (product.is_active ? "activo" : "inactivo"),
     suppliers: product.suppliers?.length
       ? product.suppliers.map((supplier) => supplierToForm(supplier))
-      : [supplierToForm({
-          id: product.supplier_id || undefined,
-          supplier_name: product.supplier_name || undefined,
-          email: product.supplier_email,
-          phone: product.supplier_phone,
-          whatsapp: product.supplier_whatsapp,
-          observations: product.supplier_observations
-        })],
+      : [{ ...emptySupplier }],
     discount_type: "",
     discount_value: "",
     discount_start: "",
