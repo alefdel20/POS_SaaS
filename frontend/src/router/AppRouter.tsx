@@ -16,7 +16,6 @@ import { PatientsPage } from "../pages/PatientsPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { ProductsPage } from "../pages/ProductsPage";
 import { ProductUpdateRequestsPage } from "../pages/ProductUpdateRequestsPage";
-import { RegisterBusinessPage } from "../pages/RegisterBusinessPage";
 import { RematePage } from "../pages/RematePage";
 import { RemindersPage } from "../pages/RemindersPage";
 import { SalesHistoryPage } from "../pages/SalesHistoryPage";
@@ -41,7 +40,6 @@ export function AppRouter() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/register-business" element={<RegisterBusinessPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<RoleHomeRedirect />} />
@@ -51,10 +49,17 @@ export function AppRouter() {
               <Route path="/health/sales/accessories" element={<SalesPage />} />
               <Route path="/health/sales/medications" element={<SalesPage />} />
             </Route>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "cajero"]} />}>
+              <Route path="/products/restock" element={<ProductsPage />} />
+              <Route path="/retail/products/restock" element={<ProductsPage />} />
+              <Route path="/health/products/accessories/restock" element={<ProductsPage />} />
+            </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "cajero"]} posTypes={["FarmaciaConsultorio"]} />}>
+              <Route path="/health/products/medications/restock" element={<ProductsPage />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management]} posTypes={["FarmaciaConsultorio"]} />}>
               <Route path="/health/products/medications" element={<ProductsPage />} />
               <Route path="/health/products/medications/new" element={<ProductsPage />} />
-              <Route path="/health/products/medications/restock" element={<ProductsPage />} />
             </Route>
             <Route path="/reminders" element={<RemindersPage />} />
             <Route path="/reminders/new" element={<RemindersPage />} />
@@ -92,13 +97,10 @@ export function AppRouter() {
               <Route path="/health/doctor/profile" element={<ProfilePage />} />
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/products/new" element={<ProductsPage />} />
-              <Route path="/products/restock" element={<ProductsPage />} />
               <Route path="/retail/products" element={<ProductsPage />} />
               <Route path="/retail/products/new" element={<ProductsPage />} />
-              <Route path="/retail/products/restock" element={<ProductsPage />} />
               <Route path="/health/products/accessories" element={<ProductsPage />} />
               <Route path="/health/products/accessories/new" element={<ProductsPage />} />
-              <Route path="/health/products/accessories/restock" element={<ProductsPage />} />
               <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/retail/suppliers" element={<SuppliersPage />} />
               <Route path="/health/suppliers/accessories" element={<SuppliersPage />} />

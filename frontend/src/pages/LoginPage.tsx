@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { AnkodeLogo } from "../components/AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
 import { getDefaultRouteForRole } from "../utils/roles";
@@ -23,7 +23,7 @@ export function LoginPage() {
     try {
       await login(identifier, password);
     } catch (submissionError) {
-      setError(submissionError instanceof Error ? submissionError.message : "No fue posible iniciar sesion");
+      setError(submissionError instanceof Error ? submissionError.message : "No fue posible iniciar sesión");
     } finally {
       setLoading(false);
     }
@@ -37,8 +37,7 @@ export function LoginPage() {
           <p className="login-brand-tagline">POS SYSTEM</p>
         </div>
         <div className="login-intro">
-          <p className="eyebrow">POS MVP</p>
-          <h1>Control de ventas con estilo oscuro</h1>
+          <h1>Bienvenido</h1>
           <p className="muted">Accede con usuario o correo para operar caja, inventario y recordatorios.</p>
         </div>
         <form className="grid-form" onSubmit={handleSubmit}>
@@ -51,7 +50,7 @@ export function LoginPage() {
             />
           </label>
           <label>
-            Contrasena
+            Contraseña
             <input
               autoComplete="current-password"
               type="password"
@@ -61,13 +60,9 @@ export function LoginPage() {
           </label>
           {error ? <p className="error-text">{error}</p> : null}
           <button className="button login-button" disabled={loading} type="submit">
-            {loading ? "Entrando..." : "Iniciar sesion"}
+            {loading ? "Entrando..." : "Iniciar sesión"}
           </button>
         </form>
-        <div className="auth-footer-links">
-          <span className="muted">Necesitas registrar un negocio nuevo?</span>
-          <Link className="auth-text-link" to="/register-business">Registrar negocio</Link>
-        </div>
       </div>
     </div>
   );

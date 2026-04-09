@@ -13,7 +13,6 @@ import { isCashierRole, isManagementRole } from "../utils/roles";
 
 type RequestFormState = {
   product_id: string;
-  requested_price: string;
   requested_stock: string;
   reason: string;
 };
@@ -29,7 +28,6 @@ type FiltersState = {
 
 const emptyForm: RequestFormState = {
   product_id: "",
-  requested_price: "",
   requested_stock: "",
   reason: ""
 };
@@ -211,11 +209,10 @@ export function ProductUpdateRequestsPage() {
       return;
     }
 
-    const requestedPrice = form.requested_price.trim() === "" ? undefined : Number(form.requested_price);
     const requestedStock = form.requested_stock.trim() === "" ? undefined : Number(form.requested_stock);
 
-    if (requestedPrice === undefined && requestedStock === undefined) {
-      setError("Debes solicitar al menos un cambio");
+    if (requestedStock === undefined) {
+      setError("Debes capturar el nuevo stock solicitado");
       return;
     }
 
@@ -227,12 +224,11 @@ export function ProductUpdateRequestsPage() {
         token,
         body: JSON.stringify({
           product_id: Number(form.product_id),
-          requested_price: requestedPrice,
           requested_stock: requestedStock,
           reason: trimmedReason
         })
       });
-      setInfo("Tu cambio fue enviado para aprobacion");
+      setInfo("Cambio enviado, pendiente de aprobación del administrador");
       setForm(emptyForm);
       setProductInput("");
       setProductSearch("");
@@ -276,8 +272,8 @@ export function ProductUpdateRequestsPage() {
         <div className="panel">
           <div className="panel-header">
             <div>
-              <h2>Nueva solicitud de producto</h2>
-              <p className="muted">Solicita cambios de precio o stock con confirmacion clara y seguimiento visible.</p>
+              <h2>Nueva solicitud de stock</h2>
+              <p className="muted">Solicita cambios de stock con confirmación clara y seguimiento visible.</p>
             </div>
           </div>
           {error ? <p className="error-text">{error}</p> : null}
@@ -301,16 +297,6 @@ export function ProductUpdateRequestsPage() {
             <datalist id="product-request-options">
               {products.map((product) => <option key={product.id} value={buildProductSearchLabel(product)} />)}
             </datalist>
-            <label>
-              Nuevo precio
-              <input
-                min="0"
-                step="0.00001"
-                type="number"
-                value={form.requested_price}
-                onChange={(event) => setForm({ ...form, requested_price: event.target.value })}
-              />
-            </label>
             <label>
               Nuevo stock actual
               <input
@@ -352,8 +338,8 @@ export function ProductUpdateRequestsPage() {
           </div>
           <div className="inline-actions">
             <select value={pageSize} onChange={(event) => { setPage(1); setPageSize(Number(event.target.value) as 10 | 15); }}>
-              <option value={10}>10 por pagina</option>
-              <option value={15}>15 por pagina</option>
+              <option value={10}>10 por página</option>
+              <option value={15}>15 por página</option>
             </select>
           </div>
         </div>
@@ -433,7 +419,7 @@ export function ProductUpdateRequestsPage() {
           <p className="muted">{totalItems} solicitudes encontradas</p>
           <div className="inline-actions">
             <button className="button ghost" disabled={page <= 1 || loadingRequests} onClick={() => setPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
-            <span className="muted">Pagina {page} de {totalPages}</span>
+            <span className="muted">Página {page} de {totalPages}</span>
             <button className="button ghost" disabled={page >= totalPages || loadingRequests} onClick={() => setPage((current) => Math.min(current + 1, totalPages))} type="button">Siguiente</button>
           </div>
         </div>

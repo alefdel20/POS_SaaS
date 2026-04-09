@@ -11,6 +11,7 @@ import type {
   ProductUpdateRequest,
   ProductUpdateRequestSummary,
   RestockProductItem,
+  RestockProductsResponse,
   Supplier
 } from "../types";
 import { currency, shortDateTime } from "../utils/format";
@@ -318,6 +319,11 @@ export function ProductsPage() {
   const [restockCategoryFilter, setRestockCategoryFilter] = useState("");
   const [restockSupplierFilter, setRestockSupplierFilter] = useState("");
   const [restockDrafts, setRestockDrafts] = useState<Record<number, string>>({});
+  const [restockReasonDrafts, setRestockReasonDrafts] = useState<Record<number, string>>({});
+  const [restockPage, setRestockPage] = useState(1);
+  const [restockPageSize, setRestockPageSize] = useState<10 | 15>(10);
+  const [restockTotalPages, setRestockTotalPages] = useState(1);
+  const [restockTotalItems, setRestockTotalItems] = useState(0);
   const [restockingId, setRestockingId] = useState<number | null>(null);
   const [loadingRestock, setLoadingRestock] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -454,11 +460,21 @@ export function ProductsPage() {
     setCategories(response);
   }
 
-  async function loadRestockProducts(nextSearch = restockSearch, nextCategory = restockCategoryFilter, nextSupplier = restockSupplierFilter) {
+  async function loadRestockProducts(
+    nextSearch = restockSearch,
+    nextCategory = restockCategoryFilter,
+    nextSupplier = restockSupplierFilter,
+    nextPage = restockPage,
+    nextPageSize = restockPageSize
+  ) {
     if (!token) return;
     setLoadingRestock(true);
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({
+        includeMeta: "true",
+        page: String(nextPage),
+        pageSize: String(nextPageSize)
+      });
       if (nextSearch.trim()) {
         params.set("search", nextSearch.trim());
       }
@@ -471,13 +487,24 @@ export function ProductsPage() {
       if (catalogScope) {
         params.set("catalog_scope", catalogScope);
       }
-      const response = await apiRequest<RestockProductItem[]>(`/products/restock?${params.toString()}`, { token });
-      setRestockItems(response);
+      const response = await apiRequest<RestockProductsResponse>(`/products/restock?${params.toString()}`, { token });
+      setRestockItems(response.items);
+      setRestockTotalPages(response.pagination.totalPages);
+      setRestockTotalItems(response.pagination.total);
       setRestockDrafts((current) => {
         const nextDrafts = { ...current };
-        response.forEach((item) => {
+        response.items.forEach((item) => {
           if (nextDrafts[item.id] === undefined) {
-            nextDrafts[item.id] = "0";
+            nextDrafts[item.id] = String(item.stock_maximo ?? item.stock ?? 0);
+          }
+        });
+        return nextDrafts;
+      });
+      setRestockReasonDrafts((current) => {
+        const nextDrafts = { ...current };
+        response.items.forEach((item) => {
+          if (nextDrafts[item.id] === undefined) {
+            nextDrafts[item.id] = "";
           }
         });
         return nextDrafts;
@@ -491,34 +518,49 @@ export function ProductsPage() {
     if (!token) return;
 
     const nextStockValue = restockDrafts[item.id] ?? String(item.stock_maximo ?? item.stock ?? 0);
+    const reason = String(restockReasonDrafts[item.id] || "").trim();
     const nextStock = Number(nextStockValue);
     if (!Number.isFinite(nextStock) || nextStock < 0) {
-      setError("El nuevo stock debe ser numerico y mayor o igual a cero");
+      setError("El nuevo stock debe ser numérico y mayor o igual a cero");
       return;
     }
-    if (nextStock === 0) {
-      setError("El nuevo stock no puede quedarse en 0. Captura el valor final que deseas guardar.");
+    if (!reason) {
+      setError("Debes capturar el motivo del cambio de stock");
       return;
     }
 
     try {
       setError("");
       setRestockingId(item.id);
-      await apiRequest<Product>(`/products/${item.id}/restock`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({
-          stock: nextStock,
-          reason: "restock_view_update"
-        })
-      });
-      setRestockItems((current) => current.filter((restockItem) => restockItem.id !== item.id));
+      if (isCashier) {
+        await apiRequest<ProductUpdateRequest>("/product-update-requests", {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            product_id: item.id,
+            requested_stock: nextStock,
+            reason
+          })
+        });
+        setInfo("Cambio enviado, pendiente de aprobación del administrador");
+        await loadRequestSummary();
+      } else {
+        await apiRequest<Product>(`/products/${item.id}/restock`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            stock: nextStock,
+            reason
+          })
+        });
+        setInfo(`Stock actualizado para ${item.name}`);
+      }
       setProducts((current) => current.map((product) => (product.id === item.id ? { ...product, stock: nextStock } : product)));
-      setTotalProducts((current) => current);
-      setInfo(`Stock actualizado para ${item.name}`);
+      setRestockReasonDrafts((current) => ({ ...current, [item.id]: "" }));
       await loadProducts(search, page, pageSize, categoryFilter);
+      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
     } catch (restockError) {
-      setError(restockError instanceof Error ? restockError.message : "No fue posible actualizar el stock");
+      setError(restockError instanceof Error ? restockError.message : isCashier ? "No fue posible enviar la solicitud" : "No fue posible actualizar el stock");
     } finally {
       setRestockingId(null);
     }
@@ -589,7 +631,7 @@ export function ProductsPage() {
         loadProducts(search, page, pageSize, categoryFilter),
         loadCategories(),
         loadSuppliers(),
-        ...(!isCashier && isRestockRoute ? [loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter)] : [])
+        ...(isRestockRoute ? [loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize)] : [])
       ]);
     } catch (confirmError) {
       setError(confirmError instanceof Error ? confirmError.message : "No fue posible importar productos");
@@ -602,8 +644,8 @@ export function ProductsPage() {
     loadProducts(search, page, pageSize, categoryFilter).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
     });
-    if (!isCashier && isRestockRoute) {
-      loadRestockProducts().catch((loadError) => {
+    if (isRestockRoute) {
+      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar productos por reabastecer");
       });
     }
@@ -612,7 +654,7 @@ export function ProductsPage() {
     if (isCashier) {
       loadRequestSummary().catch(console.error);
     }
-  }, [catalogScope, token, page, pageSize, categoryFilter, isCashier, isRestockRoute]);
+  }, [catalogScope, token, page, pageSize, categoryFilter, isCashier, isRestockRoute, restockPage, restockPageSize]);
 
   useEffect(() => {
     if (!searchFromQuery || search === searchFromQuery) {
@@ -649,18 +691,17 @@ export function ProductsPage() {
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      if (!isCashier) {
-        if (!isRestockRoute) {
-          return;
-        }
-        loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter).catch((loadError) => {
-          setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
-        });
+      if (!isRestockRoute) {
+        return;
       }
+      setRestockPage(1);
+      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize).catch((loadError) => {
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
+      });
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [catalogScope, restockSearch, restockCategoryFilter, restockSupplierFilter, token, isCashier, isRestockRoute]);
+  }, [catalogScope, restockSearch, restockCategoryFilter, restockSupplierFilter, token, isRestockRoute, restockPageSize]);
 
   useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
@@ -851,7 +892,7 @@ export function ProductsPage() {
       });
       await loadProducts("", 1, pageSize, categoryFilter);
       if (isRestockRoute) {
-        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
+        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
       }
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
@@ -879,7 +920,7 @@ export function ProductsPage() {
     const resolvedSaleUnit = getResolvedSaleUnit(form.unidad_de_venta);
 
     if (!form.name.trim() || !form.category.trim()) {
-      setError("Nombre y categoria son obligatorios");
+      setError("Nombre y categoría son obligatorios");
       return;
     }
     if (
@@ -909,13 +950,13 @@ export function ProductsPage() {
       return;
     }
     if (stockMaximo < stockMinimo) {
-      setError("El stock maximo no puede ser menor al stock minimo");
+      setError("El stock máximo no puede ser menor al stock mínimo");
       return;
     }
     try {
       validateQuantityByUnitInput(stock, resolvedSaleUnit, "Stock");
-      validateQuantityByUnitInput(stockMinimo, resolvedSaleUnit, "Stock minimo");
-      validateQuantityByUnitInput(stockMaximo, resolvedSaleUnit, "Stock maximo");
+      validateQuantityByUnitInput(stockMinimo, resolvedSaleUnit, "Stock mínimo");
+      validateQuantityByUnitInput(stockMaximo, resolvedSaleUnit, "Stock máximo");
     } catch (validationError) {
       setError(validationError instanceof Error ? validationError.message : "No fue posible validar cantidades");
       return;
@@ -1071,7 +1112,7 @@ export function ProductsPage() {
       await loadSuppliers();
       await loadCategories();
       if (!isCashier && isRestockRoute) {
-        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
+        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
       }
       if (isCashier) {
         await loadRequestSummary();
@@ -1212,7 +1253,7 @@ export function ProductsPage() {
       });
       await loadProducts(search, page, pageSize, categoryFilter);
       if (isRestockRoute) {
-        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
+        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
       }
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : "No fue posible actualizar el producto");
@@ -1256,7 +1297,7 @@ export function ProductsPage() {
         ) : null}
         {isRestockRoute ? (
           <div className="info-card">
-            <p><strong>Reabastecimiento rapido</strong></p>
+            <p><strong>Reabastecimiento rápido</strong></p>
             <p>Actualiza stock objetivo y limpia la lista de pendientes en cuanto guardes.</p>
           </div>
         ) : null}
@@ -1271,7 +1312,7 @@ export function ProductsPage() {
         {isCashier && !editingId ? (
           <div className="info-card">
             <p><strong>Solicitud de cambios</strong></p>
-            <p>Selecciona un producto del listado y usa <strong>Editar</strong> para enviar cambios a aprobacion.</p>
+            <p>Desde esta cuenta solo puedes solicitar cambios de stock con motivo obligatorio para aprobación administrativa.</p>
           </div>
         ) : null}
         <div className="product-form-grid product-form-grid-wide">
@@ -1347,7 +1388,7 @@ export function ProductsPage() {
             Código de barras
             <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value.replace(/\D/g, ""), barcode_manually_edited: true })} />
           </label>
-          {hasSuggestedBarcode ? <p className="muted">Codigo de barras sugerido visual: {barcodeSuggestion}. El definitivo se valida y genera en backend al guardar.</p> : null}
+          {hasSuggestedBarcode ? <p className="muted">Código de barras sugerido visual: {barcodeSuggestion}. El definitivo se valida y genera en backend al guardar.</p> : null}
           <label>
             Unidad de venta
             <select value={form.unidad_de_venta} onChange={(event) => setForm({ ...form, unidad_de_venta: event.target.value as SaleUnit | "" })}>
@@ -1401,7 +1442,7 @@ export function ProductsPage() {
               <input readOnly={appliesAutomaticIeps} type="number" min="0" step="0.01" value={form.ieps} onChange={(event) => setForm({ ...form, ieps: event.target.value })} />
             </label>
           ) : null}
-          {appliesAutomaticIeps ? <p className="muted">IEPS automatico fijo en 8% para esta categoria.</p> : null}
+          {appliesAutomaticIeps ? <p className="muted">IEPS automático fijo en 8% para esta categoría.</p> : null}
           <label>
             % ganancia
             <input type="number" step="0.001" value={form.porcentaje_ganancia} onChange={(event) => setForm({ ...form, porcentaje_ganancia: event.target.value, price: event.target.value === "" ? form.price : recalculatePrice(form.cost_price, event.target.value) })} />
@@ -1415,7 +1456,7 @@ export function ProductsPage() {
             <input type="number" min="0" step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_minimo} onChange={(event) => setForm({ ...form, stock_minimo: event.target.value })} required />
           </label>
           <label>
-            {requiredLabel("Stock maximo")}
+            {requiredLabel("Stock máximo")}
             <input type="number" min="0" onKeyDown={handleStockMaximoEnter} step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
           </label>
           {showExpiryField ? (
@@ -1530,7 +1571,7 @@ export function ProductsPage() {
           <div className="panel-header">
             <div>
               <h2>Mis solicitudes recientes</h2>
-              <p className="muted">Seguimiento rapido para que no trabajes a ciegas.</p>
+              <p className="muted">Seguimiento rápido para que no trabajes a ciegas.</p>
             </div>
           </div>
           <div className="stack-list">
@@ -1666,8 +1707,8 @@ export function ProductsPage() {
               onChange={(event) => setSearch(event.target.value)}
             />
             <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value) as 10 | 15)}>
-              <option value={10}>10 por pagina</option>
-              <option value={15}>15 por pagina</option>
+              <option value={10}>10 por página</option>
+              <option value={15}>15 por página</option>
             </select>
           </div>
         </div>
@@ -1718,7 +1759,7 @@ export function ProductsPage() {
                         <div>{product.name}</div>
                         {product.is_low_stock ? <small className="error-text">Stock bajo</small> : null}
                         {product.has_pending_update_request ? (
-                          <small className="muted">Pendiente de aprobacion ({product.pending_update_request_count || 1})</small>
+                          <small className="muted">Pendiente de aprobación ({product.pending_update_request_count || 1})</small>
                         ) : null}
                       </div>
                     </div>
@@ -1779,35 +1820,39 @@ export function ProductsPage() {
           <p className="muted">{totalProducts} {catalogScope ? scopedModuleLabel.toLowerCase() : isVeterinaryView ? "productos e insumos" : "productos"} encontrados</p>
           <div className="inline-actions">
             <button className="button ghost" disabled={page <= 1} onClick={() => setPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
-            <span className="muted">Pagina {page} de {totalPages}</span>
+            <span className="muted">Página {page} de {totalPages}</span>
             <button className="button ghost" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(current + 1, totalPages))} type="button">Siguiente</button>
           </div>
         </div>
       </div>
       ) : null}
 
-      {!isCashier && isRestockRoute ? (
+      {isRestockRoute ? (
       <div className="panel">
         <div className="panel-header product-catalog-header">
           <div>
             <h2>Productos por reabastecer</h2>
-            <p className="muted">Vista operativa con stock actual, proveedor principal y costo reciente.</p>
+            <p className="muted">
+              {isCashier
+                ? "Consulta todo el catálogo, prioriza stock bajo y envía solicitudes de cambio de stock."
+                : "Consulta todo el catálogo, prioriza stock bajo y actualiza existencias sin salir de esta vista."}
+            </p>
           </div>
           <div className="total-box secondary compact-box">
-            <span>Alertas</span>
-            <strong>{restockItems.length}</strong>
+            <span>{isCashier ? "Solicitudes" : "Productos"}</span>
+            <strong>{restockTotalItems}</strong>
           </div>
         </div>
         <div className="inline-actions quick-filter-row">
           <input
             className="search-input"
-            placeholder="Buscar por nombre, SKU, categoria o proveedor"
+            placeholder="Buscar por nombre, SKU, categoría o proveedor"
             value={restockSearch}
             onChange={(event) => setRestockSearch(event.target.value)}
           />
           <input
             list="product-category-options"
-            placeholder="Categoria"
+            placeholder="Categoría"
             value={restockCategoryFilter}
             onChange={(event) => setRestockCategoryFilter(event.target.value)}
           />
@@ -1823,26 +1868,33 @@ export function ProductsPage() {
               setRestockSearch("");
               setRestockCategoryFilter("");
               setRestockSupplierFilter("");
+              setRestockPage(1);
             }}
             type="button"
           >
             Limpiar filtros
           </button>
+          <select value={restockPageSize} onChange={(event) => { setRestockPage(1); setRestockPageSize(Number(event.target.value) as 10 | 15); }}>
+            <option value={10}>10 por página</option>
+            <option value={15}>15 por página</option>
+          </select>
         </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Producto</th>
-                <th>Categoria</th>
+                <th>Categoría</th>
                 <th>Stock</th>
-                <th>Minimo</th>
-                <th>Maximo</th>
+                <th>Mínimo</th>
+                <th>Máximo</th>
                 <th>Nuevo stock</th>
+                <th>Motivo</th>
                 <th>Proveedor</th>
                 <th>Costo reciente</th>
                 <th>Sugerido</th>
-                <th>Accion</th>
+                <th>Estado</th>
+                <th>Acción</th>
               </tr>
             </thead>
             <tbody>
@@ -1851,7 +1903,11 @@ export function ProductsPage() {
                   <td>
                     <div>
                       <div>{item.name}</div>
-                      <small className="error-text">Faltante: {formatRestockQuantity(item.shortage, item.unidad_de_venta)}</small>
+                      <small className={item.is_low_stock ? "error-text" : "muted"}>
+                        {item.is_low_stock
+                          ? `Stock bajo · faltante: ${formatRestockQuantity(item.shortage, item.unidad_de_venta)}`
+                          : "Stock normal"}
+                      </small>
                     </div>
                   </td>
                   <td>{item.category || "-"}</td>
@@ -1868,6 +1924,13 @@ export function ProductsPage() {
                     />
                   </td>
                   <td>
+                    <textarea
+                      placeholder={isCashier ? "Motivo obligatorio" : "Motivo del ajuste"}
+                      value={restockReasonDrafts[item.id] ?? ""}
+                      onChange={(event) => setRestockReasonDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                    />
+                  </td>
+                  <td>
                     <div>{item.supplier_name || "-"}</div>
                     <small className="muted">{item.supplier_whatsapp || "-"}</small>
                   </td>
@@ -1877,12 +1940,24 @@ export function ProductsPage() {
                   </td>
                   <td>{formatRestockQuantity(item.suggested_restock, item.unidad_de_venta)}</td>
                   <td>
+                    {item.pending_update_request_count ? (
+                      <span className="status-badge appointment-status-scheduled">
+                        Pendiente ({item.pending_update_request_count})
+                      </span>
+                    ) : (
+                      <span className={`status-badge ${item.is_low_stock ? "appointment-status-cancelled" : "appointment-status-completed"}`}>
+                        {item.is_low_stock ? "Stock bajo" : "Stock normal"}
+                      </span>
+                    )}
+                  </td>
+                  <td>
                     {(() => {
                       const nextStock = Number(restockDrafts[item.id] ?? "0");
-                      const disableSave = restockingId === item.id || !Number.isFinite(nextStock) || nextStock === 0;
+                      const hasReason = Boolean(String(restockReasonDrafts[item.id] || "").trim());
+                      const disableSave = restockingId === item.id || !Number.isFinite(nextStock) || !hasReason;
                       return (
                         <button className="button ghost" disabled={disableSave} onClick={() => saveRestockItem(item)} type="button">
-                          {restockingId === item.id ? "Guardando..." : "Guardar"}
+                          {restockingId === item.id ? (isCashier ? "Enviando..." : "Guardando...") : (isCashier ? "Solicitar cambio" : "Guardar")}
                         </button>
                       );
                     })()}
@@ -1891,11 +1966,19 @@ export function ProductsPage() {
               ))}
               {restockItems.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={10}>{loadingRestock ? "Cargando..." : "No hay productos pendientes de reabastecimiento."}</td>
+                  <td className="muted" colSpan={12}>{loadingRestock ? "Cargando..." : "No hay productos para este filtro."}</td>
                 </tr>
               ) : null}
             </tbody>
           </table>
+        </div>
+        <div className="panel-header product-table-footer">
+          <p className="muted">{restockTotalItems} productos encontrados</p>
+          <div className="inline-actions">
+            <button className="button ghost" disabled={restockPage <= 1 || loadingRestock} onClick={() => setRestockPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
+            <span className="muted">Página {restockPage} de {restockTotalPages}</span>
+            <button className="button ghost" disabled={restockPage >= restockTotalPages || loadingRestock} onClick={() => setRestockPage((current) => Math.min(current + 1, restockTotalPages))} type="button">Siguiente</button>
+          </div>
         </div>
       </div>
       ) : null}

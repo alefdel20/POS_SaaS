@@ -77,6 +77,8 @@ async function getSupplierDetail(id, actor) {
        products.stock_maximo,
        GREATEST(COALESCE(products.stock_maximo, 0) - COALESCE(products.stock, 0), 0) AS diferencia_reabastecimiento,
        COALESCE(product_suppliers.purchase_cost, products.cost_price, 0) AS purchase_cost,
+       COALESCE(products.stock, 0) * COALESCE(product_suppliers.purchase_cost, products.cost_price, 0) AS current_stock_cost,
+       COALESCE(products.stock_maximo, 0) * COALESCE(product_suppliers.purchase_cost, products.cost_price, 0) AS max_stock_cost,
        product_suppliers.cost_updated_at,
        products.updated_at AS product_updated_at
      FROM product_suppliers
@@ -95,7 +97,9 @@ async function getSupplierDetail(id, actor) {
       stock: Number(row.stock || 0),
       stock_maximo: Number(row.stock_maximo || 0),
       diferencia_reabastecimiento: Number(row.diferencia_reabastecimiento || 0),
-      purchase_cost: Number(row.purchase_cost || 0)
+      purchase_cost: Number(row.purchase_cost || 0),
+      current_stock_cost: Number(row.current_stock_cost || 0),
+      max_stock_cost: Number(row.max_stock_cost || 0)
     }))
   };
 }

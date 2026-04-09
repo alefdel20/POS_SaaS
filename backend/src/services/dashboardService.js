@@ -62,6 +62,9 @@ async function getSummary(actor) {
          (SELECT pending_credit_balance FROM credit_balance) AS pending_credit_balance,
          COALESCE((SELECT COUNT(*) FROM products WHERE products.business_id = $1), 0) AS total_products,
          COALESCE((SELECT COUNT(*) FROM products WHERE products.business_id = $1 AND stock_minimo > 0 AND stock <= stock_minimo), 0) AS low_stock_products,
+         COALESCE((SELECT SUM(COALESCE(stock_maximo, 0) * COALESCE(cost_price, 0)) FROM products WHERE products.business_id = $1), 0) AS inventory_total_value,
+         COALESCE((SELECT SUM(COALESCE(stock, 0)) FROM products WHERE products.business_id = $1), 0) AS total_current_stock,
+         COALESCE((SELECT SUM(COALESCE(stock, 0) * COALESCE(cost_price, 0)) FROM products WHERE products.business_id = $1), 0) AS current_stock_total_value,
          COALESCE((SELECT COUNT(*) FROM users WHERE users.business_id = $1 AND is_active = TRUE), 0) AS active_users,
          COALESCE((SELECT COUNT(*) FROM reminders WHERE reminders.business_id = $1 AND is_completed = FALSE), 0) AS pending_reminders`,
       [businessId, today]
@@ -84,7 +87,7 @@ async function getSummary(actor) {
        LIMIT 5`,
       [businessId, today]
     ),
-    listRestockProducts({}, actor),
+    listRestockProducts({ lowStockOnly: true, page: 1, pageSize: 10 }, actor),
     pool.query(
       `SELECT stamps_available, fiscal_rfc, fiscal_business_name, fiscal_regime, fiscal_address
        FROM company_profiles
@@ -112,11 +115,14 @@ async function getSummary(actor) {
     pending_credit_balance: toNumber(summary.pending_credit_balance),
     total_products: toNumber(summary.total_products),
     low_stock_products: toNumber(summary.low_stock_products),
+    inventory_total_value: toNumber(summary.inventory_total_value),
+    total_current_stock: toNumber(summary.total_current_stock),
+    current_stock_total_value: toNumber(summary.current_stock_total_value),
     active_users: toNumber(summary.active_users),
     pending_reminders: toNumber(summary.pending_reminders),
     stamps_available: toNumber(profile?.stamps_available),
     billing_ready: hasFiscalProfile && toNumber(profile?.stamps_available) > 0,
-    low_stock_items: lowStockItems.slice(0, 5).map((row) => ({
+    low_stock_items: lowStockItems.items.slice(0, 5).map((row) => ({
       id: row.id,
       name: row.name,
       stock: toNumber(row.stock),
@@ -205,7 +211,14 @@ async function getOperationalSummary({ actor, businessId, today, role, isClinica
       approvals: requestSummary,
       shortcuts: [
         { label: "Ir a ventas", path: "/sales" },
-        { label: "Ver productos", path: "/health/products/medications" }
+        {
+          label: "Ver reabastecimiento",
+          path: actor?.pos_type === "FarmaciaConsultorio"
+            ? "/health/products/medications/restock"
+            : isHealthcareVertical(actor?.pos_type)
+              ? "/health/products/accessories/restock"
+              : "/retail/products/restock"
+        }
       ]
     };
   }

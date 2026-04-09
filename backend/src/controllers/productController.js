@@ -24,6 +24,9 @@ const restockValidation = [
   query("category").optional({ values: "falsy" }).trim(),
   query("catalog_scope").optional().isIn(["food-accessories", "medications-supplies"]),
   query("supplier").optional({ values: "falsy" }).trim(),
+  query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
+  query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
+  query("includeMeta").optional({ values: "falsy" }).isBoolean(),
   validateRequest
 ];
 const restockUpdateValidation = [
@@ -161,12 +164,16 @@ const listCategories = asyncHandler(async (req, res) => {
 });
 
 const listRestockProducts = asyncHandler(async (req, res) => {
-  res.json(await productService.listRestockProducts({
+  const response = await productService.listRestockProducts({
     search: req.query.search,
     category: req.query.category,
     catalog_scope: req.query.catalog_scope,
-    supplier: req.query.supplier
-  }, req.user));
+    supplier: req.query.supplier,
+    page: req.query.page,
+    pageSize: req.query.pageSize,
+    includeMeta: req.query.includeMeta === "true"
+  }, req.user);
+  res.json(req.query.includeMeta === "true" ? response : response.items);
 });
 
 const restockProduct = asyncHandler(async (req, res) => {

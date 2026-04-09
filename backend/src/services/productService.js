@@ -1337,13 +1337,19 @@ async function confirmProductImport(rows, actor) {
 }
 async function listRestockProducts(filters = {}, actor) {
   const businessId = requireActorBusinessId(actor);
+  const page = Math.max(1, Number(filters.page) || 1);
+  const pageSize = [10, 15].includes(Number(filters.pageSize)) ? Number(filters.pageSize) : 10;
+  const offset = (page - 1) * pageSize;
   const values = [businessId];
   const conditions = [
     "product_data.business_id = $1",
     "product_data.is_active = TRUE",
-    "product_data.status = 'activo'",
-    "product_data.stock <= product_data.stock_minimo"
+    "product_data.status = 'activo'"
   ];
+
+  if (filters.lowStockOnly) {
+    conditions.push("COALESCE(product_data.stock, 0) <= COALESCE(product_data.stock_minimo, 0)");
+  }
 
   if (filters.category) {
     values.push(String(filters.category).trim());
@@ -1376,6 +1382,29 @@ async function listRestockProducts(filters = {}, actor) {
     )`);
   }
 
+  const baseQuery = `
+    FROM products product_data
+    LEFT JOIN LATERAL (
+      SELECT ps.*, s.name, s.whatsapp
+      FROM product_suppliers ps
+      INNER JOIN suppliers s ON s.id = ps.supplier_id AND s.business_id = ps.business_id
+      WHERE ps.product_id = product_data.id
+        AND ps.business_id = product_data.business_id
+      ORDER BY ps.is_primary DESC, ps.cost_updated_at DESC NULLS LAST, s.name ASC
+      LIMIT 1
+    ) AS product_suppliers ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS pending_update_request_count
+      FROM product_update_requests
+      WHERE product_update_requests.business_id = product_data.business_id
+        AND product_update_requests.product_id = product_data.id
+        AND product_update_requests.status = 'pending'
+    ) AS pending_requests ON TRUE
+    WHERE ${conditions.join(" AND ")}
+  `;
+
+  const countResult = await pool.query(`SELECT COUNT(*)::int AS total ${baseQuery}`, values);
+  const paginatedValues = [...values, pageSize, offset];
   const { rows } = await pool.query(
     `SELECT
        product_data.id,
@@ -1391,24 +1420,22 @@ async function listRestockProducts(filters = {}, actor) {
        product_suppliers.whatsapp AS supplier_whatsapp,
        product_suppliers.purchase_cost AS recent_purchase_cost,
        product_suppliers.cost_updated_at,
+       pending_requests.pending_update_request_count,
+       (COALESCE(product_data.stock, 0) <= COALESCE(product_data.stock_minimo, 0)) AS is_low_stock,
        GREATEST(COALESCE(product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0), 0) AS shortage,
        GREATEST(COALESCE(product_data.stock_maximo, product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0), 0) AS suggested_restock
-     FROM products product_data
-     LEFT JOIN LATERAL (
-       SELECT ps.*, s.name, s.whatsapp
-       FROM product_suppliers ps
-       INNER JOIN suppliers s ON s.id = ps.supplier_id AND s.business_id = ps.business_id
-       WHERE ps.product_id = product_data.id
-         AND ps.business_id = product_data.business_id
-       ORDER BY ps.is_primary DESC, ps.cost_updated_at DESC NULLS LAST, s.name ASC
-       LIMIT 1
-     ) AS product_suppliers ON TRUE
-     WHERE ${conditions.join(" AND ")}
-     ORDER BY shortage DESC, suggested_restock DESC, product_data.name ASC`,
-    values
+     ${baseQuery}
+     ORDER BY
+       CASE WHEN COALESCE(product_data.stock, 0) <= COALESCE(product_data.stock_minimo, 0) THEN 0 ELSE 1 END,
+       shortage DESC,
+       suggested_restock DESC,
+       product_data.name ASC
+     LIMIT $${paginatedValues.length - 1}
+     OFFSET $${paginatedValues.length}`,
+    paginatedValues
   );
 
-  return rows.map((row) => ({
+  const items = rows.map((row) => ({
     ...row,
     stock: Number(row.stock || 0),
     stock_minimo: Number(row.stock_minimo || 0),
@@ -1418,9 +1445,21 @@ async function listRestockProducts(filters = {}, actor) {
       row.recent_purchase_cost === null || row.recent_purchase_cost === undefined
         ? null
         : Number(row.recent_purchase_cost),
+    pending_update_request_count: Number(row.pending_update_request_count || 0),
+    is_low_stock: Boolean(row.is_low_stock),
     shortage: Number(row.shortage || 0),
     suggested_restock: Number(row.suggested_restock || 0)
   }));
+
+  return {
+    items,
+    pagination: {
+      page,
+      pageSize,
+      total: Number(countResult.rows[0]?.total || 0),
+      totalPages: Math.max(1, Math.ceil(Number(countResult.rows[0]?.total || 0) / pageSize))
+    }
+  };
 }
 
 async function restockProduct(id, payload = {}, actor) {

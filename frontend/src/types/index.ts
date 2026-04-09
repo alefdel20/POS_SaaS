@@ -70,6 +70,8 @@ export interface SupplierProductItem {
   stock_maximo?: number;
   diferencia_reabastecimiento?: number;
   purchase_cost: number;
+  current_stock_cost?: number;
+  max_stock_cost?: number;
   cost_updated_at: string | null;
   product_updated_at: string | null;
 }
@@ -396,8 +398,20 @@ export interface RestockProductItem {
   supplier_whatsapp?: string | null;
   recent_purchase_cost?: number | null;
   cost_updated_at?: string | null;
+  pending_update_request_count?: number;
+  is_low_stock?: boolean;
   shortage: number;
   suggested_restock: number;
+}
+
+export interface RestockProductsResponse {
+  items: RestockProductItem[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export interface ServiceCatalogItem {
@@ -766,6 +780,9 @@ export interface DashboardSummary {
   pending_credit_balance: number;
   total_products: number;
   low_stock_products: number;
+  inventory_total_value: number;
+  total_current_stock: number;
+  current_stock_total_value: number;
   active_users: number;
   pending_reminders: number;
   stamps_available?: number;

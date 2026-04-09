@@ -99,6 +99,20 @@ function normalizeOptionalNumeric(value, label, options = {}) {
   return numberValue;
 }
 
+function assertCashierStockOnlyPayload(payload = {}) {
+  const requestedPriceProvided = payload.requested_price !== undefined && payload.requested_price !== null && payload.requested_price !== "";
+  if (requestedPriceProvided) {
+    throw new ApiError(400, "Cashiers can only request stock changes");
+  }
+
+  if (payload.new_values && typeof payload.new_values === "object" && !Array.isArray(payload.new_values)) {
+    const invalidKeys = Object.keys(payload.new_values).filter((key) => key !== "stock");
+    if (invalidKeys.length > 0) {
+      throw new ApiError(400, "Cashiers can only request stock changes");
+    }
+  }
+}
+
 function buildRequestSnapshot(row) {
   const beforeSnapshot = row.old_values || row.before_snapshot || null;
   const afterSnapshot = row.new_values || row.after_snapshot || null;
@@ -421,6 +435,8 @@ async function createProductUpdateRequest(payload, actor) {
     throw new ApiError(403, "Forbidden");
   }
 
+  assertCashierStockOnlyPayload(payload);
+
   const productId = Number(payload.product_id);
   if (!Number.isInteger(productId) || productId <= 0) {
     throw new ApiError(400, "Product is required");
@@ -547,6 +563,8 @@ async function createProductChangeRequestFromEdit(productId, payload, actor) {
   if (role !== "cajero") {
     throw new ApiError(403, "Forbidden");
   }
+
+  assertCashierStockOnlyPayload({ new_values: payload });
 
   const currentProduct = await getOwnedProduct(productId, actor);
   const afterSnapshot = buildAfterSnapshot(currentProduct, payload);

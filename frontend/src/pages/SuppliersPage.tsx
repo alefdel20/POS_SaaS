@@ -459,11 +459,11 @@ export function SuppliersPage() {
         <div className="panel-header">
           <div>
             <h2>{suppliersTitle}</h2>
-            <p className="muted">Desde aqui cargas la lista de cada proveedor. Tus productos de venta siguen administrandose en Productos.</p>
+            <p className="muted">Desde aquí cargas la lista de cada proveedor. Tus productos de venta siguen administrándose en Productos.</p>
           </div>
           <div className="inline-actions">
             <button className="button" disabled={!selectedSupplierId} onClick={openImportModal} type="button">
-              Importar catalogo proveedor
+              Importar catálogo proveedor
             </button>
             <button className="button ghost" disabled={downloadingTemplate} onClick={() => handleDownloadTemplate().catch(() => undefined)} type="button">
               {downloadingTemplate ? "Descargando plantilla..." : "Descargar plantilla Excel"}
@@ -478,7 +478,7 @@ export function SuppliersPage() {
         </div>
 
         <div className="info-card supplier-callout">
-          <strong>Carga la lista del proveedor desde aqui</strong>
+          <strong>Carga la lista del proveedor desde aquí</strong>
           <p className="muted">1. Crea o selecciona un proveedor. 2. Sube su archivo. 3. Revisa cambios de costo. 4. Vincula solo los productos que quieras usar en el sistema.</p>
         </div>
 
@@ -514,8 +514,8 @@ export function SuppliersPage() {
           </div>
         ) : (
           <div className="empty-state-card supplier-empty-state">
-            <strong>Aun no tienes proveedores registrados.</strong>
-            <span className="muted">Primero crea un proveedor. Despues podras cargar su catalogo y revisar sus costos desde este modulo.</span>
+            <strong>Aún no tienes proveedores registrados.</strong>
+            <span className="muted">Primero crea un proveedor. Después podrás cargar su catálogo y revisar sus costos desde este módulo.</span>
             <button className="button" onClick={() => navigate(`${productEditorPath}?tab=suppliers`)} type="button">
               Crear proveedor primero
             </button>
@@ -717,10 +717,12 @@ export function SuppliersPage() {
                       <th>Producto del sistema</th>
                       <th>SKU</th>
                       <th>Stock</th>
-                      <th>Stock maximo</th>
-                      <th>Diferencia reabastecimiento</th>
+                      <th>Stock máximo</th>
+                      <th>Costo de stock actual</th>
+                      <th>Costo de stock máximo</th>
+                      <th>Diferencia de reabastecimiento</th>
                       <th>Costo proveedor</th>
-                      <th>Actualizacion</th>
+                      <th>Actualización</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
@@ -733,6 +735,8 @@ export function SuppliersPage() {
                           <td>{product.sku || "-"}</td>
                           <td>{product.stock ?? 0}</td>
                           <td>{product.stock_maximo ?? 0}</td>
+                          <td>{currency(product.current_stock_cost ?? 0)}</td>
+                          <td>{currency(product.max_stock_cost ?? 0)}</td>
                           <td>{product.diferencia_reabastecimiento ?? 0}</td>
                           <td>{currency(catalogItem?.purchase_cost ?? product.purchase_cost)}</td>
                           <td>{shortDateTime(catalogItem?.updated_at || product.cost_updated_at || product.product_updated_at)}</td>
@@ -747,7 +751,7 @@ export function SuppliersPage() {
                     })}
                     {selectedSupplier.products.length === 0 ? (
                       <tr>
-                        <td className="muted" colSpan={8}>Todavia no hay productos del sistema vinculados con este proveedor.</td>
+                        <td className="muted" colSpan={10}>Todavía no hay productos del sistema vinculados con este proveedor.</td>
                       </tr>
                     ) : null}
                   </tbody>

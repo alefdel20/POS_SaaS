@@ -72,7 +72,14 @@ function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | nu
       if (shouldHideAesthetics && nextItem.to === "/health/appointments/estetica") return null;
       if (patientLabelOnly && nextItem.to === "/health/clients") return null;
       if (normalizeRole(role) === "cajero") {
-        if (nextItem.to === "/health/products/medications") return { ...nextItem, roles: "sales" };
+        if (
+          nextItem.to === "/products/restock"
+          || nextItem.to === "/retail/products/restock"
+          || nextItem.to === "/health/products/accessories/restock"
+          || nextItem.to === "/health/products/medications/restock"
+        ) {
+          return { ...nextItem, roles: "sales" };
+        }
         if (nextItem.to && ["/health/sales/accessories", "/health/products/accessories", "/health/suppliers/accessories", "/health/suppliers/medications"].includes(nextItem.to)) {
           return null;
         }
@@ -178,17 +185,17 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
   const healthAccessoriesProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/health/products/accessories/new", roles: "management", activeMatch: ["/health/products/accessories/new"] },
     { label: "Productos", to: "/health/products/accessories", roles: "management", activeMatch: withAlias("/health/products/accessories", "/products") },
-    { label: "Productos por reabastecer", to: "/health/products/accessories/restock", roles: "management", activeMatch: ["/health/products/accessories/restock"] }
+    { label: "Productos por reabastecer", to: "/health/products/accessories/restock", roles: "sales", activeMatch: ["/health/products/accessories/restock"] }
   ];
   const healthMedicationProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/health/products/medications/new", roles: "management", activeMatch: ["/health/products/medications/new"] },
     { label: "Productos", to: "/health/products/medications", roles: "management", activeMatch: ["/health/products/medications"] },
-    { label: "Productos por reabastecer", to: "/health/products/medications/restock", roles: "management", activeMatch: ["/health/products/medications/restock"] }
+    { label: "Productos por reabastecer", to: "/health/products/medications/restock", roles: "sales", activeMatch: ["/health/products/medications/restock"] }
   ];
   const retailProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/retail/products/new", roles: "management", activeMatch: ["/retail/products/new"] },
     { label: "Productos", to: "/retail/products", roles: "management", activeMatch: withAlias("/retail/products", "/products") },
-    { label: "Productos por reabastecer", to: "/retail/products/restock", roles: "management", activeMatch: ["/retail/products/restock"] }
+    { label: "Productos por reabastecer", to: "/retail/products/restock", roles: "sales", activeMatch: ["/retail/products/restock"] }
   ];
 
   const healthcareSections: SidebarMenuSection[] = [

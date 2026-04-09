@@ -7,7 +7,7 @@ const { uploadProductImportFile } = require("../middleware/productImportUpload")
 const router = express.Router();
 
 router.get("/", controller.listValidation, controller.listProducts);
-router.get("/restock", requireRole(["superusuario", "superadmin", "admin"]), controller.restockValidation, controller.listRestockProducts);
+router.get("/restock", requireRole(["superusuario", "superadmin", "admin", "cajero"]), controller.restockValidation, controller.listRestockProducts);
 router.patch("/:id/restock", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.restockUpdateValidation, controller.restockProduct);
 router.get("/suppliers", requireRole(["superusuario", "superadmin", "admin", "cajero"]), controller.supplierListValidation, controller.listSuppliers);
 router.get("/categories", requireRole(["superusuario", "superadmin", "admin", "cajero"]), controller.categoryListValidation, controller.listCategories);

@@ -56,8 +56,8 @@ export function DashboardPage() {
     }
 
     return [
-      { label: "Ventas del dia", value: currency(summary?.total_sales_today || 0), accent: "#6cf0c2" },
-      { label: "Productos", value: summary?.total_products || 0, accent: "#7dd3fc" },
+      { label: "Ventas del día", value: currency(summary?.total_sales_today || 0), accent: "#6cf0c2" },
+      { label: "Productos registrados", value: summary?.total_products || 0, accent: "#7dd3fc" },
       { label: "Cambios por aprobar", value: adminApprovals?.pending || 0, accent: "#ffb454" },
       { label: "Citas de hoy", value: adminAppointmentsToday.length, accent: "#8b5cf6" }
     ];
@@ -68,11 +68,11 @@ export function DashboardPage() {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>{role === "clinico" ? "Resumen medico del dia" : "Resumen operativo"}</h2>
+            <h2>{role === "clinico" ? "Resumen médico del día" : "Resumen operativo"}</h2>
             <p className="muted">
               {role === "clinico"
-                ? "Tu carga de trabajo y los accesos rapidos mas utiles para operar sin friccion."
-                : "Una vista clara para demo y operacion diaria con aprobaciones, agenda y salud del negocio."}
+                ? "Tu carga de trabajo y los accesos rápidos más útiles para operar sin fricción."
+                : "Una vista clara para demo y operación diaria con aprobaciones, agenda y salud del negocio."}
             </p>
           </div>
         </div>
@@ -82,6 +82,13 @@ export function DashboardPage() {
             <StatCard key={card.label} label={card.label} value={card.value} accent={card.accent} />
           ))}
         </div>
+        {role !== "clinico" ? (
+          <div className="stats-grid">
+            <StatCard label="Valor de productos de la tienda" value={currency(summary?.inventory_total_value || 0)} accent="#ffd166" />
+            <StatCard label="Stock actual total" value={summary?.total_current_stock || 0} accent="#7dd3fc" />
+            <StatCard label="Valor del stock actual" value={currency(summary?.current_stock_total_value || 0)} accent="#6cf0c2" />
+          </div>
+        ) : null}
         {shortcuts.length ? (
           <div className="inline-actions quick-filter-row">
             {shortcuts.map((shortcut) => (
@@ -137,7 +144,7 @@ export function DashboardPage() {
               {!doctorSummary?.next_appointments.length ? (
                 <div className="empty-state-card">
                   <strong>No hay consultas proximas.</strong>
-                  <span className="muted">Cuando se agenden nuevas citas apareceran aqui.</span>
+                  <span className="muted">Cuando se agenden nuevas citas aparecerán aquí.</span>
                 </div>
               ) : null}
             </div>
@@ -171,7 +178,7 @@ export function DashboardPage() {
               {!adminApprovals?.recent.length ? (
                 <div className="empty-state-card">
                   <strong>No hay cambios pendientes recientes.</strong>
-                  <span className="muted">Cuando un cajero solicite cambios apareceran aqui.</span>
+                  <span className="muted">Cuando un cajero solicite cambios aparecerán aquí.</span>
                 </div>
               ) : null}
             </div>
@@ -181,7 +188,7 @@ export function DashboardPage() {
             <div className="panel-header">
               <div>
                 <h2>Agenda y cortes recientes</h2>
-                <p className="muted">Lectura operativa inmediata para administracion.</p>
+                <p className="muted">Lectura operativa inmediata para administración.</p>
               </div>
             </div>
             <div className="stack-list">
@@ -202,7 +209,7 @@ export function DashboardPage() {
               {!adminAppointmentsToday.length && !recentManualCuts.length ? (
                 <div className="empty-state-card">
                   <strong>Sin movimientos operativos recientes.</strong>
-                  <span className="muted">La agenda y los cortes manuales apareceran aqui cuando existan.</span>
+                  <span className="muted">La agenda y los cortes manuales aparecerán aquí cuando existan.</span>
                 </div>
               ) : null}
             </div>
@@ -241,7 +248,7 @@ export function DashboardPage() {
                   ))}
                   {!summary?.top_products?.length ? (
                     <tr>
-                      <td className="muted" colSpan={3}>Aun no hay productos vendidos este mes.</td>
+                      <td className="muted" colSpan={3}>Aún no hay productos vendidos este mes.</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -253,7 +260,7 @@ export function DashboardPage() {
             <div className="panel-header">
               <div>
                 <h2>Productos con stock bajo</h2>
-                <p className="muted">Resumen corto para decidir reabastecimiento rapido.</p>
+                <p className="muted">Resumen corto para decidir reabastecimiento rápido.</p>
               </div>
             </div>
             <div className="table-wrap">

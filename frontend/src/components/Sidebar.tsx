@@ -122,7 +122,7 @@ export function Sidebar() {
           <AnkodeLogo className="sidebar-logo" size={30} variant="icon" alt="ANKODE K" />
           <div className="brand">POS APP</div>
         </div>
-        <p className="brand-subtitle">Panel comercial oscuro</p>
+        <p className="brand-subtitle">Panel comercial</p>
       </div>
       <nav className="nav-list">
         {sections.map((section) => (
