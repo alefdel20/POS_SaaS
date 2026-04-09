@@ -477,7 +477,7 @@ export function ProductsPage() {
         const nextDrafts = { ...current };
         response.forEach((item) => {
           if (nextDrafts[item.id] === undefined) {
-            nextDrafts[item.id] = String(item.stock_maximo ?? item.stock ?? 0);
+            nextDrafts[item.id] = "0";
           }
         });
         return nextDrafts;
@@ -494,6 +494,10 @@ export function ProductsPage() {
     const nextStock = Number(nextStockValue);
     if (!Number.isFinite(nextStock) || nextStock < 0) {
       setError("El nuevo stock debe ser numerico y mayor o igual a cero");
+      return;
+    }
+    if (nextStock === 0) {
+      setError("El nuevo stock no puede quedarse en 0. Captura el valor final que deseas guardar.");
       return;
     }
 
@@ -1833,6 +1837,7 @@ export function ProductsPage() {
                 <th>Categoria</th>
                 <th>Stock</th>
                 <th>Minimo</th>
+                <th>Maximo</th>
                 <th>Nuevo stock</th>
                 <th>Proveedor</th>
                 <th>Costo reciente</th>
@@ -1852,12 +1857,13 @@ export function ProductsPage() {
                   <td>{item.category || "-"}</td>
                   <td>{formatRestockQuantity(item.stock, item.unidad_de_venta)}</td>
                   <td>{formatRestockQuantity(item.stock_minimo, item.unidad_de_venta)}</td>
+                  <td>{formatRestockQuantity(item.stock_maximo ?? 0, item.unidad_de_venta)}</td>
                   <td>
                     <input
                       min="0"
                       step={getResolvedSaleUnit(item.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.unidad_de_venta) === "litro" ? "0.001" : "1"}
                       type="number"
-                      value={restockDrafts[item.id] ?? String(item.stock_maximo ?? item.stock ?? 0)}
+                      value={restockDrafts[item.id] ?? "0"}
                       onChange={(event) => setRestockDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
                     />
                   </td>
@@ -1871,15 +1877,21 @@ export function ProductsPage() {
                   </td>
                   <td>{formatRestockQuantity(item.suggested_restock, item.unidad_de_venta)}</td>
                   <td>
-                    <button className="button ghost" disabled={restockingId === item.id} onClick={() => saveRestockItem(item)} type="button">
-                      {restockingId === item.id ? "Guardando..." : "Guardar"}
-                    </button>
+                    {(() => {
+                      const nextStock = Number(restockDrafts[item.id] ?? "0");
+                      const disableSave = restockingId === item.id || !Number.isFinite(nextStock) || nextStock === 0;
+                      return (
+                        <button className="button ghost" disabled={disableSave} onClick={() => saveRestockItem(item)} type="button">
+                          {restockingId === item.id ? "Guardando..." : "Guardar"}
+                        </button>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}
               {restockItems.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={9}>{loadingRestock ? "Cargando..." : "No hay productos pendientes de reabastecimiento."}</td>
+                  <td className="muted" colSpan={10}>{loadingRestock ? "Cargando..." : "No hay productos pendientes de reabastecimiento."}</td>
                 </tr>
               ) : null}
             </tbody>

@@ -8,12 +8,13 @@ import { canUseCreditCollections } from "../utils/pos";
 import type { ProductUpdateRequestPendingSummary } from "../types";
 import { isManagementRole } from "../utils/roles";
 
-function itemIsActive(item: SidebarMenuItem, pathname: string) {
+function itemMatchesPath(item: SidebarMenuItem, pathname: string) {
   const matches = item.activeMatch || (item.to ? [item.to] : []);
-  if (matches.some((match) => pathname === match || pathname.startsWith(`${match}/`))) {
-    return true;
-  }
-  return Boolean(item.children?.some((child) => itemIsActive(child, pathname)));
+  return matches.some((match) => pathname === match);
+}
+
+function itemHasActiveDescendant(item: SidebarMenuItem, pathname: string) {
+  return Boolean(item.children?.some((child) => itemMatchesPath(child, pathname) || itemHasActiveDescendant(child, pathname)));
 }
 
 type SidebarBranchProps = {
@@ -24,21 +25,22 @@ type SidebarBranchProps = {
 };
 
 function SidebarBranch({ item, pathname, badges = {}, level = 0 }: SidebarBranchProps) {
-  const isActive = itemIsActive(item, pathname);
-  const [isOpen, setIsOpen] = useState(isActive);
+  const isActive = itemMatchesPath(item, pathname);
+  const hasActiveDescendant = itemHasActiveDescendant(item, pathname);
+  const [isOpen, setIsOpen] = useState(hasActiveDescendant);
   const badgeValue = item.to ? badges[item.to] || 0 : 0;
 
   useEffect(() => {
-    if (isActive) {
+    if (hasActiveDescendant) {
       setIsOpen(true);
     }
-  }, [isActive]);
+  }, [hasActiveDescendant]);
 
   if (item.children?.length) {
     return (
       <div className={`nav-tree-item nav-tree-level-${level}`}>
         <button
-          className={`nav-tree-toggle ${isActive ? "active" : ""}`}
+          className={`nav-tree-toggle ${isOpen ? "expanded" : ""}`}
           onClick={() => setIsOpen((current) => !current)}
           type="button"
         >
@@ -61,7 +63,7 @@ function SidebarBranch({ item, pathname, badges = {}, level = 0 }: SidebarBranch
   return (
     <NavLink
       to={item.to}
-      className={({ isActive: isCurrentRoute }) => `nav-link nav-link-level-${level} ${isCurrentRoute || isActive ? "active" : ""}`}
+      className={() => `nav-link nav-link-level-${level} ${isActive ? "active" : ""}`}
       end
     >
       <span>{item.label}</span>
