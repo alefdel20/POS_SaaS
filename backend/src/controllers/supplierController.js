@@ -21,9 +21,17 @@ const getSupplierDetail = asyncHandler(async (req, res) => {
   res.json(await supplierService.getSupplierDetail(Number(req.params.id), req.user));
 });
 
+const downloadSupplierCatalogTemplate = asyncHandler(async (_req, res) => {
+  const { buffer, filename } = await supplierService.buildSupplierCatalogTemplate();
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(buffer);
+});
+
 module.exports = {
   listValidation,
   idValidation,
   listSuppliers,
-  getSupplierDetail
+  getSupplierDetail,
+  downloadSupplierCatalogTemplate
 };

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { apiRequest } from "../api/client";
+import { apiDownload, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type {
   PaginatedProductsResponse,
@@ -107,6 +107,12 @@ export function SuppliersPage() {
   const navigate = useNavigate();
   const catalogScope = getCatalogScopeFromPath(location.pathname);
   const suppliersTitle = catalogScope ? `Proveedores · ${getCatalogScopeLabel(catalogScope)}` : "Proveedores";
+  const productsBasePath = catalogScope === "food-accessories"
+    ? "/health/products/accessories"
+    : catalogScope === "medications-supplies"
+      ? "/health/products/medications"
+      : "/products";
+  const productEditorPath = `${productsBasePath}/new`;
   const [suppliers, setSuppliers] = useState<SupplierSummary[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(null);
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierDetail | null>(null);
@@ -115,8 +121,11 @@ export function SuppliersPage() {
   const [catalogFilters, setCatalogFilters] = useState<CatalogFilters>(DEFAULT_FILTERS);
   const [activeTab, setActiveTab] = useState<SupplierTab>("overview");
   const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<SupplierCatalogImportPreviewResponse | null>(null);
   const [importFileName, setImportFileName] = useState("");
@@ -147,6 +156,7 @@ export function SuppliersPage() {
     if (!token) return;
     const response = await apiRequest<SupplierDetail>(`/suppliers/${supplierId}`, { token });
     setSelectedSupplier(response);
+    return response;
   }
 
   async function loadSupplierCatalog(supplierId: number, filters: CatalogFilters = catalogFilters) {
@@ -154,6 +164,7 @@ export function SuppliersPage() {
     const query = buildCatalogQuery(filters);
     const response = await apiRequest<SupplierCatalogListResponse>(`/suppliers/${supplierId}/catalog${query ? `?${query}` : ""}`, { token });
     setCatalogData(response);
+    return response;
   }
 
   async function loadProductResults(term: string) {
@@ -177,14 +188,63 @@ export function SuppliersPage() {
   }
 
   function openSupplierDetail(supplierId: number) {
+    resetFeedback();
+    setDetailError("");
     setSelectedSupplier(null);
+    setCatalogData(null);
     setSelectedSupplierId(supplierId);
     setActiveTab("overview");
     setDetailModalOpen(true);
+    if (selectedSupplierId === supplierId) {
+      loadSupplierModalData(supplierId).catch(() => undefined);
+    }
   }
 
   function closeSupplierDetail() {
     setDetailModalOpen(false);
+    setDetailLoading(false);
+    setDetailError("");
+  }
+
+  async function loadSupplierModalData(supplierId: number, filters: CatalogFilters = catalogFilters) {
+    if (!token) return;
+    setDetailLoading(true);
+    setDetailError("");
+    try {
+      await Promise.all([
+        loadSupplierDetail(supplierId),
+        loadSupplierCatalog(supplierId, filters)
+      ]);
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : "No fue posible cargar el proveedor";
+      setDetailError(message);
+      setSelectedSupplier(null);
+      setCatalogData(null);
+      throw loadError;
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function handleDownloadTemplate() {
+    if (!token) return;
+    resetFeedback();
+    setDownloadingTemplate(true);
+    try {
+      const blob = await apiDownload("/suppliers/catalog/template", { token });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "plantilla_catalogo_proveedor.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "No fue posible descargar la plantilla");
+    } finally {
+      setDownloadingTemplate(false);
+    }
   }
 
   useEffect(() => {
@@ -208,24 +268,26 @@ export function SuppliersPage() {
       setCatalogData(null);
       return;
     }
+    if (!detailModalOpen) {
+      return;
+    }
 
-    Promise.all([
-      loadSupplierDetail(selectedSupplierId),
-      loadSupplierCatalog(selectedSupplierId)
-    ]).catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el proveedor");
-    });
-  }, [selectedSupplierId, token]);
+    loadSupplierModalData(selectedSupplierId).catch(() => undefined);
+  }, [detailModalOpen, selectedSupplierId, token]);
 
   useEffect(() => {
-    if (!selectedSupplierId) return;
+    if (!selectedSupplierId || !detailModalOpen) return;
     const timeout = setTimeout(() => {
+      setDetailLoading(true);
+      setDetailError("");
       loadSupplierCatalog(selectedSupplierId, catalogFilters).catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el catalogo del proveedor");
+        setDetailError(loadError instanceof Error ? loadError.message : "No fue posible cargar el catalogo del proveedor");
+      }).finally(() => {
+        setDetailLoading(false);
       });
     }, 250);
     return () => clearTimeout(timeout);
-  }, [catalogFilters, selectedSupplierId, token]);
+  }, [catalogFilters, detailModalOpen, selectedSupplierId, token]);
 
   useEffect(() => {
     if (!linkingItem) {
@@ -403,6 +465,9 @@ export function SuppliersPage() {
             <button className="button" disabled={!selectedSupplierId} onClick={openImportModal} type="button">
               Importar catalogo proveedor
             </button>
+            <button className="button ghost" disabled={downloadingTemplate} onClick={() => handleDownloadTemplate().catch(() => undefined)} type="button">
+              {downloadingTemplate ? "Descargando plantilla..." : "Descargar plantilla Excel"}
+            </button>
             <input
               className="search-input"
               placeholder="Buscar proveedor"
@@ -451,7 +516,7 @@ export function SuppliersPage() {
           <div className="empty-state-card supplier-empty-state">
             <strong>Aun no tienes proveedores registrados.</strong>
             <span className="muted">Primero crea un proveedor. Despues podras cargar su catalogo y revisar sus costos desde este modulo.</span>
-            <button className="button" onClick={() => navigate("/products?tab=suppliers")} type="button">
+            <button className="button" onClick={() => navigate(`${productEditorPath}?tab=suppliers`)} type="button">
               Crear proveedor primero
             </button>
           </div>
@@ -463,11 +528,13 @@ export function SuppliersPage() {
           <div className="modal-card supplier-modal-card supplier-detail-panel">
             <div className="panel-header">
               <div>
-                <h2>{selectedSupplier?.name || "Cargando proveedor..."}</h2>
+                <h2>{selectedSupplier?.name || (detailError ? "Proveedor no disponible" : "Cargando proveedor...")}</h2>
                 <p className="muted">
                   {selectedSupplier
                     ? "Aqui administras la lista del proveedor, sus vinculos con productos del sistema y las actualizaciones de costo."
-                    : "Cargando detalle del proveedor seleccionado."}
+                    : detailError
+                      ? "No fue posible obtener el detalle del proveedor seleccionado."
+                      : "Cargando detalle del proveedor seleccionado."}
                 </p>
               </div>
               <div className="inline-actions">
@@ -479,6 +546,17 @@ export function SuppliersPage() {
                 <button className="button ghost" onClick={closeSupplierDetail} type="button">Cerrar</button>
               </div>
             </div>
+            {detailError ? (
+              <div className="empty-state-card">
+                <strong>No fue posible cargar el proveedor.</strong>
+                <span className="muted">{detailError}</span>
+                <div className="inline-actions">
+                  <button className="button" onClick={() => loadSupplierModalData(selectedSupplierId).catch(() => undefined)} type="button">
+                    Reintentar
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {selectedSupplier ? (
               <>
             <div className="tab-row">
@@ -610,7 +688,7 @@ export function SuppliersPage() {
                                   {!item.product_id ? <button className="button ghost" onClick={() => openCreateProductModal(item)} type="button">Crear producto en el sistema</button> : null}
                                   {item.cost_changed && item.product_id ? <button className="button ghost" onClick={() => handleApplyCost(item)} type="button">Actualizar costo de compra</button> : null}
                                   {item.product_id ? (
-                                    <button className="button ghost" onClick={() => navigate(`/products?edit=${item.product_id}&search=${encodeURIComponent(item.linked_product?.name || item.supplier_product_name)}`)} type="button">Ver en Productos</button>
+                                    <button className="button ghost" onClick={() => navigate(`${productEditorPath}?edit=${item.product_id}&search=${encodeURIComponent(item.linked_product?.name || item.supplier_product_name)}`)} type="button">Ver en Productos</button>
                                   ) : null}
                                 </div>
                               </td>
@@ -660,7 +738,7 @@ export function SuppliersPage() {
                           <td>{shortDateTime(catalogItem?.updated_at || product.cost_updated_at || product.product_updated_at)}</td>
                           <td>
                             <div className="inline-actions">
-                              <button className="button ghost" onClick={() => navigate(`/products?edit=${product.product_id}&search=${encodeURIComponent(product.product_name)}`)} type="button">Ver en Productos</button>
+                              <button className="button ghost" onClick={() => navigate(`${productEditorPath}?edit=${product.product_id}&search=${encodeURIComponent(product.product_name)}`)} type="button">Ver en Productos</button>
                               {catalogItem?.cost_changed ? <button className="button ghost" onClick={() => handleApplyCost(catalogItem)} type="button">Actualizar costo de compra</button> : null}
                             </div>
                           </td>
@@ -710,7 +788,14 @@ export function SuppliersPage() {
             ) : null}
               </>
             ) : (
-              <p className="muted">Cargando proveedor...</p>
+              <div className="empty-state-card">
+                <strong>{detailLoading ? "Cargando proveedor..." : "Sin detalle disponible"}</strong>
+                <span className="muted">
+                  {detailLoading
+                    ? "Estamos consultando el detalle y el catalogo del proveedor."
+                    : "Abre nuevamente el proveedor o intenta recargar si el problema persiste."}
+                </span>
+              </div>
             )}
           </div>
         </div>
@@ -727,6 +812,11 @@ export function SuppliersPage() {
             <div className="info-card">
               <strong>Orden sugerido de columnas</strong>
               <p className="muted">Codigo proveedor, producto, descripcion, categoria, unidad, costo de compra, moneda, multiplo, minimo de pedido.</p>
+            </div>
+            <div className="inline-actions">
+              <button className="button ghost" disabled={downloadingTemplate} onClick={() => handleDownloadTemplate().catch(() => undefined)} type="button">
+                {downloadingTemplate ? "Descargando..." : "Descargar plantilla Excel"}
+              </button>
             </div>
             {isImporting ? <p className="muted">Procesando archivo...</p> : null}
             {importPreview ? (

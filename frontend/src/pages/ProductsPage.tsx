@@ -1,5 +1,5 @@
 import { type KeyboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type {
@@ -297,6 +297,7 @@ function focusNextFieldOnEnter(event: KeyboardEvent<HTMLElement>) {
 export function ProductsPage() {
   const { token, user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const defaultSaleUnit = getDefaultUnitForPosType();
   const emptyProductState = useMemo(() => buildEmptyProduct(defaultSaleUnit), [defaultSaleUnit]);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -354,6 +355,13 @@ export function ProductsPage() {
   const catalogType = getCatalogTypeFromScope(catalogScope);
   const isNewProductRoute = location.pathname.endsWith("/new");
   const isRestockRoute = location.pathname.endsWith("/restock");
+  const productBasePath = isNewProductRoute
+    ? location.pathname.replace(/\/new$/, "")
+    : isRestockRoute
+      ? location.pathname.replace(/\/restock$/, "")
+      : location.pathname;
+  const newProductPath = `${productBasePath}/new`;
+  const restockProductPath = `${productBasePath}/restock`;
   const appliesAutomaticIeps = showIepsField && shouldApplyAutomaticIeps(form.category);
   const productModuleLabel = getProductModuleLabel(user?.pos_type);
   const scopedModuleLabel = catalogScope ? getCatalogScopeLabel(catalogScope) : productModuleLabel;
@@ -577,7 +585,7 @@ export function ProductsPage() {
         loadProducts(search, page, pageSize, categoryFilter),
         loadCategories(),
         loadSuppliers(),
-        loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter)
+        ...(!isCashier && isRestockRoute ? [loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter)] : [])
       ]);
     } catch (confirmError) {
       setError(confirmError instanceof Error ? confirmError.message : "No fue posible importar productos");
@@ -590,7 +598,7 @@ export function ProductsPage() {
     loadProducts(search, page, pageSize, categoryFilter).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
     });
-    if (!isCashier) {
+    if (!isCashier && isRestockRoute) {
       loadRestockProducts().catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar productos por reabastecer");
       });
@@ -600,7 +608,7 @@ export function ProductsPage() {
     if (isCashier) {
       loadRequestSummary().catch(console.error);
     }
-  }, [catalogScope, token, page, pageSize, categoryFilter, isCashier]);
+  }, [catalogScope, token, page, pageSize, categoryFilter, isCashier, isRestockRoute]);
 
   useEffect(() => {
     if (!searchFromQuery || search === searchFromQuery) {
@@ -638,6 +646,9 @@ export function ProductsPage() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (!isCashier) {
+        if (!isRestockRoute) {
+          return;
+        }
         loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter).catch((loadError) => {
           setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
         });
@@ -645,7 +656,7 @@ export function ProductsPage() {
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [catalogScope, restockSearch, restockCategoryFilter, restockSupplierFilter, token, isCashier]);
+  }, [catalogScope, restockSearch, restockCategoryFilter, restockSupplierFilter, token, isCashier, isRestockRoute]);
 
   useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
@@ -659,6 +670,16 @@ export function ProductsPage() {
 
     handleEdit(productToEdit);
   }, [editProductIdFromQuery, editingId, products]);
+
+  useEffect(() => {
+    if (!editProductIdFromQuery || isNewProductRoute || isRestockRoute) {
+      return;
+    }
+    navigate({
+      pathname: newProductPath,
+      search: searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }, { replace: true });
+  }, [editProductIdFromQuery, isNewProductRoute, isRestockRoute, navigate, newProductPath, searchParams]);
 
   useEffect(() => {
     syncBaseline(emptyProductState);
@@ -825,7 +846,9 @@ export function ProductsPage() {
         return next;
       });
       await loadProducts("", 1, pageSize, categoryFilter);
-      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
+      if (isRestockRoute) {
+        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
+      }
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
     }
@@ -1043,7 +1066,7 @@ export function ProductsPage() {
       await loadProducts(wasEditing ? "" : search, wasEditing ? 1 : page, pageSize, categoryFilter);
       await loadSuppliers();
       await loadCategories();
-      if (!isCashier) {
+      if (!isCashier && isRestockRoute) {
         await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
       }
       if (isCashier) {
@@ -1085,6 +1108,12 @@ export function ProductsPage() {
       next.set("search", search || product.name);
       return next;
     });
+    if (!isNewProductRoute) {
+      navigate({
+        pathname: newProductPath,
+        search: `?edit=${product.id}&search=${encodeURIComponent(search || product.name)}`
+      });
+    }
     setSupplierDrafts([]);
     setShowSuppliersModal(false);
     setError("");
@@ -1108,6 +1137,9 @@ export function ProductsPage() {
       next.delete("search");
       return next;
     });
+    if (!isNewProductRoute) {
+      navigate(newProductPath);
+    }
     setSupplierDrafts([]);
     setShowSuppliersModal(false);
     setError("");
@@ -1175,7 +1207,9 @@ export function ProductsPage() {
         })
       });
       await loadProducts(search, page, pageSize, categoryFilter);
-      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
+      if (isRestockRoute) {
+        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter);
+      }
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : "No fue posible actualizar el producto");
     } finally {
@@ -1185,6 +1219,7 @@ export function ProductsPage() {
 
   return (
     <section className="page-grid">
+      {isNewProductRoute ? (
       <form className="panel product-form-panel product-form-panel-wide" onKeyDownCapture={focusNextFieldOnEnter} onSubmit={handleSubmit}>
         <div className="panel-header">
           <h2>{isCashier ? (editingId ? `Solicitar cambio en ${productModuleLabel.toLowerCase()}` : "Solicitar cambio de producto") : editingId ? `Editar ${productModuleLabel.toLowerCase()}` : `Nuevo ${productModuleLabel.toLowerCase()}`}</h2>
@@ -1484,8 +1519,9 @@ export function ProductsPage() {
           {saving ? "Guardando..." : isCashier ? "Enviar solicitud" : editingId ? "Actualizar producto" : "Guardar producto"}
         </button>
       </form>
+      ) : null}
 
-      {isCashier && requestSummary?.recent?.length ? (
+      {isNewProductRoute && isCashier && requestSummary?.recent?.length ? (
         <div className="panel">
           <div className="panel-header">
             <div>
@@ -1609,6 +1645,7 @@ export function ProductsPage() {
         </div>
       ) : null}
 
+      {!isNewProductRoute && !isRestockRoute ? (
       <div className="panel">
         <div className="panel-header product-catalog-header">
           <div>
@@ -1743,8 +1780,9 @@ export function ProductsPage() {
           </div>
         </div>
       </div>
+      ) : null}
 
-      {!isCashier ? (
+      {!isCashier && isRestockRoute ? (
       <div className="panel">
         <div className="panel-header product-catalog-header">
           <div>

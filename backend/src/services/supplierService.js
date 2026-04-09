@@ -1,3 +1,4 @@
+const ExcelJS = require("exceljs");
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
@@ -99,4 +100,42 @@ async function getSupplierDetail(id, actor) {
   };
 }
 
-module.exports = { listSuppliers, getSupplierDetail };
+async function buildSupplierCatalogTemplate() {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Catalogo proveedor");
+
+  worksheet.columns = [
+    { header: "Codigo proveedor", key: "supplier_product_code", width: 22 },
+    { header: "Producto", key: "supplier_product_name", width: 32 },
+    { header: "Descripcion", key: "supplier_description", width: 36 },
+    { header: "Categoria", key: "supplier_category", width: 22 },
+    { header: "Unidad", key: "supplier_unit", width: 14 },
+    { header: "Costo de compra", key: "purchase_cost", width: 18 },
+    { header: "Moneda", key: "currency", width: 12 },
+    { header: "Multiplo", key: "pack_size", width: 14 },
+    { header: "Minimo de pedido", key: "min_order_qty", width: 18 }
+  ];
+
+  worksheet.addRow({
+    supplier_product_code: "SKU-PROV-001",
+    supplier_product_name: "Producto ejemplo",
+    supplier_description: "Presentacion base para validar la importacion",
+    supplier_category: "General",
+    supplier_unit: "pieza",
+    purchase_cost: 12.5,
+    currency: "MXN",
+    pack_size: "1",
+    min_order_qty: "1"
+  });
+
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return {
+    buffer,
+    filename: "plantilla_catalogo_proveedor.xlsx"
+  };
+}
+
+module.exports = { listSuppliers, getSupplierDetail, buildSupplierCatalogTemplate };
