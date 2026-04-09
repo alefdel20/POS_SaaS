@@ -3,7 +3,7 @@ const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
 const { ensureAutomaticReminders, ensureLowStockRemindersForProductIds } = require("./reminderService");
 const { requireActorBusinessId } = require("../utils/tenant");
-const { getMexicoCityDate, getMexicoCityTime } = require("../utils/timezone");
+const { getMexicoCityDate } = require("../utils/timezone");
 const { createAdministrativeInvoiceFromSale } = require("./adminInvoiceService");
 const { saveAuditLog } = require("./auditLogService");
 const { emitActorAutomationEvent } = require("./automationEventService");
@@ -454,6 +454,7 @@ async function createSale(payload, user) {
       stampStatus = "consumed";
     }
 
+    const safeSaleTime = new Date().toISOString().split("T")[1].split(".")[0];
     const { rows: saleRows } = await client.query(
       `INSERT INTO sales (
         user_id, business_id, payment_method, sale_type, subtotal, total, total_cost, customer_name, customer_phone,
@@ -462,7 +463,7 @@ async function createSale(payload, user) {
       )
       VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed')
       RETURNING *`,
-      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), getMexicoCityTime(), requiresAdministrativeInvoice]
+      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), safeSaleTime, requiresAdministrativeInvoice]
     );
     const sale = mapSaleRow(saleRows[0]);
 
