@@ -57,11 +57,11 @@ export function DashboardPage() {
 
     return [
       { label: "Ventas del dia", value: currency(summary?.total_sales_today || 0), accent: "#6cf0c2" },
+      { label: "Productos", value: summary?.total_products || 0, accent: "#7dd3fc" },
       { label: "Cambios por aprobar", value: adminApprovals?.pending || 0, accent: "#ffb454" },
-      { label: "Citas de hoy", value: adminAppointmentsToday.length, accent: "#7dd3fc" },
-      { label: "Cortes recientes", value: recentManualCuts.length, accent: "#8b5cf6" }
+      { label: "Citas de hoy", value: adminAppointmentsToday.length, accent: "#8b5cf6" }
     ];
-  }, [adminAppointmentsToday.length, adminApprovals?.pending, doctorSummary?.appointments_today.length, doctorSummary?.next_appointments.length, doctorSummary?.patients_today, doctorSummary?.status, recentManualCuts.length, role, summary?.total_sales_today]);
+  }, [adminAppointmentsToday.length, adminApprovals?.pending, doctorSummary?.appointments_today.length, doctorSummary?.next_appointments.length, doctorSummary?.patients_today, doctorSummary?.status, role, summary?.total_products, summary?.total_sales_today]);
 
   return (
     <section className="page-grid">

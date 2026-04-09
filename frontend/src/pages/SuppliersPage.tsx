@@ -22,6 +22,7 @@ type SupplierSummary = {
   whatsapp?: string | null;
   observations?: string | null;
   product_count: number;
+  product_names?: string[];
 };
 
 type SupplierTab = "overview" | "catalog" | "linked" | "history";
@@ -113,6 +114,7 @@ export function SuppliersPage() {
   const [supplierSearch, setSupplierSearch] = useState("");
   const [catalogFilters, setCatalogFilters] = useState<CatalogFilters>(DEFAULT_FILTERS);
   const [activeTab, setActiveTab] = useState<SupplierTab>("overview");
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -172,6 +174,17 @@ export function SuppliersPage() {
   function resetFeedback() {
     setError("");
     setSuccess("");
+  }
+
+  function openSupplierDetail(supplierId: number) {
+    setSelectedSupplier(null);
+    setSelectedSupplierId(supplierId);
+    setActiveTab("overview");
+    setDetailModalOpen(true);
+  }
+
+  function closeSupplierDetail() {
+    setDetailModalOpen(false);
   }
 
   useEffect(() => {
@@ -379,7 +392,7 @@ export function SuppliersPage() {
   const hasSuppliers = suppliers.length > 0;
 
   return (
-    <section className="page-grid two-columns">
+    <section className="page-grid">
       <div className="panel">
         <div className="panel-header">
           <div>
@@ -414,6 +427,7 @@ export function SuppliersPage() {
                 <tr>
                   <th>Proveedor</th>
                   <th>Contacto</th>
+                  <th>Producto</th>
                   <th>Productos</th>
                 </tr>
               </thead>
@@ -422,10 +436,11 @@ export function SuppliersPage() {
                   <tr
                     className={supplier.id === selectedSupplierId ? "table-row-active" : ""}
                     key={supplier.id}
-                    onClick={() => setSelectedSupplierId(supplier.id)}
+                    onClick={() => openSupplierDetail(supplier.id)}
                   >
                     <td>{supplier.name}</td>
                     <td>{supplier.whatsapp || supplier.phone || supplier.email || "-"}</td>
+                    <td>{supplier.product_names?.length ? `${supplier.product_names.join(", ")}${supplier.product_count > supplier.product_names.length ? ` +${supplier.product_count - supplier.product_names.length}` : ""}` : "-"}</td>
                     <td>{supplier.product_count}</td>
                   </tr>
                 ))}
@@ -443,25 +458,29 @@ export function SuppliersPage() {
         )}
       </div>
 
-      <div className="panel supplier-detail-panel">
-        <div className="panel-header">
-          <div>
-            <h2>{selectedSupplier?.name || "Selecciona un proveedor"}</h2>
-            <p className="muted">
-              {selectedSupplier
-                ? "Aqui administras la lista del proveedor, sus vinculos con productos del sistema y las actualizaciones de costo."
-                : "Selecciona un proveedor para importar y administrar su catalogo."}
-            </p>
-          </div>
-          {selectedSupplierId ? (
-            <button className="button ghost" onClick={openImportModal} type="button">
-              Subir lista del proveedor
-            </button>
-          ) : null}
-        </div>
-
-        {selectedSupplier ? (
-          <>
+      {selectedSupplierId && detailModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card supplier-modal-card supplier-detail-panel">
+            <div className="panel-header">
+              <div>
+                <h2>{selectedSupplier?.name || "Cargando proveedor..."}</h2>
+                <p className="muted">
+                  {selectedSupplier
+                    ? "Aqui administras la lista del proveedor, sus vinculos con productos del sistema y las actualizaciones de costo."
+                    : "Cargando detalle del proveedor seleccionado."}
+                </p>
+              </div>
+              <div className="inline-actions">
+                {selectedSupplierId ? (
+                  <button className="button ghost" onClick={openImportModal} type="button">
+                    Subir lista del proveedor
+                  </button>
+                ) : null}
+                <button className="button ghost" onClick={closeSupplierDetail} type="button">Cerrar</button>
+              </div>
+            </div>
+            {selectedSupplier ? (
+              <>
             <div className="tab-row">
               <button className={`button ghost compact-box ${activeTab === "overview" ? "active-filter" : ""}`} onClick={() => setActiveTab("overview")} type="button">Datos</button>
               <button className={`button ghost compact-box ${activeTab === "catalog" ? "active-filter" : ""}`} onClick={() => setActiveTab("catalog")} type="button">Catalogo proveedor</button>
@@ -619,6 +638,9 @@ export function SuppliersPage() {
                     <tr>
                       <th>Producto del sistema</th>
                       <th>SKU</th>
+                      <th>Stock</th>
+                      <th>Stock maximo</th>
+                      <th>Diferencia reabastecimiento</th>
                       <th>Costo proveedor</th>
                       <th>Actualizacion</th>
                       <th>Acciones</th>
@@ -631,6 +653,9 @@ export function SuppliersPage() {
                         <tr key={product.product_id}>
                           <td>{product.product_name}</td>
                           <td>{product.sku || "-"}</td>
+                          <td>{product.stock ?? 0}</td>
+                          <td>{product.stock_maximo ?? 0}</td>
+                          <td>{product.diferencia_reabastecimiento ?? 0}</td>
                           <td>{currency(catalogItem?.purchase_cost ?? product.purchase_cost)}</td>
                           <td>{shortDateTime(catalogItem?.updated_at || product.cost_updated_at || product.product_updated_at)}</td>
                           <td>
@@ -644,7 +669,7 @@ export function SuppliersPage() {
                     })}
                     {selectedSupplier.products.length === 0 ? (
                       <tr>
-                        <td className="muted" colSpan={5}>Todavia no hay productos del sistema vinculados con este proveedor.</td>
+                        <td className="muted" colSpan={8}>Todavia no hay productos del sistema vinculados con este proveedor.</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -683,19 +708,13 @@ export function SuppliersPage() {
                 </table>
               </div>
             ) : null}
-          </>
-        ) : (
-          <div className="empty-state-card supplier-empty-state">
-            <strong>Selecciona un proveedor para importar y administrar su catalogo.</strong>
-            <span className="muted">Desde Proveedores cargas la lista del proveedor. Desde Productos administras el catalogo de tu negocio.</span>
-            {!hasSuppliers ? (
-              <button className="button" onClick={() => navigate("/products?tab=suppliers")} type="button">
-                Crear proveedor primero
-              </button>
-            ) : null}
+              </>
+            ) : (
+              <p className="muted">Cargando proveedor...</p>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      ) : null}
       {importModalOpen ? (
         <div className="modal-backdrop">
           <div className="modal-card import-modal-card">
@@ -705,6 +724,10 @@ export function SuppliersPage() {
               Archivo
               <input accept=".csv,.xlsx" onChange={(event) => handleImportFileSelected(event.target.files?.[0] || null)} type="file" />
             </label>
+            <div className="info-card">
+              <strong>Orden sugerido de columnas</strong>
+              <p className="muted">Codigo proveedor, producto, descripcion, categoria, unidad, costo de compra, moneda, multiplo, minimo de pedido.</p>
+            </div>
             {isImporting ? <p className="muted">Procesando archivo...</p> : null}
             {importPreview ? (
               <>

@@ -179,14 +179,22 @@ export function ProductUpdateRequestsPage() {
   }
 
   function handleProductInputChange(value: string) {
-    const matchedProduct = products.find((product) => buildProductSearchLabel(product).toLowerCase() === value.trim().toLowerCase());
+    const normalizedValue = value.trim().toLowerCase();
+    const matchedProduct = products.find((product) => buildProductSearchLabel(product).toLowerCase() === normalizedValue);
     setProductInput(value);
     setProductSearch(value);
     setForm((current) => ({
       ...current,
-      product_id: matchedProduct ? String(matchedProduct.id) : ""
+      product_id: normalizedValue ? (matchedProduct ? String(matchedProduct.id) : "") : ""
     }));
   }
+
+  useEffect(() => {
+    if (productInput.trim()) {
+      return;
+    }
+    setForm((current) => (current.product_id ? { ...current, product_id: "" } : current));
+  }, [productInput]);
 
   function updateFilters(patch: Partial<FiltersState>) {
     setPage(1);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -12,6 +12,7 @@ import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope 
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
+const AUTO_IEPS_CATEGORIES = new Set(["dulces", "refrescos", "botanas", "cigarros", "alcohol"]);
 
 interface CartItem {
   product: Product;
@@ -139,6 +140,21 @@ function formatSaleQuantity(quantity: number, unit?: string | null) {
   return `${quantity.toFixed(3)} ${resolvedUnit}`;
 }
 
+function focusNextInputOnEnter(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "Enter" || event.target instanceof HTMLTextAreaElement) {
+    return;
+  }
+  const container = event.currentTarget;
+  const focusable = Array.from(container.querySelectorAll<HTMLElement>("input, select, textarea, button"))
+    .filter((element) => !element.hasAttribute("disabled") && element.tabIndex !== -1);
+  const currentIndex = focusable.indexOf(event.target as HTMLElement);
+  if (currentIndex === -1) {
+    return;
+  }
+  event.preventDefault();
+  focusable[currentIndex + 1]?.focus();
+}
+
 export function SalesPage() {
   const { token, user } = useAuth();
   const location = useLocation();
@@ -162,7 +178,6 @@ export function SalesPage() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [initialPayment, setInitialPayment] = useState("0");
   const [cashReceived, setCashReceived] = useState("");
-  const [saleNotes, setSaleNotes] = useState("");
   const [lastReceipt, setLastReceipt] = useState<SaleReceipt | null>(null);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
@@ -247,7 +262,6 @@ export function SalesPage() {
     setCustomerPhone("");
     setInitialPayment("0");
     setCashReceived("");
-    setSaleNotes("");
     setRequiresAdministrativeInvoice(false);
     setWarnings([]);
     setInvoiceData({
@@ -397,11 +411,10 @@ export function SalesPage() {
     setCart((current) => {
       const existing = current.find((item) => item.product.id === product.id);
       if (existing) {
-        return current.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: roundQuantity(item.quantity + step) } : item
-        );
+        const updatedItem = { ...existing, quantity: roundQuantity(existing.quantity + step) };
+        return [updatedItem, ...current.filter((item) => item.product.id !== product.id)];
       }
-      return [...current, { product, quantity: step }];
+      return [{ product, quantity: step }, ...current];
     });
     setScannerSelectionId(product.id);
   }
@@ -608,6 +621,7 @@ export function SalesPage() {
           stock_minimo: 0,
           stock_maximo: stock,
           category: quickProductForm.category.trim(),
+          ieps: AUTO_IEPS_CATEGORIES.has(quickProductForm.category.trim().toLowerCase()) ? 8 : undefined,
           catalog_type: catalogType,
           barcode: sanitizedBarcode || undefined,
           supplier_name: quickProductForm.supplier_name.trim() || undefined,
@@ -625,7 +639,7 @@ export function SalesPage() {
       addToCart(createdProduct);
       closeQuickAddModal();
       setSearch(createdProduct.name);
-      await loadProducts(createdProduct.name);
+      setProducts((current) => [createdProduct, ...current.filter((product) => product.id !== createdProduct.id)]);
     } catch (quickAddError) {
       setQuickProductError(quickAddError instanceof Error ? quickAddError.message : "No fue posible dar de alta el producto");
     } finally {
@@ -694,7 +708,6 @@ export function SalesPage() {
               payment_method: paymentMethod
             }
           } : undefined,
-          notes: saleNotes.trim() || undefined,
           items: cart.map((item) => ({
             product_id: item.product.id,
             quantity: item.quantity,
@@ -961,13 +974,6 @@ export function SalesPage() {
           </div>
         ) : null}
 
-        <div className="form-section-grid">
-          <label className="form-span-2">
-            Observaciones temporales
-            <textarea value={saleNotes} onChange={(event) => setSaleNotes(event.target.value)} />
-          </label>
-        </div>
-
         {paymentMethod === "cash" ? (
           <div className="form-section-grid">
             <div className="total-box secondary">
@@ -1133,7 +1139,7 @@ export function SalesPage() {
 
       {showQuickAddModal ? (
         <div className="modal-backdrop" role="presentation">
-          <div className="modal-card quick-product-modal">
+          <div className="modal-card quick-product-modal" onKeyDownCapture={focusNextInputOnEnter}>
             <div className="panel-header">
               <div>
                 <h3>Alta Rapida</h3>

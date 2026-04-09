@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -274,6 +274,26 @@ function formatRestockQuantity(value: number, unit?: string | null) {
   return `${value.toFixed(3)} ${resolvedUnit}`;
 }
 
+const AUTO_IEPS_CATEGORIES = new Set(["dulces", "refrescos", "botanas", "cigarros", "alcohol"]);
+
+function shouldApplyAutomaticIeps(category: string) {
+  return AUTO_IEPS_CATEGORIES.has(category.trim().toLowerCase());
+}
+
+function focusNextFieldOnEnter(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "Enter" || event.target instanceof HTMLTextAreaElement) {
+    return;
+  }
+  const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("input, select, textarea, button"))
+    .filter((element) => !element.hasAttribute("disabled") && element.tabIndex !== -1);
+  const currentIndex = focusable.indexOf(event.target as HTMLElement);
+  if (currentIndex === -1) {
+    return;
+  }
+  event.preventDefault();
+  focusable[currentIndex + 1]?.focus();
+}
+
 export function ProductsPage() {
   const { token, user } = useAuth();
   const location = useLocation();
@@ -296,6 +316,8 @@ export function ProductsPage() {
   const [restockSearch, setRestockSearch] = useState("");
   const [restockCategoryFilter, setRestockCategoryFilter] = useState("");
   const [restockSupplierFilter, setRestockSupplierFilter] = useState("");
+  const [restockDrafts, setRestockDrafts] = useState<Record<number, string>>({});
+  const [restockingId, setRestockingId] = useState<number | null>(null);
   const [loadingRestock, setLoadingRestock] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -312,6 +334,7 @@ export function ProductsPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [currentImagePath, setCurrentImagePath] = useState<string | null>(null);
   const [removeImageRequested, setRemoveImageRequested] = useState(false);
+  const supplierNameInputRef = useRef<HTMLInputElement | null>(null);
   const baselineFormRef = useRef(JSON.stringify({
     ...emptyProductState,
     suppliers: emptyProductState.suppliers.map((supplier) => ({ ...supplier }))
@@ -329,6 +352,9 @@ export function ProductsPage() {
   const isCashier = isCashierRole(user?.role);
   const catalogScope = getCatalogScopeFromPath(location.pathname);
   const catalogType = getCatalogTypeFromScope(catalogScope);
+  const isNewProductRoute = location.pathname.endsWith("/new");
+  const isRestockRoute = location.pathname.endsWith("/restock");
+  const appliesAutomaticIeps = showIepsField && shouldApplyAutomaticIeps(form.category);
   const productModuleLabel = getProductModuleLabel(user?.pos_type);
   const scopedModuleLabel = catalogScope ? getCatalogScopeLabel(catalogScope) : productModuleLabel;
   const veterinaryCategoryFilters = [...VETERINARY_PRODUCT_CATEGORIES];
@@ -349,6 +375,30 @@ export function ProductsPage() {
   const hasUnsavedChanges = baselineFormRef.current !== buildFormSnapshot(form)
     || Boolean(imageFile)
     || removeImageRequested;
+
+  function handleStockMaximoEnter(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    supplierNameInputRef.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!showIepsField) {
+      return;
+    }
+    const appliesAutomaticIeps = shouldApplyAutomaticIeps(form.category);
+    setForm((current) => {
+      if (appliesAutomaticIeps && current.ieps !== "8") {
+        return { ...current, ieps: "8" };
+      }
+      if (!appliesAutomaticIeps && current.ieps === "8") {
+        return { ...current, ieps: "" };
+      }
+      return current;
+    });
+  }, [form.category, showIepsField]);
 
   async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize, nextCategoryFilter = categoryFilter) {
     if (!token) return;
@@ -415,8 +465,50 @@ export function ProductsPage() {
       }
       const response = await apiRequest<RestockProductItem[]>(`/products/restock?${params.toString()}`, { token });
       setRestockItems(response);
+      setRestockDrafts((current) => {
+        const nextDrafts = { ...current };
+        response.forEach((item) => {
+          if (nextDrafts[item.id] === undefined) {
+            nextDrafts[item.id] = String(item.stock_maximo ?? item.stock ?? 0);
+          }
+        });
+        return nextDrafts;
+      });
     } finally {
       setLoadingRestock(false);
+    }
+  }
+
+  async function saveRestockItem(item: RestockProductItem) {
+    if (!token) return;
+
+    const nextStockValue = restockDrafts[item.id] ?? String(item.stock_maximo ?? item.stock ?? 0);
+    const nextStock = Number(nextStockValue);
+    if (!Number.isFinite(nextStock) || nextStock < 0) {
+      setError("El nuevo stock debe ser numerico y mayor o igual a cero");
+      return;
+    }
+
+    try {
+      setError("");
+      setRestockingId(item.id);
+      await apiRequest<Product>(`/products/${item.id}/restock`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          stock: nextStock,
+          reason: "restock_view_update"
+        })
+      });
+      setRestockItems((current) => current.filter((restockItem) => restockItem.id !== item.id));
+      setProducts((current) => current.map((product) => (product.id === item.id ? { ...product, stock: nextStock } : product)));
+      setTotalProducts((current) => current);
+      setInfo(`Stock actualizado para ${item.name}`);
+      await loadProducts(search, page, pageSize, categoryFilter);
+    } catch (restockError) {
+      setError(restockError instanceof Error ? restockError.message : "No fue posible actualizar el stock");
+    } finally {
+      setRestockingId(null);
     }
   }
 
@@ -518,6 +610,19 @@ export function ProductsPage() {
     setSearch(searchFromQuery);
     setPage(1);
   }, [search, searchFromQuery]);
+
+  useEffect(() => {
+    if (!isNewProductRoute || editProductIdFromQuery) {
+      return;
+    }
+    setEditingId(null);
+    setForm(emptyProductState);
+    syncBaseline(emptyProductState);
+    setImageFile(null);
+    setImagePreview(null);
+    setCurrentImagePath(null);
+    setRemoveImageRequested(false);
+  }, [editProductIdFromQuery, emptyProductState, isNewProductRoute]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -1080,7 +1185,7 @@ export function ProductsPage() {
 
   return (
     <section className="page-grid">
-      <form className="panel product-form-panel product-form-panel-wide" onSubmit={handleSubmit}>
+      <form className="panel product-form-panel product-form-panel-wide" onKeyDownCapture={focusNextFieldOnEnter} onSubmit={handleSubmit}>
         <div className="panel-header">
           <h2>{isCashier ? (editingId ? `Solicitar cambio en ${productModuleLabel.toLowerCase()}` : "Solicitar cambio de producto") : editingId ? `Editar ${productModuleLabel.toLowerCase()}` : `Nuevo ${productModuleLabel.toLowerCase()}`}</h2>
           <div className="inline-actions">
@@ -1104,6 +1209,18 @@ export function ProductsPage() {
             ) : null}
           </div>
         </div>
+        {isNewProductRoute ? (
+          <div className="info-card">
+            <p><strong>Alta de producto</strong></p>
+            <p>Ruta dedicada para capturar un nuevo producto sin romper las rutas anteriores.</p>
+          </div>
+        ) : null}
+        {isRestockRoute ? (
+          <div className="info-card">
+            <p><strong>Reabastecimiento rapido</strong></p>
+            <p>Actualiza stock objetivo y limpia la lista de pendientes en cuanto guardes.</p>
+          </div>
+        ) : null}
         {isCashier && requestSummary ? (
           <div className="stats-grid">
             <div className="info-card compact-box"><strong>{requestSummary.pending}</strong><span className="muted">Pendientes</span></div>
@@ -1242,9 +1359,10 @@ export function ProductsPage() {
           {showIepsField ? (
             <label>
               IEPS
-              <input type="number" min="0" step="0.01" value={form.ieps} onChange={(event) => setForm({ ...form, ieps: event.target.value })} />
+              <input readOnly={appliesAutomaticIeps} type="number" min="0" step="0.01" value={form.ieps} onChange={(event) => setForm({ ...form, ieps: event.target.value })} />
             </label>
           ) : null}
+          {appliesAutomaticIeps ? <p className="muted">IEPS automatico fijo en 8% para esta categoria.</p> : null}
           <label>
             % ganancia
             <input type="number" step="0.001" value={form.porcentaje_ganancia} onChange={(event) => setForm({ ...form, porcentaje_ganancia: event.target.value, price: event.target.value === "" ? form.price : recalculatePrice(form.cost_price, event.target.value) })} />
@@ -1259,7 +1377,7 @@ export function ProductsPage() {
           </label>
           <label>
             {requiredLabel("Stock maximo")}
-            <input type="number" min="0" step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
+            <input type="number" min="0" onKeyDown={handleStockMaximoEnter} step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
           </label>
           {showExpiryField ? (
             <label>
@@ -1287,6 +1405,7 @@ export function ProductsPage() {
               <label>
                 Nombre proveedor
                 <input
+                  ref={supplierNameInputRef}
                   list="supplier-options"
                   value={form.suppliers[0]?.supplier_name || ""}
                   onChange={(event) => {
@@ -1676,9 +1795,11 @@ export function ProductsPage() {
                 <th>Categoria</th>
                 <th>Stock</th>
                 <th>Minimo</th>
+                <th>Nuevo stock</th>
                 <th>Proveedor</th>
                 <th>Costo reciente</th>
                 <th>Sugerido</th>
+                <th>Accion</th>
               </tr>
             </thead>
             <tbody>
@@ -1694,6 +1815,15 @@ export function ProductsPage() {
                   <td>{formatRestockQuantity(item.stock, item.unidad_de_venta)}</td>
                   <td>{formatRestockQuantity(item.stock_minimo, item.unidad_de_venta)}</td>
                   <td>
+                    <input
+                      min="0"
+                      step={getResolvedSaleUnit(item.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.unidad_de_venta) === "litro" ? "0.001" : "1"}
+                      type="number"
+                      value={restockDrafts[item.id] ?? String(item.stock_maximo ?? item.stock ?? 0)}
+                      onChange={(event) => setRestockDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                    />
+                  </td>
+                  <td>
                     <div>{item.supplier_name || "-"}</div>
                     <small className="muted">{item.supplier_whatsapp || "-"}</small>
                   </td>
@@ -1702,11 +1832,16 @@ export function ProductsPage() {
                     <small className="muted">{item.cost_updated_at ? `Actualizado ${shortDateTime(item.cost_updated_at)}` : "Sin costo reciente"}</small>
                   </td>
                   <td>{formatRestockQuantity(item.suggested_restock, item.unidad_de_venta)}</td>
+                  <td>
+                    <button className="button ghost" disabled={restockingId === item.id} onClick={() => saveRestockItem(item)} type="button">
+                      {restockingId === item.id ? "Guardando..." : "Guardar"}
+                    </button>
+                  </td>
                 </tr>
               ))}
               {restockItems.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={7}>{loadingRestock ? "Cargando..." : "No hay productos pendientes de reabastecimiento."}</td>
+                  <td className="muted" colSpan={9}>{loadingRestock ? "Cargando..." : "No hay productos pendientes de reabastecimiento."}</td>
                 </tr>
               ) : null}
             </tbody>
@@ -1730,6 +1865,10 @@ export function ProductsPage() {
                 Archivo
                 <input accept=".csv,.xlsx" onChange={(event) => setImportFile(event.target.files?.[0] || null)} type="file" />
               </label>
+              <div className="info-card">
+                <strong>Orden sugerido de columnas</strong>
+                <p className="muted">Nombre, precio, costo, categoria, SKU, codigo de barras, stock, unidad de venta, proveedor.</p>
+              </div>
               <div className="inline-actions">
                 <button className="button" disabled={!importFile || importLoading} onClick={previewImportFile} type="button">
                   {importLoading ? "Analizando..." : "Generar preview"}

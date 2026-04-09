@@ -658,6 +658,83 @@ function mapProductRow(row) {
   };
 }
 
+async function syncLowStockReminderForBusiness(businessId, client = pool) {
+  const sourceKey = `auto:stock-low:${businessId}`;
+  const { rows } = await client.query(
+    `SELECT id, name, stock, stock_minimo, stock_maximo
+     FROM products
+     WHERE business_id = $1
+       AND is_active = TRUE
+       AND status = 'activo'
+       AND stock_minimo > 0
+       AND stock <= stock_minimo
+     ORDER BY name ASC`,
+    [businessId]
+  );
+
+  if (!rows.length) {
+    await client.query(
+      `DELETE FROM reminders
+       WHERE business_id = $1
+         AND source_key IN ($2, $3)`,
+      [businessId, sourceKey, `auto:stock-low:${businessId}:%`]
+    );
+    return;
+  }
+
+  const notes = rows
+    .map((product) => {
+      const stockMaximo = product.stock_maximo === null || product.stock_maximo === undefined || product.stock_maximo === ""
+        ? "-"
+        : Number(product.stock_maximo);
+      return `• ${product.name}
+  Stock actual: ${Number(product.stock || 0)}
+  Minimo: ${Number(product.stock_minimo || 0)}
+  Maximo: ${stockMaximo}`;
+    })
+    .join("\n\n");
+
+  await client.query(
+    `DELETE FROM reminders
+     WHERE business_id = $1
+       AND source_key LIKE $2`,
+    [businessId, `auto:stock-low:${businessId}:%`]
+  );
+
+  const { rows: existingRows } = await client.query(
+    `SELECT id
+     FROM reminders
+     WHERE business_id = $1
+       AND source_key = $2
+     LIMIT 1`,
+    [businessId, sourceKey]
+  );
+
+  if (existingRows[0]) {
+    await client.query(
+      `UPDATE reminders
+       SET title = 'STOCK BAJO',
+           notes = $1,
+           due_date = CURRENT_DATE,
+           status = CASE WHEN is_completed THEN status ELSE 'pending' END,
+           is_completed = CASE WHEN is_completed THEN is_completed ELSE FALSE END,
+           updated_at = NOW()
+       WHERE business_id = $2
+         AND source_key = $3`,
+      [notes, businessId, sourceKey]
+    );
+    return;
+  }
+
+  await client.query(
+    `INSERT INTO reminders (
+      title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata
+     )
+     VALUES ($1, $2, 'pending', CURRENT_DATE, $3, NULL, NULL, FALSE, $4, 'general', 'administrative', NULL, '{}'::jsonb)`,
+    ["STOCK BAJO", notes, sourceKey, businessId]
+  );
+}
+
 function resolveProductCatalogType(payload, currentProduct = null) {
   const explicit = normalizeCatalogType(payload.catalog_type);
   if (explicit) return explicit;
@@ -1346,6 +1423,57 @@ async function listRestockProducts(filters = {}, actor) {
   }));
 }
 
+async function restockProduct(id, payload = {}, actor) {
+  const nextStock = Number(payload.stock);
+  if (!Number.isFinite(nextStock) || nextStock < 0) {
+    throw new ApiError(400, "Product stock cannot be negative");
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const current = await getOwnedProduct(id, actor, client);
+    if (!current) throw new ApiError(404, "Product not found");
+
+    const unidadDeVenta = normalizeSaleUnit(current.unidad_de_venta);
+    const normalizedStock = validateQuantityByUnit(nextStock, unidadDeVenta, "Product stock");
+
+    const { rows } = await client.query(
+      `UPDATE products
+       SET stock = $1,
+           updated_at = NOW()
+       WHERE id = $2
+         AND business_id = $3
+       RETURNING *`,
+      [normalizedStock, id, current.business_id]
+    );
+
+    await syncLowStockReminderForBusiness(current.business_id, client);
+
+    await saveAuditLog({
+      business_id: current.business_id,
+      usuario_id: actor.id,
+      modulo: "products",
+      accion: "restock_product",
+      entidad_tipo: "product",
+      entidad_id: id,
+      detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(current), version: 1 },
+      detalle_nuevo: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
+      motivo: String(payload.reason || "restock_update").trim(),
+      metadata: buildProductAuditMetadata(actor, { previous_stock: Number(current.stock || 0), next_stock: normalizedStock })
+    }, { client });
+
+    await client.query("COMMIT");
+    return mapProductRow(rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function createProduct(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const actorRole = normalizeRole(actor?.role);
@@ -1787,6 +1915,7 @@ module.exports = {
   previewProductImport,
   confirmProductImport,
   listRestockProducts,
+  restockProduct,
   createProduct,
   updateProduct,
   uploadProductImage,

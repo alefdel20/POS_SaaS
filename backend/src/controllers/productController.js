@@ -26,6 +26,11 @@ const restockValidation = [
   query("supplier").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
+const restockUpdateValidation = [
+  body("stock").isFloat({ min: 0 }),
+  body("reason").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 const idValidation = [param("id").isInt(), validateRequest];
 const importConfirmValidation = [
   body("rows").isArray({ min: 1 }),
@@ -164,6 +169,10 @@ const listRestockProducts = asyncHandler(async (req, res) => {
   }, req.user));
 });
 
+const restockProduct = asyncHandler(async (req, res) => {
+  res.json(await productService.restockProduct(Number(req.params.id), req.body, req.user));
+});
+
 const previewProductImport = asyncHandler(async (req, res) => {
   res.json(await productService.previewProductImport(req.file, req.user));
 });
@@ -214,6 +223,7 @@ module.exports = {
   listValidation,
   categoryListValidation,
   restockValidation,
+  restockUpdateValidation,
   idValidation,
   importConfirmValidation,
   createValidation,
@@ -226,6 +236,7 @@ module.exports = {
   listSuppliers,
   listCategories,
   listRestockProducts,
+  restockProduct,
   previewProductImport,
   confirmProductImport,
   getProductDetail,

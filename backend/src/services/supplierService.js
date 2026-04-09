@@ -25,13 +25,28 @@ async function listSuppliers(search = "", actor) {
        suppliers.whatsapp,
        suppliers.observations,
        suppliers.business_id,
-       COUNT(DISTINCT product_suppliers.product_id)::int AS product_count
+       COUNT(DISTINCT product_suppliers.product_id)::int AS product_count,
+       COALESCE(product_preview.product_names, ARRAY[]::text[]) AS product_names
      FROM suppliers
      LEFT JOIN product_suppliers
        ON product_suppliers.supplier_id = suppliers.id
       AND product_suppliers.business_id = suppliers.business_id
+     LEFT JOIN LATERAL (
+       SELECT ARRAY_AGG(preview_products.name ORDER BY preview_products.name ASC) AS product_names
+       FROM (
+         SELECT products.name
+         FROM product_suppliers preview_links
+         INNER JOIN products
+           ON products.id = preview_links.product_id
+          AND products.business_id = preview_links.business_id
+         WHERE preview_links.supplier_id = suppliers.id
+           AND preview_links.business_id = suppliers.business_id
+         ORDER BY products.name ASC
+         LIMIT 3
+       ) AS preview_products
+     ) AS product_preview ON TRUE
      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
-     GROUP BY suppliers.id
+     GROUP BY suppliers.id, product_preview.product_names
      ORDER BY suppliers.name ASC`,
     params
   );
@@ -57,6 +72,9 @@ async function getSupplierDetail(id, actor) {
        products.id AS product_id,
        products.name AS product_name,
        products.sku,
+       products.stock,
+       products.stock_maximo,
+       GREATEST(COALESCE(products.stock_maximo, 0) - COALESCE(products.stock, 0), 0) AS diferencia_reabastecimiento,
        COALESCE(product_suppliers.purchase_cost, products.cost_price, 0) AS purchase_cost,
        product_suppliers.cost_updated_at,
        products.updated_at AS product_updated_at
@@ -71,7 +89,13 @@ async function getSupplierDetail(id, actor) {
 
   return {
     ...supplier,
-    products: productRows.map((row) => ({ ...row, purchase_cost: Number(row.purchase_cost || 0) }))
+    products: productRows.map((row) => ({
+      ...row,
+      stock: Number(row.stock || 0),
+      stock_maximo: Number(row.stock_maximo || 0),
+      diferencia_reabastecimiento: Number(row.diferencia_reabastecimiento || 0),
+      purchase_cost: Number(row.purchase_cost || 0)
+    }))
   };
 }
 

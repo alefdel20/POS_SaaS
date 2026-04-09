@@ -101,6 +101,12 @@ export function DailyCutPage() {
     return users.find((user) => user.id === Number(filters.user_id))?.full_name || `Usuario #${filters.user_id}`;
   }, [filters.user_id, users]);
   const isCashier = isCashierRole(user?.role);
+  const previousComparableCut = useMemo(
+    () => history.find((cut) => cut.cut_date !== today?.cut_date && !cut.month) || null,
+    [history, today?.cut_date]
+  );
+  const totalComparison = today && previousComparableCut ? today.total_day - previousComparableCut.total_day : null;
+  const profitComparison = today && previousComparableCut ? today.gross_profit - previousComparableCut.gross_profit : null;
 
   async function applyFilters() {
     try {
@@ -212,6 +218,16 @@ export function DailyCutPage() {
           <div className="stat-card"><span className="stat-label">Ganancia</span><strong className="stat-value">{currency(today?.gross_profit || 0)}</strong></div>
           <div className="stat-card"><span className="stat-label">Margen</span><strong className="stat-value">{Number(today?.gross_margin || 0).toFixed(2)}%</strong></div>
         </div>
+        {previousComparableCut ? (
+          <div className="info-card">
+            <p>Comparado con {shortDate(previousComparableCut.cut_date)}: <strong>{totalComparison && totalComparison >= 0 ? "+" : ""}{currency(totalComparison || 0)}</strong> en total del dia.</p>
+            <p>Diferencia en ganancia: <strong>{profitComparison && profitComparison >= 0 ? "+" : ""}{currency(profitComparison || 0)}</strong>.</p>
+          </div>
+        ) : (
+          <div className="info-card">
+            <p>No hay suficiente historico claro para mostrar comparacion diaria.</p>
+          </div>
+        )}
       </div>
 
       <div className="panel">

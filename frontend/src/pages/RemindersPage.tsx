@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalPatientSummary, Reminder } from "../types";
@@ -15,13 +16,30 @@ const emptyReminder = {
   patient_id: ""
 };
 
+function normalizeReminderBasePath(pathname: string) {
+  return pathname.replace(/\/(new|calendar)$/, "");
+}
+
 export function RemindersPage() {
   const { token } = useAuth();
+  const location = useLocation();
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
   const [form, setForm] = useState(emptyReminder);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const basePath = normalizeReminderBasePath(location.pathname);
+  const isNewRoute = location.pathname.endsWith("/new");
+  const isCalendarRoute = location.pathname.endsWith("/calendar");
+
+  const remindersByDate = useMemo(
+    () => reminders.reduce<Record<string, Reminder[]>>((accumulator, reminder) => {
+      const key = reminder.due_date || "Sin fecha";
+      accumulator[key] = [...(accumulator[key] || []), reminder];
+      return accumulator;
+    }, {}),
+    [reminders]
+  );
 
   function resetForm() {
     setForm(emptyReminder);
@@ -89,18 +107,18 @@ export function RemindersPage() {
 
   function startEditing(reminder: Reminder) {
     setEditingId(reminder.id);
-      setForm({
-        title: reminder.title,
-        notes: reminder.notes || "",
-        status: reminder.status,
-        due_date: reminder.due_date || "",
-        category: reminder.category || "administrative",
-        patient_id: reminder.patient_id ? String(reminder.patient_id) : ""
-      });
+    setForm({
+      title: reminder.title,
+      notes: reminder.notes || "",
+      status: reminder.status,
+      due_date: reminder.due_date || "",
+      category: reminder.category || "administrative",
+      patient_id: reminder.patient_id ? String(reminder.patient_id) : ""
+    });
   }
 
   async function deleteReminder(id: number) {
-    if (!token || !window.confirm("¿Eliminar este recordatorio?")) return;
+    if (!token || !window.confirm("Â¿Eliminar este recordatorio?")) return;
 
     try {
       setError("");
@@ -121,43 +139,72 @@ export function RemindersPage() {
     <section className="page-grid two-columns">
       <div className="panel">
         <div className="panel-header">
-          <h2>Recordatorios</h2>
+          <div>
+            <h2>Recordatorios</h2>
+            <p className="muted">Listado, alta y calendario usando la data actual del backend.</p>
+          </div>
+          <div className="inline-actions">
+            <Link className={`button ghost ${!isNewRoute && !isCalendarRoute ? "active-filter" : ""}`} to={basePath}>Recordatorios</Link>
+            <Link className={`button ghost ${isNewRoute ? "active-filter" : ""}`} to={`${basePath}/new`}>Nuevo</Link>
+            <Link className={`button ghost ${isCalendarRoute ? "active-filter" : ""}`} to={`${basePath}/calendar`}>Calendario</Link>
+          </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
-        <div className="stack-list">
-          {reminders.map((reminder) => (
-            <article key={reminder.id} className="reminder-card">
-              <div>
-                <strong>{reminder.title}</strong>
-                <p className="muted reminder-notes">{reminder.notes}</p>
-                <small>{reminder.category === "clinical" ? "Clinico" : "Administrativo"}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
-                <br />
-                <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(reminder.due_date)}</small>
+        {isCalendarRoute ? (
+          <div className="stack-list">
+            {Object.entries(remindersByDate)
+              .sort(([left], [right]) => left.localeCompare(right))
+              .map(([date, items]) => (
+                <article key={date} className="info-card">
+                  <strong>{date === "Sin fecha" ? date : dateLabel(date)}</strong>
+                  {items.map((reminder) => (
+                    <p key={reminder.id}>{reminder.title} | {getReminderStatusLabel(reminder.status)}</p>
+                  ))}
+                </article>
+              ))}
+            {!reminders.length ? (
+              <div className="empty-state-card">
+                <strong>No hay recordatorios para mostrar.</strong>
+                <span className="muted">Cuando existan fechas comprometidas apareceran agrupadas aqui.</span>
               </div>
-              <div className="inline-actions">
-                <button className="button ghost" onClick={() => startEditing(reminder)} type="button">
-                  Editar
-                </button>
-                {!reminder.is_completed ? (
-                  <button className="button ghost" onClick={() => completeReminder(reminder.id)} type="button">
-                    Completar
+            ) : null}
+          </div>
+        ) : (
+          <div className="stack-list">
+            {reminders.map((reminder) => (
+              <article key={reminder.id} className="reminder-card">
+                <div>
+                  <strong>{reminder.title}</strong>
+                  <p className="muted reminder-notes">{reminder.notes}</p>
+                  <small>{reminder.category === "clinical" ? "Clinico" : "Administrativo"}{reminder.patient_name ? ` Â· ${reminder.patient_name}` : ""}</small>
+                  <br />
+                  <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(reminder.due_date)}</small>
+                </div>
+                <div className="inline-actions">
+                  <button className="button ghost" onClick={() => startEditing(reminder)} type="button">
+                    Editar
                   </button>
-                ) : (
-                  <span className="pill success">Completado</span>
-                )}
-                <button className="button ghost" onClick={() => deleteReminder(reminder.id)} type="button">
-                  Eliminar
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+                  {!reminder.is_completed ? (
+                    <button className="button ghost" onClick={() => completeReminder(reminder.id)} type="button">
+                      Completar
+                    </button>
+                  ) : (
+                    <span className="pill success">Completado</span>
+                  )}
+                  <button className="button ghost" onClick={() => deleteReminder(reminder.id)} type="button">
+                    Eliminar
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </div>
       <form className="panel grid-form" onSubmit={handleSubmit}>
         <div className="panel-header">
           <div>
             <h2>{editingId ? "Editar recordatorio" : "Nuevo recordatorio"}</h2>
-            <p className="muted">{editingId ? `Editando #${editingId}` : "Captura los datos del recordatorio."}</p>
+            <p className="muted">{editingId ? `Editando #${editingId}` : isNewRoute ? "Vista dedicada para registrar recordatorios." : "Captura los datos del recordatorio."}</p>
           </div>
           {editingId ? (
             <button className="button ghost" onClick={resetForm} type="button">

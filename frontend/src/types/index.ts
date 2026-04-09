@@ -66,6 +66,9 @@ export interface SupplierProductItem {
   product_id: number;
   product_name: string;
   sku: string;
+  stock?: number;
+  stock_maximo?: number;
+  diferencia_reabastecimiento?: number;
   purchase_cost: number;
   cost_updated_at: string | null;
   product_updated_at: string | null;
