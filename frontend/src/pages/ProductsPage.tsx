@@ -319,12 +319,13 @@ export function ProductsPage() {
   const [restockCategoryFilter, setRestockCategoryFilter] = useState("");
   const [restockSupplierFilter, setRestockSupplierFilter] = useState("");
   const [restockDrafts, setRestockDrafts] = useState<Record<number, string>>({});
-  const [restockReasonDrafts, setRestockReasonDrafts] = useState<Record<number, string>>({});
   const [restockPage, setRestockPage] = useState(1);
   const [restockPageSize, setRestockPageSize] = useState<10 | 15>(10);
   const [restockTotalPages, setRestockTotalPages] = useState(1);
   const [restockTotalItems, setRestockTotalItems] = useState(0);
   const [restockingId, setRestockingId] = useState<number | null>(null);
+  const [restockReasonModalItem, setRestockReasonModalItem] = useState<RestockProductItem | null>(null);
+  const [restockReasonModalValue, setRestockReasonModalValue] = useState("");
   const [loadingRestock, setLoadingRestock] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -500,35 +501,21 @@ export function ProductsPage() {
         });
         return nextDrafts;
       });
-      setRestockReasonDrafts((current) => {
-        const nextDrafts = { ...current };
-        response.items.forEach((item) => {
-          if (nextDrafts[item.id] === undefined) {
-            nextDrafts[item.id] = "";
-          }
-        });
-        return nextDrafts;
-      });
     } finally {
       setLoadingRestock(false);
     }
   }
 
-  async function saveRestockItem(item: RestockProductItem) {
+  async function saveRestockItem(item: RestockProductItem, reasonOverride = "") {
     if (!token) return;
 
     const nextStockValue = restockDrafts[item.id] ?? String(item.stock_maximo ?? item.stock ?? 0);
-    const reason = String(restockReasonDrafts[item.id] || "").trim();
+    const reason = String(reasonOverride || "").trim();
     const nextStock = Number(nextStockValue);
     if (!Number.isFinite(nextStock) || nextStock < 0) {
       setError("El nuevo stock debe ser numérico y mayor o igual a cero");
-      return;
+      return false;
     }
-    if (!reason) {
-      setError("Debes capturar el motivo del cambio de stock");
-      return;
-    }
-
     try {
       setError("");
       setRestockingId(item.id);
@@ -538,7 +525,7 @@ export function ProductsPage() {
           token,
           body: JSON.stringify({
             product_id: item.id,
-            requested_stock: nextStock,
+            new_stock: nextStock,
             reason
           })
         });
@@ -550,19 +537,47 @@ export function ProductsPage() {
           token,
           body: JSON.stringify({
             stock: nextStock,
-            reason
+            reason: reason || "restock_view_update"
           })
         });
         setInfo(`Stock actualizado para ${item.name}`);
       }
       setProducts((current) => current.map((product) => (product.id === item.id ? { ...product, stock: nextStock } : product)));
-      setRestockReasonDrafts((current) => ({ ...current, [item.id]: "" }));
       await loadProducts(search, page, pageSize, categoryFilter);
       await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
+      return true;
     } catch (restockError) {
       setError(restockError instanceof Error ? restockError.message : isCashier ? "No fue posible enviar la solicitud" : "No fue posible actualizar el stock");
+      return false;
     } finally {
       setRestockingId(null);
+    }
+  }
+
+  function handleRestockAction(item: RestockProductItem) {
+    if (isCashier) {
+      setError("");
+      setRestockReasonModalItem(item);
+      setRestockReasonModalValue("");
+      return;
+    }
+
+    saveRestockItem(item).catch(() => undefined);
+  }
+
+  async function submitRestockReasonModal() {
+    if (!restockReasonModalItem) return;
+
+    const trimmedReason = restockReasonModalValue.trim();
+    if (trimmedReason.length < 5) {
+      setError("El motivo es obligatorio y debe tener al menos 5 caracteres");
+      return;
+    }
+
+    const saved = await saveRestockItem(restockReasonModalItem, trimmedReason);
+    if (saved) {
+      setRestockReasonModalItem(null);
+      setRestockReasonModalValue("");
     }
   }
 
@@ -1889,7 +1904,6 @@ export function ProductsPage() {
                 <th>Mínimo</th>
                 <th>Máximo</th>
                 <th>Nuevo stock</th>
-                <th>Motivo</th>
                 <th>Proveedor</th>
                 <th>Costo reciente</th>
                 <th>Sugerido</th>
@@ -1924,13 +1938,6 @@ export function ProductsPage() {
                     />
                   </td>
                   <td>
-                    <textarea
-                      placeholder={isCashier ? "Motivo obligatorio" : "Motivo del ajuste"}
-                      value={restockReasonDrafts[item.id] ?? ""}
-                      onChange={(event) => setRestockReasonDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
-                    />
-                  </td>
-                  <td>
                     <div>{item.supplier_name || "-"}</div>
                     <small className="muted">{item.supplier_whatsapp || "-"}</small>
                   </td>
@@ -1953,11 +1960,10 @@ export function ProductsPage() {
                   <td>
                     {(() => {
                       const nextStock = Number(restockDrafts[item.id] ?? "0");
-                      const hasReason = Boolean(String(restockReasonDrafts[item.id] || "").trim());
-                      const disableSave = restockingId === item.id || !Number.isFinite(nextStock) || !hasReason;
+                      const disableSave = restockingId === item.id || !Number.isFinite(nextStock);
                       return (
-                        <button className="button ghost" disabled={disableSave} onClick={() => saveRestockItem(item)} type="button">
-                          {restockingId === item.id ? (isCashier ? "Enviando..." : "Guardando...") : (isCashier ? "Solicitar cambio" : "Guardar")}
+                        <button className="button ghost" disabled={disableSave} onClick={() => handleRestockAction(item)} type="button">
+                          {restockingId === item.id ? (isCashier ? "Enviando..." : "Guardando...") : "Guardar"}
                         </button>
                       );
                     })()}
@@ -1966,7 +1972,7 @@ export function ProductsPage() {
               ))}
               {restockItems.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={12}>{loadingRestock ? "Cargando..." : "No hay productos para este filtro."}</td>
+                  <td className="muted" colSpan={11}>{loadingRestock ? "Cargando..." : "No hay productos para este filtro."}</td>
                 </tr>
               ) : null}
             </tbody>
@@ -1981,6 +1987,59 @@ export function ProductsPage() {
           </div>
         </div>
       </div>
+      ) : null}
+
+      {restockReasonModalItem ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card import-modal-card">
+            <div className="panel-header">
+              <div>
+                <h3>Motivo del cambio de stock</h3>
+                <p className="muted">Captura el motivo para enviar la solicitud al administrador.</p>
+              </div>
+              <button
+                className="button ghost"
+                onClick={() => {
+                  setRestockReasonModalItem(null);
+                  setRestockReasonModalValue("");
+                }}
+                type="button"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="grid-form">
+              <div className="info-card">
+                <p><strong>Producto:</strong> {restockReasonModalItem.name}</p>
+                <p><strong>SKU:</strong> {restockReasonModalItem.sku}</p>
+                <p><strong>Nuevo stock:</strong> {restockDrafts[restockReasonModalItem.id] ?? restockReasonModalItem.stock}</p>
+              </div>
+              <label className="form-span-2">
+                Motivo *
+                <textarea
+                  placeholder="Describe por qué necesitas ajustar el stock"
+                  value={restockReasonModalValue}
+                  onChange={(event) => setRestockReasonModalValue(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="inline-actions modal-actions-end">
+              <button
+                className="button ghost"
+                onClick={() => {
+                  setRestockReasonModalItem(null);
+                  setRestockReasonModalValue("");
+                }}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button className="button" disabled={restockingId === restockReasonModalItem.id} onClick={() => submitRestockReasonModal().catch(() => undefined)} type="button">
+                {restockingId === restockReasonModalItem.id ? "Enviando..." : "Enviar solicitud"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {showImportModal ? (

@@ -435,6 +435,10 @@ async function createProductUpdateRequest(payload, actor) {
     throw new ApiError(403, "Forbidden");
   }
 
+  if (payload.business_id !== undefined && Number(payload.business_id) !== businessId) {
+    throw new ApiError(403, "Forbidden");
+  }
+
   assertCashierStockOnlyPayload(payload);
 
   const productId = Number(payload.product_id);
@@ -456,7 +460,8 @@ async function createProductUpdateRequest(payload, actor) {
 
   const currentProduct = await getOwnedProduct(productId, actor);
   const requestedPriceInput = normalizeOptionalNumeric(payload.requested_price, "Requested price", { allowZero: false, maxDecimals: 5 });
-  const requestedStockInput = normalizeOptionalNumeric(payload.requested_stock, "Requested stock", { allowZero: true, maxDecimals: 3 });
+  const requestedStockSource = payload.requested_stock ?? payload.new_stock;
+  const requestedStockInput = normalizeOptionalNumeric(requestedStockSource, "Requested stock", { allowZero: true, maxDecimals: 3 });
 
   const requestedPrice = requestedPriceInput !== null && Number(requestedPriceInput) !== Number(currentProduct.price)
     ? requestedPriceInput

@@ -18,10 +18,12 @@ const listValidation = [
 
 const createValidation = [
   body("product_id").isInt({ min: 1 }),
+  body("business_id").optional({ values: "falsy" }).isInt({ min: 1 }),
   body("reason").optional({ values: "falsy" }).trim(),
   body("new_values").optional().isObject(),
   body("requested_price").optional({ values: "falsy" }).isFloat({ gt: 0, maxDecimalPlaces: 5 }),
   body("requested_stock").optional({ values: "falsy" }).isFloat({ min: 0, maxDecimalPlaces: 3 }),
+  body("new_stock").optional({ values: "falsy" }).isFloat({ min: 0, maxDecimalPlaces: 3 }),
   validateRequest
 ];
 
