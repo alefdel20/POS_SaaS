@@ -1463,9 +1463,9 @@ async function listRestockProducts(filters = {}, actor) {
 }
 
 async function restockProduct(id, payload = {}, actor) {
-  const nextStock = Number(payload.stock);
-  if (!Number.isFinite(nextStock) || nextStock < 0) {
-    throw new ApiError(400, "Product stock cannot be negative");
+  const quantityToAdd = Number(payload.stock);
+  if (!Number.isFinite(quantityToAdd) || quantityToAdd <= 0) {
+    throw new ApiError(400, "Restock quantity must be greater than zero");
   }
 
   const client = await pool.connect();
@@ -1476,7 +1476,12 @@ async function restockProduct(id, payload = {}, actor) {
     if (!current) throw new ApiError(404, "Product not found");
 
     const unidadDeVenta = normalizeSaleUnit(current.unidad_de_venta);
-    const normalizedStock = validateQuantityByUnit(nextStock, unidadDeVenta, "Product stock");
+    const normalizedQuantity = validateQuantityByUnit(quantityToAdd, unidadDeVenta, "Restock quantity");
+    const finalStock = validateQuantityByUnit(
+      Number(current.stock || 0) + normalizedQuantity,
+      unidadDeVenta,
+      "Product stock"
+    );
 
     const { rows } = await client.query(
       `UPDATE products
@@ -1485,7 +1490,7 @@ async function restockProduct(id, payload = {}, actor) {
        WHERE id = $2
          AND business_id = $3
        RETURNING *`,
-      [normalizedStock, id, current.business_id]
+      [finalStock, id, current.business_id]
     );
 
     await syncLowStockReminderForBusiness(current.business_id, client);
@@ -1500,7 +1505,11 @@ async function restockProduct(id, payload = {}, actor) {
       detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(current), version: 1 },
       detalle_nuevo: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
       motivo: String(payload.reason || "restock_update").trim(),
-      metadata: buildProductAuditMetadata(actor, { previous_stock: Number(current.stock || 0), next_stock: normalizedStock })
+      metadata: buildProductAuditMetadata(actor, {
+        previous_stock: Number(current.stock || 0),
+        added_stock: normalizedQuantity,
+        next_stock: finalStock
+      })
     }, { client });
 
     await client.query("COMMIT");

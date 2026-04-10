@@ -461,23 +461,22 @@ async function createProductUpdateRequest(payload, actor) {
   const currentProduct = await getOwnedProduct(productId, actor);
   const requestedPriceInput = normalizeOptionalNumeric(payload.requested_price, "Requested price", { allowZero: false, maxDecimals: 5 });
   const requestedStockSource = payload.requested_stock ?? payload.new_stock;
-  const requestedStockInput = normalizeOptionalNumeric(requestedStockSource, "Requested stock", { allowZero: true, maxDecimals: 3 });
+  const requestedStockInput = normalizeOptionalNumeric(requestedStockSource, "Requested stock", { allowZero: false, maxDecimals: 3 });
 
   const requestedPrice = requestedPriceInput !== null && Number(requestedPriceInput) !== Number(currentProduct.price)
     ? requestedPriceInput
     : null;
-  const requestedStock = requestedStockInput !== null && Number(requestedStockInput) !== Number(currentProduct.stock)
-    ? requestedStockInput
-    : null;
+  const requestedStock = requestedStockInput === null ? null : requestedStockInput;
 
   if (requestedPrice === null && requestedStock === null) {
     throw new ApiError(400, "At least one real change is required");
   }
 
+  const resultingStock = requestedStock === null ? Number(currentProduct.stock) : Number(currentProduct.stock) + Number(requestedStock);
   const beforeSnapshot = buildProductSnapshot(currentProduct);
   const afterSnapshot = buildAfterSnapshot(currentProduct, {
     price: requestedPrice ?? currentProduct.price,
-    stock: requestedStock ?? currentProduct.stock
+    stock: resultingStock
   });
   const changedFields = computeChangedFields(beforeSnapshot, afterSnapshot);
 
@@ -538,7 +537,9 @@ async function createProductUpdateRequest(payload, actor) {
         product_id: Number(currentProduct.id),
         product_name: currentProduct.name,
         product_sku: currentProduct.sku,
-        changed_fields: changedFields
+        changed_fields: changedFields,
+        requested_stock_delta: requestedStock,
+        resulting_stock: resultingStock
       }
     }, { client });
 

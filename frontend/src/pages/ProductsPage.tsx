@@ -492,15 +492,11 @@ export function ProductsPage() {
       setRestockItems(response.items);
       setRestockTotalPages(response.pagination.totalPages);
       setRestockTotalItems(response.pagination.total);
-      setRestockDrafts((current) => {
-        const nextDrafts = { ...current };
-        response.items.forEach((item) => {
-          if (nextDrafts[item.id] === undefined) {
-            nextDrafts[item.id] = String(item.stock_maximo ?? item.stock ?? 0);
-          }
-        });
-        return nextDrafts;
-      });
+      const nextDrafts = response.items.reduce<Record<number, string>>((accumulator, item) => {
+        accumulator[item.id] = "0";
+        return accumulator;
+      }, {});
+      setRestockDrafts(nextDrafts);
     } finally {
       setLoadingRestock(false);
     }
@@ -509,11 +505,11 @@ export function ProductsPage() {
   async function saveRestockItem(item: RestockProductItem, reasonOverride = "") {
     if (!token) return;
 
-    const nextStockValue = restockDrafts[item.id] ?? String(item.stock_maximo ?? item.stock ?? 0);
+    const nextStockValue = restockDrafts[item.id] ?? "0";
     const reason = String(reasonOverride || "").trim();
-    const nextStock = Number(nextStockValue);
-    if (!Number.isFinite(nextStock) || nextStock < 0) {
-      setError("El nuevo stock debe ser numérico y mayor o igual a cero");
+    const restockQuantity = Number(nextStockValue);
+    if (!Number.isFinite(restockQuantity) || restockQuantity <= 0) {
+      setError("La cantidad a agregar debe ser numérica y mayor que cero");
       return false;
     }
     try {
@@ -525,24 +521,25 @@ export function ProductsPage() {
           token,
           body: JSON.stringify({
             product_id: item.id,
-            new_stock: nextStock,
+            new_stock: restockQuantity,
             reason
           })
         });
         setInfo("Cambio enviado, pendiente de aprobación del administrador");
         await loadRequestSummary();
       } else {
-        await apiRequest<Product>(`/products/${item.id}/restock`, {
+        const updatedProduct = await apiRequest<Product>(`/products/${item.id}/restock`, {
           method: "PATCH",
           token,
           body: JSON.stringify({
-            stock: nextStock,
+            stock: restockQuantity,
             reason: reason || "restock_view_update"
           })
         });
-        setInfo(`Stock actualizado para ${item.name}`);
+        setProducts((current) => current.map((product) => (product.id === item.id ? updatedProduct : product)));
+        setInfo("Stock actualizado correctamente");
       }
-      setProducts((current) => current.map((product) => (product.id === item.id ? { ...product, stock: nextStock } : product)));
+      setRestockDrafts((current) => ({ ...current, [item.id]: "0" }));
       await loadProducts(search, page, pageSize, categoryFilter);
       await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
       return true;
@@ -1922,6 +1919,7 @@ export function ProductsPage() {
                           ? `Stock bajo · faltante: ${formatRestockQuantity(item.shortage, item.unidad_de_venta)}`
                           : "Stock normal"}
                       </small>
+                      <small className="muted">Cantidad a agregar</small>
                     </div>
                   </td>
                   <td>{item.category || "-"}</td>
@@ -1960,7 +1958,7 @@ export function ProductsPage() {
                   <td>
                     {(() => {
                       const nextStock = Number(restockDrafts[item.id] ?? "0");
-                      const disableSave = restockingId === item.id || !Number.isFinite(nextStock);
+                      const disableSave = restockingId === item.id || !Number.isFinite(nextStock) || nextStock <= 0;
                       return (
                         <button className="button ghost" disabled={disableSave} onClick={() => handleRestockAction(item)} type="button">
                           {restockingId === item.id ? (isCashier ? "Enviando..." : "Guardando...") : "Guardar"}
@@ -2012,7 +2010,7 @@ export function ProductsPage() {
               <div className="info-card">
                 <p><strong>Producto:</strong> {restockReasonModalItem.name}</p>
                 <p><strong>SKU:</strong> {restockReasonModalItem.sku}</p>
-                <p><strong>Nuevo stock:</strong> {restockDrafts[restockReasonModalItem.id] ?? restockReasonModalItem.stock}</p>
+                <p><strong>Cantidad a agregar:</strong> {restockDrafts[restockReasonModalItem.id] ?? "0"}</p>
               </div>
               <label className="form-span-2">
                 Motivo *
