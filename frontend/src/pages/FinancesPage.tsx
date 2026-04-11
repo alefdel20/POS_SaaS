@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
+import { DateInputDMY } from "../components/DateInputDMY";
 import { useAuth } from "../context/AuthContext";
 import type { Expense, FinanceDashboard, FixedExpense, OwnerLoan } from "../types";
 import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel } from "../utils/uiLabels";
-import { formatMexicoCityDate, getMexicoCityDateInputValue } from "../utils/timezone";
+import { formatDateDMY, getMexicoCityDateInputValue } from "../utils/timezone";
 
 const emptyExpense = {
   concept: "",
@@ -46,13 +47,9 @@ const FIXED_EXPENSE_FREQUENCY_LABELS: Record<string, string> = {
 };
 
 type FinanceView = "expenses" | "fixed-expenses" | "owner-debt";
-const DUE_DAY_ANCHOR_DATE_PREFIX = "2000-01";
 
 function dueDateInputToDay(value?: string | null) {
   if (!value) return undefined;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return Number(value.slice(8, 10));
-  }
   const numericValue = Number(value);
   if (Number.isInteger(numericValue) && numericValue >= 1 && numericValue <= 31) {
     return numericValue;
@@ -62,12 +59,12 @@ function dueDateInputToDay(value?: string | null) {
 
 function dayToDueDateInput(dueDay?: number | null) {
   if (!dueDay || !Number.isInteger(Number(dueDay)) || Number(dueDay) < 1 || Number(dueDay) > 31) return "";
-  return `${DUE_DAY_ANCHOR_DATE_PREFIX}-${String(Number(dueDay)).padStart(2, "0")}`;
+  return String(Number(dueDay));
 }
 
 function formatDatePreview(value?: string | null) {
   if (!value) return "--/--/----";
-  return formatMexicoCityDate(value);
+  return formatDateDMY(value) || "--/--/----";
 }
 
 export function FinancesPage() {
@@ -326,7 +323,7 @@ export function FinancesPage() {
             </label>
             <label>
               Fecha
-              <input type="date" value={expenseForm.date} onChange={(event) => setExpenseForm({ ...expenseForm, date: event.target.value })} />
+              <DateInputDMY value={expenseForm.date} onChange={(nextDate) => setExpenseForm({ ...expenseForm, date: nextDate })} />
             </label>
             <label>
               Metodo de pago
@@ -437,11 +434,9 @@ export function FinancesPage() {
             </label>
             <label>
               Fecha base
-              <input
-                type="date"
+              <DateInputDMY
                 value={fixedExpenseForm.base_date}
-                onChange={(event) => {
-                  const nextBaseDate = event.target.value;
+                onChange={(nextBaseDate) => {
                   setFixedExpenseForm((current) => ({ ...current, base_date: nextBaseDate }));
                 }}
               />
@@ -449,8 +444,8 @@ export function FinancesPage() {
             </label>
             <label>
               Dia de vencimiento (solo dia del mes)
-              <input type="date" value={fixedExpenseForm.due_day} onChange={(event) => setFixedExpenseForm({ ...fixedExpenseForm, due_day: event.target.value })} />
-              <small className="muted">Dia seleccionado: {fixedExpenseForm.due_day ? fixedExpenseForm.due_day.slice(8, 10) : "--"} · Se guarda unicamente el dia (1-31).</small>
+              <input max="31" min="1" step="1" type="number" value={fixedExpenseForm.due_day} onChange={(event) => setFixedExpenseForm({ ...fixedExpenseForm, due_day: event.target.value })} />
+              <small className="muted">Dia seleccionado: {fixedExpenseForm.due_day || "--"} - Se guarda unicamente el dia (1-31).</small>
               <small className="muted">La proyeccion en calendario toma como ancla la Fecha base ({formatDatePreview(fixedExpenseForm.base_date)}).</small>
             </label>
             <label>
@@ -526,7 +521,7 @@ export function FinancesPage() {
             </label>
             <label>
               Fecha
-              <input type="date" value={loanForm.date} onChange={(event) => setLoanForm({ ...loanForm, date: event.target.value })} />
+              <DateInputDMY value={loanForm.date} onChange={(nextDate) => setLoanForm({ ...loanForm, date: nextDate })} />
             </label>
             <label>
               Nota obligatoria
@@ -575,3 +570,4 @@ export function FinancesPage() {
     </section>
   );
 }
+
