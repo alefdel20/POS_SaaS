@@ -2,7 +2,7 @@ const { body, param } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const financeService = require("../services/financeService");
-const FIXED_EXPENSE_FREQUENCIES = ["weekly", "biweekly", "monthly", "bimonthly", "quarterly", "semiannual", "annual", "custom"];
+const FIXED_EXPENSE_FREQUENCIES = ["weekly", "biweekly", "monthly", "bimonthly", "quarterly", "semiannual", "annual", "custom", "semanal", "quincenal", "mensual"];
 
 const expenseIdValidation = [param("id").isInt(), validateRequest];
 const fixedExpenseIdValidation = [param("id").isInt(), validateRequest];
@@ -59,6 +59,7 @@ const createFixedExpenseValidation = [
   body("frequency").optional().isIn(FIXED_EXPENSE_FREQUENCIES),
   body("payment_method").optional().isIn(["cash", "card", "credit", "transfer"]),
   body("due_day").optional({ values: "falsy" }).isInt({ min: 1, max: 31 }),
+  body("base_date").optional({ values: "falsy" }).isISO8601(),
   body("notes").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
@@ -71,6 +72,7 @@ const updateFixedExpenseValidation = [
   body("frequency").optional().isIn(FIXED_EXPENSE_FREQUENCIES),
   body("payment_method").optional().isIn(["cash", "card", "credit", "transfer"]),
   body("due_day").optional({ values: "falsy" }).isInt({ min: 1, max: 31 }),
+  body("base_date").optional({ values: "falsy" }).isISO8601(),
   body("notes").optional({ values: "falsy" }).trim(),
   body("is_active").optional().isBoolean(),
   validateRequest

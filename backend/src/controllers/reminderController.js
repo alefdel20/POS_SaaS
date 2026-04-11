@@ -10,10 +10,18 @@ const listValidation = [
   query("status").optional().isIn(REMINDER_STATUSES),
   validateRequest
 ];
+const listCalendarValidation = [
+  query("start_date").isISO8601(),
+  query("end_date").isISO8601(),
+  validateRequest
+];
 const createValidation = [
   body("title").trim().notEmpty(),
   body("status").optional().isIn(REMINDER_STATUSES),
   body("due_date").optional({ nullable: true }).isISO8601(),
+  body("start_date").optional({ nullable: true }).isISO8601(),
+  body("end_date").optional({ nullable: true }).isISO8601(),
+  body("provider_category").optional({ values: "falsy" }).trim(),
   body("assigned_to").optional({ nullable: true }).isInt(),
   body("reminder_type").optional().trim(),
   body("category").optional().isIn(REMINDER_CATEGORIES),
@@ -24,6 +32,9 @@ const updateValidation = [
   body("title").optional().trim().notEmpty(),
   body("status").optional().isIn(REMINDER_STATUSES),
   body("due_date").optional({ nullable: true }).isISO8601(),
+  body("start_date").optional({ nullable: true }).isISO8601(),
+  body("end_date").optional({ nullable: true }).isISO8601(),
+  body("provider_category").optional({ values: "falsy" }).trim(),
   body("assigned_to").optional({ nullable: true }).isInt(),
   body("reminder_type").optional().trim(),
   body("category").optional().isIn(REMINDER_CATEGORIES),
@@ -44,6 +55,10 @@ const webhookValidation = [
 
 const listReminders = asyncHandler(async (req, res) => {
   res.json(await reminderService.listReminders(req.user, req.query));
+});
+
+const listCalendarEvents = asyncHandler(async (req, res) => {
+  res.json(await reminderService.listCalendarEvents(req.user, req.query));
 });
 
 const createReminder = asyncHandler(async (req, res) => {
@@ -73,11 +88,13 @@ const receiveAutomationWebhook = asyncHandler(async (req, res) => {
 module.exports = {
   idValidation,
   listValidation,
+  listCalendarValidation,
   createValidation,
   updateValidation,
   sendValidation,
   webhookValidation,
   listReminders,
+  listCalendarEvents,
   createReminder,
   updateReminder,
   completeReminder,

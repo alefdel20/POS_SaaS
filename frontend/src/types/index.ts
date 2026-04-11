@@ -1052,6 +1052,7 @@ export interface FixedExpense {
   frequency: "weekly" | "biweekly" | "monthly" | "bimonthly" | "quarterly" | "semiannual" | "annual" | "custom";
   payment_method: Sale["payment_method"];
   due_day?: number | null;
+  base_date?: string | null;
   notes: string;
   is_active: boolean;
 }

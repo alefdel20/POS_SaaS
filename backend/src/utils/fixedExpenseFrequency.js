@@ -1,8 +1,14 @@
 function normalizeFrequency(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return "monthly";
-  if (["weekly", "biweekly", "monthly", "bimonthly", "quarterly", "semiannual", "annual", "custom"].includes(normalized)) {
-    return normalized;
+  const aliases = {
+    semanal: "weekly",
+    quincenal: "biweekly",
+    mensual: "monthly"
+  };
+  const resolved = aliases[normalized] || normalized;
+  if (["weekly", "biweekly", "monthly", "bimonthly", "quarterly", "semiannual", "annual", "custom"].includes(resolved)) {
+    return resolved;
   }
   return "monthly";
 }

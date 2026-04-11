@@ -30,6 +30,7 @@ const emptyFixedExpense = {
   frequency: "monthly" as const,
   payment_method: "cash" as const,
   due_day: "",
+  base_date: getMexicoCityDateInputValue(),
   notes: ""
 };
 
@@ -143,7 +144,8 @@ export function FinancesPage() {
       const payload = {
         ...fixedExpenseForm,
         default_amount: Number(fixedExpenseForm.default_amount),
-        due_day: fixedExpenseForm.due_day ? Number(fixedExpenseForm.due_day) : undefined
+        due_day: fixedExpenseForm.due_day ? Number(fixedExpenseForm.due_day) : undefined,
+        base_date: fixedExpenseForm.base_date || undefined
       };
       if (editingFixedExpenseId) {
         await apiRequest(`/finances/fixed-expenses/${editingFixedExpenseId}`, {
@@ -224,6 +226,7 @@ export function FinancesPage() {
       frequency: item.frequency,
       payment_method: item.payment_method,
       due_day: item.due_day ? String(item.due_day) : "",
+      base_date: item.base_date || getMexicoCityDateInputValue(),
       notes: item.notes || ""
     });
   }
@@ -412,6 +415,10 @@ export function FinancesPage() {
             <label>
               Dia de vencimiento
               <input min="1" max="31" type="number" value={fixedExpenseForm.due_day} onChange={(event) => setFixedExpenseForm({ ...fixedExpenseForm, due_day: event.target.value })} />
+            </label>
+            <label>
+              Fecha base
+              <input type="date" value={fixedExpenseForm.base_date} onChange={(event) => setFixedExpenseForm({ ...fixedExpenseForm, base_date: event.target.value })} />
             </label>
             <label>
               Notas

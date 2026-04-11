@@ -314,6 +314,7 @@ async function ensureSchema(client) {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE fixed_expenses ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE fixed_expenses ADD COLUMN IF NOT EXISTS base_date DATE",
 
     `CREATE TABLE IF NOT EXISTS product_restock_history (
       id BIGSERIAL PRIMARY KEY,

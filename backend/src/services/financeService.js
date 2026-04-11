@@ -3,8 +3,8 @@ const ApiError = require("../utils/ApiError");
 const { saveAuditLog } = require("./auditLogService");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
-const { getNextFixedExpenseDueDate, normalizeFrequency } = require("../utils/fixedExpenseFrequency");
-const { upsertSystemReminder, ensureAutomaticReminders } = require("./reminderService");
+const { normalizeFrequency } = require("../utils/fixedExpenseFrequency");
+const { ensureAutomaticReminders } = require("./reminderService");
 
 const VALID_SALE_STATUS_SQL = "COALESCE(status, 'completed') <> 'cancelled'";
 
@@ -16,115 +16,46 @@ function mapOwnerLoan(loan) {
 }
 function mapFixedExpense(fixedExpense) {
   return fixedExpense
-    ? { ...fixedExpense, default_amount: Number(fixedExpense.default_amount || 0), is_active: Boolean(fixedExpense.is_active), frequency: normalizeFrequency(fixedExpense.frequency) }
-    : null;
-}
-
-function buildFinancialMovementReminderPayload({ businessId, type, row, actor }) {
-  const actorName = actor?.full_name || actor?.username || "Sistema";
-  const commonMetadata = {
-    source_module: type,
-    actor_user_id: actor?.id || null,
-    actor_name: actorName
-  };
-
-  if (type === "expenses") {
-    return {
-      business_id: businessId,
-      source_key: `finance:expense:${businessId}:${row.id}`,
-      title: `Gasto registrado: ${row.concept}`,
-      notes: `Concepto: ${row.concept}. Monto ${Number(row.amount || 0).toFixed(2)}. Categoria ${row.category || "General"}.`,
-      due_date: row.date,
-      status: row.is_voided ? "cancelled" : "completed",
-      is_completed: !row.is_voided,
-      reminder_type: "finance_expense",
-      category: "administrative",
-      metadata: {
-        ...commonMetadata,
-        expense_id: Number(row.id),
-        concept: row.concept,
-        amount: Number(row.amount || 0),
-        date: row.date,
-        payment_method: row.payment_method || "cash",
-        state: row.is_voided ? "voided" : "registered"
-      }
-    };
-  }
-
-  if (type === "owner_loans") {
-    return {
-      business_id: businessId,
-      source_key: `finance:owner-loan:${businessId}:${row.id}`,
-      title: `Deuda del dueno: ${row.type === "entrada" ? "entrada" : "abono"}`,
-      notes: `${row.notes || "Movimiento del dueno"}. Monto ${Number(row.amount || 0).toFixed(2)}. Saldo ${Number(row.balance || 0).toFixed(2)}.`,
-      due_date: row.date,
-      status: row.is_voided ? "cancelled" : "completed",
-      is_completed: !row.is_voided,
-      reminder_type: "finance_owner_loan",
-      category: "administrative",
-      metadata: {
-        ...commonMetadata,
-        owner_loan_id: Number(row.id),
-        movement_type: row.type,
-        amount: Number(row.amount || 0),
-        balance: Number(row.balance || 0),
-        date: row.date,
-        state: row.is_voided ? "voided" : "registered"
-      }
-    };
-  }
-
-  const dueDate = getNextFixedExpenseDueDate(row, new Date(`${getMexicoCityDate()}T12:00:00`));
-  return dueDate
-    ? {
-      business_id: businessId,
-      source_key: `finance:fixed-expense:${businessId}:${row.id}:${dueDate}`,
-      title: `Gasto fijo: ${row.name}`,
-      notes: `Proximo vencimiento ${dueDate}. Frecuencia ${normalizeFrequency(row.frequency)}. Monto ${Number(row.default_amount || 0).toFixed(2)}.`,
-      due_date: dueDate,
-      status: row.is_active ? "pending" : "cancelled",
-      is_completed: !row.is_active,
-      reminder_type: "finance_fixed_expense",
-      category: "administrative",
-      metadata: {
-        ...commonMetadata,
-        fixed_expense_id: Number(row.id),
-        concept: row.name,
-        amount: Number(row.default_amount || 0),
-        frequency: normalizeFrequency(row.frequency),
-        due_day: row.due_day,
-        state: row.is_active ? "scheduled" : "inactive"
-      }
-    }
+    ? { ...fixedExpense, default_amount: Number(fixedExpense.default_amount || 0), is_active: Boolean(fixedExpense.is_active), frequency: normalizeFrequency(fixedExpense.frequency), base_date: fixedExpense.base_date || null }
     : null;
 }
 
 async function syncFinancialMovementReminder({ type, row, actor, client }) {
   const businessId = requireActorBusinessId(actor);
-  const payload = buildFinancialMovementReminderPayload({ businessId, type, row, actor });
-  if (!payload) {
-    if (type === "fixed_expenses") {
-      await client.query(
-        `DELETE FROM reminders
-         WHERE business_id = $1
-           AND source_key LIKE $2`,
-        [businessId, `finance:fixed-expense:${businessId}:${row.id}:%`]
-      );
-    }
+  if (type === "expenses") {
+    await client.query(
+      `DELETE FROM reminders
+       WHERE business_id = $1
+         AND source_key = $2`,
+      [businessId, `finance:expense:${businessId}:${row.id}`]
+    );
     return null;
   }
-
+  if (type === "owner_loans") {
+    await client.query(
+      `DELETE FROM reminders
+       WHERE business_id = $1
+         AND source_key = $2`,
+      [businessId, `finance:owner-loan:${businessId}:${row.id}`]
+    );
+    return null;
+  }
   if (type === "fixed_expenses") {
     await client.query(
       `DELETE FROM reminders
        WHERE business_id = $1
-         AND source_key LIKE $2
-         AND source_key <> $3`,
-      [businessId, `finance:fixed-expense:${businessId}:${row.id}:%`, payload.source_key]
+         AND source_key LIKE $2`,
+      [businessId, `finance:fixed-expense:${businessId}:${row.id}:%`]
     );
+    await client.query(
+      `DELETE FROM reminders
+       WHERE business_id = $1
+         AND source_key LIKE $2`,
+      [businessId, `auto:fixed-expense:${businessId}:${row.id}:%`]
+    );
+    return null;
   }
-
-  return upsertSystemReminder(payload, { client, businessId });
+  return null;
 }
 
 async function listExpenses(actor) {
@@ -314,10 +245,10 @@ async function createFixedExpense(payload, actor) {
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
-      `INSERT INTO fixed_expenses (business_id, name, category, default_amount, frequency, payment_method, due_day, notes, created_by, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+      `INSERT INTO fixed_expenses (business_id, name, category, default_amount, frequency, payment_method, due_day, base_date, notes, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
        RETURNING *`,
-      [businessId, payload.name, payload.category || "General", payload.default_amount || 0, normalizeFrequency(payload.frequency), payload.payment_method || "cash", payload.due_day || null, payload.notes || "", actor.id]
+      [businessId, payload.name, payload.category || "General", payload.default_amount || 0, normalizeFrequency(payload.frequency), payload.payment_method || "cash", payload.due_day || null, payload.base_date || payload.date || getMexicoCityDate(), payload.notes || "", actor.id]
     );
     await syncFinancialMovementReminder({ type: "fixed_expenses", row: rows[0], actor, client });
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "create_fixed_expense", entidad_tipo: "fixed_expense", entidad_id: rows[0].id, detalle_nuevo: { entity: "fixed_expense", entity_id: rows[0].id, snapshot: mapFixedExpense(rows[0]), version: 1 }, motivo: payload.notes || "", metadata: {} }, { client });
@@ -343,10 +274,10 @@ async function updateFixedExpense(id, payload, actor) {
     const { rows } = await client.query(
       `UPDATE fixed_expenses
        SET name = $1, category = $2, default_amount = $3, frequency = $4, payment_method = $5,
-           due_day = $6, notes = $7, is_active = $8, updated_by = $9, updated_at = NOW()
-       WHERE id = $10 AND business_id = $11
+           due_day = $6, base_date = $7, notes = $8, is_active = $9, updated_by = $10, updated_at = NOW()
+       WHERE id = $11 AND business_id = $12
        RETURNING *`,
-      [payload.name ?? current.name, payload.category ?? current.category, payload.default_amount ?? current.default_amount, normalizeFrequency(payload.frequency ?? current.frequency), payload.payment_method ?? current.payment_method, payload.due_day !== undefined ? payload.due_day : current.due_day, payload.notes ?? current.notes, payload.is_active ?? current.is_active, actor.id, id, businessId]
+      [payload.name ?? current.name, payload.category ?? current.category, payload.default_amount ?? current.default_amount, normalizeFrequency(payload.frequency ?? current.frequency), payload.payment_method ?? current.payment_method, payload.due_day !== undefined ? payload.due_day : current.due_day, payload.base_date !== undefined ? payload.base_date : (current.base_date || getMexicoCityDate(current.created_at || new Date())), payload.notes ?? current.notes, payload.is_active ?? current.is_active, actor.id, id, businessId]
     );
     await syncFinancialMovementReminder({ type: "fixed_expenses", row: rows[0], actor, client });
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "update_fixed_expense", entidad_tipo: "fixed_expense", entidad_id: id, detalle_anterior: { entity: "fixed_expense", entity_id: id, snapshot: mapFixedExpense(current), version: 1 }, detalle_nuevo: { entity: "fixed_expense", entity_id: id, snapshot: mapFixedExpense(rows[0]), version: 1 }, motivo: payload.notes || "", metadata: {} }, { client });

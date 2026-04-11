@@ -1,17 +1,21 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalPatientSummary, Reminder } from "../types";
 import { REMINDER_CATEGORIES, REMINDER_STATUSES } from "../utils/domainEnums";
 import { currency, dateLabel } from "../utils/format";
 import { getReminderStatusLabel } from "../utils/uiLabels";
+import { dateTimeLocalToIsoString, getMexicoCityDateInputValue, getMexicoCityDateTimeLocalValue, getMonthInputRange } from "../utils/timezone";
 
 const emptyReminder = {
   title: "",
   notes: "",
   status: "pending",
   due_date: "",
+  start_date: "",
+  end_date: "",
+  provider_category: "administrative",
   category: "administrative" as "administrative" | "clinical",
   patient_id: ""
 };
@@ -27,7 +31,7 @@ function normalizeDateKey(value?: string | null) {
 }
 
 function getTodayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return getMexicoCityDateInputValue();
 }
 
 function startOfMonth(monthKey: string) {
@@ -76,19 +80,35 @@ function getReminderMetaSummary(reminder: Reminder) {
   const amount = typeof metadata.amount === "number" ? metadata.amount : null;
   const concept = typeof metadata.concept === "string" ? metadata.concept : "";
   const movementType = typeof metadata.movement_type === "string" ? metadata.movement_type : "";
+  const reminderLabel = typeof metadata.reminder_label === "string" ? metadata.reminder_label : "";
+  const dateSummary = typeof metadata.date_summary === "string" ? metadata.date_summary : "";
   const parts = [
+    reminderLabel ? `Categoria: ${reminderLabel}` : "",
     sourceModule ? `Origen: ${sourceModule}` : "",
     concept ? `Concepto: ${concept}` : "",
     movementType ? `Tipo: ${movementType}` : "",
-    amount !== null ? `Monto: ${currency(amount)}` : ""
+    amount !== null ? `Monto: ${currency(amount)}` : "",
+    dateSummary
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+function getReminderCategoryLabel(reminder: Reminder) {
+  const metadata = reminder.metadata || {};
+  const reminderCategory = typeof metadata.reminder_category === "string" ? metadata.reminder_category : "";
+  if (reminderCategory === "expense") return "Gasto";
+  if (reminderCategory === "fixed_expense") return "Gasto fijo";
+  if (reminderCategory === "owner_debt") return "Deuda del dueño";
+  if (reminderCategory === "providers") return "Proveedores";
+  if (reminder.category === "clinical") return "Clinico";
+  return "Administrativo";
 }
 
 export function RemindersPage() {
   const { token } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
   const [form, setForm] = useState(emptyReminder);
@@ -133,6 +153,21 @@ export function RemindersPage() {
     }
   }
 
+  async function loadCalendarEvents(monthKey: string) {
+    if (!token) return;
+    const monthRange = getMonthInputRange(monthKey);
+    if (!monthRange) return;
+    setLoading(true);
+    try {
+      const response = await apiRequest<Reminder[]>(`/reminders/calendar?start_date=${monthRange.start}&end_date=${monthRange.end}`, { token });
+      setReminders(response);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar recordatorios");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function loadPatients() {
     if (!token) return;
     try {
@@ -144,9 +179,13 @@ export function RemindersPage() {
   }
 
   useEffect(() => {
-    loadReminders().catch(() => undefined);
+    if (isCalendarRoute) {
+      loadCalendarEvents(selectedMonth).catch(() => undefined);
+    } else {
+      loadReminders().catch(() => undefined);
+    }
     loadPatients().catch(() => undefined);
-  }, [token]);
+  }, [token, isCalendarRoute, selectedMonth]);
 
   useEffect(() => {
     if (selectedDate.startsWith(selectedMonth)) {
@@ -154,6 +193,18 @@ export function RemindersPage() {
     }
     setSelectedDate(`${selectedMonth}-01`);
   }, [selectedDate, selectedMonth]);
+
+  useEffect(() => {
+    if (!isNewRoute || editingId) return;
+    const presetDate = normalizeDateKey(searchParams.get("date"));
+    if (!presetDate) return;
+    const startValue = `${presetDate}T09:00`;
+    setForm((current) => ({
+      ...current,
+      due_date: presetDate,
+      start_date: current.start_date || startValue
+    }));
+  }, [isNewRoute, editingId, searchParams]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -166,16 +217,27 @@ export function RemindersPage() {
         method: editingId ? "PUT" : "POST",
         token,
         body: JSON.stringify({
-          ...form,
+          title: form.title,
+          notes: form.notes,
+          status: form.status,
+          due_date: form.due_date || (form.start_date ? form.start_date.slice(0, 10) : ""),
+          start_date: dateTimeLocalToIsoString(form.start_date),
+          end_date: dateTimeLocalToIsoString(form.end_date),
+          provider_category: form.provider_category,
           reminder_type: form.category === "clinical" ? "manual_clinical" : "general",
+          category: form.category,
           patient_id: form.patient_id ? Number(form.patient_id) : undefined
         })
       });
-      const nextSelectedDate = form.due_date || selectedDate;
+      const nextSelectedDate = form.due_date || (form.start_date ? form.start_date.slice(0, 10) : selectedDate);
       resetForm();
       setSelectedDate(nextSelectedDate);
       setSelectedMonth(nextSelectedDate.slice(0, 7));
-      await loadReminders();
+      if (isCalendarRoute) {
+        await loadCalendarEvents(nextSelectedDate.slice(0, 7));
+      } else {
+        await loadReminders();
+      }
       if (editingId) {
         navigate(basePath);
       }
@@ -203,12 +265,23 @@ export function RemindersPage() {
   }
 
   function startEditing(reminder: Reminder) {
+    const metadata = reminder.metadata || {};
+    const providerCategory = typeof metadata.reminder_category === "string" ? metadata.reminder_category : "administrative";
+    const startAt = typeof metadata.start_at === "string"
+      ? metadata.start_at
+      : (typeof metadata.calendar_start_at === "string" ? metadata.calendar_start_at : null);
+    const endAt = typeof metadata.end_at === "string"
+      ? metadata.end_at
+      : (typeof metadata.calendar_end_at === "string" ? metadata.calendar_end_at : null);
     setEditingId(reminder.id);
     setForm({
       title: reminder.title,
       notes: reminder.notes || "",
       status: reminder.status,
       due_date: normalizeDateKey(reminder.due_date),
+      start_date: getMexicoCityDateTimeLocalValue(startAt),
+      end_date: getMexicoCityDateTimeLocalValue(endAt),
+      provider_category: providerCategory === "providers" ? "providers" : "administrative",
       category: reminder.category || "administrative",
       patient_id: reminder.patient_id ? String(reminder.patient_id) : ""
     });
@@ -264,6 +337,7 @@ export function RemindersPage() {
             <div className="inline-actions">
               <button className={`button ghost ${calendarView === "month" ? "active-filter" : ""}`} onClick={() => setCalendarView("month")} type="button">Vista mensual</button>
               <button className={`button ghost ${calendarView === "day" ? "active-filter" : ""}`} onClick={() => setCalendarView("day")} type="button">Vista diaria</button>
+              <Link className="button ghost" to={`${basePath}/new?date=${selectedDate}`}>Nuevo recordatorio</Link>
             </div>
           </div>
 
@@ -358,7 +432,7 @@ export function RemindersPage() {
                         <div>
                           <strong>{reminder.title}</strong>
                           <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
-                          <small>{reminder.category === "clinical" ? "Clinico" : "Administrativo"}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
+                          <small>{getReminderCategoryLabel(reminder)}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                           {getReminderMetaSummary(reminder) ? <><br /><small>{getReminderMetaSummary(reminder)}</small></> : null}
                         </div>
                         <span className="pill">{getReminderStatusLabel(reminder.status)}</span>
@@ -393,7 +467,7 @@ export function RemindersPage() {
                   <div>
                     <strong>{reminder.title}</strong>
                     <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
-                    <small>{reminder.category === "clinical" ? "Clinico" : "Administrativo"}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
+                    <small>{getReminderCategoryLabel(reminder)}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                     <br />
                     <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(reminder.due_date)}</small>
                     {getReminderMetaSummary(reminder) ? <><br /><small>{getReminderMetaSummary(reminder)}</small></> : null}
@@ -462,6 +536,16 @@ export function RemindersPage() {
               {REMINDER_CATEGORIES.map((category) => <option key={category} value={category}>{category === "clinical" ? "Clinico" : "Administrativo"}</option>)}
             </select>
           </label>
+          <label>
+            Etiqueta
+            <select
+              value={form.provider_category}
+              onChange={(event) => setForm({ ...form, provider_category: event.target.value })}
+            >
+              <option value="administrative">Administrativo</option>
+              <option value="providers">Proveedores</option>
+            </select>
+          </label>
           {form.category === "clinical" ? (
             <label>
               Paciente
@@ -474,6 +558,14 @@ export function RemindersPage() {
           <label>
             Vencimiento
             <input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} />
+          </label>
+          <label>
+            Fecha inicio
+            <input type="datetime-local" value={form.start_date} onChange={(event) => setForm({ ...form, start_date: event.target.value, due_date: event.target.value ? event.target.value.slice(0, 10) : form.due_date })} />
+          </label>
+          <label>
+            Fecha fin (opcional)
+            <input type="datetime-local" value={form.end_date} onChange={(event) => setForm({ ...form, end_date: event.target.value })} />
           </label>
           <button className="button" disabled={saving} type="submit">
             {saving ? "Guardando..." : editingId ? "Actualizar recordatorio" : "Guardar recordatorio"}

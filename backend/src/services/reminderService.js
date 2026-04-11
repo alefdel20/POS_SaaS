@@ -7,7 +7,7 @@ const { requireActorBusinessId } = require("../utils/tenant");
 const { TIME_ZONE, getMexicoCityDate, getMexicoCityDateTime } = require("../utils/timezone");
 const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
-const { getNextFixedExpenseDueDate, normalizeFrequency } = require("../utils/fixedExpenseFrequency");
+const { normalizeFrequency } = require("../utils/fixedExpenseFrequency");
 const {
   normalizeReminderCategory,
   normalizeReminderStatus
@@ -29,6 +29,168 @@ function getTodayLocalDate() {
 
 function getBusinessId(actor) {
   return requireActorBusinessId(actor);
+}
+
+function parseDateOnly(value) {
+  if (!value) return null;
+  const text = String(value).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const parsed = new Date(`${text}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setHours(12, 0, 0, 0);
+  return parsed;
+}
+
+function formatDateOnly(value) {
+  return getMexicoCityDate(value);
+}
+
+function daysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+function addMonthsClamped(baseDate, months, desiredDay) {
+  const cursor = new Date(baseDate.getFullYear(), baseDate.getMonth() + months, 1, 12, 0, 0, 0);
+  const targetDay = Math.min(Math.max(desiredDay, 1), daysInMonth(cursor.getFullYear(), cursor.getMonth()));
+  return new Date(cursor.getFullYear(), cursor.getMonth(), targetDay, 12, 0, 0, 0);
+}
+
+function toTimeLabel(value) {
+  if (!value) return "";
+  const text = String(value);
+  if (text.includes("T")) {
+    return text.slice(11, 16);
+  }
+  if (text.includes(" ")) {
+    return text.slice(11, 16);
+  }
+  return "";
+}
+
+function toCalendarDate(value) {
+  return value ? String(value).slice(0, 10) : null;
+}
+
+function toReminderCategoryLabel(reminder) {
+  const metadata = reminder?.metadata || {};
+  const categoryTag = String(metadata.reminder_category || "").toLowerCase();
+  if (categoryTag === "providers") return "Proveedores";
+  if (categoryTag === "expense") return "Gasto";
+  if (categoryTag === "fixed_expense") return "Gasto fijo";
+  if (categoryTag === "owner_debt") return "Deuda del dueño";
+  return reminder?.category === "clinical" ? "Clinico" : "Administrativo";
+}
+
+function buildReminderDateSummary(reminder) {
+  const metadata = reminder?.metadata || {};
+  const startAt = metadata.start_at || metadata.calendar_start_at || null;
+  const endAt = metadata.end_at || metadata.calendar_end_at || null;
+  const startTime = toTimeLabel(startAt);
+  const endTime = toTimeLabel(endAt);
+  if (startTime && endTime) return `${startTime}-${endTime}`;
+  if (startTime) return `Inicio ${startTime}`;
+  return "";
+}
+
+function normalizeRangeBoundaries(filters = {}) {
+  const startDate = toCalendarDate(filters.start_date);
+  const endDate = toCalendarDate(filters.end_date);
+  if (!startDate || !endDate) {
+    throw new ApiError(400, "start_date and end_date are required");
+  }
+  if (startDate > endDate) {
+    throw new ApiError(400, "Invalid date range");
+  }
+  return { startDate, endDate };
+}
+
+function extractReminderMeta(payload = {}, currentMetadata = {}) {
+  const next = { ...(currentMetadata || {}), ...(payload.metadata || {}) };
+  if (payload.start_date !== undefined) {
+    next.start_at = payload.start_date || null;
+    next.calendar_start_at = payload.start_date || null;
+  }
+  if (payload.end_date !== undefined) {
+    next.end_at = payload.end_date || null;
+    next.calendar_end_at = payload.end_date || null;
+  }
+  if (payload.provider_category !== undefined) {
+    next.reminder_category = payload.provider_category || "administrative";
+  }
+  return next;
+}
+
+function sourceKeyHash(sourceKey, fallbackId = 0) {
+  const text = String(sourceKey || fallbackId || "");
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return hash || Number(fallbackId || 0);
+}
+
+function projectFixedExpenseDates(row, startDate, endDate) {
+  const start = parseDateOnly(startDate);
+  const end = parseDateOnly(endDate);
+  if (!start || !end || end < start) return [];
+
+  const frequency = normalizeFrequency(row?.frequency);
+  const baseDateText = toCalendarDate(row?.base_date) || toCalendarDate(row?.created_at) || null;
+  let base = parseDateOnly(baseDateText);
+  if (!base) {
+    const dueDay = Number(row?.due_day);
+    if (Number.isInteger(dueDay) && dueDay >= 1 && dueDay <= 31) {
+      base = addMonthsClamped(start, 0, dueDay);
+    } else {
+      base = new Date(start);
+    }
+  }
+  base.setHours(12, 0, 0, 0);
+
+  const monthlyIntervals = {
+    monthly: 1,
+    custom: 1,
+    bimonthly: 2,
+    quarterly: 3,
+    semiannual: 6,
+    annual: 12
+  };
+  const dayIntervals = {
+    weekly: 7,
+    biweekly: 14
+  };
+
+  const result = [];
+  if (dayIntervals[frequency]) {
+    const intervalDays = dayIntervals[frequency];
+    let cursor = new Date(base);
+    if (cursor < start) {
+      const diffDays = Math.floor((start.getTime() - cursor.getTime()) / (24 * 60 * 60 * 1000));
+      const jumps = Math.floor(diffDays / intervalDays);
+      cursor.setDate(cursor.getDate() + jumps * intervalDays);
+      while (cursor < start) {
+        cursor.setDate(cursor.getDate() + intervalDays);
+      }
+    }
+    while (cursor <= end) {
+      result.push(formatDateOnly(cursor));
+      cursor = new Date(cursor);
+      cursor.setDate(cursor.getDate() + intervalDays);
+    }
+    return result;
+  }
+
+  const monthInterval = monthlyIntervals[frequency] || 1;
+  const desiredDay = base.getDate();
+  let cursor = new Date(base);
+  while (cursor < start) {
+    cursor = addMonthsClamped(cursor, monthInterval, desiredDay);
+  }
+  while (cursor <= end) {
+    result.push(formatDateOnly(cursor));
+    cursor = addMonthsClamped(cursor, monthInterval, desiredDay);
+  }
+  return result;
 }
 
 function isSchemaError(error) {
@@ -70,10 +232,171 @@ async function listReminders(actor, filters = {}) {
      LEFT JOIN users ON users.id = reminders.assigned_to AND users.business_id = reminders.business_id
      LEFT JOIN patients ON patients.id = reminders.patient_id AND patients.business_id = reminders.business_id
      WHERE ${conditions.join(" AND ")}
+       AND (reminders.source_key IS NULL OR reminders.source_key NOT LIKE 'finance:%')
+       AND COALESCE(reminders.reminder_type, '') NOT IN ('finance_expense', 'finance_owner_loan', 'finance_fixed_expense')
      ORDER BY reminders.is_completed ASC, reminders.due_date ASC NULLS LAST, reminders.created_at DESC`,
     params
   );
   return rows;
+}
+
+async function listCalendarEvents(actor, filters = {}) {
+  const businessId = getBusinessId(actor);
+  const { startDate, endDate } = normalizeRangeBoundaries(filters);
+
+  const [reminderRows, expenseRows, ownerLoanRows, fixedExpenseRows] = await Promise.all([
+    pool.query(
+      `SELECT reminders.*, users.full_name AS assigned_to_name, patients.name AS patient_name
+       FROM reminders
+       LEFT JOIN users ON users.id = reminders.assigned_to AND users.business_id = reminders.business_id
+       LEFT JOIN patients ON patients.id = reminders.patient_id AND patients.business_id = reminders.business_id
+       WHERE reminders.business_id = $1
+         AND reminders.due_date BETWEEN $2::date AND $3::date
+         AND (reminders.source_key IS NULL OR reminders.source_key NOT LIKE 'finance:%')
+         AND COALESCE(reminders.reminder_type, '') NOT IN ('finance_expense', 'finance_owner_loan', 'finance_fixed_expense')
+       ORDER BY reminders.is_completed ASC, reminders.due_date ASC, reminders.created_at DESC`,
+      [businessId, startDate, endDate]
+    ),
+    pool.query(
+      `SELECT id, concept, category, amount, date, notes, payment_method
+       FROM expenses
+       WHERE business_id = $1
+         AND is_voided = FALSE
+         AND date BETWEEN $2::date AND $3::date
+       ORDER BY date ASC, id ASC`,
+      [businessId, startDate, endDate]
+    ),
+    pool.query(
+      `SELECT id, amount, type, balance, date, notes
+       FROM owner_loans
+       WHERE business_id = $1
+         AND is_voided = FALSE
+         AND date BETWEEN $2::date AND $3::date
+       ORDER BY date ASC, id ASC`,
+      [businessId, startDate, endDate]
+    ),
+    pool.query(
+      `SELECT id, name, category, default_amount, frequency, due_day, notes, base_date, created_at
+       FROM fixed_expenses
+       WHERE business_id = $1
+         AND is_active = TRUE
+       ORDER BY id ASC`,
+      [businessId]
+    )
+  ]);
+
+  const unified = [];
+
+  for (const reminder of reminderRows.rows) {
+    const metadata = reminder.metadata || {};
+    const mergedReminder = {
+      ...reminder,
+      metadata: {
+        ...metadata,
+        reminder_category: metadata.reminder_category || (reminder.category === "clinical" ? "clinical" : "administrative"),
+        reminder_label: toReminderCategoryLabel(reminder),
+        date_summary: buildReminderDateSummary(reminder)
+      }
+    };
+    unified.push(mergedReminder);
+  }
+
+  for (const expense of expenseRows.rows) {
+    const sourceKey = `finance:expense:${businessId}:${expense.id}`;
+    unified.push({
+      id: sourceKeyHash(sourceKey, expense.id),
+      title: `Gasto: ${expense.concept}`,
+      notes: expense.notes || "",
+      source_key: sourceKey,
+      status: "completed",
+      due_date: expense.date,
+      assigned_to: null,
+      reminder_type: "finance_expense",
+      category: "administrative",
+      patient_id: null,
+      patient_name: null,
+      is_completed: true,
+      metadata: {
+        source_module: "expenses",
+        reminder_category: "expense",
+        reminder_label: "Gasto",
+        expense_id: Number(expense.id),
+        concept: expense.concept,
+        amount: Number(expense.amount || 0),
+        category: expense.category || "General",
+        payment_method: expense.payment_method || "cash"
+      }
+    });
+  }
+
+  for (const loan of ownerLoanRows.rows) {
+    const sourceKey = `finance:owner-loan:${businessId}:${loan.id}`;
+    unified.push({
+      id: sourceKeyHash(sourceKey, loan.id),
+      title: `Deuda del dueño: ${loan.type === "entrada" ? "entrada" : "abono"}`,
+      notes: loan.notes || "",
+      source_key: sourceKey,
+      status: "completed",
+      due_date: loan.date,
+      assigned_to: null,
+      reminder_type: "finance_owner_loan",
+      category: "administrative",
+      patient_id: null,
+      patient_name: null,
+      is_completed: true,
+      metadata: {
+        source_module: "owner_loans",
+        reminder_category: "owner_debt",
+        reminder_label: "Deuda del dueño",
+        owner_loan_id: Number(loan.id),
+        movement_type: loan.type,
+        amount: Number(loan.amount || 0),
+        balance: Number(loan.balance || 0)
+      }
+    });
+  }
+
+  for (const fixedExpense of fixedExpenseRows.rows) {
+    const dueDates = projectFixedExpenseDates(fixedExpense, startDate, endDate);
+    for (const dueDate of dueDates) {
+      const sourceKey = `finance:fixed-expense:${businessId}:${fixedExpense.id}:${dueDate}`;
+      unified.push({
+        id: sourceKeyHash(sourceKey, `${fixedExpense.id}${dueDate.replace(/-/g, "")}`),
+        title: `Gasto fijo: ${fixedExpense.name}`,
+        notes: fixedExpense.notes || "",
+        source_key: sourceKey,
+        status: "pending",
+        due_date: dueDate,
+        assigned_to: null,
+        reminder_type: "finance_fixed_expense",
+        category: "administrative",
+        patient_id: null,
+        patient_name: null,
+        is_completed: false,
+        metadata: {
+          source_module: "fixed_expenses",
+          reminder_category: "fixed_expense",
+          reminder_label: "Gasto fijo",
+          fixed_expense_id: Number(fixedExpense.id),
+          concept: fixedExpense.name,
+          amount: Number(fixedExpense.default_amount || 0),
+          category: fixedExpense.category || "General",
+          frequency: normalizeFrequency(fixedExpense.frequency),
+          base_date: toCalendarDate(fixedExpense.base_date) || toCalendarDate(fixedExpense.created_at)
+        }
+      });
+    }
+  }
+
+  return unified.sort((left, right) => {
+    const leftCompleted = Boolean(left.is_completed) ? 1 : 0;
+    const rightCompleted = Boolean(right.is_completed) ? 1 : 0;
+    if (leftCompleted !== rightCompleted) return leftCompleted - rightCompleted;
+    const leftDate = String(left.due_date || "");
+    const rightDate = String(right.due_date || "");
+    if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+    return String(left.title || "").localeCompare(String(right.title || ""));
+  });
 }
 
 function assertClinicalReminderAccess(payload, actor) {
@@ -88,12 +411,14 @@ async function createReminder(payload, actor) {
   assertClinicalReminderAccess(payload, actor);
   const category = normalizeReminderCategory(payload.category) || (payload.patient_id ? "clinical" : "administrative");
   const status = normalizeReminderStatus(payload.status) || "pending";
+  const metadata = extractReminderMeta(payload);
+  const nextDueDate = payload.due_date || toCalendarDate(payload.start_date) || null;
   await assertReminderPatientAccess(payload.patient_id, businessId);
   const { rows } = await pool.query(
     `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
-    [String(payload.title || "").trim(), String(payload.notes || "").trim(), status, payload.due_date || null, payload.source_key || null, payload.assigned_to || null, payload.created_by, payload.is_completed ?? false, businessId, payload.reminder_type || "general", category, payload.patient_id || null, JSON.stringify(payload.metadata || {})]
+    [String(payload.title || "").trim(), String(payload.notes || "").trim(), status, nextDueDate, payload.source_key || null, payload.assigned_to || null, payload.created_by, payload.is_completed ?? false, businessId, payload.reminder_type || "general", category, payload.patient_id || null, JSON.stringify(metadata)]
   );
   await saveAuditLog({
     business_id: businessId,
@@ -115,6 +440,10 @@ async function updateReminder(id, payload, actor) {
   if (!current) throw new ApiError(404, "Reminder not found");
   const nextCategory = normalizeReminderCategory(payload.category) || normalizeReminderCategory(current.category) || "administrative";
   const nextStatus = normalizeReminderStatus(payload.status) || normalizeReminderStatus(current.status) || "pending";
+  const metadata = extractReminderMeta(payload, current.metadata || {});
+  const nextDueDate = payload.due_date !== undefined
+    ? payload.due_date
+    : (payload.start_date !== undefined ? toCalendarDate(payload.start_date) : current.due_date);
   assertClinicalReminderAccess({ category: nextCategory }, actor);
   await assertReminderPatientAccess(payload.patient_id ?? current.patient_id, businessId);
 
@@ -123,7 +452,7 @@ async function updateReminder(id, payload, actor) {
      SET title = $1, notes = $2, status = $3, due_date = $4, assigned_to = $5, is_completed = $6, source_key = $7, reminder_type = $8, category = $9, patient_id = $10, metadata = $11, updated_at = NOW()
      WHERE id = $12 AND business_id = $13
      RETURNING *`,
-    [String(payload.title ?? current.title ?? "").trim(), String(payload.notes ?? current.notes ?? "").trim(), nextStatus, payload.due_date ?? current.due_date, payload.assigned_to ?? current.assigned_to, payload.is_completed ?? current.is_completed, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, nextCategory, payload.patient_id ?? current.patient_id, JSON.stringify(payload.metadata ?? current.metadata ?? {}), id, businessId]
+    [String(payload.title ?? current.title ?? "").trim(), String(payload.notes ?? current.notes ?? "").trim(), nextStatus, nextDueDate, payload.assigned_to ?? current.assigned_to, payload.is_completed ?? current.is_completed, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, nextCategory, payload.patient_id ?? current.patient_id, JSON.stringify(metadata), id, businessId]
   );
   await saveAuditLog({
     business_id: businessId,
@@ -295,49 +624,16 @@ async function ensureAutomaticReminders(actor) {
   const businessId = getBusinessId(actor);
   const today = getTodayLocalDate();
   const upcomingDate = addDays(today, 3);
-  const [lowStockRows, fixedExpenseRows] = await Promise.all([
+  const [lowStockRows] = await Promise.all([
     pool.query(
       `SELECT id, name, stock, stock_minimo, stock_maximo
        FROM products
        WHERE business_id = $1 AND is_active = TRUE AND status = 'activo' AND stock_minimo > 0 AND stock <= stock_minimo`,
       [businessId]
-    ),
-    pool.query(
-      `SELECT id, name, category, default_amount, due_day, frequency
-       FROM fixed_expenses
-       WHERE business_id = $1 AND is_active = TRUE AND due_day IS NOT NULL AND due_day BETWEEN 1 AND 31`,
-      [businessId]
     )
   ]);
 
   await syncConsolidatedLowStockReminder(lowStockRows.rows, actor);
-
-  for (const expense of fixedExpenseRows.rows) {
-    const dueDate = getNextFixedExpenseDueDate({
-      due_day: expense.due_day,
-      frequency: normalizeFrequency(expense.frequency)
-    }, new Date(`${today}T12:00:00`));
-    await pool.query(
-      `DELETE FROM reminders
-       WHERE business_id = $1
-         AND source_key LIKE $2`,
-      [businessId, `auto:fixed-expense:${businessId}:${expense.id}:%`]
-    );
-    if (!dueDate || dueDate < today || dueDate > upcomingDate) continue;
-    await upsertAutomaticReminder({
-      source_key: `finance:fixed-expense:${businessId}:${expense.id}:${dueDate}`,
-      title: `Gasto proximo: ${expense.name}`,
-      notes: `Vence el ${dueDate}. Categoria ${expense.category}. Monto estimado ${Number(expense.default_amount).toFixed(2)}.`,
-      due_date: dueDate,
-      metadata: {
-        source_module: "fixed_expenses",
-        fixed_expense_id: Number(expense.id),
-        amount: Number(expense.default_amount || 0),
-        category: expense.category || "General",
-        frequency: normalizeFrequency(expense.frequency)
-      }
-    }, actor);
-  }
 
   const [preventiveRows, appointmentRows] = await Promise.all([
     pool.query(
@@ -472,6 +768,7 @@ async function receiveAutomationWebhook(payload) {
 
 module.exports = {
   listReminders,
+  listCalendarEvents,
   createReminder,
   updateReminder,
   completeReminder,
