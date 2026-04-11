@@ -30,6 +30,20 @@ function normalizeDateKey(value?: string | null) {
   return value ? value.slice(0, 10) : "";
 }
 
+function getReminderIdentityKey(reminder: Reminder) {
+  const sourceKey = typeof reminder.source_key === "string" ? reminder.source_key.trim() : "";
+  if (sourceKey) return `source:${sourceKey}`;
+  return `id:${String(reminder.id)}`;
+}
+
+function dedupeReminders(items: Reminder[]) {
+  const byIdentity = new Map<string, Reminder>();
+  for (const item of items) {
+    byIdentity.set(getReminderIdentityKey(item), item);
+  }
+  return [...byIdentity.values()];
+}
+
 function getTodayKey() {
   return getMexicoCityDateInputValue();
 }
@@ -98,6 +112,18 @@ function getReminderMetaSummary(reminder: Reminder) {
   return parts.join(" · ");
 }
 
+function getReminderDisplayTitle(reminder: Reminder) {
+  const title = String(reminder.title || "").trim();
+  if (title) return title;
+  const metadata = reminder.metadata || {};
+  const concept = typeof metadata.concept === "string" ? metadata.concept.trim() : "";
+  const label = typeof metadata.reminder_label === "string" ? metadata.reminder_label.trim() : "";
+  if (label && concept) return `${label}: ${concept}`;
+  if (concept) return concept;
+  if (label) return label;
+  return "Recordatorio";
+}
+
 function getReminderCategoryLabel(reminder: Reminder) {
   const metadata = reminder.metadata || {};
   const reminderCategory = typeof metadata.reminder_category === "string" ? metadata.reminder_category : "";
@@ -150,7 +176,7 @@ export function RemindersPage() {
     setLoading(true);
     try {
       const response = await apiRequest<Reminder[]>("/reminders", { token });
-      setReminders(response);
+      setReminders(dedupeReminders(response));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar recordatorios");
     } finally {
@@ -165,7 +191,7 @@ export function RemindersPage() {
     setLoading(true);
     try {
       const response = await apiRequest<Reminder[]>(`/reminders/calendar?start_date=${monthRange.start}&end_date=${monthRange.end}`, { token });
-      setReminders(response);
+      setReminders(dedupeReminders(response));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar recordatorios");
     } finally {
@@ -214,18 +240,20 @@ export function RemindersPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
+    const currentEditingId = editingId;
+    const normalizedDueDate = form.start_date ? form.start_date.slice(0, 10) : form.due_date;
 
     try {
       setSaving(true);
       setError("");
-      await apiRequest<Reminder>(editingId ? `/reminders/${editingId}` : "/reminders", {
-        method: editingId ? "PUT" : "POST",
+      const savedReminder = await apiRequest<Reminder>(currentEditingId ? `/reminders/${currentEditingId}` : "/reminders", {
+        method: currentEditingId ? "PUT" : "POST",
         token,
         body: JSON.stringify({
           title: form.title,
           notes: form.notes,
           status: form.status,
-          due_date: form.due_date || (form.start_date ? form.start_date.slice(0, 10) : ""),
+          due_date: normalizedDueDate || "",
           start_date: dateTimeLocalToIsoString(form.start_date),
           end_date: dateTimeLocalToIsoString(form.end_date),
           provider_category: form.provider_category,
@@ -234,7 +262,12 @@ export function RemindersPage() {
           patient_id: form.patient_id ? Number(form.patient_id) : undefined
         })
       });
-      const nextSelectedDate = form.due_date || (form.start_date ? form.start_date.slice(0, 10) : selectedDate);
+      setReminders((current) => {
+        const identity = getReminderIdentityKey(savedReminder);
+        const next = current.filter((item) => getReminderIdentityKey(item) !== identity);
+        return dedupeReminders([...next, savedReminder]);
+      });
+      const nextSelectedDate = normalizedDueDate || selectedDate;
       resetForm();
       setSelectedDate(nextSelectedDate);
       setSelectedMonth(nextSelectedDate.slice(0, 7));
@@ -243,7 +276,7 @@ export function RemindersPage() {
       } else {
         await loadReminders();
       }
-      if (editingId) {
+      if (currentEditingId) {
         navigate(basePath);
       }
     } catch (submissionError) {
@@ -380,8 +413,8 @@ export function RemindersPage() {
                       {!cell.outside ? (
                         <div style={{ display: "grid", gap: "0.35rem", marginTop: "0.5rem" }}>
                           {dayItems.slice(0, 2).map((reminder) => (
-                            <span className="pill" key={reminder.id} style={{ justifyContent: "flex-start", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {reminder.title}
+                            <span className="pill" key={`month-pill-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`} style={{ justifyContent: "flex-start", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {getReminderDisplayTitle(reminder)}
                             </span>
                           ))}
                           {dayItems.length > 2 ? <span className="muted">+{dayItems.length - 2} mas</span> : null}
@@ -396,9 +429,9 @@ export function RemindersPage() {
                 {selectedDayReminders.length ? (
                   <div className="stack-list">
                     {selectedDayReminders.map((reminder) => (
-                      <article className="reminder-card" key={`selected-day-${reminder.id}`}>
+                      <article className="reminder-card" key={`selected-day-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`}>
                         <div>
-                          <strong>{reminder.title}</strong>
+                          <strong>{getReminderDisplayTitle(reminder)}</strong>
                           <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
                           {getReminderMetaSummary(reminder) ? <small>{getReminderMetaSummary(reminder)}</small> : null}
                         </div>
@@ -433,9 +466,9 @@ export function RemindersPage() {
                 {selectedDayReminders.length ? (
                   <div className="stack-list" style={{ marginTop: "1rem" }}>
                     {selectedDayReminders.map((reminder) => (
-                      <article className="reminder-card" key={`agenda-${reminder.id}`}>
+                      <article className="reminder-card" key={`agenda-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`}>
                         <div>
-                          <strong>{reminder.title}</strong>
+                          <strong>{getReminderDisplayTitle(reminder)}</strong>
                           <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
                           <small>{getReminderCategoryLabel(reminder)}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                           {getReminderMetaSummary(reminder) ? <><br /><small>{getReminderMetaSummary(reminder)}</small></> : null}
@@ -468,9 +501,9 @@ export function RemindersPage() {
           {!loading ? (
             <div className="stack-list">
               {reminders.map((reminder) => (
-                <article key={reminder.id} className="reminder-card">
+                <article key={`list-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`} className="reminder-card">
                   <div>
-                    <strong>{reminder.title}</strong>
+                    <strong>{getReminderDisplayTitle(reminder)}</strong>
                     <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
                     <small>{getReminderCategoryLabel(reminder)}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                     <br />
