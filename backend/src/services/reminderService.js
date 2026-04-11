@@ -412,7 +412,8 @@ async function createReminder(payload, actor) {
   const businessId = getBusinessId(actor);
   assertClinicalReminderAccess(payload, actor);
   const category = normalizeReminderCategory(payload.category) || (payload.patient_id ? "clinical" : "administrative");
-  const status = normalizeReminderStatus(payload.status) || "pending";
+  const nextStatus = normalizeReminderStatus(payload.status) || "pending";
+  const nextIsCompleted = nextStatus === "completed";
   const metadata = extractReminderMeta(payload);
   const nextDueDate = payload.due_date || toCalendarDate(payload.start_date) || null;
   await assertReminderPatientAccess(payload.patient_id, businessId);
@@ -420,7 +421,7 @@ async function createReminder(payload, actor) {
     `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
-    [String(payload.title || "").trim(), String(payload.notes || "").trim(), status, nextDueDate, payload.source_key || null, payload.assigned_to || null, payload.created_by, payload.is_completed ?? false, businessId, payload.reminder_type || "general", category, payload.patient_id || null, JSON.stringify(metadata)]
+    [String(payload.title || "").trim(), String(payload.notes || "").trim(), nextStatus, nextDueDate, payload.source_key || null, payload.assigned_to || null, payload.created_by, nextIsCompleted, businessId, payload.reminder_type || "general", category, payload.patient_id || null, JSON.stringify(metadata)]
   );
   await saveAuditLog({
     business_id: businessId,
@@ -442,6 +443,7 @@ async function updateReminder(id, payload, actor) {
   if (!current) throw new ApiError(404, "Reminder not found");
   const nextCategory = normalizeReminderCategory(payload.category) || normalizeReminderCategory(current.category) || "administrative";
   const nextStatus = normalizeReminderStatus(payload.status) || normalizeReminderStatus(current.status) || "pending";
+  const nextIsCompleted = nextStatus === "completed";
   const metadata = extractReminderMeta(payload, current.metadata || {});
   const nextDueDate = payload.due_date !== undefined
     ? payload.due_date
@@ -454,7 +456,7 @@ async function updateReminder(id, payload, actor) {
      SET title = $1, notes = $2, status = $3, due_date = $4, assigned_to = $5, is_completed = $6, source_key = $7, reminder_type = $8, category = $9, patient_id = $10, metadata = $11, updated_at = NOW()
      WHERE id = $12 AND business_id = $13
      RETURNING *`,
-    [String(payload.title ?? current.title ?? "").trim(), String(payload.notes ?? current.notes ?? "").trim(), nextStatus, nextDueDate, payload.assigned_to ?? current.assigned_to, payload.is_completed ?? current.is_completed, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, nextCategory, payload.patient_id ?? current.patient_id, JSON.stringify(metadata), id, businessId]
+    [String(payload.title ?? current.title ?? "").trim(), String(payload.notes ?? current.notes ?? "").trim(), nextStatus, nextDueDate, payload.assigned_to ?? current.assigned_to, nextIsCompleted, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, nextCategory, payload.patient_id ?? current.patient_id, JSON.stringify(metadata), id, businessId]
   );
   await saveAuditLog({
     business_id: businessId,

@@ -30,6 +30,20 @@ function normalizeDateKey(value?: string | null) {
   return value ? value.slice(0, 10) : "";
 }
 
+function resolveReminderDateKey(reminder: Reminder) {
+  const dueDate = normalizeDateKey(reminder.due_date);
+  if (dueDate) return dueDate;
+  const metadata = reminder.metadata || {};
+  const startAt = typeof metadata.start_at === "string"
+    ? metadata.start_at
+    : (typeof metadata.calendar_start_at === "string" ? metadata.calendar_start_at : "");
+  return startAt ? getMexicoCityDateInputValue(startAt) : "";
+}
+
+function deriveIsCompleted(status: Reminder["status"]) {
+  return status === "completed";
+}
+
 function getReminderIdentityKey(reminder: Reminder) {
   const sourceKey = typeof reminder.source_key === "string" ? reminder.source_key.trim() : "";
   if (sourceKey) return `source:${sourceKey}`;
@@ -156,7 +170,7 @@ export function RemindersPage() {
 
   const remindersByDate = useMemo(
     () => reminders.reduce<Record<string, Reminder[]>>((accumulator, reminder) => {
-      const key = normalizeDateKey(reminder.due_date) || "Sin fecha";
+      const key = resolveReminderDateKey(reminder) || "Sin fecha";
       accumulator[key] = [...(accumulator[key] || []), reminder];
       return accumulator;
     }, {}),
@@ -242,6 +256,8 @@ export function RemindersPage() {
     if (!token) return;
     const currentEditingId = editingId;
     const normalizedDueDate = form.start_date ? form.start_date.slice(0, 10) : form.due_date;
+    const normalizedStatus = form.status as Reminder["status"];
+    const normalizedIsCompleted = deriveIsCompleted(normalizedStatus);
 
     try {
       setSaving(true);
@@ -252,7 +268,8 @@ export function RemindersPage() {
         body: JSON.stringify({
           title: form.title,
           notes: form.notes,
-          status: form.status,
+          status: normalizedStatus,
+          is_completed: normalizedIsCompleted,
           due_date: normalizedDueDate || "",
           start_date: dateTimeLocalToIsoString(form.start_date),
           end_date: dateTimeLocalToIsoString(form.end_date),
@@ -263,8 +280,7 @@ export function RemindersPage() {
         })
       });
       setReminders((current) => {
-        const identity = getReminderIdentityKey(savedReminder);
-        const next = current.filter((item) => getReminderIdentityKey(item) !== identity);
+        const next = current.filter((item) => Number(item.id) !== Number(savedReminder.id));
         return dedupeReminders([...next, savedReminder]);
       });
       const nextSelectedDate = normalizedDueDate || selectedDate;
@@ -315,15 +331,15 @@ export function RemindersPage() {
     setForm({
       title: reminder.title,
       notes: reminder.notes || "",
-      status: reminder.status,
-      due_date: normalizeDateKey(reminder.due_date),
+      status: (reminder.is_completed ? "completed" : (reminder.status === "completed" ? "pending" : reminder.status)) as Reminder["status"],
+      due_date: resolveReminderDateKey(reminder),
       start_date: getMexicoCityDateTimeLocalValue(startAt),
       end_date: getMexicoCityDateTimeLocalValue(endAt),
       provider_category: providerCategory === "providers" ? "providers" : "administrative",
       category: reminder.category || "administrative",
       patient_id: reminder.patient_id ? String(reminder.patient_id) : ""
     });
-    const nextDate = normalizeDateKey(reminder.due_date) || getTodayKey();
+    const nextDate = resolveReminderDateKey(reminder) || getTodayKey();
     setSelectedDate(nextDate);
     setSelectedMonth(nextDate.slice(0, 7));
     navigate(`${basePath}/new`);
@@ -507,7 +523,7 @@ export function RemindersPage() {
                     <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
                     <small>{getReminderCategoryLabel(reminder)}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                     <br />
-                    <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(reminder.due_date)}</small>
+                    <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(resolveReminderDateKey(reminder))}</small>
                     {getReminderMetaSummary(reminder) ? <><br /><small>{getReminderMetaSummary(reminder)}</small></> : null}
                   </div>
                   <div className="inline-actions">
