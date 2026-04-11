@@ -46,6 +46,24 @@ const FIXED_EXPENSE_FREQUENCY_LABELS: Record<string, string> = {
 };
 
 type FinanceView = "expenses" | "fixed-expenses" | "owner-debt";
+const DUE_DAY_ANCHOR_DATE_PREFIX = "2000-01";
+
+function dueDateInputToDay(value?: string | null) {
+  if (!value) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return Number(value.slice(8, 10));
+  }
+  const numericValue = Number(value);
+  if (Number.isInteger(numericValue) && numericValue >= 1 && numericValue <= 31) {
+    return numericValue;
+  }
+  return undefined;
+}
+
+function dayToDueDateInput(dueDay?: number | null) {
+  if (!dueDay || !Number.isInteger(Number(dueDay)) || Number(dueDay) < 1 || Number(dueDay) > 31) return "";
+  return `${DUE_DAY_ANCHOR_DATE_PREFIX}-${String(Number(dueDay)).padStart(2, "0")}`;
+}
 
 export function FinancesPage() {
   const { token } = useAuth();
@@ -144,7 +162,7 @@ export function FinancesPage() {
       const payload = {
         ...fixedExpenseForm,
         default_amount: Number(fixedExpenseForm.default_amount),
-        due_day: fixedExpenseForm.due_day ? Number(fixedExpenseForm.due_day) : undefined,
+        due_day: dueDateInputToDay(fixedExpenseForm.due_day),
         base_date: fixedExpenseForm.base_date || undefined
       };
       if (editingFixedExpenseId) {
@@ -225,7 +243,7 @@ export function FinancesPage() {
       default_amount: String(item.default_amount),
       frequency: item.frequency,
       payment_method: item.payment_method,
-      due_day: item.due_day ? String(item.due_day) : "",
+      due_day: dayToDueDateInput(item.due_day),
       base_date: item.base_date || getMexicoCityDateInputValue(),
       notes: item.notes || ""
     });
@@ -413,12 +431,20 @@ export function FinancesPage() {
               </select>
             </label>
             <label>
-              Dia de vencimiento
-              <input min="1" max="31" type="number" value={fixedExpenseForm.due_day} onChange={(event) => setFixedExpenseForm({ ...fixedExpenseForm, due_day: event.target.value })} />
+              Fecha base
+              <input
+                type="date"
+                value={fixedExpenseForm.base_date}
+                onChange={(event) => {
+                  const nextBaseDate = event.target.value;
+                  setFixedExpenseForm((current) => ({ ...current, base_date: nextBaseDate }));
+                }}
+              />
             </label>
             <label>
-              Fecha base
-              <input type="date" value={fixedExpenseForm.base_date} onChange={(event) => setFixedExpenseForm({ ...fixedExpenseForm, base_date: event.target.value })} />
+              Dia de vencimiento (solo dia del mes)
+              <input type="date" value={fixedExpenseForm.due_day} onChange={(event) => setFixedExpenseForm({ ...fixedExpenseForm, due_day: event.target.value })} />
+              <small className="muted">Se guarda unicamente el dia (1-31). Mes y anio del selector solo son visuales.</small>
             </label>
             <label>
               Notas

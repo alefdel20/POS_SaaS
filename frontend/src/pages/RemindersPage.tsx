@@ -34,24 +34,29 @@ function getTodayKey() {
   return getMexicoCityDateInputValue();
 }
 
-function startOfMonth(monthKey: string) {
-  return new Date(`${monthKey}-01T00:00:00`);
+function parseMonthKey(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return { year, month };
 }
 
 function shiftMonth(monthKey: string, delta: number) {
-  const cursor = startOfMonth(monthKey);
-  cursor.setMonth(cursor.getMonth() + delta);
-  return cursor.toISOString().slice(0, 7);
+  const { year, month } = parseMonthKey(monthKey);
+  const totalMonths = year * 12 + (month - 1) + delta;
+  const nextYear = Math.floor(totalMonths / 12);
+  const nextMonth = (totalMonths % 12) + 1;
+  return `${nextYear}-${String(nextMonth).padStart(2, "0")}`;
 }
 
 function formatMonthLabel(monthKey: string) {
-  return startOfMonth(monthKey).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
+  const { year, month } = parseMonthKey(monthKey);
+  return new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric", timeZone: "America/Mexico_City" })
+    .format(new Date(Date.UTC(year, month - 1, 1, 12, 0, 0)));
 }
 
 function buildMonthCells(monthKey: string) {
-  const monthStart = startOfMonth(monthKey);
-  const firstWeekday = monthStart.getDay();
-  const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
+  const { year, month } = parseMonthKey(monthKey);
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1, 12, 0, 0)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(year, month, 0, 12, 0, 0)).getUTCDate();
   const cells: Array<{ key: string; dayNumber: number; outside: boolean }> = [];
 
   for (let index = 0; index < firstWeekday; index += 1) {
@@ -59,9 +64,9 @@ function buildMonthCells(monthKey: string) {
   }
 
   for (let day = 1; day <= daysInMonth; day += 1) {
-    const date = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+    const key = `${monthKey}-${String(day).padStart(2, "0")}`;
     cells.push({
-      key: date.toISOString().slice(0, 10),
+      key,
       dayNumber: day,
       outside: false
     });
@@ -317,7 +322,7 @@ export function RemindersPage() {
       </div>
       <div className="inline-actions">
         <Link className={`button ghost ${!isNewRoute && !isCalendarRoute ? "active-filter" : ""}`} to={basePath}>Recordatorios</Link>
-        <Link className={`button ghost ${isNewRoute ? "active-filter" : ""}`} to={`${basePath}/new`}>Nuevo</Link>
+        <Link className={`button ghost ${isNewRoute ? "active-filter" : ""}`} to={`${basePath}/new${isCalendarRoute ? `?date=${selectedDate}` : ""}`}>Nuevo</Link>
         <Link className={`button ghost ${isCalendarRoute ? "active-filter" : ""}`} to={`${basePath}/calendar`}>Calendario</Link>
       </div>
     </div>

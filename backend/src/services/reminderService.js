@@ -18,8 +18,9 @@ function normalizePhone(phone) {
 }
 
 function addDays(dateString, days) {
-  const baseDate = new Date(`${dateString}T12:00:00`);
-  baseDate.setDate(baseDate.getDate() + days);
+  const baseDate = parseDateOnly(dateString);
+  if (!baseDate) return dateString;
+  baseDate.setUTCDate(baseDate.getUTCDate() + days);
   return getMexicoCityDate(baseDate);
 }
 
@@ -35,9 +36,10 @@ function parseDateOnly(value) {
   if (!value) return null;
   const text = String(value).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
-  const parsed = new Date(`${text}T12:00:00`);
+  const [year, month, day] = text.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
   if (Number.isNaN(parsed.getTime())) return null;
-  parsed.setHours(12, 0, 0, 0);
+  parsed.setUTCHours(12, 0, 0, 0);
   return parsed;
 }
 
@@ -50,9 +52,9 @@ function daysInMonth(year, monthIndex) {
 }
 
 function addMonthsClamped(baseDate, months, desiredDay) {
-  const cursor = new Date(baseDate.getFullYear(), baseDate.getMonth() + months, 1, 12, 0, 0, 0);
-  const targetDay = Math.min(Math.max(desiredDay, 1), daysInMonth(cursor.getFullYear(), cursor.getMonth()));
-  return new Date(cursor.getFullYear(), cursor.getMonth(), targetDay, 12, 0, 0, 0);
+  const cursor = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth() + months, 1, 12, 0, 0));
+  const targetDay = Math.min(Math.max(desiredDay, 1), daysInMonth(cursor.getUTCFullYear(), cursor.getUTCMonth()));
+  return new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), targetDay, 12, 0, 0));
 }
 
 function toTimeLabel(value) {
@@ -145,7 +147,7 @@ function projectFixedExpenseDates(row, startDate, endDate) {
       base = new Date(start);
     }
   }
-  base.setHours(12, 0, 0, 0);
+  base.setUTCHours(12, 0, 0, 0);
 
   const monthlyIntervals = {
     monthly: 1,
@@ -167,15 +169,15 @@ function projectFixedExpenseDates(row, startDate, endDate) {
     if (cursor < start) {
       const diffDays = Math.floor((start.getTime() - cursor.getTime()) / (24 * 60 * 60 * 1000));
       const jumps = Math.floor(diffDays / intervalDays);
-      cursor.setDate(cursor.getDate() + jumps * intervalDays);
+      cursor.setUTCDate(cursor.getUTCDate() + jumps * intervalDays);
       while (cursor < start) {
-        cursor.setDate(cursor.getDate() + intervalDays);
+        cursor.setUTCDate(cursor.getUTCDate() + intervalDays);
       }
     }
     while (cursor <= end) {
       result.push(formatDateOnly(cursor));
       cursor = new Date(cursor);
-      cursor.setDate(cursor.getDate() + intervalDays);
+      cursor.setUTCDate(cursor.getUTCDate() + intervalDays);
     }
     return result;
   }
