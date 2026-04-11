@@ -357,6 +357,12 @@ async function getOperationalSummary({ actor, businessId, today, role, isClinica
   return {
     role: "admin",
     approvals: requestSummary,
+    approval_path: isHealthcareVertical(actor?.pos_type) ? "/health/admin/approvals" : "/retail/admin/approvals",
+    restock_path: actor?.pos_type === "FarmaciaConsultorio"
+      ? "/health/products/medications/restock"
+      : isHealthcareVertical(actor?.pos_type)
+        ? "/health/products/accessories/restock"
+        : "/retail/products/restock",
     appointments_today: todayAppointmentsResult.rows,
     recent_manual_cuts: recentManualCutsResult.rows.map((row) => ({
       id: Number(row.id),

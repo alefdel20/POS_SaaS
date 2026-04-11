@@ -14,6 +14,12 @@ function ensureCreditCollectionsEnabled(actor) {
   }
 }
 
+function normalizeDebtorSearchKey(name, phone) {
+  const normalizedName = String(name || "").trim().toLowerCase();
+  const normalizedPhone = String(phone || "").replace(/\D/g, "");
+  return `${normalizedName}::${normalizedPhone}`;
+}
+
 async function listDebtors(actor, filters = {}) {
   ensureCreditCollectionsEnabled(actor);
   const businessId = requireActorBusinessId(actor);
@@ -105,7 +111,7 @@ async function getReminderContext(saleId, actor) {
        sales.balance_due,
        sales.send_reminder,
        COALESCE(SUM(credit_payments.amount), 0) AS total_paid,
-       COALESCE(STRING_AGG(DISTINCT products.name, ', '), 'tu compra') AS product_names
+       COALESCE(STRING_AGG(DISTINCT COALESCE(NULLIF(sale_items.product_name_snapshot, ''), products.name), ', '), 'tu compra') AS product_names
      FROM sales
      LEFT JOIN credit_payments
        ON credit_payments.sale_id = sales.id
@@ -136,14 +142,169 @@ async function listPaymentsBySale(saleId, actor) {
   const businessId = requireActorBusinessId(actor);
 
   const { rows } = await pool.query(
-    `SELECT id, sale_id, payment_date, amount, payment_method, notes, created_at
+    `SELECT
+       credit_payments.id,
+       credit_payments.sale_id,
+       credit_payments.payment_date,
+       credit_payments.amount,
+       credit_payments.payment_method,
+       credit_payments.notes,
+       credit_payments.created_at,
+       sales.total AS sale_total,
+       sales.balance_due,
+       sales.customer_name,
+       sales.customer_phone,
+       COALESCE(items.items, '[]'::json) AS sale_items
      FROM credit_payments
-     WHERE sale_id = $1 AND business_id = $2
-     ORDER BY payment_date DESC, id DESC`,
+     INNER JOIN sales
+       ON sales.id = credit_payments.sale_id
+      AND sales.business_id = credit_payments.business_id
+     LEFT JOIN LATERAL (
+       SELECT json_agg(json_build_object(
+         'product_id', sale_items.product_id,
+         'product_name', COALESCE(NULLIF(sale_items.product_name_snapshot, ''), products.name),
+         'quantity', sale_items.quantity,
+         'unidad_de_venta', sale_items.unidad_de_venta,
+         'unit_price', sale_items.unit_price,
+         'subtotal', sale_items.subtotal
+       ) ORDER BY sale_items.id ASC) AS items
+       FROM sale_items
+       INNER JOIN products
+         ON products.id = sale_items.product_id
+        AND products.business_id = sale_items.business_id
+       WHERE sale_items.sale_id = sales.id
+         AND sale_items.business_id = sales.business_id
+     ) items ON TRUE
+     WHERE credit_payments.sale_id = $1 AND credit_payments.business_id = $2
+     ORDER BY credit_payments.payment_date DESC, credit_payments.id DESC`,
     [saleId, businessId]
   );
 
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    amount: Number(row.amount || 0),
+    sale_total: Number(row.sale_total || 0),
+    balance_due: Number(row.balance_due || 0),
+    sale_items: Array.isArray(row.sale_items) ? row.sale_items.map((item) => ({
+      ...item,
+      quantity: Number(item.quantity || 0),
+      unit_price: Number(item.unit_price || 0),
+      subtotal: Number(item.subtotal || 0)
+    })) : []
+  }));
+}
+
+async function listDebtorSuggestions(actor, search = "") {
+  ensureCreditCollectionsEnabled(actor);
+  const businessId = requireActorBusinessId(actor);
+  const term = String(search || "").trim();
+  if (!term) {
+    return [];
+  }
+
+  const { rows } = await pool.query(
+    `SELECT
+       sales.customer_name,
+       sales.customer_phone,
+       COUNT(*)::int AS sale_count,
+       COALESCE(SUM(sales.balance_due), 0) AS pending_balance,
+       MAX(sales.sale_date) AS last_sale_date
+     FROM sales
+     WHERE sales.business_id = $1
+       AND sales.payment_method = 'credit'
+       AND COALESCE(sales.status, 'completed') <> 'cancelled'
+       AND (
+         COALESCE(sales.customer_name, '') ILIKE $2
+         OR COALESCE(sales.customer_phone, '') ILIKE $2
+       )
+       AND COALESCE(sales.customer_name, '') <> ''
+     GROUP BY sales.customer_name, sales.customer_phone
+     ORDER BY MAX(sales.sale_date) DESC, sales.customer_name ASC
+     LIMIT 8`,
+    [businessId, `%${term}%`]
+  );
+
+  const deduped = new Map();
+  rows.forEach((row) => {
+    const key = normalizeDebtorSearchKey(row.customer_name, row.customer_phone);
+    if (!deduped.has(key)) {
+      const phone = row.customer_phone || null;
+      deduped.set(key, {
+        match_key: key,
+        customer_name: row.customer_name,
+        customer_phone: phone,
+        sale_count: Number(row.sale_count || 0),
+        pending_balance: Number(row.pending_balance || 0),
+        last_sale_date: row.last_sale_date,
+        selection_label: phone ? `${row.customer_name} · ${phone}` : row.customer_name
+      });
+    }
+  });
+  return Array.from(deduped.values());
+}
+
+async function getCreditSaleSummary(saleId, actor) {
+  ensureCreditCollectionsEnabled(actor);
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await pool.query(
+    `SELECT
+       sales.id AS sale_id,
+       sales.sale_date,
+       sales.customer_name,
+       sales.customer_phone,
+       sales.total,
+       sales.initial_payment,
+       sales.balance_due,
+       COALESCE(SUM(credit_payments.amount), 0) AS total_paid,
+       COALESCE(items.items, '[]'::json) AS items
+     FROM sales
+     LEFT JOIN credit_payments
+       ON credit_payments.sale_id = sales.id
+      AND credit_payments.business_id = sales.business_id
+     LEFT JOIN LATERAL (
+       SELECT json_agg(json_build_object(
+         'product_id', sale_items.product_id,
+         'product_name', COALESCE(NULLIF(sale_items.product_name_snapshot, ''), products.name),
+         'quantity', sale_items.quantity,
+         'unidad_de_venta', sale_items.unidad_de_venta,
+         'unit_price', sale_items.unit_price,
+         'subtotal', sale_items.subtotal
+       ) ORDER BY sale_items.id ASC) AS items
+       FROM sale_items
+       INNER JOIN products
+         ON products.id = sale_items.product_id
+        AND products.business_id = sale_items.business_id
+       WHERE sale_items.sale_id = sales.id
+         AND sale_items.business_id = sales.business_id
+     ) items ON TRUE
+     WHERE sales.id = $1
+       AND sales.business_id = $2
+       AND sales.payment_method = 'credit'
+       AND ${VALID_SALE_STATUS_SQL}
+     GROUP BY sales.id, items.items`,
+    [saleId, businessId]
+  );
+
+  if (!rows[0]) {
+    throw new ApiError(404, "Credit sale not found");
+  }
+
+  return {
+    sale_id: Number(rows[0].sale_id),
+    sale_date: rows[0].sale_date,
+    customer_name: rows[0].customer_name || null,
+    customer_phone: rows[0].customer_phone || null,
+    total: Number(rows[0].total || 0),
+    initial_payment: Number(rows[0].initial_payment || 0),
+    total_paid: Number(rows[0].total_paid || 0),
+    balance_due: Number(rows[0].balance_due || 0),
+    items: Array.isArray(rows[0].items) ? rows[0].items.map((item) => ({
+      ...item,
+      quantity: Number(item.quantity || 0),
+      unit_price: Number(item.unit_price || 0),
+      subtotal: Number(item.subtotal || 0)
+    })) : []
+  };
 }
 
 async function createPayment(saleId, payload, actor) {
@@ -160,7 +321,8 @@ async function createPayment(saleId, payload, actor) {
        WHERE id = $1
          AND payment_method = 'credit'
          AND business_id = $2
-         AND COALESCE(status, 'completed') <> 'cancelled'`,
+         AND COALESCE(status, 'completed') <> 'cancelled'
+       FOR UPDATE`,
       [saleId, businessId]
     );
 
@@ -176,7 +338,17 @@ async function createPayment(saleId, payload, actor) {
       throw new ApiError(400, "Payment amount must be greater than zero");
     }
 
-    if (amount > Number(sale.balance_due || 0)) {
+    const { rows: totalsRows } = await client.query(
+      `SELECT COALESCE(SUM(amount), 0) AS paid
+       FROM credit_payments
+       WHERE sale_id = $1 AND business_id = $2`,
+      [saleId, businessId]
+    );
+
+    const totalPaidBeforePayment = Number(sale.initial_payment || 0) + Number(totalsRows[0]?.paid || 0);
+    const authoritativeBalanceDue = Math.max(Number(sale.total || 0) - totalPaidBeforePayment, 0);
+
+    if (amount > authoritativeBalanceDue) {
       throw new ApiError(400, "Payment amount cannot exceed pending balance");
     }
 
@@ -196,14 +368,7 @@ async function createPayment(saleId, payload, actor) {
       ]
     );
 
-    const { rows: totalsRows } = await client.query(
-      `SELECT COALESCE(SUM(amount), 0) AS paid
-       FROM credit_payments
-       WHERE sale_id = $1 AND business_id = $2`,
-      [saleId, businessId]
-    );
-
-    const totalPaid = Number(sale.initial_payment || 0) + Number(totalsRows[0]?.paid || 0);
+    const totalPaid = totalPaidBeforePayment + amount;
     const balanceDue = Math.max(Number(sale.total) - totalPaid, 0);
 
     const { rows: updatedRows } = await client.query(
@@ -223,7 +388,7 @@ async function createPayment(saleId, payload, actor) {
         amount,
         payment_method: payload.payment_method,
         payment_date: paymentDate,
-        previous_balance_due: Number(sale.balance_due || 0),
+        previous_balance_due: authoritativeBalanceDue,
         balance_due: Number(balanceDue)
       },
       { client }
@@ -246,7 +411,9 @@ async function createPayment(saleId, payload, actor) {
 
 module.exports = {
   listDebtors,
+  listDebtorSuggestions,
   listPaymentsBySale,
+  getCreditSaleSummary,
   createPayment,
   updateReminderPreference,
   getReminderContext

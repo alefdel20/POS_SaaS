@@ -27,6 +27,8 @@ import {
 } from "../utils/pos";
 import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
 
+const NEW_PRODUCT_DRAFT_VERSION = 1;
+
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
 
@@ -257,6 +259,85 @@ function requiredLabel(text: string) {
   return `${text} *`;
 }
 
+function sanitizeDraftString(value: unknown, maxLength = 255) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.slice(0, maxLength);
+}
+
+function sanitizeDraftBoolean(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function sanitizeDraftStatus(value: unknown) {
+  return value === "inactivo" ? "inactivo" : "activo";
+}
+
+function sanitizeDraftSaleUnit(value: unknown, fallback: SaleUnit | "") {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  return SALE_UNITS.includes(value as SaleUnit) ? (value as SaleUnit) : fallback;
+}
+
+function sanitizeDraftDiscountType(value: unknown): ProductFormState["discount_type"] {
+  return value === "percentage" || value === "fixed" ? value : "";
+}
+
+function sanitizeSupplierDraft(value: unknown): ProductSupplierFormState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const supplier = value as Record<string, unknown>;
+  return {
+    supplier_id: sanitizeDraftString(supplier.supplier_id, 40),
+    supplier_name: sanitizeDraftString(supplier.supplier_name, 180),
+    supplier_email: sanitizeDraftString(supplier.supplier_email, 180),
+    supplier_phone: sanitizeDraftString(supplier.supplier_phone, 40),
+    supplier_whatsapp: sanitizeDraftString(supplier.supplier_whatsapp, 40),
+    supplier_observations: sanitizeDraftString(supplier.supplier_observations, 500),
+    purchase_cost: sanitizeDraftString(supplier.purchase_cost, 30),
+    cost_updated_at: typeof supplier.cost_updated_at === "string" ? supplier.cost_updated_at : null
+  };
+}
+
+function sanitizeProductDraftForm(value: unknown, fallback: ProductFormState): ProductFormState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const status = sanitizeDraftStatus(source.status);
+  const suppliers = Array.isArray(source.suppliers)
+    ? source.suppliers.map((supplier) => sanitizeSupplierDraft(supplier)).filter((supplier): supplier is ProductSupplierFormState => Boolean(supplier))
+    : [];
+  return {
+    ...fallback,
+    name: sanitizeDraftString(source.name, 180),
+    sku: sanitizeDraftString(source.sku, 120),
+    barcode_manually_edited: sanitizeDraftBoolean(source.barcode_manually_edited, false),
+    barcode: sanitizeDraftString(source.barcode, 30),
+    category: sanitizeDraftString(source.category, 120),
+    description: sanitizeDraftString(source.description, 1000),
+    price: sanitizeDraftString(source.price, 30),
+    cost_price: sanitizeDraftString(source.cost_price, 30),
+    ieps: sanitizeDraftString(source.ieps, 30),
+    porcentaje_ganancia: sanitizeDraftString(source.porcentaje_ganancia, 30),
+    unidad_de_venta: sanitizeDraftSaleUnit(source.unidad_de_venta, fallback.unidad_de_venta),
+    stock: sanitizeDraftString(source.stock, 30),
+    stock_minimo: sanitizeDraftString(source.stock_minimo, 30),
+    stock_maximo: sanitizeDraftString(source.stock_maximo, 30),
+    expires_at: sanitizeDraftString(source.expires_at, 20),
+    status,
+    is_active: status === "activo",
+    suppliers: suppliers.length ? suppliers : [{ ...emptySupplier }],
+    discount_type: sanitizeDraftDiscountType(source.discount_type),
+    discount_value: sanitizeDraftString(source.discount_value, 30),
+    discount_start: sanitizeDraftString(source.discount_start, 30),
+    discount_end: sanitizeDraftString(source.discount_end, 30)
+  };
+}
+
 function validateImageFile(file: File) {
   const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
   if (!allowedTypes.has(file.type)) {
@@ -375,6 +456,11 @@ export function ProductsPage() {
   const veterinaryCategoryFilters = [...VETERINARY_PRODUCT_CATEGORIES];
   const importableRows = importPreview?.rows.filter((row) => row.action === "import" && row.errors.length === 0) || [];
   const [requestSummary, setRequestSummary] = useState<ProductUpdateRequestSummary | null>(null);
+  const draftStorageKey = useMemo(() => {
+    if (!user?.business_id || !user?.id) return "";
+    const draftScope = catalogScope || "default";
+    return `pos_app_product_draft_v${NEW_PRODUCT_DRAFT_VERSION}:${user.business_id}:${user.id}:${draftScope}:new_product`;
+  }, [catalogScope, user?.business_id, user?.id]);
 
   function buildFormSnapshot(state: ProductFormState) {
     return JSON.stringify({
@@ -385,6 +471,11 @@ export function ProductsPage() {
 
   function syncBaseline(state: ProductFormState) {
     baselineFormRef.current = buildFormSnapshot(state);
+  }
+
+  function clearProductDraft() {
+    if (!draftStorageKey) return;
+    localStorage.removeItem(draftStorageKey);
   }
 
   const hasUnsavedChanges = baselineFormRef.current !== buildFormSnapshot(form)
@@ -681,14 +772,33 @@ export function ProductsPage() {
     if (!isNewProductRoute || editProductIdFromQuery) {
       return;
     }
+    let nextForm = emptyProductState;
+    if (draftStorageKey) {
+      try {
+        const savedDraft = localStorage.getItem(draftStorageKey);
+        if (savedDraft) {
+          const parsed = JSON.parse(savedDraft) as { version?: number; form?: unknown };
+          if (parsed?.version !== NEW_PRODUCT_DRAFT_VERSION) {
+            clearProductDraft();
+          } else {
+            const sanitizedDraft = sanitizeProductDraftForm(parsed.form, emptyProductState);
+            if (sanitizedDraft) {
+              nextForm = sanitizedDraft;
+            }
+          }
+        }
+      } catch {
+        clearProductDraft();
+      }
+    }
     setEditingId(null);
-    setForm(emptyProductState);
-    syncBaseline(emptyProductState);
+    setForm(nextForm);
+    syncBaseline(nextForm);
     setImageFile(null);
     setImagePreview(null);
     setCurrentImagePath(null);
     setRemoveImageRequested(false);
-  }, [editProductIdFromQuery, emptyProductState, isNewProductRoute]);
+  }, [draftStorageKey, editProductIdFromQuery, emptyProductState, isNewProductRoute]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -741,6 +851,21 @@ export function ProductsPage() {
   useEffect(() => {
     syncBaseline(emptyProductState);
   }, [emptyProductState]);
+
+  useEffect(() => {
+    if (!isNewProductRoute || editingId || !draftStorageKey) {
+      return;
+    }
+    try {
+      localStorage.setItem(draftStorageKey, JSON.stringify({
+        version: NEW_PRODUCT_DRAFT_VERSION,
+        saved_at: new Date().toISOString(),
+        form
+      }));
+    } catch {
+      // Best effort only. A draft should never block the product form.
+    }
+  }, [draftStorageKey, editingId, form, isNewProductRoute]);
 
   useEffect(() => {
     if (!isVeterinaryView && categoryFilter) {
@@ -872,7 +997,7 @@ export function ProductsPage() {
 
   async function deleteProduct(product: Product) {
     if (!token) return;
-    if (!window.confirm(`¿Eliminar definitivamente el producto "${product.name}"?`)) {
+    if (!window.confirm(`¿Desactivar el producto "${product.name}"?`)) {
       return;
     }
 
@@ -881,7 +1006,7 @@ export function ProductsPage() {
       await apiRequest(`/products/${product.id}`, {
         method: "DELETE",
         token,
-        body: JSON.stringify({ action: "delete" })
+        body: JSON.stringify({ action: "deactivate" })
       });
 
       if (editingId === product.id) {
@@ -907,7 +1032,7 @@ export function ProductsPage() {
         await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
       }
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
+      setError(deleteError instanceof Error ? deleteError.message : "No fue posible desactivar el producto");
     }
   }
 
@@ -1098,6 +1223,7 @@ export function ProductsPage() {
       }
       setForm(emptyProductState);
       syncBaseline(emptyProductState);
+      clearProductDraft();
       setEditingId(null);
       setImageFile(null);
       setImagePreview(null);
@@ -1184,6 +1310,7 @@ export function ProductsPage() {
     setEditingId(null);
     setForm(emptyProductState);
     syncBaseline(emptyProductState);
+    clearProductDraft();
     setImageFile(null);
     setImagePreview(null);
     setCurrentImagePath(null);
@@ -1801,7 +1928,7 @@ export function ProductsPage() {
                   <td>
                     <div className="inline-actions">
                       <button className="button ghost" onClick={() => handleEdit(product)} type="button">Editar</button>
-                      {!isCashier ? <button className="button ghost danger" onClick={() => deleteProduct(product)} type="button">Eliminar</button> : null}
+                      {!isCashier ? <button className="button ghost danger" onClick={() => deleteProduct(product)} type="button">Desactivar</button> : null}
                       {!isCashier ? (
                         <button
                           className="button ghost"
@@ -1850,9 +1977,12 @@ export function ProductsPage() {
                 : "Consulta todo el catálogo, prioriza stock bajo y actualiza existencias sin salir de esta vista."}
             </p>
           </div>
-          <div className="total-box secondary compact-box">
-            <span>{isCashier ? "Solicitudes" : "Productos"}</span>
-            <strong>{restockTotalItems}</strong>
+          <div className="inline-actions">
+            <button className="button ghost" onClick={() => navigate(`${restockProductPath}/history`)} type="button">Historial</button>
+            <div className="total-box secondary compact-box">
+              <span>{isCashier ? "Solicitudes" : "Productos"}</span>
+              <strong>{restockTotalItems}</strong>
+            </div>
           </div>
         </div>
         <div className="inline-actions quick-filter-row">
@@ -2164,4 +2294,6 @@ export function ProductsPage() {
     </section>
   );
 }
+
+
 

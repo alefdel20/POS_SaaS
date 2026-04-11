@@ -6,6 +6,7 @@ const errorHandler = require("./middleware/errorHandler");
 const { ensureDatabaseCompatibility } = require("./db/init");
 const { ensureUploadsDirectory } = require("./utils/productImages");
 const { ensureBusinessAssetsDirectory } = require("./utils/businessAssets");
+const { startReminderScheduler } = require("./services/reminderSchedulerService");
 
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -88,11 +89,15 @@ async function startServer(port = Number(process.env.PORT || 3000)) {
   await ensureDatabaseCompatibility();
   await ensureUploadsDirectory();
   await ensureBusinessAssetsDirectory();
+  const reminderScheduler = startReminderScheduler();
 
   return new Promise((resolve) => {
     const server = app.listen(port, "0.0.0.0", () => {
       console.log(`>>> SERVIDOR POS CORRIENDO EN PUERTO ${port} <<<`);
       resolve(server);
+    });
+    server.on("close", () => {
+      reminderScheduler.stop();
     });
   });
 }

@@ -4,7 +4,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalPatientSummary, Reminder } from "../types";
 import { REMINDER_CATEGORIES, REMINDER_STATUSES } from "../utils/domainEnums";
-import { dateLabel } from "../utils/format";
+import { currency, dateLabel } from "../utils/format";
 import { getReminderStatusLabel } from "../utils/uiLabels";
 
 const emptyReminder = {
@@ -68,6 +68,21 @@ function buildMonthCells(monthKey: string) {
   }
 
   return cells;
+}
+
+function getReminderMetaSummary(reminder: Reminder) {
+  const metadata = reminder.metadata || {};
+  const sourceModule = typeof metadata.source_module === "string" ? metadata.source_module : "";
+  const amount = typeof metadata.amount === "number" ? metadata.amount : null;
+  const concept = typeof metadata.concept === "string" ? metadata.concept : "";
+  const movementType = typeof metadata.movement_type === "string" ? metadata.movement_type : "";
+  const parts = [
+    sourceModule ? `Origen: ${sourceModule}` : "",
+    concept ? `Concepto: ${concept}` : "",
+    movementType ? `Tipo: ${movementType}` : "",
+    amount !== null ? `Monto: ${currency(amount)}` : ""
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 export function RemindersPage() {
@@ -306,6 +321,7 @@ export function RemindersPage() {
                         <div>
                           <strong>{reminder.title}</strong>
                           <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
+                          {getReminderMetaSummary(reminder) ? <small>{getReminderMetaSummary(reminder)}</small> : null}
                         </div>
                         <span className="pill">{getReminderStatusLabel(reminder.status)}</span>
                       </article>
@@ -343,6 +359,7 @@ export function RemindersPage() {
                           <strong>{reminder.title}</strong>
                           <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
                           <small>{reminder.category === "clinical" ? "Clinico" : "Administrativo"}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
+                          {getReminderMetaSummary(reminder) ? <><br /><small>{getReminderMetaSummary(reminder)}</small></> : null}
                         </div>
                         <span className="pill">{getReminderStatusLabel(reminder.status)}</span>
                       </article>
@@ -379,6 +396,7 @@ export function RemindersPage() {
                     <small>{reminder.category === "clinical" ? "Clinico" : "Administrativo"}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                     <br />
                     <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(reminder.due_date)}</small>
+                    {getReminderMetaSummary(reminder) ? <><br /><small>{getReminderMetaSummary(reminder)}</small></> : null}
                   </div>
                   <div className="inline-actions">
                     <button className="button ghost" onClick={() => startEditing(reminder)} type="button">Editar</button>

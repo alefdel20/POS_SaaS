@@ -263,7 +263,7 @@ async function getSaleDetail(saleId, actor) {
   if (!sale) throw new ApiError(404, "Sale not found");
 
   const { rows: itemRows } = await pool.query(
-    `SELECT sale_items.id, sale_items.product_id, products.name AS product_name, products.sku, sale_items.quantity, sale_items.unit_price, sale_items.subtotal,
+    `SELECT sale_items.id, sale_items.product_id, COALESCE(NULLIF(sale_items.product_name_snapshot, ''), products.name) AS product_name, products.sku, sale_items.quantity, sale_items.unit_price, sale_items.subtotal,
             COALESCE(sale_items.unidad_de_venta, products.unidad_de_venta, 'pieza') AS unidad_de_venta
      FROM sale_items
      INNER JOIN products ON products.id = sale_items.product_id AND products.business_id = sale_items.business_id
@@ -343,7 +343,6 @@ async function createSale(payload, user) {
   if (!payload.items?.length) throw new ApiError(400, "Sale requires at least one item");
   if (payload.payment_method === "credit" && !canUseCreditCollections(user?.pos_type)) throw new ApiError(409, "Credit sales are not available for this business type");
   if (payload.payment_method === "credit" && !payload.customer?.name?.trim()) throw new ApiError(400, "Customer name is required for credit sales");
-  if (payload.payment_method === "credit" && !payload.customer?.phone?.trim()) throw new ApiError(400, "Customer phone is required for credit sales");
   if (payload.payment_method === "credit" && (payload.initial_payment === undefined || Number(payload.initial_payment) < 0)) throw new ApiError(400, "Initial payment is required for credit sales");
   if (payload.payment_method === "cash") {
     const cashReceived = Number(payload.cash_received);
@@ -473,9 +472,9 @@ async function createSale(payload, user) {
 
     for (const item of normalizedItems) {
       await client.query(
-        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta]
+        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
       );
       await client.query("UPDATE products SET stock = stock - $1 WHERE id = $2 AND business_id = $3", [item.quantity, item.productId, businessId]);
     }

@@ -8,6 +8,10 @@ const listDebtorsValidation = [
   query("status").optional({ values: "falsy" }).isIn(["pending", "overdue"]),
   validateRequest
 ];
+const suggestionValidation = [
+  query("search").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 const saleIdValidation = [param("saleId").isInt(), validateRequest];
 const createPaymentValidation = [
   param("saleId").isInt(),
@@ -30,8 +34,16 @@ const listDebtors = asyncHandler(async (req, res) => {
   }));
 });
 
+const listDebtorSuggestions = asyncHandler(async (req, res) => {
+  res.json(await creditCollectionService.listDebtorSuggestions(req.user, req.query.search));
+});
+
 const listPaymentsBySale = asyncHandler(async (req, res) => {
   res.json(await creditCollectionService.listPaymentsBySale(Number(req.params.saleId), req.user));
+});
+
+const getCreditSaleSummary = asyncHandler(async (req, res) => {
+  res.json(await creditCollectionService.getCreditSaleSummary(Number(req.params.saleId), req.user));
 });
 
 const createPayment = asyncHandler(async (req, res) => {
@@ -44,11 +56,14 @@ const updateReminderPreference = asyncHandler(async (req, res) => {
 
 module.exports = {
   listDebtorsValidation,
+  suggestionValidation,
   saleIdValidation,
   createPaymentValidation,
   reminderPreferenceValidation,
   listDebtors,
+  listDebtorSuggestions,
   listPaymentsBySale,
+  getCreditSaleSummary,
   createPayment,
   updateReminderPreference
 };

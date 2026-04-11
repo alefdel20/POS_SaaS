@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { CreditPayment, Debtor } from "../types";
+import type { CreditPayment, CreditSaleSummary, Debtor } from "../types";
 import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel } from "../utils/uiLabels";
 import { getMexicoCityDateInputValue } from "../utils/timezone";
@@ -26,6 +26,7 @@ export function CreditCollectionsPage() {
   const [debtors, setDebtors] = useState<Debtor[]>([]);
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
   const [payments, setPayments] = useState<CreditPayment[]>([]);
+  const [saleSummary, setSaleSummary] = useState<CreditSaleSummary | null>(null);
   const [form, setForm] = useState(emptyPayment);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "overdue">("all");
@@ -74,6 +75,12 @@ export function CreditCollectionsPage() {
     setPayments(response);
   }
 
+  async function loadSaleSummary(saleId: number) {
+    if (!token) return;
+    const response = await apiRequest<CreditSaleSummary>(`/credit-collections/${saleId}/summary`, { token });
+    setSaleSummary(response);
+  }
+
   useEffect(() => {
     loadDebtors().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar deudores");
@@ -91,9 +98,15 @@ export function CreditCollectionsPage() {
   }, [search, statusFilter, token]);
 
   useEffect(() => {
-    if (!selectedSaleId) return;
+    if (!selectedSaleId) {
+      setSaleSummary(null);
+      return;
+    }
     loadPayments(selectedSaleId).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los abonos");
+    });
+    loadSaleSummary(selectedSaleId).catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el detalle de la venta");
     });
   }, [selectedSaleId, token]);
 
@@ -329,6 +342,23 @@ export function CreditCollectionsPage() {
                 <p>Estado: {selectedDebtor.status === "overdue" ? "Atrasado" : "Pendiente"}</p>
                 <p>Dias de atraso: {selectedDebtor.days_overdue || 0}</p>
               </div>
+              <div className="info-card">
+                <strong>Productos adeudados de la venta #{selectedDebtor.sale_id}</strong>
+                {saleSummary?.items?.length ? (
+                  <div className="stack-list" style={{ marginTop: "0.75rem" }}>
+                    {saleSummary.items.map((item) => (
+                      <div key={`${selectedDebtor.sale_id}-${item.product_id}`}>
+                        <div>{item.product_name}</div>
+                        <small className="muted">
+                          {item.quantity} {item.unidad_de_venta || "pieza"} · {currency(item.subtotal)}
+                        </small>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted" style={{ marginTop: "0.75rem" }}>Sin productos vinculados para mostrar.</p>
+                )}
+              </div>
             </>
           ) : null}
           <div className="table-wrap">
@@ -338,6 +368,7 @@ export function CreditCollectionsPage() {
                   <th>Fecha</th>
                   <th>Monto</th>
                   <th>Metodo</th>
+                  <th>Venta y productos</th>
                   <th>Notas</th>
                 </tr>
               </thead>
@@ -347,12 +378,18 @@ export function CreditCollectionsPage() {
                     <td>{shortDate(payment.payment_date)}</td>
                     <td>{currency(payment.amount)}</td>
                     <td>{getPaymentMethodLabel(payment.payment_method)}</td>
+                    <td>
+                      <div>Venta #{payment.sale_id}</div>
+                      <small className="muted">
+                        {(payment.sale_items || []).map((item) => `${item.product_name} x${item.quantity}`).join(", ") || "Sin detalle"}
+                      </small>
+                    </td>
                     <td>{payment.notes || "-"}</td>
                   </tr>
                 ))}
                 {payments.length === 0 ? (
                   <tr>
-                    <td className="muted" colSpan={4}>Sin abonos registrados.</td>
+                    <td className="muted" colSpan={5}>Sin abonos registrados.</td>
                   </tr>
                 ) : null}
               </tbody>

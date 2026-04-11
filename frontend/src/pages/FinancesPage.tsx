@@ -33,6 +33,17 @@ const emptyFixedExpense = {
   notes: ""
 };
 
+const FIXED_EXPENSE_FREQUENCY_LABELS: Record<string, string> = {
+  weekly: "Semanal",
+  biweekly: "Quincenal",
+  monthly: "Mensual",
+  bimonthly: "Bimestral",
+  quarterly: "Trimestral",
+  semiannual: "Semestral",
+  annual: "Anual",
+  custom: "Personalizado"
+};
+
 type FinanceView = "expenses" | "fixed-expenses" | "owner-debt";
 
 export function FinancesPage() {
@@ -382,7 +393,11 @@ export function FinancesPage() {
                 <option value="weekly">Semanal</option>
                 <option value="biweekly">Quincenal</option>
                 <option value="monthly">Mensual</option>
-                <option value="custom">Personalizado</option>
+                <option value="bimonthly">Bimestral</option>
+                <option value="quarterly">Trimestral</option>
+                <option value="semiannual">Semestral</option>
+                <option value="annual">Anual</option>
+                {fixedExpenseForm.frequency === "custom" ? <option value="custom">Personalizado (legado)</option> : null}
               </select>
             </label>
             <label>
@@ -434,7 +449,7 @@ export function FinancesPage() {
                     <tr key={item.id}>
                       <td>{item.name}</td>
                       <td>{currency(item.default_amount)}</td>
-                      <td>{item.frequency}</td>
+                      <td>{FIXED_EXPENSE_FREQUENCY_LABELS[item.frequency] || item.frequency}</td>
                       <td>{item.notes || "-"}</td>
                       <td>{item.is_active ? "Activo" : "Inactivo"}</td>
                       <td>

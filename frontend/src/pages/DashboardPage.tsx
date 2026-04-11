@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { StatCard } from "../components/StatCard";
 import { useAuth } from "../context/AuthContext";
-import { currency, shortDate, shortDateTime } from "../utils/format";
+import { currency, shortDate } from "../utils/format";
 import type { CompanyProfile, DashboardSummary } from "../types";
 import { isManagementRole, normalizeRole } from "../utils/roles";
 
@@ -44,6 +44,10 @@ export function DashboardPage() {
   const adminApprovals = summary?.operations?.approvals;
   const recentManualCuts = summary?.operations?.recent_manual_cuts || [];
   const adminAppointmentsToday = summary?.operations?.appointments_today || [];
+  const isHealthManagementPos = user?.pos_type === "FarmaciaConsultorio" || user?.pos_type === "Veterinaria" || user?.pos_type === "Dentista" || user?.pos_type === "ClinicaChica" || user?.pos_type === "Farmacia";
+  const approvalPath = summary?.operations?.approval_path || (isHealthManagementPos ? "/health/admin/approvals" : "/retail/admin/approvals");
+  const restockPath = summary?.operations?.restock_path || (user?.pos_type === "FarmaciaConsultorio" || user?.pos_type === "Farmacia" ? "/health/products/medications/restock" : user?.pos_type === "Veterinaria" || user?.pos_type === "Dentista" || user?.pos_type === "ClinicaChica" ? "/health/products/accessories/restock" : "/retail/products/restock");
+  const shouldShowFiscalBlock = Boolean(profile?.has_fiscal_profile || Number(summary?.stamps_available ?? profile?.stamps_available ?? 0) > 0);
 
   const primaryCards = useMemo(() => {
     if (role === "clinico") {
@@ -96,6 +100,16 @@ export function DashboardPage() {
                 {shortcut.label}
               </Link>
             ))}
+            {isManagement ? (
+              <>
+                <Link className="button ghost" to={approvalPath}>
+                  {adminApprovals?.pending ? `Solicitudes pendientes ${adminApprovals.pending}` : "Solicitudes pendientes"}
+                </Link>
+                <Link className="button ghost" to={restockPath}>
+                  {summary?.low_stock_products ? `Stock bajo ${summary.low_stock_products}` : "Stock bajo"}
+                </Link>
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -157,68 +171,31 @@ export function DashboardPage() {
           <div className="panel">
             <div className="panel-header">
               <div>
-                <h2>Solicitudes pendientes</h2>
-                <p className="muted">Cambios por aprobar con lectura rapida para priorizar.</p>
+                <h2>Lectura rápida</h2>
+                <p className="muted">Indicadores accionables con base en ventas, cobranza y stock actuales.</p>
               </div>
             </div>
             <div className="dashboard-note-list">
               <div className="info-card">
-                <p>Pendientes: <strong>{adminApprovals?.pending || 0}</strong></p>
-                <p>Aprobadas: <strong>{adminApprovals?.approved || 0}</strong></p>
-                <p>Rechazadas: <strong>{adminApprovals?.rejected || 0}</strong></p>
-                <p>Solicitudes de hoy: <strong>{adminApprovals?.today || 0}</strong></p>
+                <p>Ventas de la semana: <strong>{currency(summary?.total_sales_week || 0)}</strong></p>
+                <p>Recordatorios pendientes: <strong>{summary?.pending_reminders || 0}</strong></p>
+                <p>Usuarios activos: <strong>{summary?.active_users || 0}</strong></p>
               </div>
-              {(adminApprovals?.recent || []).map((request) => (
-                <article className="info-card" key={request.id}>
-                  <strong>{request.product_name}</strong>
-                  <p>{request.product_sku || "-"}</p>
-                  <p>{request.requested_by_name || "Solicitud interna"} · {shortDateTime(request.created_at)}</p>
-                </article>
-              ))}
-              {!adminApprovals?.recent.length ? (
-                <div className="empty-state-card">
-                  <strong>No hay cambios pendientes recientes.</strong>
-                  <span className="muted">Cuando un cajero solicite cambios aparecerán aquí.</span>
+              <div className="info-card">
+                <p>Ventas del mes: <strong>{currency(summary?.total_sales_month || 0)}</strong></p>
+                <p>Utilidad estimada: <strong>{currency(summary?.estimated_profit_month || 0)}</strong></p>
+                <p>Saldo por cobrar: <strong>{currency(summary?.pending_credit_balance || 0)}</strong></p>
+              </div>
+              {shouldShowFiscalBlock ? (
+                <div className="info-card">
+                  <p>Timbres disponibles: <strong>{summary?.stamps_available ?? profile?.stamps_available ?? 0}</strong></p>
+                  <p>Facturación lista: <strong>{summary?.billing_ready ? "Sí" : "No"}</strong></p>
+                  {!profile?.has_fiscal_profile ? <p className="muted">Completa Perfil &gt; Datos fiscales para habilitar facturación.</p> : null}
                 </div>
               ) : null}
             </div>
           </div>
 
-          <div className="panel">
-            <div className="panel-header">
-              <div>
-                <h2>Agenda y cortes recientes</h2>
-                <p className="muted">Lectura operativa inmediata para administración.</p>
-              </div>
-            </div>
-            <div className="stack-list">
-              {adminAppointmentsToday.map((appointment) => (
-                <article className="info-card" key={`admin-appointment-${appointment.id}`}>
-                  <strong>{appointment.patient_name}</strong>
-                  <p>{appointment.start_time.slice(0, 5)} - {appointment.end_time.slice(0, 5)}</p>
-                  <p>{appointment.doctor_name || "Sin doctor"} · {appointment.specialty || "Consulta"}</p>
-                </article>
-              ))}
-              {recentManualCuts.map((cut) => (
-                <article className="info-card" key={`manual-cut-${cut.id}`}>
-                  <strong>Corte {cut.cut_type}</strong>
-                  <p>{shortDate(cut.cut_date)} · {cut.performed_by_name_snapshot}</p>
-                  <p>{cut.notes || "Sin notas"}</p>
-                </article>
-              ))}
-              {!adminAppointmentsToday.length && !recentManualCuts.length ? (
-                <div className="empty-state-card">
-                  <strong>Sin movimientos operativos recientes.</strong>
-                  <span className="muted">La agenda y los cortes manuales aparecerán aquí cuando existan.</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {isManagement ? (
-        <div className="page-grid two-columns dashboard-grid">
           <div className="panel">
             <div className="panel-header">
               <div>
@@ -255,92 +232,43 @@ export function DashboardPage() {
               </table>
             </div>
           </div>
+        </div>
+      ) : null}
 
+      {isManagement ? (
+        <div className="page-grid two-columns dashboard-grid">
           <div className="panel">
             <div className="panel-header">
               <div>
-                <h2>Productos con stock bajo</h2>
-                <p className="muted">Resumen corto para decidir reabastecimiento rápido.</p>
+                <h2>Agenda y cortes recientes</h2>
+                <p className="muted">Lectura operativa inmediata para administración.</p>
               </div>
             </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Producto</th>
-                    <th>Stock</th>
-                    <th>Minimo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary?.low_stock_items?.map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        <div>{item.name}</div>
-                        <small className="muted">{item.category || "-"}</small>
-                      </td>
-                      <td>{item.stock}</td>
-                      <td>{item.stock_minimo}</td>
-                    </tr>
-                  ))}
-                  {!summary?.low_stock_items?.length ? (
-                    <tr>
-                      <td className="muted" colSpan={3}>No hay productos en nivel bajo.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
+            <div className="stack-list">
+              {adminAppointmentsToday.map((appointment) => (
+                <article className="info-card" key={`admin-appointment-${appointment.id}`}>
+                  <strong>{appointment.patient_name}</strong>
+                  <p>{appointment.start_time.slice(0, 5)} - {appointment.end_time.slice(0, 5)}</p>
+                  <p>{appointment.doctor_name || "Sin doctor"} · {appointment.specialty || "Consulta"}</p>
+                </article>
+              ))}
+              {recentManualCuts.map((cut) => (
+                <article className="info-card" key={`manual-cut-${cut.id}`}>
+                  <strong>Corte {cut.cut_type}</strong>
+                  <p>{shortDate(cut.cut_date)} · {cut.performed_by_name_snapshot}</p>
+                  <p>{cut.notes || "Sin notas"}</p>
+                </article>
+              ))}
+              {!adminAppointmentsToday.length && !recentManualCuts.length ? (
+                <div className="empty-state-card">
+                  <strong>Sin movimientos operativos recientes.</strong>
+                  <span className="muted">La agenda y los cortes manuales aparecerán aquí cuando existan.</span>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
       ) : null}
-
-      <div className="page-grid two-columns dashboard-grid">
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Estado fiscal y timbres</h2>
-              <p className="muted">
-                {profile?.has_fiscal_profile
-                  ? "El perfil fiscal esta completo."
-                  : "Completa Perfil > Datos fiscales para habilitar facturacion."}
-              </p>
-            </div>
-          </div>
-          <div className="dashboard-note-list">
-            <div className="info-card">
-              <p>Timbres disponibles: <strong>{summary?.stamps_available ?? profile?.stamps_available ?? 0}</strong></p>
-              <p>Facturacion lista: <strong>{summary?.billing_ready ? "Si" : "No"}</strong></p>
-            </div>
-            {profile?.stamp_alert_active ? (
-              <div className="warning-box">
-                <p>El saldo de timbres ya esta en umbral de alerta.</p>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Lectura rapida</h2>
-              <p className="muted">Indicadores accionables con base en ventas, cobranza y stock actuales.</p>
-            </div>
-          </div>
-          <div className="dashboard-note-list">
-            <div className="info-card">
-              <p>Ventas de la semana: <strong>{currency(summary?.total_sales_week || 0)}</strong></p>
-              <p>Recordatorios pendientes: <strong>{summary?.pending_reminders || 0}</strong></p>
-              <p>Usuarios activos: <strong>{summary?.active_users || 0}</strong></p>
-            </div>
-            <div className="info-card">
-              <p>Ventas del mes: <strong>{currency(summary?.total_sales_month || 0)}</strong></p>
-              <p>Utilidad estimada: <strong>{currency(summary?.estimated_profit_month || 0)}</strong></p>
-              <p>Saldo por cobrar: <strong>{currency(summary?.pending_credit_balance || 0)}</strong></p>
-            </div>
-          </div>
-        </div>
-      </div>
     </section>
   );
 }

@@ -1462,6 +1462,168 @@ async function listRestockProducts(filters = {}, actor) {
   };
 }
 
+function buildRestockHistoryFilterQuery(filters = {}, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const values = [businessId];
+  const conditions = ["history.business_id = $1"];
+
+  if (filters.date) {
+    values.push(String(filters.date));
+    conditions.push(`history.created_at::date = $${values.length}::date`);
+  }
+
+  const product = String(filters.product || "").trim();
+  if (product) {
+    values.push(`%${product}%`);
+    conditions.push(`(
+      COALESCE(history.product_name_snapshot, '') ILIKE $${values.length}
+      OR CAST(history.product_id AS TEXT) ILIKE $${values.length}
+    )`);
+  }
+
+  const supplier = String(filters.supplier || "").trim();
+  if (supplier) {
+    values.push(`%${supplier}%`);
+    conditions.push(`(
+      COALESCE(history.supplier_name_snapshot, '') ILIKE $${values.length}
+      OR CAST(COALESCE(history.supplier_id, 0) AS TEXT) ILIKE $${values.length}
+    )`);
+  }
+
+  const category = String(filters.category || "").trim();
+  if (category) {
+    values.push(`%${category}%`);
+    conditions.push(`COALESCE(history.category_snapshot, '') ILIKE $${values.length}`);
+  }
+
+  return {
+    values,
+    whereClause: conditions.join(" AND ")
+  };
+}
+
+async function listRestockHistory(filters = {}, actor) {
+  const page = Math.max(1, Number(filters.page) || 1);
+  const pageSize = Math.min(25, Math.max(5, Number(filters.pageSize) || 10));
+  const offset = (page - 1) * pageSize;
+  const { values, whereClause } = buildRestockHistoryFilterQuery(filters, actor);
+
+  const baseQuery = `
+    FROM product_restock_history history
+    LEFT JOIN users ON users.id = history.actor_user_id AND users.business_id = history.business_id
+    WHERE ${whereClause}
+  `;
+
+  const countResult = await pool.query(`SELECT COUNT(*)::int AS total ${baseQuery}`, values);
+  const paginatedValues = [...values, pageSize, offset];
+  const { rows } = await pool.query(
+    `SELECT
+       history.id,
+       history.product_id,
+       history.supplier_id,
+       history.quantity_added,
+       history.stock_before,
+       history.stock_after,
+       history.unit_cost,
+       history.total_cost,
+       history.reason,
+       history.actor_user_id,
+       history.actor_name_snapshot,
+       history.product_name_snapshot,
+       history.category_snapshot,
+       history.supplier_name_snapshot,
+       history.metadata,
+       history.created_at,
+       COALESCE(users.full_name, history.actor_name_snapshot) AS actor_name
+     ${baseQuery}
+     ORDER BY history.created_at DESC, history.id DESC
+     LIMIT $${paginatedValues.length - 1}
+     OFFSET $${paginatedValues.length}`,
+    paginatedValues
+  );
+
+  return {
+    items: rows.map((row) => ({
+      id: Number(row.id),
+      product_id: Number(row.product_id),
+      product_name: row.product_name_snapshot,
+      sku: row.metadata?.product_sku || "",
+      category: row.category_snapshot || null,
+      supplier_id: row.supplier_id ? Number(row.supplier_id) : null,
+      supplier_name: row.supplier_name_snapshot || null,
+      quantity_added: Number(row.quantity_added || 0),
+      stock_before: Number(row.stock_before || 0),
+      stock_after: Number(row.stock_after || 0),
+      unit_cost: Number(row.unit_cost || 0),
+      total_cost: Number(row.total_cost || 0),
+      inventory_value_before: Number(row.stock_before || 0) * Number(row.unit_cost || 0),
+      inventory_value_after: Number(row.stock_after || 0) * Number(row.unit_cost || 0),
+      reason: row.reason || "",
+      actor_user_id: row.actor_user_id ? Number(row.actor_user_id) : null,
+      actor_name: row.actor_name || row.actor_name_snapshot || null,
+      metadata: row.metadata || {},
+      created_at: row.created_at
+    })),
+    pagination: {
+      page,
+      pageSize,
+      total: Number(countResult.rows[0]?.total || 0),
+      totalPages: Math.max(1, Math.ceil(Number(countResult.rows[0]?.total || 0) / pageSize))
+    }
+  };
+}
+
+async function getRestockHistoryMetrics(filters = {}, actor) {
+  const { values, whereClause } = buildRestockHistoryFilterQuery(filters, actor);
+  const { rows } = await pool.query(
+    `SELECT
+       COALESCE(SUM(history.total_cost), 0) AS total_spent,
+       COALESCE(SUM(history.stock_before * history.unit_cost), 0) AS inventory_value_before,
+       COALESCE(SUM(history.stock_after * history.unit_cost), 0) AS inventory_value_after,
+       COUNT(*)::int AS total_movements
+     FROM product_restock_history history
+     WHERE ${whereClause}`,
+    values
+  );
+
+  return {
+    total_spent: Number(rows[0]?.total_spent || 0),
+    inventory_value_before: Number(rows[0]?.inventory_value_before || 0),
+    inventory_value_after: Number(rows[0]?.inventory_value_after || 0),
+    total_movements: Number(rows[0]?.total_movements || 0)
+  };
+}
+
+async function getRestockContext(productId, actor, client = pool) {
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await client.query(
+    `SELECT
+       products.*,
+       primary_supplier.supplier_id,
+       primary_supplier.supplier_name,
+       primary_supplier.purchase_cost,
+       primary_supplier.cost_updated_at
+     FROM products
+     LEFT JOIN LATERAL (
+       SELECT
+         ps.supplier_id,
+         suppliers.name AS supplier_name,
+         ps.purchase_cost,
+         ps.cost_updated_at
+       FROM product_suppliers ps
+       INNER JOIN suppliers ON suppliers.id = ps.supplier_id AND suppliers.business_id = ps.business_id
+       WHERE ps.product_id = products.id
+         AND ps.business_id = products.business_id
+       ORDER BY ps.is_primary DESC, ps.cost_updated_at DESC NULLS LAST, suppliers.name ASC
+       LIMIT 1
+     ) primary_supplier ON TRUE
+     WHERE products.id = $1
+       AND products.business_id = $2`,
+    [productId, businessId]
+  );
+  return rows[0] || null;
+}
+
 async function restockProduct(id, payload = {}, actor) {
   const quantityToAdd = Number(payload.stock);
   if (!Number.isFinite(quantityToAdd) || quantityToAdd <= 0) {
@@ -1474,11 +1636,13 @@ async function restockProduct(id, payload = {}, actor) {
     await client.query("BEGIN");
     const current = await getOwnedProduct(id, actor, client);
     if (!current) throw new ApiError(404, "Product not found");
+    const restockContext = await getRestockContext(id, actor, client);
 
     const unidadDeVenta = normalizeSaleUnit(current.unidad_de_venta);
     const normalizedQuantity = validateQuantityByUnit(quantityToAdd, unidadDeVenta, "Restock quantity");
+    const previousStock = Number(current.stock || 0);
     const finalStock = validateQuantityByUnit(
-      Number(current.stock || 0) + normalizedQuantity,
+      previousStock + normalizedQuantity,
       unidadDeVenta,
       "Product stock"
     );
@@ -1491,6 +1655,39 @@ async function restockProduct(id, payload = {}, actor) {
          AND business_id = $3
        RETURNING *`,
       [finalStock, id, current.business_id]
+    );
+
+    const unitCost = Number(restockContext?.purchase_cost ?? current.cost_price ?? 0);
+    await client.query(
+      `INSERT INTO product_restock_history (
+         business_id, product_id, supplier_id, quantity_added, stock_before, stock_after,
+         unit_cost, total_cost, actor_user_id, actor_name_snapshot, product_name_snapshot,
+         category_snapshot, supplier_name_snapshot, reason, metadata
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      [
+        current.business_id,
+        id,
+        restockContext?.supplier_id || null,
+        normalizedQuantity,
+        previousStock,
+        finalStock,
+        unitCost,
+        unitCost * normalizedQuantity,
+        actor.id,
+        actor.full_name || actor.username || "Sistema",
+        current.name || "",
+        current.category || "",
+        restockContext?.supplier_name || "",
+        String(payload.reason || "restock_update").trim(),
+        JSON.stringify({
+          product_sku: current.sku || "",
+          supplier_name: restockContext?.supplier_name || null,
+          purchase_cost: restockContext?.purchase_cost === null || restockContext?.purchase_cost === undefined ? null : Number(restockContext.purchase_cost),
+          cost_updated_at: restockContext?.cost_updated_at || null,
+          unit: unidadDeVenta
+        })
+      ]
     );
 
     await syncLowStockReminderForBusiness(current.business_id, client);
@@ -1839,60 +2036,6 @@ async function deleteProduct(id, action, actor) {
   const current = await getOwnedProduct(id, actor);
   if (!current) throw new ApiError(404, "Product not found");
 
-  if (action === "delete") {
-    const client = await pool.connect();
-    let previousImagePath = null;
-
-    try {
-      await client.query("BEGIN");
-      const ownedProduct = await getOwnedProduct(id, actor, client);
-      if (!ownedProduct) throw new ApiError(404, "Product not found");
-
-      const { rows: usageRows } = await client.query(
-        `SELECT 1
-         FROM sale_items
-         WHERE product_id = $1 AND business_id = $2
-         LIMIT 1`,
-        [id, ownedProduct.business_id]
-      );
-      if (usageRows[0]) {
-        throw new ApiError(409, "Cannot permanently delete product with sales history");
-      }
-
-      previousImagePath = ownedProduct.image_path || null;
-      const { rows } = await client.query(
-        `DELETE FROM products
-         WHERE id = $1 AND business_id = $2
-         RETURNING *`,
-        [id, ownedProduct.business_id]
-      );
-
-      await saveAuditLog({
-        business_id: ownedProduct.business_id,
-        usuario_id: actor.id,
-        modulo: "products",
-        accion: "delete_product",
-        entidad_tipo: "product",
-        entidad_id: id,
-        detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(ownedProduct), version: 1 },
-        detalle_nuevo: { entity: "product", entity_id: id, snapshot: {}, version: 1 },
-        motivo: actor?.support_context?.reason || "",
-        metadata: buildProductAuditMetadata(actor, { delete_mode: "hard" })
-      }, { client });
-
-      await client.query("COMMIT");
-      if (previousImagePath) {
-        await deleteStoredImage(previousImagePath).catch(() => {});
-      }
-      return { mode: "hard", product: mapProductRow(rows[0]), requested_action: action };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1913,7 +2056,7 @@ async function deleteProduct(id, action, actor) {
       detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(current), version: 1 },
       detalle_nuevo: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
       motivo: actor?.support_context?.reason || "",
-      metadata: buildProductAuditMetadata(actor, { delete_mode: "soft" })
+      metadata: buildProductAuditMetadata(actor, { delete_mode: "soft", requested_action: action || "deactivate" })
     }, { client });
     await client.query("COMMIT");
     return { mode: "soft", product: mapProductRow(rows[0]), requested_action: action || "deactivate" };
@@ -1963,6 +2106,8 @@ module.exports = {
   previewProductImport,
   confirmProductImport,
   listRestockProducts,
+  listRestockHistory,
+  getRestockHistoryMetrics,
   restockProduct,
   createProduct,
   updateProduct,

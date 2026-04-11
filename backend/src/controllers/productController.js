@@ -29,6 +29,15 @@ const restockValidation = [
   query("includeMeta").optional({ values: "falsy" }).isBoolean(),
   validateRequest
 ];
+const restockHistoryValidation = [
+  query("date").optional({ values: "falsy" }).isISO8601(),
+  query("product").optional().trim(),
+  query("supplier").optional().trim(),
+  query("category").optional().trim(),
+  query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
+  query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
+  validateRequest
+];
 const restockUpdateValidation = [
   body("stock").isFloat({ min: 0 }),
   body("reason").optional({ values: "falsy" }).trim(),
@@ -176,6 +185,14 @@ const listRestockProducts = asyncHandler(async (req, res) => {
   res.json(req.query.includeMeta === "true" ? response : response.items);
 });
 
+const listRestockHistory = asyncHandler(async (req, res) => {
+  res.json(await productService.listRestockHistory(req.query, req.user));
+});
+
+const getRestockHistoryMetrics = asyncHandler(async (req, res) => {
+  res.json(await productService.getRestockHistoryMetrics(req.query, req.user));
+});
+
 const restockProduct = asyncHandler(async (req, res) => {
   res.json(await productService.restockProduct(Number(req.params.id), req.body, req.user));
 });
@@ -230,6 +247,7 @@ module.exports = {
   listValidation,
   categoryListValidation,
   restockValidation,
+  restockHistoryValidation,
   restockUpdateValidation,
   idValidation,
   importConfirmValidation,
@@ -243,6 +261,8 @@ module.exports = {
   listSuppliers,
   listCategories,
   listRestockProducts,
+  listRestockHistory,
+  getRestockHistoryMetrics,
   restockProduct,
   previewProductImport,
   confirmProductImport,

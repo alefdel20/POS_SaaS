@@ -7,6 +7,7 @@ const { requireActorBusinessId } = require("../utils/tenant");
 const { TIME_ZONE, getMexicoCityDate, getMexicoCityDateTime } = require("../utils/timezone");
 const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
+const { getNextFixedExpenseDueDate, normalizeFrequency } = require("../utils/fixedExpenseFrequency");
 const {
   normalizeReminderCategory,
   normalizeReminderStatus
@@ -48,15 +49,6 @@ async function assertReminderPatientAccess(patientId, businessId, client = pool)
 }
 
 async function listReminders(actor, filters = {}) {
-  try {
-    await ensureAutomaticReminders(actor);
-  } catch (error) {
-    if (isSchemaError(error)) {
-      console.error("[REMINDERS] Automatic sync skipped due to schema issue", error);
-    } else {
-      throw error;
-    }
-  }
   const businessId = getBusinessId(actor);
   const params = [businessId];
   const conditions = ["reminders.business_id = $1"];
@@ -169,25 +161,59 @@ async function deleteReminder(id, actor) {
 
 async function upsertAutomaticReminder(payload, actor, options = {}) {
   const businessId = getBusinessId(actor);
+  return upsertSystemReminder({ ...payload, business_id: businessId }, options);
+}
+
+async function upsertSystemReminder(payload, options = {}) {
+  const businessId = Number(payload.business_id || options.businessId || 0);
+  if (!businessId) {
+    throw new ApiError(400, "Business id is required");
+  }
   const client = options.client || pool;
+  const nextStatus = normalizeReminderStatus(payload.status) || "pending";
+  const isCompleted = payload.is_completed ?? (nextStatus === "completed");
   console.info("[REMINDERS] Upserting automatic reminder", { businessId, sourceKey: payload.source_key });
   const { rows: existingRows } = await client.query("SELECT * FROM reminders WHERE source_key = $1 AND business_id = $2 LIMIT 1", [payload.source_key, businessId]);
   if (existingRows[0]) {
     const { rows } = await client.query(
       `UPDATE reminders
-       SET title = $1, notes = $2, due_date = $3, status = CASE WHEN is_completed THEN status ELSE 'pending' END,
-           is_completed = CASE WHEN is_completed THEN is_completed ELSE FALSE END, reminder_type = $4, category = $5, patient_id = $6, metadata = $7, updated_at = NOW()
-       WHERE source_key = $8 AND business_id = $9
+       SET title = $1, notes = $2, due_date = $3, status = $4,
+           is_completed = $5, reminder_type = $6, category = $7, patient_id = $8, metadata = $9, updated_at = NOW()
+       WHERE source_key = $10 AND business_id = $11
        RETURNING *`,
-      [payload.title, payload.notes || "", payload.due_date || null, payload.reminder_type || "general", payload.category || "administrative", payload.patient_id || null, JSON.stringify(payload.metadata || {}), payload.source_key, businessId]
+      [
+        payload.title,
+        payload.notes || "",
+        payload.due_date || null,
+        nextStatus,
+        Boolean(isCompleted),
+        payload.reminder_type || "general",
+        payload.category || "administrative",
+        payload.patient_id || null,
+        JSON.stringify(payload.metadata || {}),
+        payload.source_key,
+        businessId
+      ]
     );
     return rows[0];
   }
   const { rows } = await client.query(
     `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
-     VALUES ($1, $2, 'pending', $3, $4, NULL, NULL, FALSE, $5, $6, $7, $8, $9)
+     VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8, $9, $10, $11)
      RETURNING *`,
-    [payload.title, payload.notes || "", payload.due_date || null, payload.source_key, businessId, payload.reminder_type || "general", payload.category || "administrative", payload.patient_id || null, JSON.stringify(payload.metadata || {})]
+    [
+      payload.title,
+      payload.notes || "",
+      nextStatus,
+      payload.due_date || null,
+      payload.source_key,
+      Boolean(isCompleted),
+      businessId,
+      payload.reminder_type || "general",
+      payload.category || "administrative",
+      payload.patient_id || null,
+      JSON.stringify(payload.metadata || {})
+    ]
   );
   return rows[0];
 }
@@ -277,7 +303,7 @@ async function ensureAutomaticReminders(actor) {
       [businessId]
     ),
     pool.query(
-      `SELECT id, name, category, default_amount, due_day
+      `SELECT id, name, category, default_amount, due_day, frequency
        FROM fixed_expenses
        WHERE business_id = $1 AND is_active = TRUE AND due_day IS NOT NULL AND due_day BETWEEN 1 AND 31`,
       [businessId]
@@ -286,14 +312,30 @@ async function ensureAutomaticReminders(actor) {
 
   await syncConsolidatedLowStockReminder(lowStockRows.rows, actor);
 
-  const upcomingDay = Number(upcomingDate.slice(-2));
   for (const expense of fixedExpenseRows.rows) {
-    if (Number(expense.due_day) !== upcomingDay) continue;
+    const dueDate = getNextFixedExpenseDueDate({
+      due_day: expense.due_day,
+      frequency: normalizeFrequency(expense.frequency)
+    }, new Date(`${today}T12:00:00`));
+    await pool.query(
+      `DELETE FROM reminders
+       WHERE business_id = $1
+         AND source_key LIKE $2`,
+      [businessId, `auto:fixed-expense:${businessId}:${expense.id}:%`]
+    );
+    if (!dueDate || dueDate < today || dueDate > upcomingDate) continue;
     await upsertAutomaticReminder({
-      source_key: `auto:fixed-expense:${businessId}:${expense.id}:${upcomingDate.slice(0, 7)}`,
+      source_key: `finance:fixed-expense:${businessId}:${expense.id}:${dueDate}`,
       title: `Gasto proximo: ${expense.name}`,
-      notes: `Vence el ${upcomingDate}. Categoria ${expense.category}. Monto estimado ${Number(expense.default_amount).toFixed(2)}.`,
-      due_date: upcomingDate
+      notes: `Vence el ${dueDate}. Categoria ${expense.category}. Monto estimado ${Number(expense.default_amount).toFixed(2)}.`,
+      due_date: dueDate,
+      metadata: {
+        source_module: "fixed_expenses",
+        fixed_expense_id: Number(expense.id),
+        amount: Number(expense.default_amount || 0),
+        category: expense.category || "General",
+        frequency: normalizeFrequency(expense.frequency)
+      }
     }, actor);
   }
 
@@ -435,6 +477,7 @@ module.exports = {
   completeReminder,
   deleteReminder,
   sendReminder,
+  upsertSystemReminder,
   upsertAutomaticReminder,
   removeAutomaticReminder,
   cancelAutomaticReminder,

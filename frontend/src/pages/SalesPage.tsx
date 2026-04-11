@@ -1,8 +1,8 @@
-import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { CompanyProfile, MedicalPrescription, Product, Sale, SaleReceipt, Supplier } from "../types";
+import type { CompanyProfile, DebtorSuggestion, MedicalPrescription, Product, Sale, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { isCashierRole, isManagementRole } from "../utils/roles";
@@ -175,7 +175,9 @@ export function SalesPage() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [customerNameInput, setCustomerNameInput] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [debtorSuggestions, setDebtorSuggestions] = useState<DebtorSuggestion[]>([]);
   const [initialPayment, setInitialPayment] = useState("0");
   const [cashReceived, setCashReceived] = useState("");
   const [lastReceipt, setLastReceipt] = useState<SaleReceipt | null>(null);
@@ -191,6 +193,23 @@ export function SalesPage() {
   const [scannerFeedback, setScannerFeedback] = useState("");
   const [scannerSelectionId, setScannerSelectionId] = useState<number | null>(null);
   const [prescriptionSeedId, setPrescriptionSeedId] = useState<number | null>(Number(searchParams.get("prescription_id") || 0) || null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const debtorSuggestionRequestRef = useRef(0);
+
+  function getDebtorSelectionLabel(suggestion: DebtorSuggestion) {
+    return suggestion.selection_label || (suggestion.customer_phone ? `${suggestion.customer_name} · ${suggestion.customer_phone}` : suggestion.customer_name);
+  }
+
+  function findMatchingDebtorSuggestion(value: string) {
+    const normalizedValue = value.trim().toLowerCase();
+    if (!normalizedValue) {
+      return null;
+    }
+    return debtorSuggestions.find((suggestion) => {
+      const optionLabel = getDebtorSelectionLabel(suggestion).toLowerCase();
+      return optionLabel === normalizedValue || suggestion.customer_name.toLowerCase() === normalizedValue;
+    }) || null;
+  }
 
   async function loadProducts(term = "") {
     if (!token) return;
@@ -252,6 +271,19 @@ export function SalesPage() {
     setQuickSupplierOptions(response);
   }
 
+  async function loadDebtorSuggestions(term = "", requestId?: number) {
+    if (!token || !term.trim()) {
+      setDebtorSuggestions([]);
+      return;
+    }
+    const params = new URLSearchParams({ search: term.trim() });
+    const response = await apiRequest<DebtorSuggestion[]>(`/credit-collections/suggestions?${params.toString()}`, { token });
+    if (requestId !== undefined && debtorSuggestionRequestRef.current !== requestId) {
+      return;
+    }
+    setDebtorSuggestions(response);
+  }
+
   function resetSaleForm() {
     setCart([]);
     setScannerFeedback("");
@@ -259,7 +291,9 @@ export function SalesPage() {
     setPaymentMethod("cash");
     setSaleType("ticket");
     setCustomerName("");
+    setCustomerNameInput("");
     setCustomerPhone("");
+    setDebtorSuggestions([]);
     setInitialPayment("0");
     setCashReceived("");
     setRequiresAdministrativeInvoice(false);
@@ -298,6 +332,26 @@ export function SalesPage() {
     }, 250);
     return () => clearTimeout(delay);
   }, [catalogScope, search, token]);
+
+  useEffect(() => {
+    if (paymentMethod !== "credit") {
+      setDebtorSuggestions([]);
+      debtorSuggestionRequestRef.current += 1;
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      const requestId = debtorSuggestionRequestRef.current + 1;
+      debtorSuggestionRequestRef.current = requestId;
+      loadDebtorSuggestions(customerNameInput, requestId).catch(() => {
+        if (debtorSuggestionRequestRef.current === requestId) {
+          setDebtorSuggestions([]);
+        }
+      });
+    }, 200);
+
+    return () => clearTimeout(timeout);
+  }, [customerNameInput, paymentMethod, token]);
 
   useEffect(() => {
     if (!prescriptionSeedId) {
@@ -649,6 +703,10 @@ export function SalesPage() {
 
   async function confirmSale() {
     if (!token || cart.length === 0) return;
+    const matchedDebtorSuggestion = paymentMethod === "credit" ? findMatchingDebtorSuggestion(customerNameInput) : null;
+    const resolvedCustomerName = paymentMethod === "credit"
+      ? (matchedDebtorSuggestion?.customer_name || customerNameInput.trim())
+      : customerName;
     if (paymentMethod === "cash" && cashReceived.trim() === "") {
       setError("Debes capturar el dinero recibido");
       return;
@@ -669,6 +727,10 @@ export function SalesPage() {
       setError("No hay timbres disponibles para facturar");
       return;
     }
+    if (paymentMethod === "credit" && !resolvedCustomerName) {
+      setError("Debes capturar el nombre del comprador");
+      return;
+    }
 
     try {
       setError("");
@@ -681,7 +743,7 @@ export function SalesPage() {
           cash_received: paymentMethod === "cash" ? cashReceivedAmount : undefined,
           sale_type: saleType,
           customer: paymentMethod === "credit" ? {
-            name: customerName,
+            name: resolvedCustomerName,
             phone: customerPhone
           } : undefined,
           requires_administrative_invoice: requiresAdministrativeInvoice,
@@ -729,6 +791,7 @@ export function SalesPage() {
       await loadProducts(search);
       await loadRecentSales();
       await loadProfile();
+      window.setTimeout(() => searchInputRef.current?.focus(), 0);
     } catch (saleError) {
       setError(saleError instanceof Error ? saleError.message : "No fue posible confirmar la venta");
     }
@@ -788,15 +851,15 @@ export function SalesPage() {
         <div className="panel-header">
           <div>
             <h2>{salesTitle}</h2>
-            <p className="muted">Busca por nombre, SKU, código de barras o proveedor.</p>
           </div>
           <div className="inline-actions">
             {canQuickCreateProduct ? (
               <button className="button" onClick={openQuickAddModal} type="button">Alta Rápida</button>
             ) : null}
             <input
+              ref={searchInputRef}
               className="search-input"
-              placeholder="Buscar por nombre, SKU, código de barras o proveedor"
+              placeholder="Buscar por nombre, proveedor o código de barras"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
@@ -827,9 +890,6 @@ export function SalesPage() {
                 )}
                 <strong>{product.name}</strong>
               </div>
-              <span>{product.sku}</span>
-              <span>{product.barcode}</span>
-              <span>{product.supplier_name || product.category || "-"}</span>
               {product.is_on_sale ? (
                 <div className="price-stack">
                   <span className="price-original">{currency(product.price)}</span>
@@ -838,7 +898,6 @@ export function SalesPage() {
               ) : (
                 <span>{currency(product.effective_price ?? product.price)}</span>
               )}
-              {product.is_on_sale ? <span className="offer-badge">Oferta | Remate</span> : null}
               <small>Stock: {formatSaleQuantity(Number(product.stock), product.unidad_de_venta)}</small>
             </button>
           ))}
@@ -1021,10 +1080,23 @@ export function SalesPage() {
           <div className="form-section-grid">
             <label>
               Nombre del comprador *
-              <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
+              <input
+                list="debtor-suggestions"
+                value={customerNameInput}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setCustomerNameInput(nextValue);
+                  const matchedSuggestion = findMatchingDebtorSuggestion(nextValue);
+                  setCustomerName(matchedSuggestion?.customer_name || nextValue.trim());
+                  if (matchedSuggestion?.customer_phone && !customerPhone.trim()) {
+                    setCustomerPhone(matchedSuggestion.customer_phone);
+                  }
+                }}
+                onBlur={() => setCustomerName(findMatchingDebtorSuggestion(customerNameInput)?.customer_name || customerNameInput.trim())}
+              />
             </label>
             <label>
-              Teléfono *
+              Teléfono
               <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
             </label>
             <label>
@@ -1035,6 +1107,13 @@ export function SalesPage() {
               <span>Saldo pendiente</span>
               <strong>{currency(pendingBalance)}</strong>
             </div>
+            <datalist id="debtor-suggestions">
+              {debtorSuggestions.map((suggestion) => (
+                <option key={suggestion.match_key || `${suggestion.customer_name}-${suggestion.customer_phone || "sin-telefono"}`} value={getDebtorSelectionLabel(suggestion)}>
+                  {suggestion.customer_phone || "Sin teléfono"} · {suggestion.sale_count} venta(s)
+                </option>
+              ))}
+            </datalist>
           </div>
         ) : null}
 

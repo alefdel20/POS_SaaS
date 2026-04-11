@@ -414,6 +414,45 @@ export interface RestockProductsResponse {
   };
 }
 
+export interface RestockHistoryItem {
+  id: number;
+  product_id: number;
+  product_name: string;
+  sku: string;
+  category?: string | null;
+  supplier_id?: number | null;
+  supplier_name?: string | null;
+  quantity_added: number;
+  stock_before: number;
+  stock_after: number;
+  unit_cost: number;
+  total_cost: number;
+  inventory_value_before: number;
+  inventory_value_after: number;
+  reason?: string;
+  actor_user_id?: number | null;
+  actor_name?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RestockHistoryMetrics {
+  total_spent: number;
+  inventory_value_before: number;
+  inventory_value_after: number;
+  total_movements: number;
+}
+
+export interface RestockHistoryResponse {
+  items: RestockHistoryItem[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 export interface ServiceCatalogItem {
   id: number;
   name: string;
@@ -727,6 +766,16 @@ export interface Debtor {
   send_reminder?: boolean;
 }
 
+export interface DebtorSuggestion {
+  match_key?: string;
+  customer_name: string;
+  customer_phone?: string | null;
+  sale_count: number;
+  pending_balance: number;
+  last_sale_date?: string | null;
+  selection_label?: string;
+}
+
 export interface CreditPayment {
   id: number;
   sale_id: number;
@@ -735,6 +784,18 @@ export interface CreditPayment {
   payment_method: Sale["payment_method"];
   notes: string;
   created_at: string;
+  sale_total?: number;
+  balance_due?: number;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  sale_items?: Array<{
+    product_id: number;
+    product_name: string;
+    quantity: number;
+    unidad_de_venta?: string | null;
+    unit_price: number;
+    subtotal: number;
+  }>;
 }
 
 export interface Reminder {
@@ -752,6 +813,26 @@ export interface Reminder {
   patient_name?: string | null;
   is_completed: boolean;
   updated_at?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreditSaleSummary {
+  sale_id: number;
+  sale_date: string;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  total: number;
+  initial_payment: number;
+  total_paid: number;
+  balance_due: number;
+  items: Array<{
+    product_id: number;
+    product_name: string;
+    quantity: number;
+    unidad_de_venta?: string | null;
+    unit_price: number;
+    subtotal: number;
+  }>;
 }
 
 export interface DailyCut {
@@ -871,6 +952,8 @@ export interface DashboardSummary {
       label: string;
       path: string;
     }>;
+    approval_path?: string;
+    restock_path?: string;
   };
 }
 
@@ -966,7 +1049,7 @@ export interface FixedExpense {
   name: string;
   category: string;
   default_amount: number;
-  frequency: "weekly" | "biweekly" | "monthly" | "custom";
+  frequency: "weekly" | "biweekly" | "monthly" | "bimonthly" | "quarterly" | "semiannual" | "annual" | "custom";
   payment_method: Sale["payment_method"];
   due_day?: number | null;
   notes: string;
