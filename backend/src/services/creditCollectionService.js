@@ -3,6 +3,7 @@ const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
+const { normalizeBusinessDate } = require("../utils/businessDate");
 const { canUseCreditCollections } = require("../utils/business");
 const { emitActorAutomationEvent } = require("./automationEventService");
 
@@ -72,7 +73,15 @@ async function listDebtors(actor, filters = {}) {
   `;
 
   const { rows } = await pool.query(query, values);
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    sale_date: normalizeBusinessDate(row.sale_date, row.sale_date),
+    total: Number(row.total || 0),
+    initial_payment: Number(row.initial_payment || 0),
+    balance_due: Number(row.balance_due || 0),
+    total_paid: Number(row.total_paid || 0),
+    days_overdue: Number(row.days_overdue || 0)
+  }));
 }
 
 async function updateReminderPreference(saleId, sendReminder, actor) {
@@ -182,6 +191,7 @@ async function listPaymentsBySale(saleId, actor) {
 
   return rows.map((row) => ({
     ...row,
+    payment_date: normalizeBusinessDate(row.payment_date, row.payment_date),
     amount: Number(row.amount || 0),
     sale_total: Number(row.sale_total || 0),
     balance_due: Number(row.balance_due || 0),
@@ -235,7 +245,7 @@ async function listDebtorSuggestions(actor, search = "") {
         customer_phone: phone,
         sale_count: Number(row.sale_count || 0),
         pending_balance: Number(row.pending_balance || 0),
-        last_sale_date: row.last_sale_date,
+        last_sale_date: normalizeBusinessDate(row.last_sale_date, row.last_sale_date),
         selection_label: phone ? `${row.customer_name} · ${phone}` : row.customer_name
       });
     }
@@ -293,7 +303,7 @@ async function getCreditSaleSummary(saleId, actor) {
 
   return {
     sale_id: Number(rows[0].sale_id),
-    sale_date: rows[0].sale_date,
+    sale_date: normalizeBusinessDate(rows[0].sale_date, rows[0].sale_date),
     customer_name: rows[0].customer_name || null,
     customer_phone: rows[0].customer_phone || null,
     total: Number(rows[0].total || 0),
@@ -354,7 +364,7 @@ async function createPayment(saleId, payload, actor) {
       throw new ApiError(400, "Payment amount cannot exceed pending balance");
     }
 
-    const paymentDate = payload.payment_date || getMexicoCityDate();
+    const paymentDate = normalizeBusinessDate(payload.payment_date, getMexicoCityDate());
 
     const { rows: paymentRows } = await client.query(
       `INSERT INTO credit_payments (sale_id, business_id, payment_date, amount, payment_method, notes)
@@ -398,13 +408,20 @@ async function createPayment(saleId, payload, actor) {
 
     await client.query("COMMIT");
     await recomputeDailyCut(paymentDate, actor);
-    if (paymentDate !== sale.sale_date) {
-      await recomputeDailyCut(sale.sale_date, actor);
+    const saleDate = normalizeBusinessDate(sale.sale_date, sale.sale_date);
+    if (saleDate && paymentDate !== saleDate) {
+      await recomputeDailyCut(saleDate, actor);
     }
 
     return {
-      payment: paymentRows[0],
-      sale: updatedRows[0]
+      payment: {
+        ...paymentRows[0],
+        payment_date: normalizeBusinessDate(paymentRows[0].payment_date, paymentRows[0].payment_date)
+      },
+      sale: {
+        ...updatedRows[0],
+        sale_date: normalizeBusinessDate(updatedRows[0].sale_date, updatedRows[0].sale_date)
+      }
     };
   } catch (error) {
     await client.query("ROLLBACK");

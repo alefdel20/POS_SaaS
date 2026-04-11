@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { CreditPayment, CreditSaleSummary, Debtor } from "../types";
-import { currency, shortDate } from "../utils/format";
+import { currency, normalizeDateInput, shortDate } from "../utils/format";
 import { getPaymentMethodLabel } from "../utils/uiLabels";
 import { getMexicoCityDateInputValue } from "../utils/timezone";
 import { canUseCreditCollections } from "../utils/pos";
@@ -79,7 +79,10 @@ export function CreditCollectionsPage() {
     if (requestId !== undefined && tenantRequestRef.current !== requestId) {
       return;
     }
-    setPayments(response);
+    setPayments(response.map((payment) => ({
+      ...payment,
+      payment_date: normalizeDateInput(payment.payment_date, payment.payment_date)
+    })));
   }
 
   async function loadSaleSummary(saleId: number, requestId?: number) {
@@ -144,11 +147,14 @@ export function CreditCollectionsPage() {
         body: JSON.stringify({
           amount: Number(form.amount),
           payment_method: form.payment_method,
-          payment_date: form.payment_date,
+          payment_date: normalizeDateInput(form.payment_date, getMexicoCityDateInputValue()),
           notes: form.notes
         })
       });
-      setForm(emptyPayment);
+      setForm({
+        ...emptyPayment,
+        payment_date: getMexicoCityDateInputValue()
+      });
       await loadDebtors(search, statusFilter);
       await loadPayments(selectedSaleId);
     } catch (submissionError) {

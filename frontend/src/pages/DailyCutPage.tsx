@@ -92,8 +92,12 @@ export function DailyCutPage() {
     }
   }, [token, user?.role]);
 
+  const todayCashReal = Number(today?.cash_real ?? today?.total_day ?? 0);
+  const todayCreditGenerated = Number(today?.credit_generated ?? today?.credit_total ?? 0);
+  const todayCreditCollected = Number(today?.credit_collected ?? 0);
+
   const shareMessage = today
-    ? `Corte Diario\nFecha: ${shortDate(today.cut_date)}\n\nTotal: ${currency(today.total_day)}\nEfectivo: ${currency(today.cash_total)}\nTarjeta: ${currency(today.card_total)}\nTransferencia: ${currency(today.transfer_total)}\nFacturas: ${today.invoice_count}\nTimbres usados: ${today.timbres_usados || 0}\nTimbres restantes: ${today.timbres_restantes || 0}\n\nGanancia: ${currency(today.gross_profit)}\nTickets: ${today.ticket_count}`
+    ? `Corte Diario\nFecha: ${shortDate(today.cut_date)}\n\nIngresos reales: ${currency(todayCashReal)}\nCredito generado: ${currency(todayCreditGenerated)}\nCobranza: ${currency(todayCreditCollected)}\nEfectivo: ${currency(today.cash_total)}\nTarjeta: ${currency(today.card_total)}\nTransferencia: ${currency(today.transfer_total)}\nFacturas: ${today.invoice_count}\nTimbres usados: ${today.timbres_usados || 0}\nTimbres restantes: ${today.timbres_restantes || 0}\n\nGanancia: ${currency(today.gross_profit)}\nTickets: ${today.ticket_count}`
     : "";
   const encodedShareMessage = encodeURIComponent(shareMessage);
   const activeUserName = useMemo(() => {
@@ -207,9 +211,11 @@ export function DailyCutPage() {
         <div className="stats-grid">
           <div className="stat-card"><span className="stat-label">Fecha</span><strong className="stat-value">{today ? shortDate(today.cut_date) : "-"}</strong></div>
           <div className="stat-card"><span className="stat-label">Total del dia</span><strong className="stat-value">{currency(today?.total_day || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Ingresos reales</span><strong className="stat-value">{currency(todayCashReal)}</strong></div>
           <div className="stat-card"><span className="stat-label">Efectivo</span><strong className="stat-value">{currency(today?.cash_total || 0)}</strong></div>
           <div className="stat-card"><span className="stat-label">Tarjeta</span><strong className="stat-value">{currency(today?.card_total || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Credito</span><strong className="stat-value">{currency(today?.credit_total || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Credito generado</span><strong className="stat-value">{currency(todayCreditGenerated)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Cobranza</span><strong className="stat-value">{currency(todayCreditCollected)}</strong></div>
           <div className="stat-card"><span className="stat-label">Transferencia</span><strong className="stat-value">{currency(today?.transfer_total || 0)}</strong></div>
           <div className="stat-card"><span className="stat-label">Facturas emitidas</span><strong className="stat-value">{today?.invoice_count || 0}</strong></div>
           <div className="stat-card"><span className="stat-label">Tickets</span><strong className="stat-value">{today?.ticket_count || 0}</strong></div>
@@ -228,6 +234,13 @@ export function DailyCutPage() {
             <p>No hay suficiente historico claro para mostrar comparacion diaria.</p>
           </div>
         )}
+        <div className="info-card">
+          <h3>Resumen de Cartera</h3>
+          <div className="stats-grid">
+            <div className="stat-card"><span className="stat-label">Generado Hoy</span><strong className="stat-value">{currency(todayCreditGenerated)}</strong></div>
+            <div className="stat-card"><span className="stat-label">Cobrado Hoy</span><strong className="stat-value">{currency(todayCreditCollected)}</strong></div>
+          </div>
+        </div>
       </div>
 
       <div className="panel">
@@ -288,8 +301,11 @@ export function DailyCutPage() {
               <tr>
                 <th>Fecha</th>
                 <th>Total</th>
+                <th>Ingresos reales</th>
                 <th>Efectivo</th>
                 <th>Tarjeta</th>
+                <th>Credito generado</th>
+                <th>Cobranza</th>
                 <th>Transferencia</th>
                 <th>Facturas</th>
                 <th>Timbres usados</th>
@@ -302,8 +318,11 @@ export function DailyCutPage() {
                 <tr key={`${cut.cut_date}-${cut.month || "day"}`}>
                   <td>{cut.month || shortDate(cut.cut_date)}</td>
                   <td>{currency(cut.total_day)}</td>
+                  <td>{currency(cut.cash_real ?? cut.total_day)}</td>
                   <td>{currency(cut.cash_total)}</td>
                   <td>{currency(cut.card_total)}</td>
+                  <td>{currency(cut.credit_generated ?? cut.credit_total)}</td>
+                  <td>{currency(cut.credit_collected || 0)}</td>
                   <td>{currency(cut.transfer_total)}</td>
                   <td>{cut.invoice_count}</td>
                   <td>{cut.timbres_usados || 0}</td>
@@ -313,7 +332,7 @@ export function DailyCutPage() {
               ))}
               {history.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={9}>No hay cortes para los filtros seleccionados.</td>
+                  <td className="muted" colSpan={12}>No hay cortes para los filtros seleccionados.</td>
                 </tr>
               ) : null}
             </tbody>

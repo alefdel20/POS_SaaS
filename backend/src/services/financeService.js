@@ -4,19 +4,37 @@ const { saveAuditLog } = require("./auditLogService");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
 const { normalizeFrequency } = require("../utils/fixedExpenseFrequency");
+const { normalizeBusinessDate } = require("../utils/businessDate");
 const { ensureAutomaticReminders } = require("./reminderService");
 
 const VALID_SALE_STATUS_SQL = "COALESCE(status, 'completed') <> 'cancelled'";
 
 function mapExpense(expense) {
-  return expense ? { ...expense, amount: Number(expense.amount || 0), is_voided: Boolean(expense.is_voided) } : null;
+  return expense ? {
+    ...expense,
+    amount: Number(expense.amount || 0),
+    date: normalizeBusinessDate(expense.date, expense.date),
+    is_voided: Boolean(expense.is_voided)
+  } : null;
 }
 function mapOwnerLoan(loan) {
-  return loan ? { ...loan, amount: Number(loan.amount || 0), balance: Number(loan.balance || 0), is_voided: Boolean(loan.is_voided) } : null;
+  return loan ? {
+    ...loan,
+    amount: Number(loan.amount || 0),
+    balance: Number(loan.balance || 0),
+    date: normalizeBusinessDate(loan.date, loan.date),
+    is_voided: Boolean(loan.is_voided)
+  } : null;
 }
 function mapFixedExpense(fixedExpense) {
   return fixedExpense
-    ? { ...fixedExpense, default_amount: Number(fixedExpense.default_amount || 0), is_active: Boolean(fixedExpense.is_active), frequency: normalizeFrequency(fixedExpense.frequency), base_date: fixedExpense.base_date || null }
+    ? {
+      ...fixedExpense,
+      default_amount: Number(fixedExpense.default_amount || 0),
+      is_active: Boolean(fixedExpense.is_active),
+      frequency: normalizeFrequency(fixedExpense.frequency),
+      base_date: normalizeBusinessDate(fixedExpense.base_date, null)
+    }
     : null;
 }
 
@@ -72,6 +90,7 @@ async function listExpenses(actor) {
 
 async function createExpense(payload, actor) {
   const businessId = requireActorBusinessId(actor);
+  const expenseDate = normalizeBusinessDate(payload.date, getMexicoCityDate());
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -79,7 +98,7 @@ async function createExpense(payload, actor) {
       `INSERT INTO expenses (business_id, concept, category, amount, date, notes, payment_method, fixed_expense_id, updated_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [businessId, payload.concept, payload.category || "General", payload.amount, payload.date || getMexicoCityDate(), payload.notes || "", payload.payment_method || "cash", payload.fixed_expense_id || null, actor.id]
+      [businessId, payload.concept, payload.category || "General", payload.amount, expenseDate, payload.notes || "", payload.payment_method || "cash", payload.fixed_expense_id || null, actor.id]
     );
     await syncFinancialMovementReminder({ type: "expenses", row: rows[0], actor, client });
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "create_expense", entidad_tipo: "expense", entidad_id: rows[0].id, detalle_nuevo: { entity: "expense", entity_id: rows[0].id, snapshot: mapExpense(rows[0]), version: 1 }, motivo: payload.notes || "", metadata: {} }, { client });
@@ -102,13 +121,16 @@ async function updateExpense(id, payload, actor) {
     const current = currentRows[0];
     if (!current) throw new ApiError(404, "Expense not found");
     if (current.is_voided) throw new ApiError(409, "Void expense cannot be edited");
+    const nextDate = payload.date !== undefined
+      ? normalizeBusinessDate(payload.date, normalizeBusinessDate(current.date, getMexicoCityDate()))
+      : normalizeBusinessDate(current.date, getMexicoCityDate());
     const { rows } = await client.query(
       `UPDATE expenses
        SET concept = $1, category = $2, amount = $3, date = $4, notes = $5, payment_method = $6,
            fixed_expense_id = $7, updated_at = NOW(), updated_by = $8
        WHERE id = $9 AND business_id = $10
        RETURNING *`,
-      [payload.concept ?? current.concept, payload.category ?? current.category, payload.amount ?? current.amount, payload.date ?? current.date, payload.notes ?? current.notes, payload.payment_method ?? current.payment_method, payload.fixed_expense_id !== undefined ? payload.fixed_expense_id : current.fixed_expense_id, actor.id, id, businessId]
+      [payload.concept ?? current.concept, payload.category ?? current.category, payload.amount ?? current.amount, nextDate, payload.notes ?? current.notes, payload.payment_method ?? current.payment_method, payload.fixed_expense_id !== undefined ? payload.fixed_expense_id : current.fixed_expense_id, actor.id, id, businessId]
     );
     await syncFinancialMovementReminder({ type: "expenses", row: rows[0], actor, client });
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "update_expense", entidad_tipo: "expense", entidad_id: id, detalle_anterior: { entity: "expense", entity_id: id, snapshot: mapExpense(current), version: 1 }, detalle_nuevo: { entity: "expense", entity_id: id, snapshot: mapExpense(rows[0]), version: 1 }, motivo: payload.reason || payload.notes || "", metadata: {} }, { client });
@@ -177,6 +199,7 @@ async function createOwnerLoan(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const note = payload.notes?.trim();
   if (!note) throw new ApiError(400, "Loan note is required");
+  const loanDate = normalizeBusinessDate(payload.date, getMexicoCityDate());
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -188,7 +211,7 @@ async function createOwnerLoan(payload, actor) {
       `INSERT INTO owner_loans (business_id, amount, type, balance, date, notes, updated_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [businessId, amount, payload.type, nextBalance, payload.date || getMexicoCityDate(), note, actor.id]
+      [businessId, amount, payload.type, nextBalance, loanDate, note, actor.id]
     );
     await syncFinancialMovementReminder({ type: "owner_loans", row: rows[0], actor, client });
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "create_owner_loan", entidad_tipo: "owner_loan", entidad_id: rows[0].id, detalle_nuevo: { entity: "owner_loan", entity_id: rows[0].id, snapshot: mapOwnerLoan(rows[0]), version: 1 }, motivo: note, metadata: {} }, { client });
@@ -241,6 +264,7 @@ async function listFixedExpenses(actor) {
 
 async function createFixedExpense(payload, actor) {
   const businessId = requireActorBusinessId(actor);
+  const baseDate = normalizeBusinessDate(payload.base_date || payload.date, getMexicoCityDate());
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -248,7 +272,7 @@ async function createFixedExpense(payload, actor) {
       `INSERT INTO fixed_expenses (business_id, name, category, default_amount, frequency, payment_method, due_day, base_date, notes, created_by, updated_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
        RETURNING *`,
-      [businessId, payload.name, payload.category || "General", payload.default_amount || 0, normalizeFrequency(payload.frequency), payload.payment_method || "cash", payload.due_day || null, payload.base_date || payload.date || getMexicoCityDate(), payload.notes || "", actor.id]
+      [businessId, payload.name, payload.category || "General", payload.default_amount || 0, normalizeFrequency(payload.frequency), payload.payment_method || "cash", payload.due_day || null, baseDate, payload.notes || "", actor.id]
     );
     await syncFinancialMovementReminder({ type: "fixed_expenses", row: rows[0], actor, client });
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "create_fixed_expense", entidad_tipo: "fixed_expense", entidad_id: rows[0].id, detalle_nuevo: { entity: "fixed_expense", entity_id: rows[0].id, snapshot: mapFixedExpense(rows[0]), version: 1 }, motivo: payload.notes || "", metadata: {} }, { client });
@@ -271,13 +295,17 @@ async function updateFixedExpense(id, payload, actor) {
     const { rows: currentRows } = await client.query("SELECT * FROM fixed_expenses WHERE id = $1 AND business_id = $2", [id, businessId]);
     const current = currentRows[0];
     if (!current) throw new ApiError(404, "Fixed expense not found");
+    const fallbackBaseDate = normalizeBusinessDate(current.base_date, normalizeBusinessDate(current.created_at, getMexicoCityDate()));
+    const nextBaseDate = payload.base_date !== undefined
+      ? normalizeBusinessDate(payload.base_date, fallbackBaseDate)
+      : fallbackBaseDate;
     const { rows } = await client.query(
       `UPDATE fixed_expenses
        SET name = $1, category = $2, default_amount = $3, frequency = $4, payment_method = $5,
            due_day = $6, base_date = $7, notes = $8, is_active = $9, updated_by = $10, updated_at = NOW()
        WHERE id = $11 AND business_id = $12
        RETURNING *`,
-      [payload.name ?? current.name, payload.category ?? current.category, payload.default_amount ?? current.default_amount, normalizeFrequency(payload.frequency ?? current.frequency), payload.payment_method ?? current.payment_method, payload.due_day !== undefined ? payload.due_day : current.due_day, payload.base_date !== undefined ? payload.base_date : (current.base_date || getMexicoCityDate(current.created_at || new Date())), payload.notes ?? current.notes, payload.is_active ?? current.is_active, actor.id, id, businessId]
+      [payload.name ?? current.name, payload.category ?? current.category, payload.default_amount ?? current.default_amount, normalizeFrequency(payload.frequency ?? current.frequency), payload.payment_method ?? current.payment_method, payload.due_day !== undefined ? payload.due_day : current.due_day, nextBaseDate, payload.notes ?? current.notes, payload.is_active ?? current.is_active, actor.id, id, businessId]
     );
     await syncFinancialMovementReminder({ type: "fixed_expenses", row: rows[0], actor, client });
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "update_fixed_expense", entidad_tipo: "fixed_expense", entidad_id: id, detalle_anterior: { entity: "fixed_expense", entity_id: id, snapshot: mapFixedExpense(current), version: 1 }, detalle_nuevo: { entity: "fixed_expense", entity_id: id, snapshot: mapFixedExpense(rows[0]), version: 1 }, motivo: payload.notes || "", metadata: {} }, { client });

@@ -2,9 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Expense, FinanceDashboard, FixedExpense, OwnerLoan } from "../types";
-import { currency, shortDate } from "../utils/format";
+import { currency, formatDate, normalizeDateInput, shortDate } from "../utils/format";
 import { getPaymentMethodLabel } from "../utils/uiLabels";
-import { formatDateDMY, getMexicoCityDateInputValue } from "../utils/timezone";
+import { getMexicoCityDateInputValue } from "../utils/timezone";
 
 const emptyExpense = {
   concept: "",
@@ -63,7 +63,7 @@ function dayToDueDateInput(dueDay?: number | null) {
 
 function formatDatePreview(value?: string | null) {
   if (!value) return "--/--/----";
-  return formatDateDMY(value) || "--/--/----";
+  return formatDate(value) || "--/--/----";
 }
 
 export function FinancesPage() {
@@ -110,6 +110,7 @@ export function FinancesPage() {
       const payload = {
         ...expenseForm,
         amount: Number(expenseForm.amount),
+        date: normalizeDateInput(expenseForm.date, getMexicoCityDateInputValue()),
         fixed_expense_id: expenseForm.fixed_expense_id ? Number(expenseForm.fixed_expense_id) : undefined
       };
       if (editingExpenseId) {
@@ -144,6 +145,7 @@ export function FinancesPage() {
         token,
         body: JSON.stringify({
           ...loanForm,
+          date: normalizeDateInput(loanForm.date, getMexicoCityDateInputValue()),
           amount: Number(loanForm.amount)
         })
       });
@@ -164,7 +166,7 @@ export function FinancesPage() {
         ...fixedExpenseForm,
         default_amount: Number(fixedExpenseForm.default_amount),
         due_day: dueDateInputToDay(fixedExpenseForm.due_day),
-        base_date: fixedExpenseForm.base_date || undefined
+        base_date: normalizeDateInput(fixedExpenseForm.base_date, getMexicoCityDateInputValue()) || undefined
       };
       if (editingFixedExpenseId) {
         await apiRequest(`/finances/fixed-expenses/${editingFixedExpenseId}`, {
@@ -229,7 +231,7 @@ export function FinancesPage() {
       concept: expense.concept,
       category: expense.category,
       amount: String(expense.amount),
-      date: expense.date,
+      date: normalizeDateInput(expense.date, getMexicoCityDateInputValue()),
       notes: expense.notes || "",
       payment_method: expense.payment_method,
       fixed_expense_id: expense.fixed_expense_id ? String(expense.fixed_expense_id) : ""
@@ -245,7 +247,7 @@ export function FinancesPage() {
       frequency: item.frequency,
       payment_method: item.payment_method,
       due_day: dayToDueDateInput(item.due_day),
-      base_date: item.base_date || getMexicoCityDateInputValue(),
+      base_date: normalizeDateInput(item.base_date, getMexicoCityDateInputValue()),
       notes: item.notes || ""
     });
   }

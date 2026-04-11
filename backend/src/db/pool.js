@@ -1,5 +1,8 @@
-const { Pool } = require("pg");
+const pg = require("pg");
 const { TIME_ZONE } = require("../utils/timezone");
+
+// OID 1082 = DATE. Forzamos salida como texto plano YYYY-MM-DD.
+pg.types.setTypeParser(1082, (value) => value);
 
 // Forzamos el uso de variables de entorno de Dokploy o el archivo config si existen
 const poolConfig = {
@@ -10,7 +13,7 @@ const poolConfig = {
   port: Number(process.env.PGPORT || 5432),
 };
 
-const pool = new Pool(poolConfig);
+const pool = new pg.Pool(poolConfig);
 
 pool.on("connect", (client) => {
   client.query(`SET TIME ZONE '${TIME_ZONE}'`).catch((error) => {

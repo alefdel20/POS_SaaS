@@ -3,7 +3,7 @@ const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
 const { ensureAutomaticReminders, ensureLowStockRemindersForProductIds } = require("./reminderService");
 const { requireActorBusinessId } = require("../utils/tenant");
-const { getMexicoCityDate } = require("../utils/timezone");
+const { getMexicoCityDate, getMexicoCityTime } = require("../utils/timezone");
 const { createAdministrativeInvoiceFromSale } = require("./adminInvoiceService");
 const { saveAuditLog } = require("./auditLogService");
 const { emitActorAutomationEvent } = require("./automationEventService");
@@ -453,7 +453,7 @@ async function createSale(payload, user) {
       stampStatus = "consumed";
     }
 
-    const safeSaleTime = new Date().toISOString().split("T")[1].split(".")[0];
+    const safeSaleTime = getMexicoCityTime();
     const { rows: saleRows } = await client.query(
       `INSERT INTO sales (
         user_id, business_id, payment_method, sale_type, subtotal, total, total_cost, customer_name, customer_phone,

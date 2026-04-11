@@ -839,9 +839,12 @@ export interface DailyCut {
   id?: number;
   cut_date: string;
   total_day: number;
+  cash_real?: number;
   cash_total: number;
   card_total: number;
   credit_total: number;
+  credit_generated?: number;
+  credit_collected?: number;
   transfer_total: number;
   invoice_count: number;
   ticket_count: number;

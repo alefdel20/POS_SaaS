@@ -1,14 +1,39 @@
-import { formatDateDMY, formatDateTimeLocalDMY, formatMexicoCityDate, formatMexicoCityDateTime, isIsoDate } from "./timezone";
+import { formatDateDMY, formatDateTimeLocalDMY, parseDateDMY } from "./timezone";
 
-function parseDateValue(value: string) {
-  if (isIsoDate(value)) {
-    const [year, month, day] = value.split("-").map(Number);
-    return new Date(year, month - 1, day, 12, 0, 0);
-  }
-  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(value)) {
-    return new Date(value);
-  }
+const ISO_DATE_PREFIX_REGEX = /^(\d{4}-\d{2}-\d{2})(?:[T\s].*)?$/;
+const ISO_DATETIME_PREFIX_REGEX = /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})/;
+
+function extractBusinessDate(value?: string | null) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const prefixed = ISO_DATE_PREFIX_REGEX.exec(text);
+  if (prefixed?.[1]) return prefixed[1];
+
+  const parsedDmy = parseDateDMY(text);
+  if (parsedDmy) return parsedDmy;
+
   return null;
+}
+
+export function normalizeDateInput(value?: string | null, fallback = "") {
+  return extractBusinessDate(value) || fallback;
+}
+
+export function formatDate(dateString?: string | null) {
+  const normalized = extractBusinessDate(dateString);
+  if (!normalized) return "";
+  return formatDateDMY(normalized) || "";
+}
+
+function formatDateTimePrefix(dateTimeString?: string | null) {
+  if (!dateTimeString) return "";
+  const text = String(dateTimeString).trim();
+  const match = ISO_DATETIME_PREFIX_REGEX.exec(text);
+  if (!match) return "";
+  const [, year, month, day, hour, minute] = match;
+  return `${day}/${month}/${year} ${hour}:${minute}`;
 }
 
 export function currency(value: number | string) {
@@ -22,20 +47,14 @@ export function dateLabel(value: string | null) {
   if (!value) {
     return "Sin fecha";
   }
-  const dateOnly = formatDateDMY(value);
-  if (dateOnly) return dateOnly;
-  const parsed = parseDateValue(value);
-  return parsed ? formatMexicoCityDate(parsed) : "Sin fecha";
+  return formatDate(value) || "Sin fecha";
 }
 
 export function shortDate(value: string | null) {
   if (!value) {
     return "-";
   }
-  const dateOnly = formatDateDMY(value);
-  if (dateOnly) return dateOnly;
-  const parsed = parseDateValue(value);
-  return parsed ? formatMexicoCityDate(parsed) : "-";
+  return formatDate(value) || "-";
 }
 
 export function shortDateTime(value: string | null) {
@@ -44,6 +63,7 @@ export function shortDateTime(value: string | null) {
   }
   const dateTimeLocal = formatDateTimeLocalDMY(value);
   if (dateTimeLocal) return dateTimeLocal;
-  const parsed = parseDateValue(value);
-  return parsed ? formatMexicoCityDateTime(parsed) : "-";
+  const dateTimePrefix = formatDateTimePrefix(value);
+  if (dateTimePrefix) return dateTimePrefix;
+  return formatDate(value) || "-";
 }
