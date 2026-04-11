@@ -397,7 +397,10 @@ async function createPayment(saleId, payload, actor) {
     );
 
     await client.query("COMMIT");
-    await recomputeDailyCut(sale.sale_date, actor);
+    await recomputeDailyCut(paymentDate, actor);
+    if (paymentDate !== sale.sale_date) {
+      await recomputeDailyCut(sale.sale_date, actor);
+    }
 
     return {
       payment: paymentRows[0],

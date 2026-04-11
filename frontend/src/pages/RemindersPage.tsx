@@ -1,7 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
-import { DateInputDMY } from "../components/DateInputDMY";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalPatientSummary, Reminder } from "../types";
 import { REMINDER_CATEGORIES, REMINDER_STATUSES } from "../utils/domainEnums";
@@ -468,12 +467,12 @@ export function RemindersPage() {
               <div className="inline-actions">
                 <label>
                   Fecha
-                  <DateInputDMY
+                  <input
+                    type="date"
                     value={selectedDate}
-                    onChange={(nextDate) => {
-                      if (!nextDate) return;
-                      setSelectedDate(nextDate);
-                      setSelectedMonth(nextDate.slice(0, 7));
+                    onChange={(event) => {
+                      setSelectedDate(event.target.value);
+                      setSelectedMonth(event.target.value.slice(0, 7));
                     }}
                   />
                 </label>
@@ -612,7 +611,7 @@ export function RemindersPage() {
           ) : null}
           <label>
             Vencimiento
-            <DateInputDMY value={form.due_date} onChange={(nextDate) => setForm({ ...form, due_date: nextDate })} />
+            <input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} />
             <small className="muted">Formato visible: dd/mm/aaaa · Fecha: {form.due_date ? dateLabel(form.due_date) : "--/--/----"}</small>
           </label>
           <label>

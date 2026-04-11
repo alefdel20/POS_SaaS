@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
-import { DateInputDMY } from "../components/DateInputDMY";
 import { useAuth } from "../context/AuthContext";
 import type { Expense, FinanceDashboard, FixedExpense, OwnerLoan } from "../types";
 import { currency, shortDate } from "../utils/format";
@@ -323,7 +322,8 @@ export function FinancesPage() {
             </label>
             <label>
               Fecha
-              <DateInputDMY value={expenseForm.date} onChange={(nextDate) => setExpenseForm({ ...expenseForm, date: nextDate })} />
+              <input type="date" value={expenseForm.date} onChange={(event) => setExpenseForm({ ...expenseForm, date: event.target.value })} />
+              <small className="muted">Fecha seleccionada: {formatDatePreview(expenseForm.date)} (dd/mm/aaaa)</small>
             </label>
             <label>
               Metodo de pago
@@ -434,9 +434,11 @@ export function FinancesPage() {
             </label>
             <label>
               Fecha base
-              <DateInputDMY
+              <input
+                type="date"
                 value={fixedExpenseForm.base_date}
-                onChange={(nextBaseDate) => {
+                onChange={(event) => {
+                  const nextBaseDate = event.target.value;
                   setFixedExpenseForm((current) => ({ ...current, base_date: nextBaseDate }));
                 }}
               />
@@ -521,7 +523,8 @@ export function FinancesPage() {
             </label>
             <label>
               Fecha
-              <DateInputDMY value={loanForm.date} onChange={(nextDate) => setLoanForm({ ...loanForm, date: nextDate })} />
+              <input type="date" value={loanForm.date} onChange={(event) => setLoanForm({ ...loanForm, date: event.target.value })} />
+              <small className="muted">Fecha seleccionada: {formatDatePreview(loanForm.date)} (dd/mm/aaaa)</small>
             </label>
             <label>
               Nota obligatoria

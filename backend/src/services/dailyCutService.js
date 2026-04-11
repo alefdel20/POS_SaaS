@@ -20,18 +20,141 @@ function normalizeMonthRange(month) {
   return getMonthRange(month);
 }
 
-function buildSalesFilters(filters = {}, actor, alias = "sales") {
+const REALIZED_CASHFLOW_CTE_SQL = `
+  WITH sale_rows AS (
+    SELECT
+      sales.sale_date::date AS cut_date,
+      sales.user_id AS sale_user_id,
+      users.full_name AS cashier_name,
+      CASE WHEN sales.payment_method = 'credit' THEN 'credit' ELSE sales.payment_method END AS payment_method,
+      CASE
+        WHEN sales.payment_method = 'credit'
+          THEN LEAST(GREATEST(COALESCE(sales.initial_payment, 0), 0), GREATEST(COALESCE(sales.total, 0), 0))
+        ELSE COALESCE(sales.total, 0)
+      END AS realized_amount,
+      CASE
+        WHEN sales.payment_method = 'credit'
+          THEN CASE
+            WHEN COALESCE(sales.total, 0) <= 0 THEN 0
+            ELSE COALESCE(sales.total_cost, 0) * LEAST(
+              GREATEST(
+                LEAST(GREATEST(COALESCE(sales.initial_payment, 0), 0), GREATEST(COALESCE(sales.total, 0), 0)) / NULLIF(sales.total, 0),
+                0
+              ),
+              1
+            )
+          END
+        ELSE COALESCE(sales.total_cost, 0)
+      END AS realized_cost,
+      CASE WHEN sales.sale_type = 'invoice' THEN 1 ELSE 0 END AS invoice_count,
+      CASE WHEN sales.sale_type = 'ticket' THEN 1 ELSE 0 END AS ticket_count,
+      CASE WHEN sales.sale_type = 'invoice' AND sales.stamp_status = 'consumed' THEN 1 ELSE 0 END AS timbres_usados,
+      COALESCE(NULLIF(sales.stamp_snapshot->>'available_after', '')::NUMERIC, company_profiles.stamps_available::NUMERIC) AS timbres_restantes
+    FROM sales
+    INNER JOIN users ON users.id = sales.user_id AND users.business_id = sales.business_id
+    LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id AND company_profiles.business_id = sales.business_id
+    WHERE sales.business_id = $1
+      AND ${VALID_SALE_STATUS_SQL}
+  ),
+  payment_rows AS (
+    SELECT
+      credit_payments.payment_date::date AS cut_date,
+      sales.user_id AS sale_user_id,
+      users.full_name AS cashier_name,
+      COALESCE(credit_payments.payment_method, 'credit') AS payment_method,
+      COALESCE(credit_payments.amount, 0) AS realized_amount,
+      CASE
+        WHEN COALESCE(sales.total, 0) <= 0 THEN 0
+        ELSE COALESCE(sales.total_cost, 0) * LEAST(
+          GREATEST(COALESCE(credit_payments.amount, 0) / NULLIF(sales.total, 0), 0),
+          1
+        )
+      END AS realized_cost,
+      0::INTEGER AS invoice_count,
+      0::INTEGER AS ticket_count,
+      0::INTEGER AS timbres_usados,
+      NULL::NUMERIC AS timbres_restantes
+    FROM credit_payments
+    INNER JOIN sales ON sales.id = credit_payments.sale_id AND sales.business_id = credit_payments.business_id
+    INNER JOIN users ON users.id = sales.user_id AND users.business_id = sales.business_id
+    WHERE credit_payments.business_id = $1
+      AND sales.payment_method = 'credit'
+      AND ${VALID_SALE_STATUS_SQL}
+  ),
+  cashflow_rows AS (
+    SELECT * FROM sale_rows
+    UNION ALL
+    SELECT * FROM payment_rows
+  )
+`;
+
+function buildCutFilters(filters = {}, startingIndex = 2) {
   const conditions = [];
   const values = [];
-  const add = (sql, value) => { values.push(value); conditions.push(sql.replace("?", `$${values.length}`)); };
-  add(`${alias}.business_id = ?`, requireActorBusinessId(actor));
-  if (filters.date) add(`${alias}.sale_date = ?::date`, filters.date);
-  if (filters.date_from) add(`${alias}.sale_date >= ?::date`, filters.date_from);
-  if (filters.date_to) add(`${alias}.sale_date <= ?::date`, filters.date_to);
+  const add = (sql, value) => {
+    values.push(value);
+    conditions.push(sql.replace("?", `$${startingIndex + values.length - 1}`));
+  };
+
+  if (filters.date) add("cut_date = ?::date", filters.date);
+  if (filters.date_from) add("cut_date >= ?::date", filters.date_from);
+  if (filters.date_to) add("cut_date <= ?::date", filters.date_to);
+
   const monthRange = normalizeMonthRange(filters.month);
-  if (monthRange) { add(`${alias}.sale_date >= ?::date`, monthRange.start); add(`${alias}.sale_date <= ?::date`, monthRange.end); }
-  if (filters.user_id) add(`${alias}.user_id = ?`, Number(filters.user_id));
+  if (monthRange) {
+    add("cut_date >= ?::date", monthRange.start);
+    add("cut_date <= ?::date", monthRange.end);
+  }
+
+  if (filters.user_id) add("sale_user_id = ?", Number(filters.user_id));
+
   return { whereClause: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "", values };
+}
+
+function emptyCutRow(cutDate = getLocalIsoDate()) {
+  return {
+    cut_date: cutDate,
+    total_day: 0,
+    cash_total: 0,
+    card_total: 0,
+    credit_total: 0,
+    transfer_total: 0,
+    invoice_count: 0,
+    ticket_count: 0,
+    gross_profit: 0,
+    gross_margin: 0,
+    timbres_usados: 0,
+    timbres_restantes: 0,
+    cashier_names: ""
+  };
+}
+
+async function listRealizedDailyCuts(filters = {}, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const { whereClause, values } = buildCutFilters(filters, 2);
+  const { rows } = await pool.query(
+    `${REALIZED_CASHFLOW_CTE_SQL}
+     SELECT
+       cut_date,
+       COALESCE(SUM(realized_amount), 0) AS total_day,
+       COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN realized_amount ELSE 0 END), 0) AS cash_total,
+       COALESCE(SUM(CASE WHEN payment_method = 'card' THEN realized_amount ELSE 0 END), 0) AS card_total,
+       COALESCE(SUM(CASE WHEN payment_method = 'credit' THEN realized_amount ELSE 0 END), 0) AS credit_total,
+       COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN realized_amount ELSE 0 END), 0) AS transfer_total,
+       COALESCE(SUM(invoice_count), 0) AS invoice_count,
+       COALESCE(SUM(ticket_count), 0) AS ticket_count,
+       COALESCE(SUM(realized_amount - realized_cost), 0) AS gross_profit,
+       CASE WHEN COALESCE(SUM(realized_amount), 0) = 0 THEN 0 ELSE (COALESCE(SUM(realized_amount - realized_cost), 0) / SUM(realized_amount)) * 100 END AS gross_margin,
+       COALESCE(SUM(timbres_usados), 0) AS timbres_usados,
+       COALESCE(MAX(timbres_restantes), 0) AS timbres_restantes,
+       COALESCE(STRING_AGG(DISTINCT cashier_name, ', '), '') AS cashier_names
+     FROM cashflow_rows
+     ${whereClause}
+     GROUP BY cut_date
+     ORDER BY cut_date DESC`,
+    [businessId, ...values]
+  );
+  return rows.map(mapCutRow);
 }
 
 function mapCutRow(row) {
@@ -54,23 +177,8 @@ function mapCutRow(row) {
 
 async function recomputeDailyCut(date = getLocalIsoDate(), actor) {
   const businessId = requireActorBusinessId(actor);
-  const { rows } = await pool.query(
-    `SELECT
-       COALESCE(SUM(total), 0) AS total_day,
-       COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total ELSE 0 END), 0) AS cash_total,
-       COALESCE(SUM(CASE WHEN payment_method = 'card' THEN total ELSE 0 END), 0) AS card_total,
-       COALESCE(SUM(CASE WHEN payment_method = 'credit' THEN total ELSE 0 END), 0) AS credit_total,
-       COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN total ELSE 0 END), 0) AS transfer_total,
-       COALESCE(SUM(CASE WHEN sale_type = 'invoice' THEN 1 ELSE 0 END), 0) AS invoice_count,
-       COALESCE(SUM(CASE WHEN sale_type = 'ticket' THEN 1 ELSE 0 END), 0) AS ticket_count,
-       COALESCE(SUM(total - total_cost), 0) AS gross_profit,
-       CASE WHEN COALESCE(SUM(total), 0) = 0 THEN 0 ELSE (COALESCE(SUM(total - total_cost), 0) / SUM(total)) * 100 END AS gross_margin
-     FROM sales
-     WHERE sale_date = $1 AND business_id = $2
-       AND ${VALID_SALE_STATUS_SQL}`,
-    [date, businessId]
-  );
-  const current = rows[0];
+  const dailyRows = await listRealizedDailyCuts({ date }, actor);
+  const current = dailyRows[0] || emptyCutRow(date);
   const { rows: upserted } = await pool.query(
     `INSERT INTO daily_cuts (cut_date, business_id, total_day, cash_total, card_total, credit_total, transfer_total, invoice_count, ticket_count, gross_profit, gross_margin, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
@@ -93,32 +201,7 @@ async function recomputeDailyCut(date = getLocalIsoDate(), actor) {
 }
 
 async function listDailyCuts(filters = {}, actor) {
-  const { whereClause, values } = buildSalesFilters(filters, actor);
-  const { rows } = await pool.query(
-    `SELECT
-       sales.sale_date AS cut_date,
-       COALESCE(SUM(sales.total), 0) AS total_day,
-       COALESCE(SUM(CASE WHEN sales.payment_method = 'cash' THEN sales.total ELSE 0 END), 0) AS cash_total,
-       COALESCE(SUM(CASE WHEN sales.payment_method = 'card' THEN sales.total ELSE 0 END), 0) AS card_total,
-       COALESCE(SUM(CASE WHEN sales.payment_method = 'credit' THEN sales.total ELSE 0 END), 0) AS credit_total,
-       COALESCE(SUM(CASE WHEN sales.payment_method = 'transfer' THEN sales.total ELSE 0 END), 0) AS transfer_total,
-       COALESCE(SUM(CASE WHEN sales.sale_type = 'invoice' THEN 1 ELSE 0 END), 0) AS invoice_count,
-       COALESCE(SUM(CASE WHEN sales.sale_type = 'ticket' THEN 1 ELSE 0 END), 0) AS ticket_count,
-       COALESCE(SUM(sales.total - sales.total_cost), 0) AS gross_profit,
-       CASE WHEN COALESCE(SUM(sales.total), 0) = 0 THEN 0 ELSE (COALESCE(SUM(sales.total - sales.total_cost), 0) / SUM(sales.total)) * 100 END AS gross_margin,
-       COALESCE(SUM(CASE WHEN sales.sale_type = 'invoice' AND sales.stamp_status = 'consumed' THEN 1 ELSE 0 END), 0) AS timbres_usados,
-       COALESCE(MAX(COALESCE(NULLIF(sales.stamp_snapshot->>'available_after', '')::INTEGER, company_profiles.stamps_available)), 0) AS timbres_restantes,
-       COALESCE(STRING_AGG(DISTINCT users.full_name, ', '), '') AS cashier_names
-     FROM sales
-     INNER JOIN users ON users.id = sales.user_id AND users.business_id = sales.business_id
-     LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id AND company_profiles.business_id = sales.business_id
-     ${whereClause}
-     ${whereClause ? `AND ${VALID_SALE_STATUS_SQL}` : `WHERE ${VALID_SALE_STATUS_SQL}`}
-     GROUP BY sales.sale_date
-     ORDER BY sales.sale_date DESC`,
-    values
-  );
-  return rows.map(mapCutRow);
+  return listRealizedDailyCuts(filters, actor);
 }
 
 async function getTodayDailyCut(actor) {
@@ -129,30 +212,30 @@ async function getTodayDailyCut(actor) {
 }
 
 async function listMonthlyCuts(filters = {}, actor) {
-  const { whereClause, values } = buildSalesFilters(filters, actor);
+  const businessId = requireActorBusinessId(actor);
+  const { whereClause, values } = buildCutFilters(filters, 2);
   const { rows } = await pool.query(
-    `SELECT
-       TO_CHAR(DATE_TRUNC('month', sales.sale_date::timestamp), 'YYYY-MM') AS month,
-       MIN(sales.sale_date) AS start_date,
-       MAX(sales.sale_date) AS end_date,
-       COALESCE(SUM(sales.total), 0) AS total_day,
-       COALESCE(SUM(CASE WHEN sales.payment_method = 'cash' THEN sales.total ELSE 0 END), 0) AS cash_total,
-       COALESCE(SUM(CASE WHEN sales.payment_method = 'card' THEN sales.total ELSE 0 END), 0) AS card_total,
-       COALESCE(SUM(CASE WHEN sales.payment_method = 'credit' THEN sales.total ELSE 0 END), 0) AS credit_total,
-       COALESCE(SUM(CASE WHEN sales.payment_method = 'transfer' THEN sales.total ELSE 0 END), 0) AS transfer_total,
-       COALESCE(SUM(CASE WHEN sales.sale_type = 'invoice' THEN 1 ELSE 0 END), 0) AS invoice_count,
-       COALESCE(SUM(CASE WHEN sales.sale_type = 'ticket' THEN 1 ELSE 0 END), 0) AS ticket_count,
-       COALESCE(SUM(sales.total - sales.total_cost), 0) AS gross_profit,
-       CASE WHEN COALESCE(SUM(sales.total), 0) = 0 THEN 0 ELSE (COALESCE(SUM(sales.total - sales.total_cost), 0) / SUM(sales.total)) * 100 END AS gross_margin,
-       COALESCE(SUM(CASE WHEN sales.sale_type = 'invoice' AND sales.stamp_status = 'consumed' THEN 1 ELSE 0 END), 0) AS timbres_usados,
-       COALESCE(MAX(COALESCE(NULLIF(sales.stamp_snapshot->>'available_after', '')::INTEGER, company_profiles.stamps_available)), 0) AS timbres_restantes
-     FROM sales
-     LEFT JOIN company_profiles ON company_profiles.id = sales.company_profile_id AND company_profiles.business_id = sales.business_id
+    `${REALIZED_CASHFLOW_CTE_SQL}
+     SELECT
+       TO_CHAR(DATE_TRUNC('month', cut_date::timestamp), 'YYYY-MM') AS month,
+       MIN(cut_date) AS start_date,
+       MAX(cut_date) AS end_date,
+       COALESCE(SUM(realized_amount), 0) AS total_day,
+       COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN realized_amount ELSE 0 END), 0) AS cash_total,
+       COALESCE(SUM(CASE WHEN payment_method = 'card' THEN realized_amount ELSE 0 END), 0) AS card_total,
+       COALESCE(SUM(CASE WHEN payment_method = 'credit' THEN realized_amount ELSE 0 END), 0) AS credit_total,
+       COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN realized_amount ELSE 0 END), 0) AS transfer_total,
+       COALESCE(SUM(invoice_count), 0) AS invoice_count,
+       COALESCE(SUM(ticket_count), 0) AS ticket_count,
+       COALESCE(SUM(realized_amount - realized_cost), 0) AS gross_profit,
+       CASE WHEN COALESCE(SUM(realized_amount), 0) = 0 THEN 0 ELSE (COALESCE(SUM(realized_amount - realized_cost), 0) / SUM(realized_amount)) * 100 END AS gross_margin,
+       COALESCE(SUM(timbres_usados), 0) AS timbres_usados,
+       COALESCE(MAX(timbres_restantes), 0) AS timbres_restantes
+     FROM cashflow_rows
      ${whereClause}
-     ${whereClause ? `AND ${VALID_SALE_STATUS_SQL}` : `WHERE ${VALID_SALE_STATUS_SQL}`}
-     GROUP BY DATE_TRUNC('month', sales.sale_date::timestamp)
-     ORDER BY DATE_TRUNC('month', sales.sale_date::timestamp) DESC`,
-    values
+     GROUP BY DATE_TRUNC('month', cut_date::timestamp)
+     ORDER BY DATE_TRUNC('month', cut_date::timestamp) DESC`,
+    [businessId, ...values]
   );
   return rows.map(mapCutRow);
 }
