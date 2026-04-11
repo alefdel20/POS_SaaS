@@ -255,12 +255,15 @@ async function getCreditSaleSummary(saleId, actor) {
        sales.total,
        sales.initial_payment,
        sales.balance_due,
-       COALESCE(SUM(credit_payments.amount), 0) AS total_paid,
+       COALESCE(payments.total_paid, 0) AS total_paid,
        COALESCE(items.items, '[]'::json) AS items
      FROM sales
-     LEFT JOIN credit_payments
-       ON credit_payments.sale_id = sales.id
-      AND credit_payments.business_id = sales.business_id
+     LEFT JOIN LATERAL (
+       SELECT COALESCE(SUM(credit_payments.amount), 0) AS total_paid
+       FROM credit_payments
+       WHERE credit_payments.sale_id = sales.id
+         AND credit_payments.business_id = sales.business_id
+     ) payments ON TRUE
      LEFT JOIN LATERAL (
        SELECT json_agg(json_build_object(
          'product_id', sale_items.product_id,
@@ -280,8 +283,7 @@ async function getCreditSaleSummary(saleId, actor) {
      WHERE sales.id = $1
        AND sales.business_id = $2
        AND sales.payment_method = 'credit'
-       AND ${VALID_SALE_STATUS_SQL}
-     GROUP BY sales.id, items.items`,
+       AND ${VALID_SALE_STATUS_SQL}`,
     [saleId, businessId]
   );
 

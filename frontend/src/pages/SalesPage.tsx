@@ -354,6 +354,14 @@ export function SalesPage() {
   }, [customerNameInput, paymentMethod, token]);
 
   useEffect(() => {
+    debtorSuggestionRequestRef.current += 1;
+    setDebtorSuggestions([]);
+    setCustomerName("");
+    setCustomerNameInput("");
+    setCustomerPhone("");
+  }, [token, user?.business_id]);
+
+  useEffect(() => {
     if (!prescriptionSeedId) {
       return;
     }

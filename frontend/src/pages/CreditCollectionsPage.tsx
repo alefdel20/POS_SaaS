@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { CreditPayment, CreditSaleSummary, Debtor } from "../types";
@@ -33,6 +33,7 @@ export function CreditCollectionsPage() {
   const [error, setError] = useState("");
   const [sendingReminder, setSendingReminder] = useState(false);
   const isAvailable = canUseCreditCollections(user?.pos_type);
+  const tenantRequestRef = useRef(0);
 
   if (!isAvailable) {
     return (
@@ -49,7 +50,7 @@ export function CreditCollectionsPage() {
     );
   }
 
-  async function loadDebtors(nextSearch = search, nextStatus = statusFilter) {
+  async function loadDebtors(nextSearch = search, nextStatus = statusFilter, requestId?: number) {
     if (!token) return;
     const params = new URLSearchParams();
     if (nextSearch.trim()) {
@@ -60,6 +61,9 @@ export function CreditCollectionsPage() {
     }
 
     const response = await apiRequest<Debtor[]>(`/credit-collections?${params.toString()}`, { token });
+    if (requestId !== undefined && tenantRequestRef.current !== requestId) {
+      return;
+    }
     setDebtors(response);
     setSelectedSaleId((current) => {
       if (current && response.some((debtor) => debtor.sale_id === current)) {
@@ -69,27 +73,43 @@ export function CreditCollectionsPage() {
     });
   }
 
-  async function loadPayments(saleId: number) {
+  async function loadPayments(saleId: number, requestId?: number) {
     if (!token) return;
     const response = await apiRequest<CreditPayment[]>(`/credit-collections/${saleId}/payments`, { token });
+    if (requestId !== undefined && tenantRequestRef.current !== requestId) {
+      return;
+    }
     setPayments(response);
   }
 
-  async function loadSaleSummary(saleId: number) {
+  async function loadSaleSummary(saleId: number, requestId?: number) {
     if (!token) return;
     const response = await apiRequest<CreditSaleSummary>(`/credit-collections/${saleId}/summary`, { token });
+    if (requestId !== undefined && tenantRequestRef.current !== requestId) {
+      return;
+    }
     setSaleSummary(response);
   }
 
   useEffect(() => {
-    loadDebtors().catch((loadError) => {
+    tenantRequestRef.current += 1;
+    setDebtors([]);
+    setSelectedSaleId(null);
+    setPayments([]);
+    setSaleSummary(null);
+  }, [token, user?.business_id]);
+
+  useEffect(() => {
+    const requestId = tenantRequestRef.current;
+    loadDebtors(search, statusFilter, requestId).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar deudores");
     });
-  }, [token]);
+  }, [token, user?.business_id]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      loadDebtors(search, statusFilter).catch((loadError) => {
+      const requestId = tenantRequestRef.current;
+      loadDebtors(search, statusFilter, requestId).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible filtrar deudores");
       });
     }, 250);
@@ -100,15 +120,17 @@ export function CreditCollectionsPage() {
   useEffect(() => {
     if (!selectedSaleId) {
       setSaleSummary(null);
+      setPayments([]);
       return;
     }
-    loadPayments(selectedSaleId).catch((loadError) => {
+    const requestId = tenantRequestRef.current;
+    loadPayments(selectedSaleId, requestId).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los abonos");
     });
-    loadSaleSummary(selectedSaleId).catch((loadError) => {
+    loadSaleSummary(selectedSaleId, requestId).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el detalle de la venta");
     });
-  }, [selectedSaleId, token]);
+  }, [selectedSaleId, token, user?.business_id]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
