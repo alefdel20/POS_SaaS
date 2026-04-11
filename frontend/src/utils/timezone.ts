@@ -45,6 +45,16 @@ export function getMexicoCityDateInputValue(value: Date | string | number = new 
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+export function formatMexicoCityDate(value: Date | string | number) {
+  const parts = getDateParts(value);
+  return `${parts.day}/${parts.month}/${parts.year}`;
+}
+
+export function formatMexicoCityDateTime(value: Date | string | number) {
+  const parts = getDateTimeParts(value);
+  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
+}
+
 export function getMexicoCityDateTimeLocalValue(value?: string | null) {
   if (!value) {
     return "";

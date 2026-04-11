@@ -4,7 +4,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalPatientSummary, Reminder } from "../types";
 import { REMINDER_CATEGORIES, REMINDER_STATUSES } from "../utils/domainEnums";
-import { currency, dateLabel } from "../utils/format";
+import { currency, dateLabel, shortDateTime } from "../utils/format";
 import { getReminderStatusLabel } from "../utils/uiLabels";
 import { dateTimeLocalToIsoString, getMexicoCityDateInputValue, getMexicoCityDateTimeLocalValue, getMonthInputRange } from "../utils/timezone";
 
@@ -612,14 +612,17 @@ export function RemindersPage() {
           <label>
             Vencimiento
             <input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} />
+            <small className="muted">Formato visible: dd/mm/aaaa · Fecha: {form.due_date ? dateLabel(form.due_date) : "--/--/----"}</small>
           </label>
           <label>
             Fecha inicio
             <input type="datetime-local" value={form.start_date} onChange={(event) => setForm({ ...form, start_date: event.target.value, due_date: event.target.value ? event.target.value.slice(0, 10) : form.due_date })} />
+            <small className="muted">Formato visible: dd/mm/aaaa HH:mm · Fecha: {form.start_date ? shortDateTime(form.start_date) : "--/--/---- --:--"}</small>
           </label>
           <label>
             Fecha fin (opcional)
             <input type="datetime-local" value={form.end_date} onChange={(event) => setForm({ ...form, end_date: event.target.value })} />
+            <small className="muted">Formato visible: dd/mm/aaaa HH:mm · Fecha: {form.end_date ? shortDateTime(form.end_date) : "--/--/---- --:--"}</small>
           </label>
           <button className="button" disabled={saving} type="submit">
             {saving ? "Guardando..." : editingId ? "Actualizar recordatorio" : "Guardar recordatorio"}

@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import type { Expense, FinanceDashboard, FixedExpense, OwnerLoan } from "../types";
 import { currency, shortDate } from "../utils/format";
 import { getPaymentMethodLabel } from "../utils/uiLabels";
-import { getMexicoCityDateInputValue } from "../utils/timezone";
+import { formatMexicoCityDate, getMexicoCityDateInputValue } from "../utils/timezone";
 
 const emptyExpense = {
   concept: "",
@@ -63,6 +63,11 @@ function dueDateInputToDay(value?: string | null) {
 function dayToDueDateInput(dueDay?: number | null) {
   if (!dueDay || !Number.isInteger(Number(dueDay)) || Number(dueDay) < 1 || Number(dueDay) > 31) return "";
   return `${DUE_DAY_ANCHOR_DATE_PREFIX}-${String(Number(dueDay)).padStart(2, "0")}`;
+}
+
+function formatDatePreview(value?: string | null) {
+  if (!value) return "--/--/----";
+  return formatMexicoCityDate(value);
 }
 
 export function FinancesPage() {
@@ -440,11 +445,13 @@ export function FinancesPage() {
                   setFixedExpenseForm((current) => ({ ...current, base_date: nextBaseDate }));
                 }}
               />
+              <small className="muted">Fecha seleccionada: {formatDatePreview(fixedExpenseForm.base_date)} (dd/mm/aaaa)</small>
             </label>
             <label>
               Dia de vencimiento (solo dia del mes)
               <input type="date" value={fixedExpenseForm.due_day} onChange={(event) => setFixedExpenseForm({ ...fixedExpenseForm, due_day: event.target.value })} />
-              <small className="muted">Se guarda unicamente el dia (1-31). Mes y anio del selector solo son visuales.</small>
+              <small className="muted">Dia seleccionado: {fixedExpenseForm.due_day ? fixedExpenseForm.due_day.slice(8, 10) : "--"} · Se guarda unicamente el dia (1-31).</small>
+              <small className="muted">La proyeccion en calendario toma como ancla la Fecha base ({formatDatePreview(fixedExpenseForm.base_date)}).</small>
             </label>
             <label>
               Notas
