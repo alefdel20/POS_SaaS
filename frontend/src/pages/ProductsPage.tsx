@@ -642,6 +642,10 @@ export function ProductsPage() {
     clearRestockRowFeedback(productId);
   }
 
+  function getRestockDraftValue(productId: number) {
+    return restockDrafts[productId] ?? "0";
+  }
+
   function clearRestockDrafts(productIds: number[]) {
     if (productIds.length === 0) {
       return;
@@ -654,6 +658,37 @@ export function ProductsPage() {
       });
       return next;
     });
+  }
+
+  function summarizeRestockBatchResults(
+    results: Array<{ product_id: number | null; status: "success" | "error"; message: string }>,
+    successFallback: string,
+    errorFallback: string
+  ) {
+    const successfulIds = new Set<number>();
+    const feedbackByProductId: Record<number, RestockRowFeedback> = {};
+
+    results.forEach((result) => {
+      const productId = Number(result.product_id);
+      if (!Number.isInteger(productId) || productId <= 0) {
+        return;
+      }
+
+      const status: RestockRowFeedback["status"] = result.status === "success" ? "success" : "error";
+      if (status === "success") {
+        successfulIds.add(productId);
+      }
+
+      feedbackByProductId[productId] = {
+        status,
+        message: result.message || (status === "success" ? successFallback : errorFallback)
+      };
+    });
+
+    return {
+      successfulIds: Array.from(successfulIds),
+      feedbackByProductId
+    };
   }
 
   function clearRestockSavingIds(productIds: number[]) {
@@ -669,7 +704,7 @@ export function ProductsPage() {
   function getValidRestockDraftEntries(sourceItems = restockItems) {
     return sourceItems
       .map((item) => {
-        const quantity = parseRestockDraftQuantity(restockDrafts[item.id] ?? "0", item.unidad_de_venta);
+        const quantity = parseRestockDraftQuantity(getRestockDraftValue(item.id), item.unidad_de_venta);
         if (quantity === null) return null;
         return { item, quantity };
       })
@@ -679,7 +714,7 @@ export function ProductsPage() {
   async function saveRestockItem(item: RestockProductItem, reasonOverride = "") {
     if (!token || isSavingRestockBatch || restockSavingIds[item.id]) return false;
 
-    const nextStockValue = restockDrafts[item.id] ?? "";
+    const nextStockValue = getRestockDraftValue(item.id);
     const reason = String(reasonOverride || "").trim();
     const restockQuantity = parseRestockDraftQuantity(nextStockValue, item.unidad_de_venta);
     if (restockQuantity === null) {
@@ -778,25 +813,16 @@ export function ProductsPage() {
           })
         });
 
-        const successfulIds = new Set<number>();
-        setRestockRowFeedback((current) => {
-          const next = { ...current };
-          response.results.forEach((result) => {
-            const productId = Number(result.product_id);
-            if (!Number.isInteger(productId) || productId <= 0) return;
-            if (result.status === "success") {
-              successfulIds.add(productId);
-            }
-            next[productId] = {
-              status: result.status,
-              message: result.message || (result.status === "success" ? "Solicitud enviada" : "No fue posible enviar")
-            };
-          });
-          return next;
-        });
-
-        if (successfulIds.size > 0) {
-          clearRestockDrafts(Array.from(successfulIds));
+        const { successfulIds, feedbackByProductId } = summarizeRestockBatchResults(
+          response.results,
+          "Solicitud enviada",
+          "No fue posible enviar"
+        );
+        if (Object.keys(feedbackByProductId).length > 0) {
+          setRestockRowFeedback((current) => ({ ...current, ...feedbackByProductId }));
+        }
+        if (successfulIds.length > 0) {
+          clearRestockDrafts(successfulIds);
         }
 
         await loadRequestSummary();
@@ -814,25 +840,16 @@ export function ProductsPage() {
           })
         });
 
-        const successfulIds = new Set<number>();
-        setRestockRowFeedback((current) => {
-          const next = { ...current };
-          response.results.forEach((result) => {
-            const productId = Number(result.product_id);
-            if (!Number.isInteger(productId) || productId <= 0) return;
-            if (result.status === "success") {
-              successfulIds.add(productId);
-            }
-            next[productId] = {
-              status: result.status,
-              message: result.message || (result.status === "success" ? "Stock guardado" : "No fue posible guardar")
-            };
-          });
-          return next;
-        });
-
-        if (successfulIds.size > 0) {
-          clearRestockDrafts(Array.from(successfulIds));
+        const { successfulIds, feedbackByProductId } = summarizeRestockBatchResults(
+          response.results,
+          "Stock guardado",
+          "No fue posible guardar"
+        );
+        if (Object.keys(feedbackByProductId).length > 0) {
+          setRestockRowFeedback((current) => ({ ...current, ...feedbackByProductId }));
+        }
+        if (successfulIds.length > 0) {
+          clearRestockDrafts(successfulIds);
         }
 
         setInfo(`Guardado masivo completado: ${response.summary.success} exitosos, ${response.summary.failed} con error.`);
@@ -2276,10 +2293,11 @@ export function ProductsPage() {
                   <td>{formatRestockQuantity(item.stock_maximo ?? 0, item.unidad_de_venta)}</td>
 	                  <td>
 	                    <input
+	                      disabled={Boolean(restockSavingIds[item.id]) || isSavingRestockBatch}
 	                      min="0"
 	                      step={getResolvedSaleUnit(item.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.unidad_de_venta) === "litro" ? "0.001" : "1"}
 	                      type="number"
-	                      value={restockDrafts[item.id] ?? "0"}
+	                      value={getRestockDraftValue(item.id)}
 	                      onChange={(event) => setRestockDraftValue(item.id, event.target.value)}
 	                    />
 	                  </td>
@@ -2305,7 +2323,7 @@ export function ProductsPage() {
                   </td>
 	                  <td>
 	                    {(() => {
-	                      const nextStock = parseRestockDraftQuantity(restockDrafts[item.id] ?? "0", item.unidad_de_venta);
+	                      const nextStock = parseRestockDraftQuantity(getRestockDraftValue(item.id), item.unidad_de_venta);
 	                      const isRowSaving = Boolean(restockSavingIds[item.id]) || isSavingRestockBatch;
 	                      const disableSave = isRowSaving || nextStock === null;
 	                      const rowFeedback = restockRowFeedback[item.id];
