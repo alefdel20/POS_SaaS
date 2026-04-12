@@ -75,6 +75,15 @@ type RestockRowFeedback = {
   message: string;
 };
 
+type RestockBatchResultLike = {
+  product_id?: number | string | null;
+  id?: number | string | null;
+  request_id?: number | string | null;
+  status?: string | null;
+  message?: string | null;
+  product?: { id?: number | string | null } | null;
+};
+
 const emptySupplier: ProductSupplierFormState = {
   supplier_id: "",
   supplier_name: "",
@@ -646,6 +655,34 @@ export function ProductsPage() {
     return restockDrafts[productId] ?? "0";
   }
 
+  function normalizeRestockProductId(value: unknown) {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  function resolveBatchResultProductId(
+    result: RestockBatchResultLike,
+    fallbackProductId: number | undefined,
+    requestedProductIds: Set<number>
+  ) {
+    const candidates = [result.product_id, result.id, result.product?.id, fallbackProductId];
+    for (const candidate of candidates) {
+      const normalized = normalizeRestockProductId(candidate);
+      if (normalized && requestedProductIds.has(normalized)) {
+        return normalized;
+      }
+    }
+    return null;
+  }
+
+  function normalizeBatchResultStatus(status: unknown): RestockRowFeedback["status"] {
+    const normalizedStatus = String(status || "").trim().toLowerCase();
+    if (normalizedStatus === "success" || normalizedStatus === "ok" || normalizedStatus === "created" || normalizedStatus === "updated") {
+      return "success";
+    }
+    return "error";
+  }
+
   function clearRestockDrafts(productIds: number[]) {
     if (productIds.length === 0) {
       return;
@@ -661,27 +698,30 @@ export function ProductsPage() {
   }
 
   function summarizeRestockBatchResults(
-    results: Array<{ product_id: number | null; status: "success" | "error"; message: string }>,
+    results: RestockBatchResultLike[],
+    fallbackProductIds: number[],
+    requestedProductIds: Set<number>,
     successFallback: string,
     errorFallback: string
   ) {
     const successfulIds = new Set<number>();
     const feedbackByProductId: Record<number, RestockRowFeedback> = {};
 
-    results.forEach((result) => {
-      const productId = Number(result.product_id);
-      if (!Number.isInteger(productId) || productId <= 0) {
+    results.forEach((result, index) => {
+      const productId = resolveBatchResultProductId(result, fallbackProductIds[index], requestedProductIds);
+      if (!productId) {
         return;
       }
 
-      const status: RestockRowFeedback["status"] = result.status === "success" ? "success" : "error";
+      const status = normalizeBatchResultStatus(result.status);
       if (status === "success") {
         successfulIds.add(productId);
       }
 
+      const message = typeof result.message === "string" ? result.message : "";
       feedbackByProductId[productId] = {
         status,
-        message: result.message || (status === "success" ? successFallback : errorFallback)
+        message: message || (status === "success" ? successFallback : errorFallback)
       };
     });
 
@@ -789,6 +829,7 @@ export function ProductsPage() {
     }
 
     const productIds = validDraftEntries.map((entry) => entry.item.id);
+    const requestedProductIds = new Set<number>(productIds);
     setError("");
     setIsSavingRestockBatch(true);
     setRestockSavingIds((current) => {
@@ -815,6 +856,8 @@ export function ProductsPage() {
 
         const { successfulIds, feedbackByProductId } = summarizeRestockBatchResults(
           response.results,
+          productIds,
+          requestedProductIds,
           "Solicitud enviada",
           "No fue posible enviar"
         );
@@ -842,6 +885,8 @@ export function ProductsPage() {
 
         const { successfulIds, feedbackByProductId } = summarizeRestockBatchResults(
           response.results,
+          productIds,
+          requestedProductIds,
           "Stock guardado",
           "No fue posible guardar"
         );
