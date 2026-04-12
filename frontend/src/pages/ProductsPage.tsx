@@ -619,15 +619,6 @@ export function ProductsPage() {
       setRestockItems(response.items);
       setRestockTotalPages(response.pagination.totalPages);
       setRestockTotalItems(response.pagination.total);
-      setRestockDrafts((current) => {
-        const nextDrafts = { ...current };
-        response.items.forEach((item) => {
-          if (!Object.prototype.hasOwnProperty.call(nextDrafts, item.id)) {
-            nextDrafts[item.id] = "0";
-          }
-        });
-        return nextDrafts;
-      });
     } finally {
       if (requestId === restockRequestIdRef.current) {
         setLoadingRestock(false);
@@ -649,6 +640,20 @@ export function ProductsPage() {
   function setRestockDraftValue(productId: number, value: string) {
     setRestockDrafts((current) => ({ ...current, [productId]: value }));
     clearRestockRowFeedback(productId);
+  }
+
+  function clearRestockDrafts(productIds: number[]) {
+    if (productIds.length === 0) {
+      return;
+    }
+
+    setRestockDrafts((current) => {
+      const next = { ...current };
+      productIds.forEach((productId) => {
+        delete next[productId];
+      });
+      return next;
+    });
   }
 
   function clearRestockSavingIds(productIds: number[]) {
@@ -723,7 +728,7 @@ export function ProductsPage() {
         }));
       }
 
-      setRestockDrafts((current) => ({ ...current, [item.id]: "0" }));
+      clearRestockDrafts([item.id]);
       await loadProducts(search, page, pageSize, categoryFilter);
       await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
       return true;
@@ -791,13 +796,7 @@ export function ProductsPage() {
         });
 
         if (successfulIds.size > 0) {
-          setRestockDrafts((current) => {
-            const next = { ...current };
-            successfulIds.forEach((productId) => {
-              next[productId] = "0";
-            });
-            return next;
-          });
+          clearRestockDrafts(Array.from(successfulIds));
         }
 
         await loadRequestSummary();
@@ -833,13 +832,7 @@ export function ProductsPage() {
         });
 
         if (successfulIds.size > 0) {
-          setRestockDrafts((current) => {
-            const next = { ...current };
-            successfulIds.forEach((productId) => {
-              next[productId] = "0";
-            });
-            return next;
-          });
+          clearRestockDrafts(Array.from(successfulIds));
         }
 
         setInfo(`Guardado masivo completado: ${response.summary.success} exitosos, ${response.summary.failed} con error.`);
