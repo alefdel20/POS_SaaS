@@ -43,6 +43,13 @@ const restockUpdateValidation = [
   body("reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
+const restockBatchValidation = [
+  body("items").isArray({ min: 1 }),
+  body("items.*.product_id").isInt({ min: 1 }),
+  body("items.*.stock").isFloat({ gt: 0 }),
+  body("items.*.reason").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 const idValidation = [param("id").isInt(), validateRequest];
 const importConfirmValidation = [
   body("rows").isArray({ min: 1 }),
@@ -197,6 +204,10 @@ const restockProduct = asyncHandler(async (req, res) => {
   res.json(await productService.restockProduct(Number(req.params.id), req.body, req.user));
 });
 
+const restockProductsBatch = asyncHandler(async (req, res) => {
+  res.json(await productService.restockProductsBatch(req.body, req.user));
+});
+
 const previewProductImport = asyncHandler(async (req, res) => {
   res.json(await productService.previewProductImport(req.file, req.user));
 });
@@ -249,6 +260,7 @@ module.exports = {
   restockValidation,
   restockHistoryValidation,
   restockUpdateValidation,
+  restockBatchValidation,
   idValidation,
   importConfirmValidation,
   createValidation,
@@ -264,6 +276,7 @@ module.exports = {
   listRestockHistory,
   getRestockHistoryMetrics,
   restockProduct,
+  restockProductsBatch,
   previewProductImport,
   confirmProductImport,
   getProductDetail,

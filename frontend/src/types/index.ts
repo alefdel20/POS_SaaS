@@ -60,6 +60,7 @@ export interface Supplier {
   is_primary?: boolean;
   purchase_cost?: number | null;
   cost_updated_at?: string | null;
+  products_stock_cost?: number;
 }
 
 export interface SupplierProductItem {
@@ -332,6 +333,22 @@ export interface ProductUpdateRequestListResponse {
   };
 }
 
+export interface ProductUpdateRequestBatchResultItem {
+  product_id: number | null;
+  status: "success" | "error";
+  message: string;
+  request_id?: number;
+}
+
+export interface ProductUpdateRequestBatchResponse {
+  results: ProductUpdateRequestBatchResultItem[];
+  summary: {
+    total: number;
+    success: number;
+    failed: number;
+  };
+}
+
 export interface ProductImportPreviewRow {
   row_number: number;
   index: number;
@@ -411,6 +428,22 @@ export interface RestockProductsResponse {
     pageSize: number;
     total: number;
     totalPages: number;
+  };
+}
+
+export interface RestockBatchResultItem {
+  product_id: number | null;
+  status: "success" | "error";
+  message: string;
+  product?: Product;
+}
+
+export interface RestockBatchResponse {
+  results: RestockBatchResultItem[];
+  summary: {
+    total: number;
+    success: number;
+    failed: number;
   };
 }
 
@@ -635,6 +668,27 @@ export interface MedicalPreventiveEvent {
   notes?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type HistoryMovementType =
+  | "sales"
+  | "credit_collections"
+  | "invoice_payments"
+  | "expenses"
+  | "fixed_expenses"
+  | "owner_debt";
+
+export interface HistoryMovement {
+  id: string;
+  date: string;
+  type: HistoryMovementType;
+  reference: string;
+  concept: string;
+  payment_method?: "cash" | "card" | "credit" | "transfer" | null;
+  amount: number;
+  sale_id?: number | null;
+  cashier_name?: string | null;
+  status?: "completed" | "cancelled" | string | null;
 }
 
 export interface Sale {

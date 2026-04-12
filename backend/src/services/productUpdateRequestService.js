@@ -563,6 +563,75 @@ async function createProductUpdateRequest(payload, actor) {
   }
 }
 
+async function createProductUpdateRequestsBatch(payload, actor) {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (items.length === 0) {
+    throw new ApiError(400, "At least one request item is required");
+  }
+
+  const defaultReason = String(payload?.reason || "").trim();
+  const results = [];
+  let success = 0;
+  let failed = 0;
+
+  for (const item of items) {
+    const productId = Number(item?.product_id);
+    const requestedStock = Number(item?.new_stock ?? item?.requested_stock);
+    const reason = String(item?.reason || defaultReason || "Solicitud masiva de ajuste de stock").trim();
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+      failed += 1;
+      results.push({
+        product_id: item?.product_id ?? null,
+        status: "error",
+        message: "Product is invalid"
+      });
+      continue;
+    }
+
+    if (!Number.isFinite(requestedStock) || requestedStock <= 0) {
+      failed += 1;
+      results.push({
+        product_id: productId,
+        status: "error",
+        message: "Requested stock must be greater than zero"
+      });
+      continue;
+    }
+
+    try {
+      const request = await createProductUpdateRequest({
+        product_id: productId,
+        new_stock: requestedStock,
+        reason
+      }, actor);
+      success += 1;
+      results.push({
+        product_id: productId,
+        status: "success",
+        message: "Request created",
+        request_id: Number(request.id)
+      });
+    } catch (error) {
+      failed += 1;
+      results.push({
+        product_id: productId,
+        status: "error",
+        message: error instanceof Error ? error.message : "Failed to create request"
+      });
+    }
+  }
+
+  return {
+    results,
+    summary: {
+      total: items.length,
+      success,
+      failed
+    }
+  };
+}
+
 async function createProductChangeRequestFromEdit(productId, payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const role = normalizeRole(actor?.role);
@@ -885,6 +954,7 @@ module.exports = {
   getPendingProductUpdateSummary,
   getProductUpdateRequestSummary,
   createProductUpdateRequest,
+  createProductUpdateRequestsBatch,
   createProductChangeRequestFromEdit,
   reviewProductUpdateRequest
 };

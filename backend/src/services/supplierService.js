@@ -18,7 +18,20 @@ async function listSuppliers(search = "", actor) {
   }
 
   const { rows } = await pool.query(
-    `SELECT
+    `WITH ranked_product_suppliers AS (
+       SELECT
+         product_suppliers.id,
+         product_suppliers.product_id,
+         product_suppliers.supplier_id,
+         product_suppliers.business_id,
+         product_suppliers.purchase_cost,
+         ROW_NUMBER() OVER (
+           PARTITION BY product_suppliers.business_id, product_suppliers.supplier_id, product_suppliers.product_id
+           ORDER BY product_suppliers.is_primary DESC, product_suppliers.cost_updated_at DESC NULLS LAST, product_suppliers.id DESC
+         ) AS supplier_rank
+       FROM product_suppliers
+     )
+     SELECT
        suppliers.id,
        suppliers.name,
        suppliers.email,
@@ -26,22 +39,28 @@ async function listSuppliers(search = "", actor) {
        suppliers.whatsapp,
        suppliers.observations,
        suppliers.business_id,
-       COUNT(DISTINCT product_suppliers.product_id)::int AS product_count,
+       COUNT(DISTINCT ranked_product_suppliers.product_id)::int AS product_count,
+       COALESCE(SUM(COALESCE(products.stock, 0) * COALESCE(ranked_product_suppliers.purchase_cost, 0)), 0) AS products_stock_cost,
        COALESCE(product_preview.product_names, ARRAY[]::text[]) AS product_names
      FROM suppliers
-     LEFT JOIN product_suppliers
-       ON product_suppliers.supplier_id = suppliers.id
-      AND product_suppliers.business_id = suppliers.business_id
+     LEFT JOIN ranked_product_suppliers
+       ON ranked_product_suppliers.supplier_id = suppliers.id
+      AND ranked_product_suppliers.business_id = suppliers.business_id
+      AND ranked_product_suppliers.supplier_rank = 1
+     LEFT JOIN products
+       ON products.id = ranked_product_suppliers.product_id
+      AND products.business_id = ranked_product_suppliers.business_id
      LEFT JOIN LATERAL (
        SELECT ARRAY_AGG(preview_products.name ORDER BY preview_products.name ASC) AS product_names
        FROM (
          SELECT products.name
-         FROM product_suppliers preview_links
+         FROM ranked_product_suppliers preview_links
          INNER JOIN products
            ON products.id = preview_links.product_id
           AND products.business_id = preview_links.business_id
          WHERE preview_links.supplier_id = suppliers.id
            AND preview_links.business_id = suppliers.business_id
+           AND preview_links.supplier_rank = 1
          ORDER BY products.name ASC
          LIMIT 3
        ) AS preview_products
@@ -52,7 +71,11 @@ async function listSuppliers(search = "", actor) {
     params
   );
 
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    product_count: Number(row.product_count || 0),
+    products_stock_cost: Number(row.products_stock_cost || 0)
+  }));
 }
 
 async function getSupplierDetail(id, actor) {

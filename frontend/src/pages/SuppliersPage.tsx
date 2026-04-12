@@ -22,6 +22,7 @@ type SupplierSummary = {
   whatsapp?: string | null;
   observations?: string | null;
   product_count: number;
+  products_stock_cost: number;
   product_names?: string[];
 };
 
@@ -99,6 +100,11 @@ function buildCatalogQuery(filters: CatalogFilters) {
     }
   });
   return params.toString();
+}
+
+function truncateWithEllipsis(value: string, maxLength = 50) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 export function SuppliersPage() {
@@ -493,6 +499,7 @@ export function SuppliersPage() {
                   <th>Proveedor</th>
                   <th>Contacto</th>
                   <th>Producto</th>
+                  <th>Costo de productos</th>
                   <th>Productos</th>
                 </tr>
               </thead>
@@ -505,7 +512,14 @@ export function SuppliersPage() {
                   >
                     <td>{supplier.name}</td>
                     <td>{supplier.whatsapp || supplier.phone || supplier.email || "-"}</td>
-                    <td>{supplier.product_names?.length ? `${supplier.product_names.join(", ")}${supplier.product_count > supplier.product_names.length ? ` +${supplier.product_count - supplier.product_names.length}` : ""}` : "-"}</td>
+                    <td
+                      title={supplier.product_names?.length ? `${supplier.product_names.join(", ")}${supplier.product_count > supplier.product_names.length ? ` +${supplier.product_count - supplier.product_names.length}` : ""}` : "-"}
+                    >
+                      {supplier.product_names?.length
+                        ? truncateWithEllipsis(`${supplier.product_names.join(", ")}${supplier.product_count > supplier.product_names.length ? ` +${supplier.product_count - supplier.product_names.length}` : ""}`, 50)
+                        : "-"}
+                    </td>
+                    <td>{currency(supplier.products_stock_cost || 0)}</td>
                     <td>{supplier.product_count}</td>
                   </tr>
                 ))}

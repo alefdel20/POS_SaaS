@@ -26,6 +26,15 @@ const createValidation = [
   body("new_stock").optional({ values: "falsy" }).isFloat({ min: 0, maxDecimalPlaces: 3 }),
   validateRequest
 ];
+const createBatchValidation = [
+  body("reason").optional({ values: "falsy" }).trim(),
+  body("items").isArray({ min: 1 }),
+  body("items.*.product_id").isInt({ min: 1 }),
+  body("items.*.requested_stock").optional({ values: "falsy" }).isFloat({ gt: 0, maxDecimalPlaces: 3 }),
+  body("items.*.new_stock").optional({ values: "falsy" }).isFloat({ gt: 0, maxDecimalPlaces: 3 }),
+  body("items.*.reason").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 
 const reviewValidation = [
   param("id").isInt({ min: 1 }),
@@ -61,6 +70,10 @@ const createProductUpdateRequest = asyncHandler(async (req, res) => {
   res.status(201).json(await productUpdateRequestService.createProductUpdateRequest(req.body, req.user));
 });
 
+const createBatchProductUpdateRequests = asyncHandler(async (req, res) => {
+  res.status(201).json(await productUpdateRequestService.createProductUpdateRequestsBatch(req.body, req.user));
+});
+
 const reviewProductUpdateRequest = asyncHandler(async (req, res) => {
   res.json(await productUpdateRequestService.reviewProductUpdateRequest(Number(req.params.id), req.body, req.user));
 });
@@ -68,10 +81,12 @@ const reviewProductUpdateRequest = asyncHandler(async (req, res) => {
 module.exports = {
   listValidation,
   createValidation,
+  createBatchValidation,
   reviewValidation,
   listProductUpdateRequests,
   getPendingSummary,
   getRequestSummary,
   createProductUpdateRequest,
+  createBatchProductUpdateRequests,
   reviewProductUpdateRequest
 };

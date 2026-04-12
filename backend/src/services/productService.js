@@ -1719,6 +1719,70 @@ async function restockProduct(id, payload = {}, actor) {
   }
 }
 
+async function restockProductsBatch(payload = {}, actor) {
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  if (items.length === 0) {
+    throw new ApiError(400, "At least one restock item is required");
+  }
+
+  const results = [];
+  let success = 0;
+  let failed = 0;
+
+  for (const item of items) {
+    const productId = Number(item?.product_id);
+    const quantity = Number(item?.stock);
+    const reason = String(item?.reason || "restock_batch_update").trim() || "restock_batch_update";
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+      failed += 1;
+      results.push({
+        product_id: item?.product_id ?? null,
+        status: "error",
+        message: "Product is invalid"
+      });
+      continue;
+    }
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      failed += 1;
+      results.push({
+        product_id: productId,
+        status: "error",
+        message: "Restock quantity must be greater than zero"
+      });
+      continue;
+    }
+
+    try {
+      const updatedProduct = await restockProduct(productId, { stock: quantity, reason }, actor);
+      success += 1;
+      results.push({
+        product_id: productId,
+        status: "success",
+        message: "Stock updated",
+        product: updatedProduct
+      });
+    } catch (error) {
+      failed += 1;
+      results.push({
+        product_id: productId,
+        status: "error",
+        message: error instanceof Error ? error.message : "Failed to update stock"
+      });
+    }
+  }
+
+  return {
+    results,
+    summary: {
+      total: items.length,
+      success,
+      failed
+    }
+  };
+}
+
 async function createProduct(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const actorRole = normalizeRole(actor?.role);
@@ -2109,6 +2173,7 @@ module.exports = {
   listRestockHistory,
   getRestockHistoryMetrics,
   restockProduct,
+  restockProductsBatch,
   createProduct,
   updateProduct,
   uploadProductImage,

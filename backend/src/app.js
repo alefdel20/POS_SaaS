@@ -13,6 +13,7 @@ const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
 const supplierRoutes = require("./routes/supplierRoutes");
 const saleRoutes = require("./routes/saleRoutes");
+const historyRoutes = require("./routes/historyRoutes");
 const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
 const automationRoutes = require("./routes/automationRoutes");
@@ -58,6 +59,7 @@ const routes = [
   { path: "/product-update-requests", router: productUpdateRequestRoutes, auth: true },
   { path: "/suppliers", router: supplierRoutes, auth: true },
   { path: "/sales", router: saleRoutes, auth: true },
+  { path: "/history", router: historyRoutes, auth: true },
   { path: "/daily-cuts", router: dailyCutRoutes, auth: true },
   { path: "/credit-collections", router: creditCollectionRoutes, auth: true },
   { path: "/reminders", router: reminderRoutes, auth: true },
