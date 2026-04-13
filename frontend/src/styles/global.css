@@ -151,9 +151,17 @@ td {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: 260px 1fr;
+  position: relative;
   min-height: 100vh;
+  isolation: isolate;
+}
+
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.3);
+  backdrop-filter: blur(2px);
+  z-index: 55;
 }
 
 .sidebar {
@@ -161,9 +169,25 @@ td {
   flex-direction: column;
   justify-content: flex-start;
   gap: 1.25rem;
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(320px, 88vw);
+  z-index: 60;
   padding: 1.5rem;
   border-right: 1px solid var(--border);
   background: var(--sidebar-bg);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transform: translateX(-102%);
+  transition: transform 0.2s ease;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.sidebar.open {
+  transform: translateX(0);
+  pointer-events: auto;
+  visibility: visible;
 }
 
 .sidebar-header {
@@ -256,6 +280,10 @@ td {
   border-color: rgba(var(--accent-rgb), 0.26);
 }
 
+.nav-tree-toggle.has-active-child {
+  border-color: rgba(var(--accent-rgb), 0.26);
+}
+
 .nav-tree-indicator {
   color: var(--muted);
   font-weight: 700;
@@ -285,9 +313,70 @@ td {
   border-color: rgba(var(--accent-rgb), 0.3);
 }
 
+.nav-link-with-menu {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.4rem;
+  position: relative;
+}
+
+.nav-link-menu-wrap {
+  position: relative;
+}
+
+.nav-link-menu-trigger {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.nav-link-menu-trigger:hover,
+.nav-link-menu-trigger[aria-expanded="true"] {
+  border-color: rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--text);
+}
+
+.nav-context-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.3rem);
+  display: grid;
+  gap: 0.3rem;
+  min-width: 170px;
+  padding: 0.45rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.24);
+  z-index: 4;
+}
+
+.nav-context-action {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-context-action:hover {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.26);
+}
+
 .app-main {
   display: grid;
   grid-template-rows: auto 1fr;
+  min-height: 100vh;
 }
 
 .header,
@@ -302,6 +391,31 @@ td {
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(18px);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.95rem;
+  min-width: 0;
+}
+
+.menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 0.95rem;
+  flex-shrink: 0;
+}
+
+.menu-toggle-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.menu-toggle[aria-expanded="true"] {
+  border-color: rgba(var(--accent-rgb), 0.3);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .support-banner {
@@ -427,6 +541,15 @@ td {
 .button.ghost.danger {
   border-color: rgba(255, 123, 123, 0.35);
   color: #ffd1d1;
+}
+
+.button:focus-visible,
+.nav-link:focus-visible,
+.nav-tree-toggle:focus-visible,
+.nav-link-menu-trigger:focus-visible,
+.nav-context-action:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.75);
+  outline-offset: 2px;
 }
 
 .login-screen,
@@ -1144,7 +1267,6 @@ td {
 }
 
 @media (max-width: 1024px) {
-  .app-shell,
   .two-columns,
   .product-management-layout,
   .sales-layout,
@@ -1153,10 +1275,6 @@ td {
   .credit-summary,
   .share-actions {
     grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    display: none;
   }
 
   .credit-balance-cell {
@@ -1168,10 +1286,24 @@ td {
 @media (max-width: 640px) {
   .header {
     padding: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .header-left {
+    width: 100%;
+  }
+
+  .menu-toggle {
+    padding: 0.55rem 0.8rem;
   }
 
   .header-title {
     font-size: 1rem;
+  }
+
+  .sidebar {
+    width: min(320px, 92vw);
+    padding: 1.1rem;
   }
 
   .product-form-grid {

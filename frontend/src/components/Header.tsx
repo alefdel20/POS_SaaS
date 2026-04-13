@@ -6,7 +6,12 @@ import type { AuthResponse, ProductUpdateRequestPendingSummary } from "../types"
 import { isManagementRole } from "../utils/roles";
 import { getRoleLabel } from "../utils/uiLabels";
 
-export function Header() {
+type HeaderProps = {
+  isSidebarOpen: boolean;
+  onMenuToggle: () => void;
+};
+
+export function Header({ isSidebarOpen, onMenuToggle }: HeaderProps) {
   const { token, user, logout, setSession } = useAuth();
   const [pendingSummary, setPendingSummary] = useState<ProductUpdateRequestPendingSummary | null>(null);
   const approvalsPath = user?.pos_type === "Veterinaria"
@@ -83,11 +88,23 @@ export function Header() {
         </div>
       ) : null}
       <header className="header">
-        <div className="header-brand-block">
-          <p className="header-title">POS APP</p>
-          <p className="header-subtitle">
-            {user?.full_name} | {getRoleLabel(user?.role)}{user?.business_name ? ` | ${user.business_name}` : ""}
-          </p>
+        <div className="header-left">
+          <button
+            aria-controls="app-sidebar"
+            aria-expanded={isSidebarOpen}
+            className="button ghost menu-toggle"
+            onClick={onMenuToggle}
+            type="button"
+          >
+            <span aria-hidden="true" className="menu-toggle-icon">☰</span>
+            <span>Menú</span>
+          </button>
+          <div className="header-brand-block">
+            <p className="header-title">POS APP</p>
+            <p className="header-subtitle">
+              {user?.full_name} | {getRoleLabel(user?.role)}{user?.business_name ? ` | ${user.business_name}` : ""}
+            </p>
+          </div>
         </div>
         <button className="button ghost" onClick={logout}>
           Cerrar sesion
