@@ -3,7 +3,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const historyService = require("../services/historyService");
 
-const MOVEMENT_TYPES = ["all", "sales", "credit_collections", "invoice_payments", "expenses", "fixed_expenses", "owner_debt"];
+const MOVEMENT_TYPES = ["all", "sales", "credit_collections", "invoice_payments", "expenses", "inventory_restock", "fixed_expenses", "owner_debt"];
 
 const listValidation = [
   query("type").optional({ values: "falsy" }).isIn(MOVEMENT_TYPES),

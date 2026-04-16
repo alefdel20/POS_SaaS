@@ -7,7 +7,8 @@ const {
   mapBusinessSubscription,
   getBusinessSubscriptionSummary,
   initializeBusinessSubscriptionForNewBusiness,
-  updateBusinessSubscription
+  updateBusinessSubscription,
+  registerBusinessSubscriptionPayment
 } = require("./businessSubscriptionService");
 const { loadStampsForBusiness, listStampMovementsForBusiness } = require("./stampService");
 
@@ -53,6 +54,8 @@ async function listBusinesses(actor) {
        bs.plan_type,
        bs.billing_anchor_date,
        bs.next_payment_date,
+       bs.last_payment_date,
+       bs.last_payment_note,
        bs.grace_period_days,
        bs.enforcement_enabled,
        bs.manual_adjustment_reason
@@ -68,6 +71,8 @@ async function listBusinesses(actor) {
        bs.plan_type,
        bs.billing_anchor_date,
        bs.next_payment_date,
+       bs.last_payment_date,
+       bs.last_payment_note,
        bs.grace_period_days,
        bs.enforcement_enabled,
        bs.manual_adjustment_reason
@@ -84,6 +89,8 @@ async function listBusinesses(actor) {
       plan_type: row.plan_type,
       billing_anchor_date: row.billing_anchor_date,
       next_payment_date: row.next_payment_date,
+      last_payment_date: row.last_payment_date,
+      last_payment_note: row.last_payment_note,
       grace_period_days: row.grace_period_days,
       enforcement_enabled: row.enforcement_enabled,
       manual_adjustment_reason: row.manual_adjustment_reason
@@ -145,6 +152,10 @@ async function updateBusinessSubscriptionSettings(businessId, payload, actor) {
   return updateBusinessSubscription(businessId, payload, actor);
 }
 
+async function registerBusinessSubscriptionPaymentAction(businessId, payload, actor) {
+  return registerBusinessSubscriptionPayment(businessId, payload, actor);
+}
+
 async function manualLoadBusinessStamps(businessId, payload, actor) {
   return loadStampsForBusiness(businessId, payload, actor);
 }
@@ -157,6 +168,7 @@ module.exports = {
   listBusinesses,
   createBusiness,
   updateBusinessSubscriptionSettings,
+  registerBusinessSubscriptionPaymentAction,
   manualLoadBusinessStamps,
   listBusinessStampMovements
 };

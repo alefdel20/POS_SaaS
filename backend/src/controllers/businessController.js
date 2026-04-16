@@ -61,6 +61,13 @@ const subscriptionValidation = [
   validateRequest
 ];
 
+const registerSubscriptionPaymentValidation = [
+  param("id").isInt(),
+  body("paid_at").optional({ values: "falsy" }).isISO8601(),
+  body("note").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
+
 const stampLoadValidation = [
   param("id").isInt(),
   body("quantity").isInt({ min: 1 }),
@@ -82,6 +89,10 @@ const updateBusinessSubscription = asyncHandler(async (req, res) => {
   res.json(await businessService.updateBusinessSubscriptionSettings(Number(req.params.id), req.body, req.user));
 });
 
+const registerBusinessSubscriptionPayment = asyncHandler(async (req, res) => {
+  res.json(await businessService.registerBusinessSubscriptionPaymentAction(Number(req.params.id), req.body, req.user));
+});
+
 const loadBusinessStamps = asyncHandler(async (req, res) => {
   res.status(201).json(await businessService.manualLoadBusinessStamps(Number(req.params.id), req.body, req.user));
 });
@@ -94,10 +105,12 @@ module.exports = {
   createValidation,
   businessIdValidation,
   subscriptionValidation,
+  registerSubscriptionPaymentValidation,
   stampLoadValidation,
   listBusinesses,
   createBusiness,
   updateBusinessSubscription,
+  registerBusinessSubscriptionPayment,
   loadBusinessStamps,
   listBusinessStampMovements
 };

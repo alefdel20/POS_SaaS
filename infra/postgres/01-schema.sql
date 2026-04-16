@@ -322,6 +322,8 @@ ALTER TABLE expenses ADD COLUMN IF NOT EXISTS voided_by INTEGER REFERENCES users
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS void_reason TEXT NOT NULL DEFAULT '';
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS movement_type VARCHAR(40) NOT NULL DEFAULT 'general_expense';
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
 ALTER TABLE owner_loans ADD COLUMN IF NOT EXISTS is_voided BOOLEAN NOT NULL DEFAULT FALSE;
@@ -418,6 +420,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_reminders_source_key ON reminders(source_ke
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
 CREATE INDEX IF NOT EXISTS idx_expenses_is_voided ON expenses(is_voided);
 CREATE INDEX IF NOT EXISTS idx_expenses_fixed_expense_id ON expenses(fixed_expense_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_business_movement_type_date ON expenses(business_id, movement_type, date DESC);
 CREATE INDEX IF NOT EXISTS idx_fixed_expenses_is_active ON fixed_expenses(is_active);
 CREATE INDEX IF NOT EXISTS idx_owner_loans_date ON owner_loans(date);
 CREATE INDEX IF NOT EXISTS idx_owner_loans_is_voided ON owner_loans(is_voided);

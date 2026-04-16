@@ -9,6 +9,7 @@ const productUpdateRequestService = require("./productUpdateRequestService");
 const { canUseExpiryDate, canUseIeps, normalizePosType } = require("../utils/business");
 const { normalizeRole } = require("../utils/roles");
 const { normalizeProductCatalogType } = require("../utils/domainEnums");
+const { getMexicoCityDate } = require("../utils/timezone");
 
 const SKU_CONFUSING_CHARACTERS = { O: "0", I: "1" };
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"];
@@ -16,6 +17,8 @@ const INTEGER_UNITS = new Set(["pieza", "caja"]);
 const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
 const PRODUCT_IMPORT_LIMIT = 500;
 const IMPORT_DEFAULT_CATEGORY = "General";
+const INVENTORY_RESTOCK_MOVEMENT_TYPE = "inventory_restock";
+const INVENTORY_RESTOCK_CATEGORY = "Compra de inventario";
 const IMPORT_COLUMN_ALIASES = {
   name: ["nombre", "producto", "descripcion", "descripción", "name", "product", "item", "articulo", "artículo"],
   price: ["precio", "precio venta", "precio_venta", "pvp", "price", "publico", "publico venta", "venta"],
@@ -1658,13 +1661,16 @@ async function restockProduct(id, payload = {}, actor) {
     );
 
     const unitCost = Number(restockContext?.purchase_cost ?? current.cost_price ?? 0);
-    await client.query(
+    const totalCost = roundToScale(unitCost * normalizedQuantity, 5);
+    const financeAmount = roundToScale(totalCost, 2);
+    const { rows: restockRows } = await client.query(
       `INSERT INTO product_restock_history (
          business_id, product_id, supplier_id, quantity_added, stock_before, stock_after,
          unit_cost, total_cost, actor_user_id, actor_name_snapshot, product_name_snapshot,
          category_snapshot, supplier_name_snapshot, reason, metadata
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       RETURNING id`,
       [
         current.business_id,
         id,
@@ -1673,7 +1679,7 @@ async function restockProduct(id, payload = {}, actor) {
         previousStock,
         finalStock,
         unitCost,
-        unitCost * normalizedQuantity,
+        totalCost,
         actor.id,
         actor.full_name || actor.username || "Sistema",
         current.name || "",
@@ -1686,6 +1692,38 @@ async function restockProduct(id, payload = {}, actor) {
           purchase_cost: restockContext?.purchase_cost === null || restockContext?.purchase_cost === undefined ? null : Number(restockContext.purchase_cost),
           cost_updated_at: restockContext?.cost_updated_at || null,
           unit: unidadDeVenta
+        })
+      ]
+    );
+    const restockHistoryId = Number(restockRows[0]?.id || 0);
+
+    const { rows: expenseRows } = await client.query(
+      `INSERT INTO expenses (
+         business_id, concept, category, amount, date, notes, payment_method, updated_by, movement_type, metadata
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, 'cash', $7, $8, $9)
+       RETURNING id, amount, date, movement_type`,
+      [
+        current.business_id,
+        `Reabastecimiento: ${current.name || `Producto #${id}`}`,
+        INVENTORY_RESTOCK_CATEGORY,
+        financeAmount,
+        getMexicoCityDate(),
+        String(payload.reason || "restock_update").trim(),
+        actor.id,
+        INVENTORY_RESTOCK_MOVEMENT_TYPE,
+        JSON.stringify({
+          source_module: "product_restock_history",
+          restock_history_id: restockHistoryId || null,
+          product_id: Number(id),
+          product_name: current.name || "",
+          product_sku: current.sku || "",
+          quantity_added: normalizedQuantity,
+          unit_cost: unitCost,
+          total_cost: totalCost,
+          finance_amount: financeAmount,
+          supplier_id: restockContext?.supplier_id || null,
+          supplier_name: restockContext?.supplier_name || null
         })
       ]
     );
@@ -1705,7 +1743,9 @@ async function restockProduct(id, payload = {}, actor) {
       metadata: buildProductAuditMetadata(actor, {
         previous_stock: Number(current.stock || 0),
         added_stock: normalizedQuantity,
-        next_stock: finalStock
+        next_stock: finalStock,
+        inventory_restock_expense_id: Number(expenseRows[0]?.id || 0),
+        inventory_restock_expense_amount: Number(expenseRows[0]?.amount || 0)
       })
     }, { client });
 

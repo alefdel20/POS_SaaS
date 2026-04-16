@@ -3,6 +3,8 @@ CREATE TABLE IF NOT EXISTS business_subscriptions (
   plan_type VARCHAR(20),
   billing_anchor_date DATE,
   next_payment_date DATE,
+  last_payment_date DATE,
+  last_payment_note TEXT NOT NULL DEFAULT '',
   grace_period_days INTEGER NOT NULL DEFAULT 0,
   enforcement_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   manual_adjustment_reason TEXT NOT NULL DEFAULT '',
@@ -11,6 +13,12 @@ CREATE TABLE IF NOT EXISTS business_subscriptions (
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE business_subscriptions
+  ADD COLUMN IF NOT EXISTS last_payment_date DATE;
+
+ALTER TABLE business_subscriptions
+  ADD COLUMN IF NOT EXISTS last_payment_note TEXT NOT NULL DEFAULT '';
 
 DO $$
 BEGIN

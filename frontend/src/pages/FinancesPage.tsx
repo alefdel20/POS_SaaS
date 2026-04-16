@@ -378,12 +378,13 @@ export function FinancesPage() {
                       <td>{expense.notes || "-"}</td>
                       <td>{expense.is_voided ? `Anulado: ${expense.void_reason || "-"}` : "Activo"}</td>
                       <td>
-                        {!expense.is_voided ? (
+                        {!expense.is_voided && expense.movement_type !== "inventory_restock" ? (
                           <div className="inline-actions">
                             <button className="button ghost" onClick={() => startEditExpense(expense)} type="button">Editar</button>
                             <button className="button ghost danger" onClick={() => voidExpense(expense.id)} type="button">Anular</button>
                           </div>
                         ) : null}
+                        {expense.movement_type === "inventory_restock" ? <span className="muted">Automatico</span> : null}
                       </td>
                     </tr>
                   ))}

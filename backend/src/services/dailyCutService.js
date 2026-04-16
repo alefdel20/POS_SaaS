@@ -59,6 +59,15 @@ const CUT_METRICS_CTE_SQL = `
       AND v.payment_method = 'credit'
       AND ${VALID_CREDIT_SALE_STATUS_SQL}
   ),
+  restock_rows AS (
+    SELECT
+      expenses.date::date AS cut_date,
+      GREATEST(COALESCE(expenses.amount, 0), 0) AS inventory_restock_component
+    FROM expenses
+    WHERE expenses.business_id = $1
+      AND expenses.is_voided = FALSE
+      AND COALESCE(expenses.movement_type, 'general_expense') = 'inventory_restock'
+  ),
   cashflow AS (
     SELECT
       sale_rows.cut_date,
@@ -138,6 +147,7 @@ const CUT_METRICS_CTE_SQL = `
       cashflow.ticket_count,
       cashflow.gross_profit_component,
       cashflow.gross_sales_component,
+      0::NUMERIC AS inventory_restock_component,
       cashflow.timbres_usados,
       cashflow.timbres_restantes
     FROM cashflow
@@ -156,6 +166,7 @@ const CUT_METRICS_CTE_SQL = `
       0::INTEGER AS ticket_count,
       0::NUMERIC AS gross_profit_component,
       0::NUMERIC AS gross_sales_component,
+      0::NUMERIC AS inventory_restock_component,
       0::INTEGER AS timbres_usados,
       NULL::NUMERIC AS timbres_restantes
     FROM credit_generated
@@ -174,9 +185,29 @@ const CUT_METRICS_CTE_SQL = `
       0::INTEGER AS ticket_count,
       0::NUMERIC AS gross_profit_component,
       0::NUMERIC AS gross_sales_component,
+      0::NUMERIC AS inventory_restock_component,
       0::INTEGER AS timbres_usados,
       NULL::NUMERIC AS timbres_restantes
     FROM credit_collected
+    UNION ALL
+    SELECT
+      restock_rows.cut_date,
+      NULL::INTEGER AS sale_user_id,
+      NULL::text AS cashier_name,
+      0::NUMERIC AS cash_real_component,
+      0::NUMERIC AS cash_total_component,
+      0::NUMERIC AS card_total_component,
+      0::NUMERIC AS transfer_total_component,
+      0::NUMERIC AS credit_generated_component,
+      0::NUMERIC AS credit_collected_component,
+      0::INTEGER AS invoice_count,
+      0::INTEGER AS ticket_count,
+      0::NUMERIC AS gross_profit_component,
+      0::NUMERIC AS gross_sales_component,
+      restock_rows.inventory_restock_component,
+      0::INTEGER AS timbres_usados,
+      NULL::NUMERIC AS timbres_restantes
+    FROM restock_rows
   )
 `;
 
@@ -224,6 +255,7 @@ function emptyCutRow(cutDate = getLocalIsoDate()) {
     ticket_count: 0,
     gross_profit: 0,
     gross_margin: 0,
+    inventory_restock_total: 0,
     timbres_usados: 0,
     timbres_restantes: 0,
     cashier_names: ""
@@ -249,6 +281,7 @@ async function listRealizedDailyCuts(filters = {}, actor) {
        COALESCE(SUM(ticket_count), 0) AS ticket_count,
        COALESCE(SUM(gross_profit_component), 0) AS gross_profit,
        CASE WHEN COALESCE(SUM(gross_sales_component), 0) = 0 THEN 0 ELSE (COALESCE(SUM(gross_profit_component), 0) / SUM(gross_sales_component)) * 100 END AS gross_margin,
+       COALESCE(SUM(inventory_restock_component), 0) AS inventory_restock_total,
        COALESCE(SUM(timbres_usados), 0) AS timbres_usados,
        COALESCE(MAX(timbres_restantes), 0) AS timbres_restantes,
        COALESCE(STRING_AGG(DISTINCT cashier_name, ', '), '') AS cashier_names
@@ -278,6 +311,7 @@ function mapCutRow(row) {
     ticket_count: Number(row.ticket_count || 0),
     gross_profit: Number(row.gross_profit || 0),
     gross_margin: Number(row.gross_margin || 0),
+    inventory_restock_total: Number(row.inventory_restock_total || 0),
     timbres_usados: Number(row.timbres_usados || 0),
     timbres_restantes: Number(row.timbres_restantes || 0)
   };
@@ -331,6 +365,7 @@ async function getTodayDailyCut(actor) {
     ticket_count: 0,
     gross_profit: 0,
     gross_margin: 0,
+    inventory_restock_total: 0,
     timbres_usados: 0,
     timbres_restantes: 0,
     cashier_names: ""
@@ -358,6 +393,7 @@ async function listMonthlyCuts(filters = {}, actor) {
        COALESCE(SUM(ticket_count), 0) AS ticket_count,
        COALESCE(SUM(gross_profit_component), 0) AS gross_profit,
        CASE WHEN COALESCE(SUM(gross_sales_component), 0) = 0 THEN 0 ELSE (COALESCE(SUM(gross_profit_component), 0) / SUM(gross_sales_component)) * 100 END AS gross_margin,
+       COALESCE(SUM(inventory_restock_component), 0) AS inventory_restock_total,
        COALESCE(SUM(timbres_usados), 0) AS timbres_usados,
        COALESCE(MAX(timbres_restantes), 0) AS timbres_restantes
      FROM cashflow_rows
@@ -385,6 +421,7 @@ async function buildWorkbook(period, filters = {}, actor) {
     { header: "Transferencia", key: "transfer_total", width: 16 },
     { header: "Facturas", key: "invoice_count", width: 12 },
     { header: "Tickets", key: "ticket_count", width: 12 },
+    { header: "Dinero en productos", key: "inventory_restock_total", width: 20 },
     { header: "Timbres usados", key: "timbres_usados", width: 16 },
     { header: "Timbres restantes", key: "timbres_restantes", width: 18 },
     { header: "Ganancia", key: "gross_profit", width: 16 },

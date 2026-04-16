@@ -8,6 +8,7 @@ const HISTORY_TYPES = new Set([
   "credit_collections",
   "invoice_payments",
   "expenses",
+  "inventory_restock",
   "fixed_expenses",
   "owner_debt"
 ]);
@@ -138,7 +139,8 @@ async function listHistory(filters = {}, actor) {
     const conditions = [
       "expenses.business_id = $1",
       "expenses.is_voided = FALSE",
-      "expenses.fixed_expense_id IS NULL"
+      "expenses.fixed_expense_id IS NULL",
+      "COALESCE(expenses.movement_type, 'general_expense') <> 'inventory_restock'"
     ];
     appendDateConditions(conditions, values, "expenses.date::date", filters);
     unionSegments.push(
@@ -148,6 +150,31 @@ async function listHistory(filters = {}, actor) {
          'expenses'::text AS type,
          '-'::text AS reference,
          COALESCE(NULLIF(expenses.concept, ''), 'Gasto') AS concept,
+         expenses.payment_method::text AS payment_method,
+         expenses.amount::numeric AS amount,
+         NULL::int AS sale_id,
+         NULL::text AS cashier_name,
+         NULL::text AS status,
+         expenses.created_at
+       FROM expenses
+       WHERE ${conditions.join(" AND ")}`
+    );
+  }
+
+  if (include("inventory_restock")) {
+    const conditions = [
+      "expenses.business_id = $1",
+      "expenses.is_voided = FALSE",
+      "COALESCE(expenses.movement_type, 'general_expense') = 'inventory_restock'"
+    ];
+    appendDateConditions(conditions, values, "expenses.date::date", filters);
+    unionSegments.push(
+      `SELECT
+         CONCAT('inventory-restock-', expenses.id)::text AS id,
+         expenses.date::date AS date,
+         'inventory_restock'::text AS type,
+         COALESCE(NULLIF(expenses.metadata->>'restock_history_id', ''), '-')::text AS reference,
+         COALESCE(NULLIF(expenses.concept, ''), 'Reabastecimiento de inventario') AS concept,
          expenses.payment_method::text AS payment_method,
          expenses.amount::numeric AS amount,
          NULL::int AS sale_id,

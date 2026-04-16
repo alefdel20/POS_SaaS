@@ -8,7 +8,7 @@ import { getMexicoCityDateInputValue } from "../utils/timezone";
 import { isManagementRole } from "../utils/roles";
 
 type RangeFilter = "day" | "week" | "month";
-type MovementFilter = "all" | "sales" | "credit_collections" | "invoice_payments" | "expenses" | "fixed_expenses" | "owner_debt";
+type MovementFilter = "all" | "sales" | "credit_collections" | "invoice_payments" | "expenses" | "inventory_restock" | "fixed_expenses" | "owner_debt";
 
 function toDateInputValue(date: Date) {
   return getMexicoCityDateInputValue(date);
@@ -48,6 +48,8 @@ function getMovementTypeLabel(type: MovementFilter | HistoryMovement["type"]) {
       return "Facturas";
     case "expenses":
       return "Gastos";
+    case "inventory_restock":
+      return "Reabastecimiento";
     case "fixed_expenses":
       return "Gastos fijos";
     case "owner_debt":
@@ -207,7 +209,7 @@ export function SalesHistoryPage() {
         <div className="panel-header">
           <div>
             <h2>Historial general</h2>
-            <p className="muted">Incluye ventas, abonos, facturas, gastos, gastos fijos y deuda del dueno.</p>
+            <p className="muted">Incluye ventas, abonos, facturas, gastos, reabastecimientos, gastos fijos y deuda del dueno.</p>
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
@@ -232,6 +234,7 @@ export function SalesHistoryPage() {
               <option value="credit_collections">Abonos</option>
               <option value="invoice_payments">Facturas</option>
               <option value="expenses">Gastos</option>
+              <option value="inventory_restock">Reabastecimiento</option>
               <option value="fixed_expenses">Gastos fijos</option>
               <option value="owner_debt">Deuda del dueno</option>
             </select>

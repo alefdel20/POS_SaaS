@@ -69,6 +69,17 @@ function toDayDiff(fromDate, toDate) {
   return Math.round((right.getTime() - left.getTime()) / (24 * 60 * 60 * 1000));
 }
 
+function maxDateOnly(leftDate, rightDate) {
+  const left = parseDateOnly(leftDate);
+  const right = parseDateOnly(rightDate);
+  if (left && right) {
+    return left >= right ? formatDateOnly(left) : formatDateOnly(right);
+  }
+  if (left) return formatDateOnly(left);
+  if (right) return formatDateOnly(right);
+  return null;
+}
+
 function calculateNextPaymentDate(anchorDate, planType, referenceDate = getMexicoCityDate()) {
   const parsedAnchor = parseDateOnly(anchorDate);
   const parsedReference = parseDateOnly(referenceDate);
@@ -148,6 +159,8 @@ function mapBusinessSubscription(row, today = getMexicoCityDate()) {
     grace_period_days: Number(row.grace_period_days || 0),
     enforcement_enabled: Boolean(row.enforcement_enabled),
     manual_adjustment_reason: row.manual_adjustment_reason || "",
+    last_payment_date: row.last_payment_date || null,
+    last_payment_note: row.last_payment_note || "",
     created_at: row.created_at,
     updated_at: row.updated_at,
     ...derived
@@ -422,6 +435,86 @@ async function updateBusinessSubscription(businessId, payload, actor) {
   }
 }
 
+function calculateNextPaymentAfterManualPayment(currentRow, paidAtDate) {
+  const paidAt = normalizeDateInput(paidAtDate) || getMexicoCityDate();
+  const planType = currentRow?.plan_type || null;
+  const anchorDate = currentRow?.billing_anchor_date || currentRow?.next_payment_date || paidAt;
+  if (!planType || !anchorDate) {
+    return null;
+  }
+
+  const currentNextDate = currentRow?.next_payment_date || null;
+  const nextCycleReference = currentNextDate ? addDays(currentNextDate, 1) : null;
+  const effectiveReferenceDate = maxDateOnly(nextCycleReference, paidAt) || paidAt;
+  return calculateNextPaymentDate(anchorDate, planType, effectiveReferenceDate);
+}
+
+async function registerBusinessSubscriptionPayment(businessId, payload = {}, actor) {
+  if (!isSuperUser(actor)) {
+    throw new ApiError(403, "Forbidden");
+  }
+
+  const business = await getBusinessRow(businessId);
+  if (!business) {
+    throw new ApiError(404, "Business not found");
+  }
+
+  const current = await ensureBusinessSubscriptionRow(businessId);
+  if (!current?.plan_type) {
+    throw new ApiError(409, "Subscription plan is not configured");
+  }
+
+  const paidAt = normalizeDateInput(payload.paid_at) || getMexicoCityDate();
+  const note = String(payload.note || "").trim();
+  const previousSummary = mapBusinessSubscription(current);
+  const nextPaymentDate = calculateNextPaymentAfterManualPayment(current, paidAt);
+  if (!nextPaymentDate) {
+    throw new ApiError(409, "Unable to recalculate next payment date");
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `UPDATE business_subscriptions
+       SET next_payment_date = $1,
+           last_payment_date = $2,
+           last_payment_note = $3,
+           updated_by = $4,
+           updated_at = NOW()
+       WHERE business_id = $5
+       RETURNING *`,
+      [nextPaymentDate, paidAt, note, actor.id, Number(businessId)]
+    );
+
+    const updatedSummary = mapBusinessSubscription(rows[0]);
+    await syncBusinessPaymentReminder(businessId, client);
+    await saveAuditLog({
+      business_id: Number(businessId),
+      usuario_id: actor.id,
+      modulo: "business_subscriptions",
+      accion: "register_subscription_payment",
+      entidad_tipo: "business_subscription",
+      entidad_id: String(businessId),
+      detalle_anterior: { snapshot: previousSummary, business_name: business.name },
+      detalle_nuevo: {
+        snapshot: updatedSummary,
+        business_name: business.name,
+        payment_registered_at: paidAt
+      },
+      motivo: note,
+      metadata: { business_slug: business.slug, payment_date: paidAt }
+    }, { client });
+    await client.query("COMMIT");
+    return updatedSummary;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function listSubscriptionCalendarEvents(actor, startDate, endDate, client = pool) {
   const role = normalizeRole(actor?.role);
   const params = [startDate, endDate];
@@ -505,6 +598,7 @@ module.exports = {
   initializeBusinessSubscriptionForNewBusiness,
   getBusinessSubscriptionSummary,
   updateBusinessSubscription,
+  registerBusinessSubscriptionPayment,
   listSubscriptionCalendarEvents,
   syncBusinessPaymentReminder,
   assertBusinessAccessAllowed

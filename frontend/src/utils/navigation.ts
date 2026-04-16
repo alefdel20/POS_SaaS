@@ -42,6 +42,17 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Perfil", to: "/profile", roles: "profile", activeMatch: ["/profile", "/retail/admin/profile", "/health/admin/profile", "/health/doctor/profile"] }
 ];
 
+function getAdminLinksByRole(role?: string | null): SidebarMenuItem[] {
+  const normalizedRole = normalizeRole(role);
+  if (normalizedRole === "superusuario") {
+    return [
+      { label: "Negocios", to: "/businesses", roles: "businesses", activeMatch: withAlias("/retail/admin/businesses", "/businesses") },
+      ...ADMIN_LINKS.filter((item) => item.label !== "Usuarios")
+    ];
+  }
+  return ADMIN_LINKS;
+}
+
 function withAlias(aliasPath: string, targetPath: string) {
   return [aliasPath, targetPath];
 }
@@ -261,7 +272,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
         {
           label: "Administracion",
           children: [
-            ...ADMIN_LINKS.map((item) => ({
+            ...getAdminLinksByRole(role).map((item) => ({
               ...item,
               to: item.label === "Resumen"
                 ? "/health/admin/summary"
@@ -269,12 +280,14 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
                   ? "/health/admin/approvals"
                 : item.label === "Usuarios"
                   ? "/health/admin/users"
-                  : item.label === "Perfil"
-                    ? "/health/admin/profile"
-                    : item.label === "Recordatorios"
-                      ? "/health/admin/reminders"
-                      : item.label === "Facturas"
-                        ? "/health/admin/invoices"
+                    : item.label === "Perfil"
+                      ? "/health/admin/profile"
+                      : item.label === "Negocios"
+                        ? "/businesses"
+                      : item.label === "Recordatorios"
+                        ? "/health/admin/reminders"
+                        : item.label === "Facturas"
+                          ? "/health/admin/invoices"
                         : item.label === "Finanzas"
                           ? "/health/admin/finances"
                           : item.label === "Corte Diario"
@@ -301,8 +314,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
     {
       title: "Administracion",
       items: [
-        ...ADMIN_LINKS,
-        { label: "Negocios", to: "/retail/admin/businesses", roles: "businesses", activeMatch: withAlias("/retail/admin/businesses", "/businesses") }
+        ...getAdminLinksByRole(role)
       ].map((item) => ({
         ...item,
         to: item.to === "/credit-collections"
@@ -319,6 +331,8 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
                   ? "/retail/admin/reminders"
                   : item.to === "/dashboard"
                     ? "/retail/admin/summary"
+                    : item.to === "/businesses"
+                      ? "/retail/admin/businesses"
                     : item.to === "/users"
                       ? "/retail/admin/users"
                       : item.to === "/profile"

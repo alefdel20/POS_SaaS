@@ -8,13 +8,16 @@ const { normalizeBusinessDate } = require("../utils/businessDate");
 const { ensureAutomaticReminders } = require("./reminderService");
 
 const VALID_SALE_STATUS_SQL = "COALESCE(status, 'completed') <> 'cancelled'";
+const INVENTORY_RESTOCK_MOVEMENT_TYPE = "inventory_restock";
 
 function mapExpense(expense) {
   return expense ? {
     ...expense,
     amount: Number(expense.amount || 0),
     date: normalizeBusinessDate(expense.date, expense.date),
-    is_voided: Boolean(expense.is_voided)
+    is_voided: Boolean(expense.is_voided),
+    movement_type: expense.movement_type || "general_expense",
+    metadata: expense.metadata || {}
   } : null;
 }
 function mapOwnerLoan(loan) {
@@ -79,7 +82,7 @@ async function syncFinancialMovementReminder({ type, row, actor, client }) {
 async function listExpenses(actor) {
   const businessId = requireActorBusinessId(actor);
   const { rows } = await pool.query(
-    `SELECT id, concept, category, amount, date, notes, payment_method, fixed_expense_id, is_voided, void_reason, created_at, updated_at
+    `SELECT id, concept, category, amount, date, notes, payment_method, fixed_expense_id, is_voided, void_reason, movement_type, metadata, created_at, updated_at
      FROM expenses
      WHERE business_id = $1
      ORDER BY date DESC, id DESC`,
@@ -121,6 +124,9 @@ async function updateExpense(id, payload, actor) {
     const current = currentRows[0];
     if (!current) throw new ApiError(404, "Expense not found");
     if (current.is_voided) throw new ApiError(409, "Void expense cannot be edited");
+    if ((current.movement_type || "general_expense") === INVENTORY_RESTOCK_MOVEMENT_TYPE) {
+      throw new ApiError(409, "Inventory restock expense cannot be edited manually");
+    }
     const nextDate = payload.date !== undefined
       ? normalizeBusinessDate(payload.date, normalizeBusinessDate(current.date, getMexicoCityDate()))
       : normalizeBusinessDate(current.date, getMexicoCityDate());
@@ -155,6 +161,9 @@ async function voidExpense(id, payload, actor) {
     const current = currentRows[0];
     if (!current) throw new ApiError(404, "Expense not found");
     if (current.is_voided) throw new ApiError(409, "Expense is already voided");
+    if ((current.movement_type || "general_expense") === INVENTORY_RESTOCK_MOVEMENT_TYPE) {
+      throw new ApiError(409, "Inventory restock expense cannot be voided manually");
+    }
     const { rows } = await client.query(
       `UPDATE expenses
        SET is_voided = TRUE, voided_at = NOW(), voided_by = $1, void_reason = $2, updated_at = NOW(), updated_by = $1

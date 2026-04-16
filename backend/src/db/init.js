@@ -54,6 +54,8 @@ async function ensureSchema(client) {
       plan_type VARCHAR(20),
       billing_anchor_date DATE,
       next_payment_date DATE,
+      last_payment_date DATE,
+      last_payment_note TEXT NOT NULL DEFAULT '',
       grace_period_days INTEGER NOT NULL DEFAULT 0,
       enforcement_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       manual_adjustment_reason TEXT NOT NULL DEFAULT '',
@@ -62,6 +64,8 @@ async function ensureSchema(client) {
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS last_payment_date DATE",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS last_payment_note TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(40)",
@@ -293,6 +297,8 @@ async function ensureSchema(client) {
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS void_reason TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS movement_type VARCHAR(40) NOT NULL DEFAULT 'general_expense'",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
 
     `CREATE TABLE IF NOT EXISTS owner_loans (
       id SERIAL PRIMARY KEY,
@@ -1746,6 +1752,7 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_automation_events_business_id ON automation_events(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_automation_events_processed ON automation_events(business_id, processed, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_expenses_business_id ON expenses(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_expenses_business_movement_type_date ON expenses(business_id, movement_type, date DESC)",
     "CREATE INDEX IF NOT EXISTS idx_owner_loans_business_id ON owner_loans(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_fixed_expenses_business_id ON fixed_expenses(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_product_restock_history_business_created ON product_restock_history(business_id, created_at DESC)",

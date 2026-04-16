@@ -97,7 +97,7 @@ export function DailyCutPage() {
   const todayCreditCollected = Number(today?.credit_collected ?? 0);
 
   const shareMessage = today
-    ? `Corte Diario\nFecha: ${shortDate(today.cut_date)}\n\nIngresos reales: ${currency(todayCashReal)}\nCredito generado: ${currency(todayCreditGenerated)}\nCobranza: ${currency(todayCreditCollected)}\nEfectivo: ${currency(today.cash_total)}\nTarjeta: ${currency(today.card_total)}\nTransferencia: ${currency(today.transfer_total)}\nFacturas: ${today.invoice_count}\nTimbres usados: ${today.timbres_usados || 0}\nTimbres restantes: ${today.timbres_restantes || 0}\n\nGanancia: ${currency(today.gross_profit)}\nTickets: ${today.ticket_count}`
+    ? `Corte Diario\nFecha: ${shortDate(today.cut_date)}\n\nIngresos reales: ${currency(todayCashReal)}\nCredito generado: ${currency(todayCreditGenerated)}\nCobranza: ${currency(todayCreditCollected)}\nDinero en productos: ${currency(today.inventory_restock_total || 0)}\nEfectivo: ${currency(today.cash_total)}\nTarjeta: ${currency(today.card_total)}\nTransferencia: ${currency(today.transfer_total)}\nFacturas: ${today.invoice_count}\nTimbres usados: ${today.timbres_usados || 0}\nTimbres restantes: ${today.timbres_restantes || 0}\n\nGanancia: ${currency(today.gross_profit)}\nTickets: ${today.ticket_count}`
     : "";
   const encodedShareMessage = encodeURIComponent(shareMessage);
   const activeUserName = useMemo(() => {
@@ -216,6 +216,7 @@ export function DailyCutPage() {
           <div className="stat-card"><span className="stat-label">Tarjeta</span><strong className="stat-value">{currency(today?.card_total || 0)}</strong></div>
           <div className="stat-card"><span className="stat-label">Credito generado</span><strong className="stat-value">{currency(todayCreditGenerated)}</strong></div>
           <div className="stat-card"><span className="stat-label">Cobranza</span><strong className="stat-value">{currency(todayCreditCollected)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Dinero en productos</span><strong className="stat-value">{currency(today?.inventory_restock_total || 0)}</strong></div>
           <div className="stat-card"><span className="stat-label">Transferencia</span><strong className="stat-value">{currency(today?.transfer_total || 0)}</strong></div>
           <div className="stat-card"><span className="stat-label">Facturas emitidas</span><strong className="stat-value">{today?.invoice_count || 0}</strong></div>
           <div className="stat-card"><span className="stat-label">Tickets</span><strong className="stat-value">{today?.ticket_count || 0}</strong></div>
@@ -307,6 +308,7 @@ export function DailyCutPage() {
                 <th>Credito generado</th>
                 <th>Cobranza</th>
                 <th>Transferencia</th>
+                <th>Dinero en productos</th>
                 <th>Facturas</th>
                 <th>Timbres usados</th>
                 <th>Timbres restantes</th>
@@ -324,6 +326,7 @@ export function DailyCutPage() {
                   <td>{currency(cut.credit_generated ?? cut.credit_total)}</td>
                   <td>{currency(cut.credit_collected || 0)}</td>
                   <td>{currency(cut.transfer_total)}</td>
+                  <td>{currency(cut.inventory_restock_total || 0)}</td>
                   <td>{cut.invoice_count}</td>
                   <td>{cut.timbres_usados || 0}</td>
                   <td>{cut.timbres_restantes || 0}</td>
@@ -332,7 +335,7 @@ export function DailyCutPage() {
               ))}
               {history.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={12}>No hay cortes para los filtros seleccionados.</td>
+                  <td className="muted" colSpan={13}>No hay cortes para los filtros seleccionados.</td>
                 </tr>
               ) : null}
             </tbody>

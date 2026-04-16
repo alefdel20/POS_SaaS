@@ -56,6 +56,8 @@ export interface BusinessSubscription {
   plan_type: "monthly" | "yearly" | null;
   billing_anchor_date: string | null;
   next_payment_date: string | null;
+  last_payment_date?: string | null;
+  last_payment_note?: string;
   grace_period_days: number;
   enforcement_enabled: boolean;
   manual_adjustment_reason: string;
@@ -695,6 +697,7 @@ export type HistoryMovementType =
   | "credit_collections"
   | "invoice_payments"
   | "expenses"
+  | "inventory_restock"
   | "fixed_expenses"
   | "owner_debt";
 
@@ -925,6 +928,7 @@ export interface DailyCut {
   ticket_count: number;
   gross_profit: number;
   gross_margin: number;
+  inventory_restock_total?: number;
   timbres_usados?: number;
   timbres_restantes?: number;
   cashier_names?: string;
@@ -1068,6 +1072,8 @@ export interface Expense {
   notes: string;
   payment_method: Sale["payment_method"];
   fixed_expense_id?: number | null;
+  movement_type?: string;
+  metadata?: Record<string, unknown>;
   is_voided?: boolean;
   void_reason?: string;
   created_at: string;
