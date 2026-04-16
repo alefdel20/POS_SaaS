@@ -9,6 +9,10 @@ const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
 const { normalizeFrequency } = require("../utils/fixedExpenseFrequency");
 const {
+  listSubscriptionCalendarEvents,
+  syncBusinessPaymentReminder
+} = require("./businessSubscriptionService");
+const {
   normalizeReminderCategory,
   normalizeReminderStatus
 } = require("../utils/domainEnums");
@@ -236,7 +240,14 @@ async function listReminders(actor, filters = {}) {
      WHERE ${conditions.join(" AND ")}
        AND (reminders.source_key IS NULL OR reminders.source_key NOT LIKE 'finance:%')
        AND COALESCE(reminders.reminder_type, '') NOT IN ('finance_expense', 'finance_owner_loan', 'finance_fixed_expense')
-     ORDER BY reminders.is_completed ASC, reminders.due_date ASC NULLS LAST, reminders.created_at DESC`,
+     ORDER BY reminders.is_completed ASC,
+              CASE
+                WHEN COALESCE(reminders.metadata->>'priority', '') ~ '^[0-9]+$'
+                  THEN (reminders.metadata->>'priority')::int
+                ELSE 0
+              END DESC,
+              reminders.due_date ASC NULLS LAST,
+              reminders.created_at DESC`,
     params
   );
   return rows;
@@ -246,7 +257,7 @@ async function listCalendarEvents(actor, filters = {}) {
   const businessId = getBusinessId(actor);
   const { startDate, endDate } = normalizeRangeBoundaries(filters);
 
-  const [reminderRows, expenseRows, ownerLoanRows, fixedExpenseRows] = await Promise.all([
+  const [reminderRows, expenseRows, ownerLoanRows, fixedExpenseRows, subscriptionEvents] = await Promise.all([
     pool.query(
       `SELECT reminders.*, users.full_name AS assigned_to_name, patients.name AS patient_name
        FROM reminders
@@ -284,7 +295,8 @@ async function listCalendarEvents(actor, filters = {}) {
          AND is_active = TRUE
        ORDER BY id ASC`,
       [businessId]
-    )
+    ),
+    listSubscriptionCalendarEvents(actor, startDate, endDate)
   ]);
 
   const unified = [];
@@ -390,10 +402,15 @@ async function listCalendarEvents(actor, filters = {}) {
     }
   }
 
+  unified.push(...subscriptionEvents);
+
   return unified.sort((left, right) => {
     const leftCompleted = Boolean(left.is_completed) ? 1 : 0;
     const rightCompleted = Boolean(right.is_completed) ? 1 : 0;
     if (leftCompleted !== rightCompleted) return leftCompleted - rightCompleted;
+    const leftPriority = Number(left?.metadata?.priority || 0);
+    const rightPriority = Number(right?.metadata?.priority || 0);
+    if (leftPriority !== rightPriority) return rightPriority - leftPriority;
     const leftDate = String(left.due_date || "");
     const rightDate = String(right.due_date || "");
     if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
@@ -628,6 +645,7 @@ async function ensureAutomaticReminders(actor) {
   const businessId = getBusinessId(actor);
   const today = getTodayLocalDate();
   const upcomingDate = addDays(today, 3);
+  await syncBusinessPaymentReminder(businessId);
   const [lowStockRows] = await Promise.all([
     pool.query(
       `SELECT id, name, stock, stock_minimo, stock_maximo

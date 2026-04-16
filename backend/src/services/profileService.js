@@ -4,12 +4,13 @@ const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { buildStoredBusinessAssetPath, deleteStoredBusinessAsset } = require("../utils/businessAssets");
+const { getBusinessSubscriptionSummary } = require("./businessSubscriptionService");
 
 function isSchemaError(error) {
   return ["42P01", "42703", "42704"].includes(String(error?.code || ""));
 }
 
-function mapProfile(profile) {
+function mapProfile(profile, subscription = null) {
   if (!profile) return null;
   const generalSettings = profile.general_settings || {};
   const hasFiscalProfile = Boolean(profile.fiscal_rfc && profile.fiscal_business_name && profile.fiscal_regime && profile.fiscal_address);
@@ -51,6 +52,7 @@ function mapProfile(profile) {
     has_fiscal_profile: hasFiscalProfile,
     billing_ready: hasFiscalProfile && stampsAvailable > 0,
     stamp_alert_active: stampAlertThreshold > 0 && stampsAvailable <= stampAlertThreshold,
+    subscription,
     is_active: Boolean(profile.is_active),
     created_at: profile.created_at,
     updated_at: profile.updated_at
@@ -93,7 +95,9 @@ async function ensureDefaultProfile(actor, client = pool) {
 }
 
 async function getProfile(actor) {
-  return mapProfile(await ensureDefaultProfile(actor));
+  const profile = await ensureDefaultProfile(actor);
+  const subscription = await getBusinessSubscriptionSummary(profile.business_id);
+  return mapProfile(profile, subscription);
 }
 
 async function getDoctorProfile(actor) {
@@ -255,7 +259,8 @@ async function updateProfileSection(payload, actor, section) {
     );
     await saveAuditLog({ business_id: current.business_id, usuario_id: actor.id, modulo: "profile", accion: `update_${section}`, entidad_tipo: "company_profile", entidad_id: current.id, detalle_anterior: { entity: "company_profile", entity_id: current.id, snapshot: mapProfile(current), version: 1 }, detalle_nuevo: { entity: "company_profile", entity_id: current.id, snapshot: mapProfile(rows[0]), version: 1 }, motivo: payload.reason || "", metadata: { section } }, { client });
     await client.query("COMMIT");
-    return mapProfile(rows[0]);
+    const subscription = await getBusinessSubscriptionSummary(current.business_id, client);
+    return mapProfile(rows[0], subscription);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -295,7 +300,8 @@ async function uploadProfileAsset(assetType, file, actor) {
     if (previousAssetPath && previousAssetPath !== generalSettings[settingKey]) {
       await deleteStoredBusinessAsset(previousAssetPath).catch(() => {});
     }
-    return mapProfile(rows[0]);
+    const subscription = await getBusinessSubscriptionSummary(current.business_id, client);
+    return mapProfile(rows[0], subscription);
   } catch (error) {
     await client.query("ROLLBACK");
     await deleteStoredBusinessAsset(buildStoredBusinessAssetPath(file.filename)).catch(() => {});
@@ -327,7 +333,8 @@ async function removeProfileAsset(assetType, actor) {
     if (previousAssetPath) {
       await deleteStoredBusinessAsset(previousAssetPath).catch(() => {});
     }
-    return mapProfile(rows[0]);
+    const subscription = await getBusinessSubscriptionSummary(current.business_id, client);
+    return mapProfile(rows[0], subscription);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

@@ -4,6 +4,7 @@ const ApiError = require("../utils/ApiError");
 const userService = require("../services/userService");
 const { normalizeRole } = require("../utils/roles");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { assertBusinessAccessAllowed } = require("../services/businessSubscriptionService");
 
 async function requireAuth(req, res, next) {
   if (req.method === "OPTIONS") {
@@ -78,6 +79,8 @@ async function requireAuth(req, res, next) {
       role: payload.role,
       business_id: effectiveBusinessId,
     };
+
+    await assertBusinessAccessAllowed(effectiveUser);
 
     next();
   } catch (error) {

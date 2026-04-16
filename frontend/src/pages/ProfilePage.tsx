@@ -342,6 +342,8 @@ export function ProfilePage() {
           <div className="info-card">
             <p>Estado fiscal: <strong>{profile.has_fiscal_profile ? "Completo" : "Incompleto"}</strong></p>
             <p>Facturacion en caja: <strong>{profile.billing_ready ? "Disponible" : "Bloqueada"}</strong></p>
+            <p>Proximo pago del servicio: <strong>{profile.subscription?.next_payment_date || "Sin configurar"}</strong></p>
+            <p>Estado de suscripcion: <strong>{profile.subscription?.is_configured ? profile.subscription.subscription_status : "Sin configurar"}</strong></p>
             {profile.stamp_alert_active ? <p className="error-text">El negocio esta en umbral de alerta de timbres.</p> : null}
           </div>
         ) : null}
@@ -523,7 +525,6 @@ export function ProfilePage() {
         fiscal_rfc: formData.fiscal_rfc,
         pac_provider: formData.pac_provider,
         pac_mode: formData.pac_mode,
-        stamps_available: Number(formData.stamps_available || 0),
         stamp_alert_threshold: Number(formData.stamp_alert_threshold || 0)
       })}>
         <div className="panel-header">
@@ -554,13 +555,14 @@ export function ProfilePage() {
         </label>
         <label>
           Timbres disponibles
-          <input disabled={!canEditStamps} type="number" min="0" value={formData.stamps_available} onChange={(event) => updateField("stamps_available", event.target.value)} />
+          <input disabled readOnly type="number" min="0" value={formData.stamps_available} />
         </label>
         <label>
           Alerta de timbres
           <input disabled={!canEditStamps} type="number" min="0" value={formData.stamp_alert_threshold} onChange={(event) => updateField("stamp_alert_threshold", event.target.value)} />
         </label>
-        {!canEditStamps ? <p className="muted">Solo superusuario puede editar timbres.</p> : null}
+        {!canEditStamps ? <p className="muted">Solo superusuario puede editar esta configuración.</p> : null}
+        {canEditStamps ? <p className="muted">Las cargas manuales de timbres ahora se registran desde Negocios para mantener trazabilidad por movimiento.</p> : null}
         {canEditStamps ? (
           <button className="button" disabled={savingSection === "stamps"} type="submit">
             {savingSection === "stamps" ? "Guardando..." : "Guardar configuración de facturación"}

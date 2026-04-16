@@ -8,6 +8,10 @@ const { normalizeRole } = require("../utils/roles");
 const { saveAuditLog } = require("./auditLogService");
 const { resolveBusinessClassification } = require("../utils/business");
 const userService = require("./userService");
+const {
+  assertBusinessAccessAllowed,
+  initializeBusinessSubscriptionForNewBusiness
+} = require("./businessSubscriptionService");
 
 function signToken(user, options = {}) {
   const businessId = requireActorBusinessId(user);
@@ -60,6 +64,8 @@ async function login(identifier, password) {
   if (!passwordMatches) {
     throw new ApiError(401, "Invalid credentials");
   }
+
+  await assertBusinessAccessAllowed(user);
 
   return {
     token: signToken(user),
@@ -137,6 +143,7 @@ async function registerBusiness(payload) {
        ON CONFLICT (business_id, profile_key) DO NOTHING`,
       [business.id, user.id]
     );
+    await initializeBusinessSubscriptionForNewBusiness(business, user.id, client);
 
     await saveAuditLog({
       business_id: business.id,

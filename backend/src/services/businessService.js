@@ -3,6 +3,13 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { isSuperUser, requireActorBusinessId } = require("../utils/tenant");
 const { resolveBusinessClassification } = require("../utils/business");
+const {
+  mapBusinessSubscription,
+  getBusinessSubscriptionSummary,
+  initializeBusinessSubscriptionForNewBusiness,
+  updateBusinessSubscription
+} = require("./businessSubscriptionService");
+const { loadStampsForBusiness, listStampMovementsForBusiness } = require("./stampService");
 
 function slugify(value) {
   return String(value || "")
@@ -29,32 +36,59 @@ function resolveBusinessPayload(payload) {
 }
 
 async function listBusinesses(actor) {
-  let query;
-  let params = [];
+  const params = [];
+  let whereClause = "";
 
-  // Si es superusuario, no filtramos por ID, traemos todos
-  if (isSuperUser(actor)) {
-    query = `
-      SELECT businesses.*, COUNT(users.id)::int AS user_count
-      FROM businesses
-      LEFT JOIN users ON users.business_id = businesses.id
-      GROUP BY businesses.id
-      ORDER BY businesses.name ASC`;
-  } else {
-    // Si no es superusuario, aplicamos el filtro de seguridad
-    const businessId = requireActorBusinessId(actor);
-    query = `
-      SELECT businesses.*, COUNT(users.id)::int AS user_count
-      FROM businesses
-      LEFT JOIN users ON users.business_id = businesses.id
-      WHERE businesses.id = $1
-      GROUP BY businesses.id
-      ORDER BY businesses.name ASC`;
-    params = [businessId];
+  if (!isSuperUser(actor)) {
+    params.push(requireActorBusinessId(actor));
+    whereClause = "WHERE businesses.id = $1";
   }
 
-  const { rows } = await pool.query(query, params);
-  return rows;
+  const { rows } = await pool.query(
+    `SELECT
+       businesses.*,
+       COUNT(users.id)::int AS user_count,
+       COALESCE(MAX(company_profiles.stamps_available), 0)::int AS stamps_available,
+       MAX(company_profiles.stamps_used)::int AS stamps_used,
+       bs.plan_type,
+       bs.billing_anchor_date,
+       bs.next_payment_date,
+       bs.grace_period_days,
+       bs.enforcement_enabled,
+       bs.manual_adjustment_reason
+     FROM businesses
+     LEFT JOIN users ON users.business_id = businesses.id
+     LEFT JOIN company_profiles ON company_profiles.business_id = businesses.id
+       AND company_profiles.profile_key = 'default'
+     LEFT JOIN business_subscriptions bs ON bs.business_id = businesses.id
+     ${whereClause}
+     GROUP BY
+       businesses.id,
+       bs.business_id,
+       bs.plan_type,
+       bs.billing_anchor_date,
+       bs.next_payment_date,
+       bs.grace_period_days,
+       bs.enforcement_enabled,
+       bs.manual_adjustment_reason
+     ORDER BY businesses.name ASC`,
+    params
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    stamps_available: Number(row.stamps_available || 0),
+    stamps_used: Number(row.stamps_used || 0),
+    subscription: mapBusinessSubscription({
+      business_id: row.id,
+      plan_type: row.plan_type,
+      billing_anchor_date: row.billing_anchor_date,
+      next_payment_date: row.next_payment_date,
+      grace_period_days: row.grace_period_days,
+      enforcement_enabled: row.enforcement_enabled,
+      manual_adjustment_reason: row.manual_adjustment_reason
+    })
+  }));
 }
 
 async function createBusiness(payload, actor) {
@@ -86,6 +120,7 @@ async function createBusiness(payload, actor) {
        VALUES ($1, 'default', '{}'::jsonb, TRUE, $2, $2)`,
       [business.id, actor.id]
     );
+    await initializeBusinessSubscriptionForNewBusiness(business, actor.id, client);
     await client.query(
       `INSERT INTO users (
         username, email, full_name, password_hash, role, pos_type, business_id, is_active, must_change_password, password_changed_at
@@ -93,7 +128,10 @@ async function createBusiness(payload, actor) {
       [`soporte_${business.slug}`, `soporte+${business.slug}@ankode.local`, `Soporte ${business.name}`, crypto.randomBytes(16).toString("hex"), business.pos_type, business.id]
     );
     await client.query("COMMIT");
-    return business;
+    return {
+      ...business,
+      subscription: await getBusinessSubscriptionSummary(business.id)
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     if (String(error.message || "").includes("duplicate")) throw new ApiError(409, "Business already exists");
@@ -103,4 +141,22 @@ async function createBusiness(payload, actor) {
   }
 }
 
-module.exports = { listBusinesses, createBusiness };
+async function updateBusinessSubscriptionSettings(businessId, payload, actor) {
+  return updateBusinessSubscription(businessId, payload, actor);
+}
+
+async function manualLoadBusinessStamps(businessId, payload, actor) {
+  return loadStampsForBusiness(businessId, payload, actor);
+}
+
+async function listBusinessStampMovements(businessId, actor) {
+  return listStampMovementsForBusiness(businessId, actor);
+}
+
+module.exports = {
+  listBusinesses,
+  createBusiness,
+  updateBusinessSubscriptionSettings,
+  manualLoadBusinessStamps,
+  listBusinessStampMovements
+};

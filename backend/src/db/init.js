@@ -49,6 +49,19 @@ async function ensureSchema(client) {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS business_type VARCHAR(80)",
+    `CREATE TABLE IF NOT EXISTS business_subscriptions (
+      business_id INTEGER PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+      plan_type VARCHAR(20),
+      billing_anchor_date DATE,
+      next_payment_date DATE,
+      grace_period_days INTEGER NOT NULL DEFAULT 0,
+      enforcement_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      manual_adjustment_reason TEXT NOT NULL DEFAULT '',
+      created_by INTEGER REFERENCES users(id),
+      updated_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(40)",
@@ -975,6 +988,33 @@ async function backfillBusinessIds(client) {
 
   await execQuery(
     client,
+    `INSERT INTO business_subscriptions (
+       business_id,
+       plan_type,
+       billing_anchor_date,
+       next_payment_date,
+       grace_period_days,
+       enforcement_enabled,
+       manual_adjustment_reason
+     )
+     SELECT
+       businesses.id,
+       NULL,
+       businesses.created_at::date,
+       NULL,
+       0,
+       FALSE,
+       ''
+     FROM businesses
+     WHERE NOT EXISTS (
+       SELECT 1
+       FROM business_subscriptions
+       WHERE business_subscriptions.business_id = businesses.id
+     )`
+  );
+
+  await execQuery(
+    client,
     `INSERT INTO product_suppliers (product_id, supplier_id, is_primary, purchase_cost, cost_updated_at, business_id)
      SELECT id, supplier_id, TRUE, cost_price, updated_at, business_id
      FROM products
@@ -1600,6 +1640,17 @@ async function ensureConstraints(client) {
       IF NOT EXISTS (
         SELECT 1
         FROM pg_constraint
+        WHERE conname = 'business_subscriptions_plan_type_check'
+          AND conrelid = 'business_subscriptions'::regclass
+      ) THEN
+        ALTER TABLE business_subscriptions
+        ADD CONSTRAINT business_subscriptions_plan_type_check
+        CHECK (plan_type IS NULL OR plan_type IN ('monthly', 'yearly'));
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
         WHERE conname = 'supplier_catalog_items_status_check'
           AND conrelid = 'supplier_catalog_items'::regclass
       ) THEN
@@ -1657,6 +1708,7 @@ async function ensureConstraints(client) {
 
   await run(client, [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_company_profiles_business_profile_key ON company_profiles(business_id, profile_key)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_business_subscriptions_business_id ON business_subscriptions(business_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_cuts_business_cut_date ON daily_cuts(business_id, cut_date)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_product_categories_business_name ON product_categories(business_id, LOWER(name))",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_templates_pos_type_type ON pos_templates(pos_type, type)",
@@ -1705,6 +1757,7 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_sales_credit_customer_name ON sales(business_id, LOWER(customer_name)) WHERE payment_method = 'credit' AND COALESCE(status, 'completed') <> 'cancelled'",
     "CREATE INDEX IF NOT EXISTS idx_sales_credit_customer_phone ON sales(business_id, customer_phone) WHERE payment_method = 'credit' AND COALESCE(status, 'completed') <> 'cancelled'",
     "CREATE INDEX IF NOT EXISTS idx_company_profiles_business_id ON company_profiles(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_business_subscriptions_next_payment_date ON business_subscriptions(next_payment_date)",
     "CREATE INDEX IF NOT EXISTS idx_company_stamp_movements_business_id ON company_stamp_movements(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_administrative_invoices_business_id ON administrative_invoices(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_administrative_invoices_sale_id ON administrative_invoices(sale_id)",

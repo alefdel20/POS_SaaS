@@ -46,6 +46,26 @@ export interface Business {
   pos_type: PosType;
   is_active: boolean;
   user_count?: number;
+  stamps_available?: number;
+  stamps_used?: number;
+  subscription?: BusinessSubscription | null;
+}
+
+export interface BusinessSubscription {
+  business_id: number;
+  plan_type: "monthly" | "yearly" | null;
+  billing_anchor_date: string | null;
+  next_payment_date: string | null;
+  grace_period_days: number;
+  enforcement_enabled: boolean;
+  manual_adjustment_reason: string;
+  subscription_status: "active" | "due_soon" | "overdue" | "blocked";
+  is_configured: boolean;
+  due_in_days: number | null;
+  overdue_days: number | null;
+  should_block: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Supplier {
@@ -803,6 +823,7 @@ export interface CompanyProfile {
   has_fiscal_profile?: boolean;
   billing_ready?: boolean;
   stamp_alert_active?: boolean;
+  subscription?: BusinessSubscription | null;
   is_active: boolean;
 }
 

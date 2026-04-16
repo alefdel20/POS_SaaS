@@ -810,47 +810,71 @@ export function SalesPage() {
       return;
     }
 
-    const ticketWindow = window.open("", "_blank", "noopener,noreferrer,width=420,height=720");
+    const escapeHtml = (value: string | number | null | undefined) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+    const ticketWindow = window.open("", "_blank", "width=420,height=720");
     if (!ticketWindow) {
+      setError("El navegador bloqueó la ventana de impresión. Permite popups e intenta nuevamente.");
       return;
     }
 
     const itemsHtml = lastSaleItems.map((item) => `
       <tr>
-        <td>${item.product.name}</td>
-        <td>${formatSaleQuantity(item.quantity, item.product.unidad_de_venta)}</td>
-        <td>${currency(item.product.effective_price ?? item.product.price)}</td>
+        <td>${escapeHtml(item.product.name)}</td>
+        <td>${escapeHtml(formatSaleQuantity(item.quantity, item.product.unidad_de_venta))}</td>
+        <td>${escapeHtml(currency(item.product.effective_price ?? item.product.price))}</td>
       </tr>
     `).join("");
 
-    ticketWindow.document.write(`
-      <html>
-        <head>
-          <title>Ticket ${lastSale.id}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 16px; }
-            h1 { font-size: 18px; margin: 0 0 8px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-            td, th { font-size: 12px; text-align: left; padding: 4px 0; border-bottom: 1px solid #ddd; }
-          </style>
-        </head>
-        <body>
-          <h1>${profile?.company_name || profile?.fiscal_business_name || "POS APP"}</h1>
-          <p>Folio: ${lastSale.id}</p>
-          <p>Fecha: ${shortDateTime(lastSale.created_at)}</p>
-          <p>Cajero: ${lastSale.cashier_name || user?.full_name || "-"}</p>
-          <p>Pago: ${getPaymentMethodLabel(lastSale.payment_method)}</p>
-          <table>
-            <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio</th></tr></thead>
-            <tbody>${itemsHtml}</tbody>
-          </table>
-          <p><strong>Total: ${currency(lastSale.total)}</strong></p>
-        </body>
-      </html>
-    `);
-    ticketWindow.document.close();
-    ticketWindow.focus();
-    ticketWindow.print();
+    try {
+      ticketWindow.document.write(`
+        <html>
+          <head>
+            <title>Ticket ${escapeHtml(lastSale.id)}</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 16px; }
+              h1 { font-size: 18px; margin: 0 0 8px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+              td, th { font-size: 12px; text-align: left; padding: 4px 0; border-bottom: 1px solid #ddd; }
+            </style>
+          </head>
+          <body>
+            <h1>${escapeHtml(profile?.company_name || profile?.fiscal_business_name || "POS APP")}</h1>
+            <p>Folio: ${escapeHtml(lastSale.id)}</p>
+            <p>Fecha: ${escapeHtml(shortDateTime(lastSale.created_at))}</p>
+            <p>Cajero: ${escapeHtml(lastSale.cashier_name || user?.full_name || "-")}</p>
+            <p>Pago: ${escapeHtml(getPaymentMethodLabel(lastSale.payment_method))}</p>
+            <table>
+              <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio</th></tr></thead>
+              <tbody>${itemsHtml}</tbody>
+            </table>
+            <p><strong>Total: ${escapeHtml(currency(lastSale.total))}</strong></p>
+          </body>
+        </html>
+      `);
+      ticketWindow.document.close();
+      ticketWindow.focus();
+      window.setTimeout(() => {
+        try {
+          if (!ticketWindow || ticketWindow.closed) {
+            setError("La ventana de impresión ya no está disponible.");
+            return;
+          }
+          ticketWindow.print();
+        } catch {
+          setError("No fue posible iniciar la impresión del ticket.");
+        }
+      }, 200);
+    } catch {
+      ticketWindow.close();
+      setError("No fue posible preparar la ventana de impresión del ticket.");
+    }
   }
 
   return (
