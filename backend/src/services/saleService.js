@@ -25,6 +25,15 @@ function roundQuantity(value) {
   return roundToScale(value, 3);
 }
 
+function roundMoney(value) {
+  return roundToScale(value, 2);
+}
+
+function normalizeBalanceDue(value) {
+  const rounded = roundMoney(value);
+  return Math.abs(rounded) < 0.005 ? 0 : rounded;
+}
+
 function normalizeMoneyValue(value, fieldLabel, options = {}) {
   const allowNull = Boolean(options.allowNull);
   if (value === undefined || value === null || value === "") {
@@ -412,10 +421,13 @@ async function createSale(payload, user) {
 
     const saleType = payload.sale_type || "ticket";
     const requiresAdministrativeInvoice = Boolean(payload.requires_administrative_invoice);
-    const initialPayment = normalizeMoneyValue(payload.initial_payment || 0, "Initial payment");
+    const initialPaymentRaw = normalizeMoneyValue(payload.initial_payment || 0, "Initial payment");
+    const initialPayment = payload.payment_method === "credit" ? roundMoney(initialPaymentRaw) : initialPaymentRaw;
     const cashReceived = payload.payment_method === "cash" ? normalizeMoneyValue(payload.cash_received, "Cash received") : null;
     if (payload.payment_method === "cash" && cashReceived < total) throw new ApiError(400, "Cash received must cover the sale total");
-    const balanceDue = payload.payment_method === "credit" ? roundToScale(Math.max(total - initialPayment, 0), 5) : 0;
+    const balanceDue = payload.payment_method === "credit"
+      ? normalizeBalanceDue(roundMoney(total) - initialPayment)
+      : 0;
     const customerName = payload.customer?.name?.trim() || null;
     const customerPhone = payload.customer?.phone?.trim() || null;
     let invoiceData = saleType === "invoice" ? payload.invoice_data || {} : {};

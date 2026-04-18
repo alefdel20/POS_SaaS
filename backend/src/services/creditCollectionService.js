@@ -8,6 +8,17 @@ const { canUseCreditCollections } = require("../utils/business");
 const { emitActorAutomationEvent } = require("./automationEventService");
 
 const VALID_SALE_STATUS_SQL = "COALESCE(sales.status, 'completed') <> 'cancelled'";
+const MONEY_EPSILON = 0.005;
+
+function roundMoney(value) {
+  const numericValue = Number(value || 0);
+  return Math.round((numericValue + Number.EPSILON) * 100) / 100;
+}
+
+function normalizeBalanceDue(value) {
+  const rounded = roundMoney(value);
+  return Math.abs(rounded) < MONEY_EPSILON ? 0 : rounded;
+}
 
 function ensureCreditCollectionsEnabled(actor) {
   if (!canUseCreditCollections(actor?.pos_type)) {
@@ -344,7 +355,7 @@ async function createPayment(saleId, payload, actor) {
       throw new ApiError(404, "Credit sale not found");
     }
 
-    const amount = Number(payload.amount);
+    const amount = roundMoney(payload.amount);
 
     if (amount <= 0) {
       throw new ApiError(400, "Payment amount must be greater than zero");
@@ -357,10 +368,10 @@ async function createPayment(saleId, payload, actor) {
       [saleId, businessId]
     );
 
-    const totalPaidBeforePayment = Number(sale.initial_payment || 0) + Number(totalsRows[0]?.paid || 0);
-    const authoritativeBalanceDue = Math.max(Number(sale.total || 0) - totalPaidBeforePayment, 0);
+    const totalPaidBeforePayment = roundMoney(Number(sale.initial_payment || 0) + Number(totalsRows[0]?.paid || 0));
+    const authoritativeBalanceDue = normalizeBalanceDue(roundMoney(Number(sale.total || 0)) - totalPaidBeforePayment);
 
-    if (amount > authoritativeBalanceDue) {
+    if (amount > authoritativeBalanceDue + Number.EPSILON) {
       throw new ApiError(400, "Payment amount cannot exceed pending balance");
     }
 
@@ -380,8 +391,8 @@ async function createPayment(saleId, payload, actor) {
       ]
     );
 
-    const totalPaid = totalPaidBeforePayment + amount;
-    const balanceDue = Math.max(Number(sale.total) - totalPaid, 0);
+    const totalPaid = roundMoney(totalPaidBeforePayment + amount);
+    const balanceDue = normalizeBalanceDue(roundMoney(Number(sale.total || 0)) - totalPaid);
 
     const { rows: updatedRows } = await client.query(
       `UPDATE sales
