@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { type RefObject, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { AuthResponse, ProductUpdateRequestPendingSummary } from "../types";
@@ -9,9 +9,10 @@ import { getRoleLabel } from "../utils/uiLabels";
 type HeaderProps = {
   isSidebarOpen: boolean;
   onMenuToggle: () => void;
+  menuToggleRef?: RefObject<HTMLButtonElement | null>;
 };
 
-export function Header({ isSidebarOpen, onMenuToggle }: HeaderProps) {
+export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderProps) {
   const { token, user, logout, setSession } = useAuth();
   const [pendingSummary, setPendingSummary] = useState<ProductUpdateRequestPendingSummary | null>(null);
   const approvalsPath = user?.pos_type === "Veterinaria"
@@ -94,6 +95,7 @@ export function Header({ isSidebarOpen, onMenuToggle }: HeaderProps) {
             aria-expanded={isSidebarOpen}
             className="button ghost menu-toggle"
             onClick={onMenuToggle}
+            ref={menuToggleRef}
             type="button"
           >
             <span aria-hidden="true" className="menu-toggle-icon">☰</span>
