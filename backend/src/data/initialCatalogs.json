@@ -1,0 +1,1978 @@
+{
+  "tienda": [
+    {
+      "name": "Refresco de Cola 600 ml",
+      "price": 22.0,
+      "cost": 15.5,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Refresco de Cola 2.5 L Ret.",
+      "price": 40.0,
+      "cost": 28.0,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Leche Entera 1 L",
+      "price": 28.5,
+      "cost": 23.5,
+      "category": "Lácteos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Leche Deslactosada 1 L",
+      "price": 30.0,
+      "cost": 25.0,
+      "category": "Lácteos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Agua Natural 600 ml",
+      "price": 14.5,
+      "cost": 9.5,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Agua Natural Garrafón 20 L",
+      "price": 55.0,
+      "cost": 42.0,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Suero Rehidratante 625 ml",
+      "price": 28.0,
+      "cost": 21.5,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Suero Rehidratante 500 ml",
+      "price": 19.9,
+      "cost": 13.7,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Aceite Vegetal 900 ml",
+      "price": 35.0,
+      "cost": 28.5,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Arroz Blanco 900 g",
+      "price": 28.0,
+      "cost": 21.0,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Frijol Negro 900 g",
+      "price": 41.0,
+      "cost": 32.0,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Azúcar Estándar 1 kg",
+      "price": 30.0,
+      "cost": 24.0,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Sal de Mesa 1 kg",
+      "price": 19.5,
+      "cost": 14.0,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Huevo Blanco 18 piezas",
+      "price": 58.0,
+      "cost": 48.0,
+      "category": "Huevos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Harina de Maíz 1 kg",
+      "price": 25.0,
+      "cost": 19.5,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pan de Caja Blanco 680 g",
+      "price": 54.0,
+      "cost": 42.0,
+      "category": "Panadería",
+      "unit": "pieza"
+    },
+    {
+      "name": "Galletas Marías 170 g",
+      "price": 14.5,
+      "cost": 11.0,
+      "category": "Botanas y Dulces",
+      "unit": "pieza"
+    },
+    {
+      "name": "Galletas Saladas 180 g",
+      "price": 19.0,
+      "cost": 14.0,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Botana (Papas) 42 g",
+      "price": 18.0,
+      "cost": 13.5,
+      "category": "Botanas y Dulces",
+      "unit": "pieza"
+    },
+    {
+      "name": "Fritura de Maíz 50 g",
+      "price": 16.0,
+      "cost": 12.0,
+      "category": "Botanas y Dulces",
+      "unit": "pieza"
+    },
+    {
+      "name": "Sopa Instantánea 64 g",
+      "price": 17.0,
+      "cost": 13.0,
+      "category": "Botanas y Dulces",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pasta para Sopa 200 g",
+      "price": 12.0,
+      "cost": 8.5,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Puré de Tomate 210 g",
+      "price": 11.0,
+      "cost": 7.5,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Atún en Agua 140 g",
+      "price": 21.5,
+      "cost": 16.5,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Café Soluble 190 g",
+      "price": 125.0,
+      "cost": 98.0,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Mayonesa 390 g",
+      "price": 58.0,
+      "cost": 46.0,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Chiles Jalapeños 380 g",
+      "price": 24.0,
+      "cost": 18.0,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cerveza Clara 355 ml",
+      "price": 22.0,
+      "cost": 16.0,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Detergente Polvo 1 kg",
+      "price": 44.0,
+      "cost": 35.0,
+      "category": "Limpieza",
+      "unit": "pieza"
+    },
+    {
+      "name": "Jabón de Barra 400 g",
+      "price": 21.0,
+      "cost": 16.5,
+      "category": "Limpieza",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cloro Líquido 1 L",
+      "price": 19.0,
+      "cost": 14.0,
+      "category": "Limpieza",
+      "unit": "pieza"
+    },
+    {
+      "name": "Suavizante Telas 1 L",
+      "price": 32.0,
+      "cost": 24.0,
+      "category": "Limpieza",
+      "unit": "pieza"
+    },
+    {
+      "name": "Limpiador Pisos 1 L",
+      "price": 26.0,
+      "cost": 19.0,
+      "category": "Limpieza",
+      "unit": "pieza"
+    },
+    {
+      "name": "Jabón de Trastes 500 ml",
+      "price": 29.0,
+      "cost": 22.0,
+      "category": "Limpieza",
+      "unit": "pieza"
+    },
+    {
+      "name": "Papel Higiénico 4 rollos",
+      "price": 32.0,
+      "cost": 24.0,
+      "category": "Limpieza",
+      "unit": "pieza"
+    },
+    {
+      "name": "Toallas Femeninas 10 piezas",
+      "price": 38.0,
+      "cost": 28.0,
+      "category": "Higiene Personal",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pasta Dental 100 ml",
+      "price": 35.0,
+      "cost": 26.0,
+      "category": "Abarrotes",
+      "unit": "pieza"
+    },
+    {
+      "name": "Champú 400 ml",
+      "price": 58.0,
+      "cost": 42.0,
+      "category": "Higiene Personal",
+      "unit": "pieza"
+    },
+    {
+      "name": "Jabón Tocador 150 g",
+      "price": 22.0,
+      "cost": 15.0,
+      "category": "Limpieza",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pañales Etapa Paquete",
+      "price": 190.0,
+      "cost": 145.0,
+      "category": "Higiene Personal",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alimento Perro 2 kg",
+      "price": 115.0,
+      "cost": 85.0,
+      "category": "Mascotas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alimento Gato 1.5 kg",
+      "price": 128.0,
+      "cost": 95.0,
+      "category": "Mascotas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Chocolate Barra 20 g",
+      "price": 17.0,
+      "cost": 12.0,
+      "category": "Botanas y Dulces",
+      "unit": "pieza"
+    },
+    {
+      "name": "Mazapán 28 g",
+      "price": 7.5,
+      "cost": 4.5,
+      "category": "Botanas y Dulces",
+      "unit": "pieza"
+    },
+    {
+      "name": "Veladora",
+      "price": 23.0,
+      "cost": 16.0,
+      "category": "Hogar",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pilas AA 2 piezas",
+      "price": 45.0,
+      "cost": 32.0,
+      "category": "Hogar",
+      "unit": "pieza"
+    },
+    {
+      "name": "Foco LED 9W",
+      "price": 28.0,
+      "cost": 19.0,
+      "category": "Hogar",
+      "unit": "pieza"
+    },
+    {
+      "name": "Jamón de Pavo 250 g",
+      "price": 49.0,
+      "cost": 38.0,
+      "category": "Lácteos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Salchicha Pavo 500 g",
+      "price": 56.0,
+      "cost": 42.0,
+      "category": "Lácteos",
+      "unit": "pieza"
+    }
+  ],
+  "restaurante": [
+    {
+      "name": "Taco Pastor",
+      "price": 22.0,
+      "cost": 9.5,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Taco de Asada",
+      "price": 35.0,
+      "cost": 14.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Gringa Pastor",
+      "price": 95.0,
+      "cost": 42.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Orden Chilaquiles",
+      "price": 145.0,
+      "cost": 58.8,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pozole Rojo Plato (500ml)",
+      "price": 105.0,
+      "cost": 48.7,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Enchiladas Suizas 4 piezas",
+      "price": 154.0,
+      "cost": 62.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Molletes Sencillos 4 piezas",
+      "price": 85.0,
+      "cost": 38.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Club Sandwich",
+      "price": 110.0,
+      "cost": 52.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Milanesa Pollo",
+      "price": 125.0,
+      "cost": 54.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alambre Bistec Rinde 3 tacos",
+      "price": 195.0,
+      "cost": 85.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Consomé Pollo",
+      "price": 78.0,
+      "cost": 24.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Sopa de Tortilla",
+      "price": 78.0,
+      "cost": 22.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Hamburguesa Qzo.",
+      "price": 135.0,
+      "cost": 48.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pechuga Cordon B.",
+      "price": 155.0,
+      "cost": 68.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Quesadilla Queso Tortilla mano",
+      "price": 35.0,
+      "cost": 12.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Enchiladas Rojas 4 piezas",
+      "price": 105.0,
+      "cost": 45.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Flautas (3) Con crema/qzo",
+      "price": 85.0,
+      "cost": 32.0,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Arrachera (Kg)",
+      "price": null,
+      "cost": 240.0,
+      "category": "Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pechuga Pollo (Kg)",
+      "price": null,
+      "cost": 138.4,
+      "category": "Platillos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Carne Cerdo (Kg)",
+      "price": null,
+      "cost": 147.9,
+      "category": "Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Refresco Coca 600 ml (Salón)",
+      "price": 35.0,
+      "cost": 15.5,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Agua Jamaica 450 ml",
+      "price": 45.0,
+      "cost": 12.0,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cerveza Clara 355 ml (Salón)",
+      "price": 45.0,
+      "cost": 18.5,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Café Americano",
+      "price": 45.0,
+      "cost": 8.0,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Michelada Prep.",
+      "price": 85.0,
+      "cost": 35.0,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Tequila Reposado",
+      "price": 110.0,
+      "cost": 45.0,
+      "category": "Bebidas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Aceite Vegetal 18 L (Cubeta)",
+      "price": null,
+      "cost": 560.0,
+      "category": "Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Salsa de Tomate 4.2 kg (Lata)",
+      "price": null,
+      "cost": 119.0,
+      "category": "Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Servilletas Paquete",
+      "price": null,
+      "cost": 42.0,
+      "category": "Insumos",
+      "unit": "pieza"
+    }
+  ],
+  "ferreteria": [
+    {
+      "name": "Cinta Aislar 18m Truper M-33",
+      "price": 22.0,
+      "cost": 18.0,
+      "category": "Eléctrico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cinta Teflón 7m Pretul CTF-1/2",
+      "price": 5.5,
+      "cost": 3.9,
+      "category": "General",
+      "unit": "pieza"
+    },
+    {
+      "name": "Foco LED 9W Volteck",
+      "price": 35.0,
+      "cost": 22.0,
+      "category": "Eléctrico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cable Eléc. Cal Iusa (Metro)",
+      "price": 14.5,
+      "cost": 11.5,
+      "category": "Eléctrico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cable Eléc. Cal Iusa (Metro)",
+      "price": 11.0,
+      "cost": 8.5,
+      "category": "Eléctrico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Apagador Sencillo Volteck",
+      "price": 24.0,
+      "cost": 16.0,
+      "category": "Eléctrico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Contacto Dúplex Bticino",
+      "price": 42.0,
+      "cost": 28.0,
+      "category": "Eléctrico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Int. Termomag 30A Square D",
+      "price": 185.0,
+      "cost": 135.0,
+      "category": "Eléctrico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Clavo Concreto 2\" Fiero (Kg)",
+      "price": 75.0,
+      "cost": 55.0,
+      "category": "Fijación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pija Multiuso Fiero (100 pz)",
+      "price": 65.0,
+      "cost": 42.0,
+      "category": "Fijación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Taquete Plástico Fiero (100 pz)",
+      "price": 45.0,
+      "cost": 28.0,
+      "category": "Fijación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Martillo de Uña Truper 16oz",
+      "price": 195.0,
+      "cost": 145.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Flexómetro 5m Truper",
+      "price": 120.0,
+      "cost": 85.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Destornillador Ph Truper",
+      "price": 48.0,
+      "cost": 32.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Llave Ajustable 8\" Truper",
+      "price": 175.0,
+      "cost": 125.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pinza de Chofer 8\" Truper",
+      "price": 145.0,
+      "cost": 95.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Segueta Bimetal Truper",
+      "price": 28.0,
+      "cost": 18.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Arco Segueta Truper",
+      "price": 130.0,
+      "cost": 85.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Tubo PVC Hid. 1/2\" Metro",
+      "price": 26.0,
+      "cost": 18.0,
+      "category": "Plomería",
+      "unit": "pieza"
+    },
+    {
+      "name": "Codo PVC 90 1/2\"",
+      "price": 6.5,
+      "cost": 3.5,
+      "category": "Plomería",
+      "unit": "pieza"
+    },
+    {
+      "name": "Te PVC 1/2\"",
+      "price": 8.0,
+      "cost": 4.5,
+      "category": "Plomería",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pegamento PVC 4oz Oatey",
+      "price": 78.0,
+      "cost": 55.0,
+      "category": "Plomería",
+      "unit": "pieza"
+    },
+    {
+      "name": "Llave de Paso 1/2\" Esfera",
+      "price": 115.0,
+      "cost": 75.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Flotador Tinaco Rotoplas",
+      "price": 165.0,
+      "cost": 110.0,
+      "category": "Plomería",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cemento Gris Bulto 50kg",
+      "price": 265.0,
+      "cost": 215.0,
+      "category": "Construcción",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cal Hidratada Bulto 25kg",
+      "price": 115.0,
+      "cost": 85.0,
+      "category": "Construcción",
+      "unit": "pieza"
+    },
+    {
+      "name": "Impermeabilizante 19 L (Blanco)",
+      "price": 1550.0,
+      "cost": 1100.0,
+      "category": "Construcción",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pintura Vinílica 19 L (Blanco)",
+      "price": 1800.0,
+      "cost": 1250.0,
+      "category": "Construcción",
+      "unit": "pieza"
+    },
+    {
+      "name": "Brocha 2\" Truper",
+      "price": 28.0,
+      "cost": 18.0,
+      "category": "Pintura y Selladores",
+      "unit": "pieza"
+    },
+    {
+      "name": "Rodillo Pintar Truper",
+      "price": 85.0,
+      "cost": 55.0,
+      "category": "Pintura y Selladores",
+      "unit": "pieza"
+    },
+    {
+      "name": "Lija para Madera Fandeli (Pliego)",
+      "price": 13.0,
+      "cost": 8.5,
+      "category": "Construcción",
+      "unit": "pieza"
+    },
+    {
+      "name": "Silicon Sellador Resistol",
+      "price": 95.0,
+      "cost": 65.0,
+      "category": "Pintura y Selladores",
+      "unit": "pieza"
+    },
+    {
+      "name": "Kola Loka Original 2 g",
+      "price": 35.0,
+      "cost": 22.0,
+      "category": "Pintura y Selladores",
+      "unit": "pieza"
+    },
+    {
+      "name": "Resistol 250 g",
+      "price": 72.0,
+      "cost": 48.0,
+      "category": "Pintura y Selladores",
+      "unit": "pieza"
+    },
+    {
+      "name": "Candado Latón 40mm Phillips",
+      "price": 210.0,
+      "cost": 145.0,
+      "category": "Seguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cerradura Pomo Phillips",
+      "price": 390.0,
+      "cost": 280.0,
+      "category": "Seguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Bisagra de Libro Fiero",
+      "price": 22.0,
+      "cost": 12.0,
+      "category": "Seguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Taladro Rotom. Truper 1/2\"",
+      "price": 1250.0,
+      "cost": 850.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Esmeriladora Ang. Truper 4-1/2\"",
+      "price": 1450.0,
+      "cost": 945.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Sierra Caladora Pretul 400W",
+      "price": 720.0,
+      "cost": 480.0,
+      "category": "Herramientas",
+      "unit": "pieza"
+    },
+    {
+      "name": "Guantes Carnaza Fiero",
+      "price": 75.0,
+      "cost": 45.0,
+      "category": "Seguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Casco Seguridad Fiero",
+      "price": 135.0,
+      "cost": 85.0,
+      "category": "Seguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Lentes Protec. Truper",
+      "price": 55.0,
+      "cost": 32.0,
+      "category": "Seguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Disco de Corte Austromex 4.5\"",
+      "price": 28.0,
+      "cost": 18.0,
+      "category": "Seguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alambre Recocido DeAcero (Kg)",
+      "price": 45.0,
+      "cost": 32.0,
+      "category": "Construcción",
+      "unit": "pieza"
+    }
+  ],
+  "papeleria": [
+    {
+      "name": "Cuaderno Prof. Scribe (Raya)",
+      "price": 34.0,
+      "cost": 24.0,
+      "category": "Cuadernos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cuaderno Prof. Norma (Cuadro)",
+      "price": 81.0,
+      "cost": 62.0,
+      "category": "Cuadernos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cuaderno Italiano Económico",
+      "price": 15.4,
+      "cost": 11.0,
+      "category": "Cuadernos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Bolígrafo Cristal Bic (Negro/Az)",
+      "price": 6.5,
+      "cost": 4.2,
+      "category": "Escritura",
+      "unit": "pieza"
+    },
+    {
+      "name": "Bolígrafo Pin Point Azor (Pto Fino)",
+      "price": 5.5,
+      "cost": 3.5,
+      "category": "Escritura",
+      "unit": "pieza"
+    },
+    {
+      "name": "Lápiz No. Dixon / Ticon.",
+      "price": 5.0,
+      "cost": 3.0,
+      "category": "Escritura",
+      "unit": "pieza"
+    },
+    {
+      "name": "Lápiz Bicolor",
+      "price": 27.4,
+      "cost": 15.3,
+      "category": "Escritura",
+      "unit": "pieza"
+    },
+    {
+      "name": "Lápices de Colores Prismacolor (12)",
+      "price": 75.0,
+      "cost": 48.0,
+      "category": "General",
+      "unit": "pieza"
+    },
+    {
+      "name": "Lápices Colores Jr Prismacolor (24)",
+      "price": 219.0,
+      "cost": 165.0,
+      "category": "General",
+      "unit": "pieza"
+    },
+    {
+      "name": "Marcatextos Azor Visión",
+      "price": 18.0,
+      "cost": 11.0,
+      "category": "Escritura",
+      "unit": "pieza"
+    },
+    {
+      "name": "Marcador Pizarrón Azor Magistral",
+      "price": 22.0,
+      "cost": 14.0,
+      "category": "Escritura",
+      "unit": "pieza"
+    },
+    {
+      "name": "Marcador Perm. Sharpie",
+      "price": 28.0,
+      "cost": 18.5,
+      "category": "Escritura",
+      "unit": "pieza"
+    },
+    {
+      "name": "Lápiz Adhesivo Pritt 8g",
+      "price": 7.0,
+      "cost": 4.5,
+      "category": "Escritura",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pegamento Blanco Resistol 120g",
+      "price": 42.0,
+      "cost": 28.0,
+      "category": "Pegamentos y Manualidades",
+      "unit": "pieza"
+    },
+    {
+      "name": "Goma de Migajón Factis S24",
+      "price": 3.5,
+      "cost": 1.5,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Sacapuntas Plást. Maped",
+      "price": 7.0,
+      "cost": 3.5,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Resma Papel Bond Xerox (500 h)",
+      "price": 110.0,
+      "cost": 84.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cartulina Blanca Pliego",
+      "price": 4.5,
+      "cost": 2.8,
+      "category": "Papeles",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cartulina Opalina 225g (Unidad)",
+      "price": 6.0,
+      "cost": 3.5,
+      "category": "Papeles",
+      "unit": "pieza"
+    },
+    {
+      "name": "Papel China Pliego",
+      "price": 1.5,
+      "cost": 0.6,
+      "category": "Papeles",
+      "unit": "pieza"
+    },
+    {
+      "name": "Papel Crepe Rollo",
+      "price": 10.0,
+      "cost": 6.5,
+      "category": "Papeles",
+      "unit": "pieza"
+    },
+    {
+      "name": "Papel Lustre Pliego",
+      "price": 6.0,
+      "cost": 3.5,
+      "category": "Papeles",
+      "unit": "pieza"
+    },
+    {
+      "name": "Papel Contac Metro (Transp.)",
+      "price": 22.0,
+      "cost": 14.0,
+      "category": "Papeles",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cinta Adhesiva Janel 18x33",
+      "price": 8.5,
+      "cost": 5.2,
+      "category": "General",
+      "unit": "pieza"
+    },
+    {
+      "name": "Silicón Líquido Barrilito 100ml",
+      "price": 35.0,
+      "cost": 22.0,
+      "category": "Pegamentos y Manualidades",
+      "unit": "pieza"
+    },
+    {
+      "name": "Silicón en Barra",
+      "price": 3.0,
+      "cost": 1.5,
+      "category": "Pegamentos y Manualidades",
+      "unit": "pieza"
+    },
+    {
+      "name": "Folder Carta Crema (Unidad)",
+      "price": 2.5,
+      "cost": 1.2,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Folder Carta Crema (Paq 100)",
+      "price": 154.8,
+      "cost": 115.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Folder Oficio Crema (Paq 100)",
+      "price": 175.0,
+      "cost": 135.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Sobre Manila Oficio",
+      "price": 5.0,
+      "cost": 2.8,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Clips Estándar Caja",
+      "price": 12.0,
+      "cost": 7.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Grapas Estándar Caja",
+      "price": 52.0,
+      "cost": 32.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Engrapadora Pilot M-27",
+      "price": 232.0,
+      "cost": 165.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Juego Geometría Baco / Maped",
+      "price": 55.0,
+      "cost": 32.0,
+      "category": "Escolar",
+      "unit": "pieza"
+    },
+    {
+      "name": "Regla 30 cm Plástico",
+      "price": 15.0,
+      "cost": 8.0,
+      "category": "Escolar",
+      "unit": "pieza"
+    },
+    {
+      "name": "Tijera Punta Roma Barrilito",
+      "price": 25.5,
+      "cost": 16.5,
+      "category": "Escolar",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cúter (Exacto) Truper",
+      "price": 22.0,
+      "cost": 14.0,
+      "category": "Escolar",
+      "unit": "pieza"
+    },
+    {
+      "name": "Solicitud Empleo Paquete",
+      "price": 45.0,
+      "cost": 28.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Recibo de Pago Block",
+      "price": 22.0,
+      "cost": 12.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Fichas Bibliog. Paquete",
+      "price": 24.0,
+      "cost": 14.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    },
+    {
+      "name": "Memoria USB 32GB Kingston",
+      "price": 135.0,
+      "cost": 85.0,
+      "category": "Tecnología",
+      "unit": "pieza"
+    },
+    {
+      "name": "Plastilina Barra individual",
+      "price": 8.0,
+      "cost": 4.5,
+      "category": "Pegamentos y Manualidades",
+      "unit": "pieza"
+    },
+    {
+      "name": "Acuarelas Pelikan (12 col)",
+      "price": 42.0,
+      "cost": 28.0,
+      "category": "Pegamentos y Manualidades",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pintura Acrílica Politec 20ml",
+      "price": 24.0,
+      "cost": 16.0,
+      "category": "Pegamentos y Manualidades",
+      "unit": "pieza"
+    },
+    {
+      "name": "Papel Cascarón 1/8 Pliego",
+      "price": 8.0,
+      "cost": 4.5,
+      "category": "Papeles",
+      "unit": "pieza"
+    },
+    {
+      "name": "Calculadora Cient. Casio fx-82ms",
+      "price": 390.0,
+      "cost": 245.0,
+      "category": "Oficina",
+      "unit": "pieza"
+    }
+  ],
+  "farmacia": [
+    {
+      "name": "Paracetamol 500mg/20 tab",
+      "price": 12.0,
+      "cost": 6.5,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Ibuprofeno 400mg/10 cap",
+      "price": 24.0,
+      "cost": 15.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Naproxeno (Flanax) 550mg/12 tab",
+      "price": 180.0,
+      "cost": 114.9,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Aspirina 500mg/40 tab",
+      "price": 26.0,
+      "cost": 17.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Loratadina 10mg/20 tab",
+      "price": 18.0,
+      "cost": 9.5,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Ambroxol Jarabe 120ml",
+      "price": 45.0,
+      "cost": 22.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Desenfriol-D 12 tabletas",
+      "price": 22.0,
+      "cost": 17.5,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Omeprazol 20mg/14 cap",
+      "price": 35.0,
+      "cost": 18.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pantoprazol 40mg/14 tab",
+      "price": 85.0,
+      "cost": 45.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Melox (Suspensión) 250 ml",
+      "price": 95.0,
+      "cost": 68.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Riopan Gel 250 ml",
+      "price": 147.0,
+      "cost": 114.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alka-Seltzer 12 tab eff.",
+      "price": 24.9,
+      "cost": 17.2,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Sal de Uvas Picot 10 sobres",
+      "price": 48.0,
+      "cost": 32.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Loperamida (Treda) 20 tabletas",
+      "price": 99.0,
+      "cost": 77.8,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Butilhioscina 10mg/10 tab",
+      "price": 32.0,
+      "cost": 18.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Metformina 850mg/30 tab",
+      "price": 45.0,
+      "cost": 22.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Glibenclamida 5mg/50 tab",
+      "price": 15.5,
+      "cost": 9.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Enalapril 10mg/30 tab",
+      "price": 48.0,
+      "cost": 24.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Losartán 50mg/30 tab",
+      "price": 55.0,
+      "cost": 28.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Atorvastatina 20mg/30 tab",
+      "price": 85.0,
+      "cost": 42.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Amoxicilina 500mg/12 cap",
+      "price": 39.2,
+      "cost": 23.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Amoxi/Clavulánico 500/125mg/10t",
+      "price": 102.8,
+      "cost": 54.0,
+      "category": "General",
+      "unit": "pieza"
+    },
+    {
+      "name": "Azitromicina 500mg/3 tab",
+      "price": 110.0,
+      "cost": 61.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Ciprofloxacino 500mg/12 tab",
+      "price": 99.0,
+      "cost": 68.9,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Ketorolaco 10mg/10 tab",
+      "price": 35.0,
+      "cost": 18.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Diclofenaco Gel 60g",
+      "price": 48.0,
+      "cost": 22.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Vitamina C (Redox) 10 tab eff.",
+      "price": 95.0,
+      "cost": 65.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pharmaton 100 cápsulas",
+      "price": 232.0,
+      "cost": 179.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Complejo B (Tribed) Sol. Iny 3 amp",
+      "price": 245.0,
+      "cost": 165.0,
+      "category": "Medicamentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Suero Electrolit 625 ml",
+      "price": 28.0,
+      "cost": 21.0,
+      "category": "Salud y Cuidado",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alcohol Etílico 1 L",
+      "price": 65.0,
+      "cost": 45.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Agua Oxigenada 480 ml",
+      "price": 19.3,
+      "cost": 12.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Isodine Bucofari. 120 ml",
+      "price": 91.6,
+      "cost": 72.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Gasas Estériles 10x10 (100 pz)",
+      "price": 135.0,
+      "cost": 95.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Venda Elástica 10 cm x 5 m",
+      "price": 22.0,
+      "cost": 12.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cinta Micropore 1 pulgada",
+      "price": 45.0,
+      "cost": 28.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Curitas (Banditas) Caja 100 pz",
+      "price": 55.0,
+      "cost": 32.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Jeringas 3ml/5ml Caja 100 pz",
+      "price": 220.0,
+      "cost": 155.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Algodón Plisado 300 g",
+      "price": 73.0,
+      "cost": 46.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Abatelenguas Mad. Caja 100 pz",
+      "price": 46.0,
+      "cost": 28.0,
+      "category": "Curación",
+      "unit": "pieza"
+    },
+    {
+      "name": "Prueba Embarazo",
+      "price": 48.0,
+      "cost": 28.0,
+      "category": "Salud y Cuidado",
+      "unit": "pieza"
+    },
+    {
+      "name": "Toallas Saba BN Paquete 10 pz",
+      "price": 55.0,
+      "cost": 38.0,
+      "category": "Salud y Cuidado",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pañales Huggies Paquete (G)",
+      "price": 215.0,
+      "cost": 165.0,
+      "category": "Salud y Cuidado",
+      "unit": "pieza"
+    },
+    {
+      "name": "Bloqueador Nivea 200 ml",
+      "price": 245.0,
+      "cost": 185.0,
+      "category": "Salud y Cuidado",
+      "unit": "pieza"
+    },
+    {
+      "name": "Gel Antibacterial 500 ml",
+      "price": 68.0,
+      "cost": 38.0,
+      "category": "Salud y Cuidado",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cubrebocas 3 capas Caja 50 pz",
+      "price": 116.0,
+      "cost": 75.0,
+      "category": "Salud y Cuidado",
+      "unit": "pieza"
+    },
+    {
+      "name": "Termómetro Digit.",
+      "price": 85.0,
+      "cost": 45.0,
+      "category": "Salud y Cuidado",
+      "unit": "pieza"
+    },
+    {
+      "name": "Glucómetro Accu Kit Inicial",
+      "price": 490.0,
+      "cost": 345.0,
+      "category": "Salud y Cuidado",
+      "unit": "pieza"
+    }
+  ],
+  "veterinaria": [
+    {
+      "name": "Simparica 40mg 1 masticable",
+      "price": 310.0,
+      "cost": 248.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Nexgard Spectra 3 tabletas",
+      "price": 1185.0,
+      "cost": 850.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Bravecto (10-20kg) 1 masticable",
+      "price": 801.0,
+      "cost": 560.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Apoquel 16mg 20 tabletas",
+      "price": 1196.0,
+      "cost": 1136.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alimento Adulto Royal Canin 2kg",
+      "price": 645.0,
+      "cost": 480.0,
+      "category": "Alimentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alimento Cachorro Hill's Diet 2kg",
+      "price": 695.0,
+      "cost": 520.0,
+      "category": "Alimentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alimento Gato S/O Royal Canin 1.5k",
+      "price": 910.0,
+      "cost": 680.0,
+      "category": "Alimentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Sobre Alimento H. Instinct (Res)",
+      "price": 75.0,
+      "cost": 55.0,
+      "category": "Alimentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Premios Churu Gato 4 tubos",
+      "price": 67.0,
+      "cost": 52.0,
+      "category": "Alimentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Premios Porky Pop Cerdo ahumado",
+      "price": 90.0,
+      "cost": 68.0,
+      "category": "Alimentos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Arena para Gato Cat's Best 4.3kg",
+      "price": 390.0,
+      "cost": 295.0,
+      "category": "Accesorios e Higiene",
+      "unit": "pieza"
+    },
+    {
+      "name": "Arena Sanicat 10 L (Vainilla)",
+      "price": 287.0,
+      "cost": 225.0,
+      "category": "Accesorios e Higiene",
+      "unit": "pieza"
+    },
+    {
+      "name": "Champú Derm. Vetriderm 250ml",
+      "price": 328.0,
+      "cost": 245.0,
+      "category": "Accesorios e Higiene",
+      "unit": "pieza"
+    },
+    {
+      "name": "Enjuague Dental Arm&Hammer Gato",
+      "price": 150.0,
+      "cost": 110.0,
+      "category": "General",
+      "unit": "pieza"
+    },
+    {
+      "name": "Ipakitine (Renal) 60 g",
+      "price": 1199.0,
+      "cost": 850.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cimalgex 80mg Antiinflamatorio",
+      "price": 1644.0,
+      "cost": 1250.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Vetoryl 30mg Endocrinología",
+      "price": 2298.0,
+      "cost": 1750.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Otoclean Limpiador oídos",
+      "price": 295.0,
+      "cost": 210.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Tobramax Gotas ojos",
+      "price": 255.0,
+      "cost": 185.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Feliway Spray Control estrés",
+      "price": 580.0,
+      "cost": 420.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Drontal Perro Desparasitante",
+      "price": 95.0,
+      "cost": 65.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Frontline Plus Pipeta",
+      "price": 235.0,
+      "cost": 165.0,
+      "category": "Medicamentos Veterinarios",
+      "unit": "pieza"
+    },
+    {
+      "name": "Catnip (Hierba)",
+      "price": 75.0,
+      "cost": 45.0,
+      "category": "Accesorios e Higiene",
+      "unit": "pieza"
+    },
+    {
+      "name": "Juguete Kong (L) Clásico rojo",
+      "price": 325.0,
+      "cost": 245.0,
+      "category": "Accesorios e Higiene",
+      "unit": "pieza"
+    },
+    {
+      "name": "Transportadora M Fancy Pets",
+      "price": 455.0,
+      "cost": 341.0,
+      "category": "Accesorios e Higiene",
+      "unit": "pieza"
+    },
+    {
+      "name": "Cama Mascota M Genérica",
+      "price": 380.0,
+      "cost": 220.0,
+      "category": "Accesorios e Higiene",
+      "unit": "pieza"
+    },
+    {
+      "name": "Plato Acero Inox Mediano",
+      "price": 135.0,
+      "cost": 85.0,
+      "category": "Accesorios e Higiene",
+      "unit": "pieza"
+    }
+  ],
+  "dental": [
+    {
+      "name": "Kit de Resina FGM Opallis",
+      "price": 1990.0,
+      "cost": 1500.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Resina Filtek Z250 3M",
+      "price": 720.0,
+      "cost": 489.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alginato MaxPrint MDC (454g)",
+      "price": 179.0,
+      "cost": 135.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Anestesia 2% Lidoc Zeyco (Caja 50)",
+      "price": 605.0,
+      "cost": 455.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Brackets Roth.022 Ah Kim Pech",
+      "price": 1490.0,
+      "cost": 1150.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Arcos Niti Estéti. Paquete",
+      "price": 899.0,
+      "cost": 650.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Guantes Nitrilo Ambiderm (100p)",
+      "price": 165.0,
+      "cost": 115.0,
+      "category": "Bioseguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Baberos Desech. Bolsa (50 pz)",
+      "price": 54.0,
+      "cost": 38.0,
+      "category": "Bioseguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Campos Dentales Caja (500 pz)",
+      "price": 486.0,
+      "cost": 380.0,
+      "category": "Bioseguridad",
+      "unit": "pieza"
+    },
+    {
+      "name": "Dique de Hule Nic Tone (36 h)",
+      "price": 335.0,
+      "cost": 245.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Agujas Dentales Terumo (100 pz)",
+      "price": 493.0,
+      "cost": 380.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Ácido Grabador Prime Dent (12g)",
+      "price": 73.0,
+      "cost": 52.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Yeso Piedra III Whip Mix (1kg)",
+      "price": 39.0,
+      "cost": 28.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Hidróxido Calcio Dycal Dentsply",
+      "price": 522.0,
+      "cost": 390.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Puntas Cavitron RTG-MP3",
+      "price": 350.0,
+      "cost": 250.0,
+      "category": "Material Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Lámpara Fotocurado Valo Grand",
+      "price": 32998.0,
+      "cost": 28000.0,
+      "category": "Equipo Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Compresor 1.1 HP Silencioso",
+      "price": 6990.0,
+      "cost": 5800.0,
+      "category": "Equipo Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Micromotor Elécr. Marathon",
+      "price": 2895.0,
+      "cost": 2100.0,
+      "category": "Equipo Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Pieza Alta Vel. Borgatta",
+      "price": 895.0,
+      "cost": 650.0,
+      "category": "Equipo Dental",
+      "unit": "pieza"
+    },
+    {
+      "name": "Autoclave 22L Clase N",
+      "price": 18900.0,
+      "cost": 15500.0,
+      "category": "Equipo Dental",
+      "unit": "pieza"
+    }
+  ],
+  "clinica": [
+    {
+      "name": "Estetoscopio Prof. Littmann Class III",
+      "price": 4321.0,
+      "cost": 3350.0,
+      "category": "Diagnóstico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Baumanómetro Eco Welch Allyn",
+      "price": 1435.0,
+      "cost": 850.0,
+      "category": "Diagnóstico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Oxímetro de Pulso Contec",
+      "price": 783.0,
+      "cost": 280.0,
+      "category": "Diagnóstico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Estuche Diagnós. Fiber Optic LED",
+      "price": 2447.0,
+      "cost": 1750.0,
+      "category": "Diagnóstico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Jeringas (100 pz) BD Plastipak",
+      "price": 220.0,
+      "cost": 155.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Agujas Hipodér. Caja (100 pz)",
+      "price": 82.0,
+      "cost": 62.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Gasas No Estéril 10x10 (200 pz)",
+      "price": 173.0,
+      "cost": 135.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Alcohol Etílico 1 L",
+      "price": 63.3,
+      "cost": 45.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Guantes Látex Caja (100 pz)",
+      "price": 152.0,
+      "cost": 115.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Sutura Nailon 2-0 Caja (12 pz)",
+      "price": 369.0,
+      "cost": 280.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Catéter Intraven. Jelco (Unidad)",
+      "price": 18.8,
+      "cost": 12.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Solución Salina 500 ml",
+      "price": 38.0,
+      "cost": 24.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Bata Paciente Des. Caja (10 pz)",
+      "price": 119.0,
+      "cost": 92.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Gel Antibacterial 250 ml",
+      "price": 53.0,
+      "cost": 35.0,
+      "category": "Curación e Insumos",
+      "unit": "pieza"
+    },
+    {
+      "name": "Concentrador O2 5 Lpm",
+      "price": 10498.0,
+      "cost": 6150.0,
+      "category": "Equipo Médico",
+      "unit": "pieza"
+    },
+    {
+      "name": "Silla Ruedas Bás. Handy",
+      "price": 1698.0,
+      "cost": 1350.0,
+      "category": "Equipo Médico",
+      "unit": "pieza"
+    }
+  ]
+}

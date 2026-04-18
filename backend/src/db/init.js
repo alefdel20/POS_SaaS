@@ -64,6 +64,15 @@ async function ensureSchema(client) {
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
+    `CREATE TABLE IF NOT EXISTS initial_catalog_seed_runs (
+      business_id INTEGER PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+      seed_version VARCHAR(40) NOT NULL,
+      catalog_key VARCHAR(80),
+      inserted_count INTEGER NOT NULL DEFAULT 0,
+      skipped_existing_count INTEGER NOT NULL DEFAULT 0,
+      notes TEXT NOT NULL DEFAULT '',
+      seeded_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS last_payment_date DATE",
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS last_payment_note TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'",

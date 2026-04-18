@@ -7,6 +7,7 @@ const { ensureDatabaseCompatibility } = require("./db/init");
 const { ensureUploadsDirectory } = require("./utils/productImages");
 const { ensureBusinessAssetsDirectory } = require("./utils/businessAssets");
 const { startReminderScheduler } = require("./services/reminderSchedulerService");
+const { seedInitialCatalogsForExistingBusinesses } = require("./services/initialCatalogSeedService");
 
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -89,6 +90,9 @@ app.use(errorHandler);
 
 async function startServer(port = Number(process.env.PORT || 3000)) {
   await ensureDatabaseCompatibility();
+  await seedInitialCatalogsForExistingBusinesses().catch((error) => {
+    console.error("[INITIAL-CATALOG-SEED] Failed to seed initial catalogs", error);
+  });
   await ensureUploadsDirectory();
   await ensureBusinessAssetsDirectory();
   const reminderScheduler = startReminderScheduler();
