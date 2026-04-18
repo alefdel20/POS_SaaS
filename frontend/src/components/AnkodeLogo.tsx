@@ -1,6 +1,7 @@
 import { CSSProperties } from "react";
 
-const PUBLIC_ANKODE_LOGO_PATH = "/favicon.png";
+const PUBLIC_ANKODE_FULL_LOGO_PATH = "/favicon.png";
+const PUBLIC_ANKODE_ICON_LOGO_PATH = "/k ankode.png";
 
 type AnkodeLogoProps = {
   size?: number | string;
@@ -16,7 +17,7 @@ export function AnkodeLogo({ size = 48, className, variant = "icon", alt = "Anko
     width: resolvedSize,
     height: isFull ? "auto" : resolvedSize
   };
-  const src = PUBLIC_ANKODE_LOGO_PATH;
+  const src = isFull ? PUBLIC_ANKODE_FULL_LOGO_PATH : PUBLIC_ANKODE_ICON_LOGO_PATH;
   const resolvedAlt = alt || (isFull ? "ANKODE" : "ANKODE K");
 
   return (

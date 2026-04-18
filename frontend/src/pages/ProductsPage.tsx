@@ -229,27 +229,38 @@ function buildBarcodeSuggestion(name: string, category: string, supplierName: st
   return String(hash).padStart(13, "0").slice(0, 13);
 }
 
+function normalizeNullableString(value: unknown) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return typeof value === "string" ? value : String(value);
+}
+
 function supplierToForm(supplier?: Supplier | null): ProductSupplierFormState {
   return {
     supplier_id: supplier?.supplier_id ? String(supplier.supplier_id) : supplier?.id ? String(supplier.id) : "",
-    supplier_name: supplier?.supplier_name || supplier?.name || "",
-    supplier_email: supplier?.email || "",
-    supplier_phone: supplier?.phone || "",
-    supplier_whatsapp: supplier?.whatsapp || "",
-    supplier_observations: supplier?.observations || "",
+    supplier_name: normalizeNullableString(supplier?.supplier_name ?? supplier?.name),
+    supplier_email: normalizeNullableString(supplier?.email),
+    supplier_phone: normalizeNullableString(supplier?.phone),
+    supplier_whatsapp: normalizeNullableString(supplier?.whatsapp),
+    supplier_observations: normalizeNullableString(supplier?.observations),
     purchase_cost: supplier?.purchase_cost === null || supplier?.purchase_cost === undefined ? "" : String(supplier.purchase_cost),
     cost_updated_at: supplier?.cost_updated_at || null
   };
 }
 
 function productToForm(product: Product): ProductFormState {
+  const rawStatus = normalizeNullableString(product.status).trim().toLowerCase();
+  const normalizedStatus = rawStatus
+    ? (rawStatus === "inactivo" ? "inactivo" : "activo")
+    : (product.is_active ? "activo" : "inactivo");
   return {
-    name: product.name,
-    sku: product.sku,
+    name: normalizeNullableString(product.name),
+    sku: normalizeNullableString(product.sku),
     barcode_manually_edited: true,
-    barcode: product.barcode,
-    category: product.category || "",
-    description: product.description || "",
+    barcode: normalizeNullableString(product.barcode),
+    category: normalizeNullableString(product.category),
+    description: normalizeNullableString(product.description),
     price: String(product.price ?? ""),
     cost_price: String(product.cost_price ?? ""),
     ieps: product.ieps === null || product.ieps === undefined ? "" : String(product.ieps),
@@ -258,9 +269,9 @@ function productToForm(product: Product): ProductFormState {
     stock: String(product.stock ?? ""),
     stock_minimo: String(product.stock_minimo ?? ""),
     stock_maximo: String(product.stock_maximo ?? ""),
-    expires_at: product.expires_at?.slice(0, 10) || "",
-    is_active: product.is_active,
-    status: product.status || (product.is_active ? "activo" : "inactivo"),
+    expires_at: normalizeNullableString(product.expires_at).slice(0, 10),
+    is_active: Boolean(product.is_active),
+    status: normalizedStatus,
     suppliers: product.suppliers?.length
       ? product.suppliers.map((supplier) => supplierToForm(supplier))
       : [{ ...emptySupplier }],
@@ -392,8 +403,8 @@ function parseRestockDraftQuantity(value: string, unit?: string | null) {
 
 const AUTO_IEPS_CATEGORIES = new Set(["dulces", "refrescos", "botanas", "cigarros", "alcohol"]);
 
-function shouldApplyAutomaticIeps(category: string) {
-  return AUTO_IEPS_CATEGORIES.has(category.trim().toLowerCase());
+function shouldApplyAutomaticIeps(category?: string | null) {
+  return AUTO_IEPS_CATEGORIES.has(normalizeNullableString(category).trim().toLowerCase());
 }
 
 function focusNextFieldOnEnter(event: KeyboardEvent<HTMLElement>) {

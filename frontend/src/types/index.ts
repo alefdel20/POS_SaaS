@@ -11,6 +11,7 @@ export interface User {
   business_id?: number;
   business_name?: string;
   business_slug?: string;
+  business_pos_type?: PosType;
   pos_type?: PosType;
   phone?: string | null;
   professional_license?: string | null;

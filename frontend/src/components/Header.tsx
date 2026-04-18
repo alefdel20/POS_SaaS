@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import type { AuthResponse, ProductUpdateRequestPendingSummary } from "../types";
 import { isManagementRole } from "../utils/roles";
 import { getRoleLabel } from "../utils/uiLabels";
+import { AnkodeLogo } from "./AnkodeLogo";
 
 type HeaderProps = {
   isSidebarOpen: boolean;
@@ -15,6 +16,7 @@ type HeaderProps = {
 export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderProps) {
   const { token, user, logout, setSession } = useAuth();
   const [pendingSummary, setPendingSummary] = useState<ProductUpdateRequestPendingSummary | null>(null);
+  const headerTitle = user?.business_pos_type || user?.pos_type || "POS";
   const approvalsPath = user?.pos_type === "Veterinaria"
     || user?.pos_type === "Dentista"
     || user?.pos_type === "Farmacia"
@@ -102,7 +104,10 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderPro
             <span>Menú</span>
           </button>
           <div className="header-brand-block">
-            <p className="header-title">POS APP</p>
+            <div className="header-brand">
+              <AnkodeLogo className="header-logo" size={34} variant="icon" alt="ANKODE K" />
+              <p className="header-title">{headerTitle}</p>
+            </div>
             <p className="header-subtitle">
               {user?.full_name} | {getRoleLabel(user?.role)}{user?.business_name ? ` | ${user.business_name}` : ""}
             </p>
