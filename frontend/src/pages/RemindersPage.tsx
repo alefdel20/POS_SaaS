@@ -109,17 +109,13 @@ function buildMonthCells(monthKey: string) {
 
 function getReminderMetaSummary(reminder: Reminder) {
   const metadata = reminder.metadata || {};
-  const sourceModule = typeof metadata.source_module === "string" ? metadata.source_module : "";
   const amount = typeof metadata.amount === "number" ? metadata.amount : null;
   const concept = typeof metadata.concept === "string" ? metadata.concept : "";
-  const movementType = typeof metadata.movement_type === "string" ? metadata.movement_type : "";
   const reminderLabel = typeof metadata.reminder_label === "string" ? metadata.reminder_label : "";
   const dateSummary = typeof metadata.date_summary === "string" ? metadata.date_summary : "";
   const parts = [
     reminderLabel ? `Categoria: ${reminderLabel}` : "",
-    sourceModule ? `Origen: ${sourceModule}` : "",
     concept ? `Concepto: ${concept}` : "",
-    movementType ? `Tipo: ${movementType}` : "",
     amount !== null ? `Monto: ${currency(amount)}` : "",
     dateSummary
   ].filter(Boolean);

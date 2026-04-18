@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { CreditPayment, CreditSaleSummary, Debtor } from "../types";
@@ -14,12 +14,68 @@ type PaymentFormState = {
   notes: string;
 };
 
+type DebtorGroup = {
+  key: string;
+  person: string;
+  phone: string;
+  sales: Debtor[];
+  total_balance_due: number;
+  has_overdue: boolean;
+};
+
 const emptyPayment: PaymentFormState = {
   amount: "",
   payment_method: "cash",
   payment_date: getMexicoCityDateInputValue(),
   notes: ""
 };
+
+function normalizeDebtorName(value: string | null | undefined) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeDebtorPhone(value: string | null | undefined) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function buildDebtorGroups(items: Debtor[]) {
+  const grouped = new Map<string, DebtorGroup>();
+
+  for (const debtor of items) {
+    const normalizedName = normalizeDebtorName(debtor.person);
+    const normalizedPhone = normalizeDebtorPhone(debtor.phone);
+    const key = normalizedName && normalizedPhone
+      ? `${normalizedName}::${normalizedPhone}`
+      : `sale:${debtor.sale_id}`;
+
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.sales.push(debtor);
+      existing.total_balance_due += Number(debtor.balance_due || 0);
+      existing.has_overdue = existing.has_overdue || debtor.status === "overdue";
+      continue;
+    }
+
+    grouped.set(key, {
+      key,
+      person: String(debtor.person || "").trim() || "Cliente sin nombre",
+      phone: String(debtor.phone || "").trim(),
+      sales: [debtor],
+      total_balance_due: Number(debtor.balance_due || 0),
+      has_overdue: debtor.status === "overdue"
+    });
+  }
+
+  return Array.from(grouped.values());
+}
+
+function resolveGroupSale(group: DebtorGroup, selectedSaleId: number | null) {
+  if (selectedSaleId) {
+    const selected = group.sales.find((sale) => sale.sale_id === selectedSaleId);
+    if (selected) return selected;
+  }
+  return group.sales[0] || null;
+}
 
 export function CreditCollectionsPage() {
   const { token, user } = useAuth();
@@ -34,6 +90,12 @@ export function CreditCollectionsPage() {
   const [sendingReminder, setSendingReminder] = useState(false);
   const isAvailable = canUseCreditCollections(user?.pos_type);
   const tenantRequestRef = useRef(0);
+  const debtorGroups = useMemo(() => buildDebtorGroups(debtors), [debtors]);
+  const selectedDebtor = debtors.find((debtor) => debtor.sale_id === selectedSaleId) || null;
+  const selectedDebtorGroup = useMemo(
+    () => debtorGroups.find((group) => group.sales.some((sale) => sale.sale_id === selectedSaleId)) || null,
+    [debtorGroups, selectedSaleId]
+  );
 
   if (!isAvailable) {
     return (
@@ -201,9 +263,8 @@ export function CreditCollectionsPage() {
     }
   }
 
-  const selectedDebtor = debtors.find((debtor) => debtor.sale_id === selectedSaleId) || null;
-  const totalPending = debtors.reduce((sum, debtor) => sum + Number(debtor.balance_due || 0), 0);
-  const overdueCount = debtors.filter((debtor) => debtor.status === "overdue").length;
+  const totalPending = debtorGroups.reduce((sum, group) => sum + group.total_balance_due, 0);
+  const overdueCount = debtorGroups.filter((group) => group.has_overdue).length;
 
   return (
     <section className="page-grid two-columns">
@@ -217,7 +278,7 @@ export function CreditCollectionsPage() {
         <div className="credit-summary">
           <div className="total-box secondary">
             <span>Deudores</span>
-            <strong>{debtors.length}</strong>
+            <strong>{debtorGroups.length}</strong>
           </div>
           <div className="total-box secondary">
             <span>Saldo pendiente</span>
@@ -254,40 +315,62 @@ export function CreditCollectionsPage() {
               </tr>
             </thead>
             <tbody>
-              {debtors.map((debtor) => (
+              {debtorGroups.map((group) => {
+                const groupSale = resolveGroupSale(group, selectedSaleId);
+                if (!groupSale) {
+                  return null;
+                }
+                return (
                 <tr
-                  className={debtor.sale_id === selectedSaleId ? "table-row-active" : ""}
-                  key={debtor.sale_id}
-                  onClick={() => setSelectedSaleId(debtor.sale_id)}
+                  className={group.sales.some((sale) => sale.sale_id === selectedSaleId) ? "table-row-active" : ""}
+                  key={group.key}
+                  onClick={() => setSelectedSaleId(groupSale.sale_id)}
                 >
                   <td>
-                    <div>{debtor.person}</div>
-                    <small className="muted">{debtor.phone || "-"}</small>
+                    <div>{group.person}</div>
+                    <small className="muted">{group.phone || "-"}</small>
+                    {group.sales.length > 1 ? <small className="muted">{` ${group.sales.length} ventas a credito`}</small> : null}
                   </td>
                   <td>
-                    <div>{shortDate(debtor.sale_date)}</div>
-                    <small className="muted">Venta #{debtor.sale_id}</small>
+                    {group.sales.length === 1 ? (
+                      <>
+                        <div>{shortDate(groupSale.sale_date)}</div>
+                        <small className="muted">Venta #{groupSale.sale_id}</small>
+                      </>
+                    ) : (
+                      <div className="stack-list">
+                        {group.sales.map((sale) => (
+                          <small className="muted" key={`sale-${sale.sale_id}`}>
+                            {shortDate(sale.sale_date)} - Venta #{sale.sale_id} - {currency(sale.balance_due)}
+                          </small>
+                        ))}
+                      </div>
+                    )}
                   </td>
-                  <td>{currency(debtor.balance_due)}</td>
+                  <td>{currency(group.total_balance_due)}</td>
                   <td>
-                    <div>{debtor.status === "overdue" ? "Atrasado" : "Pendiente"}</div>
-                    <small className="muted">{debtor.days_overdue ? `${debtor.days_overdue} dia(s)` : "Sin atraso"}</small>
+                    <div>{group.has_overdue ? "Atrasado" : "Pendiente"}</div>
+                    <small className="muted">
+                      {groupSale.days_overdue ? `${groupSale.days_overdue} dia(s)` : "Sin atraso"}
+                    </small>
                   </td>
                   <td className="credit-reminder-cell">
                     <label className="checkbox-row credit-reminder-toggle">
                       <input
-                        checked={Boolean(debtor.send_reminder)}
+                        checked={Boolean(groupSale.send_reminder)}
                         onChange={(event) => {
-                          setSelectedSaleId(debtor.sale_id);
-                          updateReminderPreference(debtor.sale_id, event.target.checked).catch(() => undefined);
+                          setSelectedSaleId(groupSale.sale_id);
+                          updateReminderPreference(groupSale.sale_id, event.target.checked).catch(() => undefined);
                         }}
                         type="checkbox"
                       />
-                      <span>{debtor.send_reminder ? "Activo" : "Inactivo"}</span>
+                      <span>{groupSale.send_reminder ? "Activo" : "Inactivo"}</span>
                     </label>
+                    {group.sales.length > 1 ? <small className="muted">Aplica a venta #{groupSale.sale_id}</small> : null}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {debtors.length === 0 ? (
                 <tr>
                   <td className="muted" colSpan={5}>No hay ventas pendientes.</td>
@@ -304,8 +387,28 @@ export function CreditCollectionsPage() {
             <div>
               <h2>Registrar abono</h2>
               <p className="muted">{selectedDebtor ? `${selectedDebtor.person} | venta #${selectedDebtor.sale_id}` : "Selecciona una venta a credito"}</p>
+              {selectedDebtorGroup && selectedDebtorGroup.sales.length > 1 ? (
+                <small className="muted">
+                  Cuenta agrupada con {selectedDebtorGroup.sales.length} ventas pendientes.
+                </small>
+              ) : null}
             </div>
           </div>
+          {selectedDebtorGroup && selectedDebtorGroup.sales.length > 1 ? (
+            <label>
+              Venta seleccionada
+              <select
+                value={selectedSaleId || ""}
+                onChange={(event) => setSelectedSaleId(Number(event.target.value))}
+              >
+                {selectedDebtorGroup.sales.map((sale) => (
+                  <option key={`selected-sale-${sale.sale_id}`} value={sale.sale_id}>
+                    {`${shortDate(sale.sale_date)} - Venta #${sale.sale_id} - ${currency(sale.balance_due)}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label>
             Monto *
             <input min="0" step="0.01" required type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
