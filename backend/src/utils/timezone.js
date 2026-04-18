@@ -16,6 +16,7 @@ const dateTimePartsFormatter = new Intl.DateTimeFormat("en-CA", {
   minute: "2-digit",
   second: "2-digit",
   hour12: false,
+  hourCycle: "h23",
 });
 
 function partsToObject(parts) {
@@ -28,7 +29,11 @@ function partsToObject(parts) {
 }
 
 function getLocalParts(value = new Date()) {
-  return partsToObject(dateTimePartsFormatter.formatToParts(value));
+  const parts = partsToObject(dateTimePartsFormatter.formatToParts(value));
+  if (parts.hour === "24") {
+    parts.hour = "00";
+  }
+  return parts;
 }
 
 function getLocalDateParts(value = new Date()) {
