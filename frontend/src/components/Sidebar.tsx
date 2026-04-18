@@ -336,7 +336,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       <div className="sidebar-header">
         <div className="sidebar-brand">
           <AnkodeLogo className="sidebar-logo" size={30} variant="icon" alt="ANKODE K" />
-          <div className="brand">POS APP</div>
+          <div className="brand">Menú</div>
         </div>
         <p className="brand-subtitle">Panel comercial</p>
       </div>
