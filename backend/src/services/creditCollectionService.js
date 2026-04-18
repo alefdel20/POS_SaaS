@@ -57,30 +57,63 @@ async function listDebtors(actor, filters = {}) {
   }
 
   const query = `
+    WITH sale_credit_totals AS (
+      SELECT
+        sales.id AS sale_id,
+        sales.sale_date,
+        sales.customer_name AS person,
+        sales.customer_phone AS phone,
+        sales.total,
+        sales.initial_payment,
+        sales.send_reminder,
+        COALESCE(SUM(credit_payments.amount), 0) AS total_paid,
+        (
+          COALESCE(sales.total, 0)
+          - COALESCE(sales.initial_payment, 0)
+          - COALESCE(SUM(credit_payments.amount), 0)
+        ) AS raw_balance_due
+      FROM sales
+      LEFT JOIN credit_payments
+        ON credit_payments.sale_id = sales.id
+        AND credit_payments.business_id = sales.business_id
+      WHERE ${conditions.join(" AND ")}
+      GROUP BY sales.id
+    )
     SELECT
-      sales.id AS sale_id,
-      sales.sale_date,
-      sales.customer_name AS person,
-      sales.customer_phone AS phone,
-      sales.total,
-      sales.initial_payment,
-      sales.balance_due,
-      sales.send_reminder,
-      COALESCE(SUM(credit_payments.amount), 0) AS total_paid,
-      GREATEST(CURRENT_DATE - sales.sale_date::date, 0) AS days_overdue,
+      sale_credit_totals.sale_id,
+      sale_credit_totals.sale_date,
+      sale_credit_totals.person,
+      sale_credit_totals.phone,
+      sale_credit_totals.total,
+      sale_credit_totals.initial_payment,
+      sale_credit_totals.send_reminder,
+      sale_credit_totals.total_paid,
       CASE
-        WHEN sales.balance_due <= 0 THEN 'settled'
-        WHEN sales.sale_date::date < CURRENT_DATE THEN 'overdue'
+        WHEN ABS(sale_credit_totals.raw_balance_due) < 0.005 THEN 0
+        WHEN sale_credit_totals.raw_balance_due < 0 THEN 0
+        ELSE ROUND(sale_credit_totals.raw_balance_due::numeric, 2)
+      END AS balance_due,
+      GREATEST(CURRENT_DATE - sale_credit_totals.sale_date::date, 0) AS days_overdue,
+      CASE
+        WHEN (
+          CASE
+            WHEN ABS(sale_credit_totals.raw_balance_due) < 0.005 THEN 0
+            WHEN sale_credit_totals.raw_balance_due < 0 THEN 0
+            ELSE ROUND(sale_credit_totals.raw_balance_due::numeric, 2)
+          END
+        ) <= 0 THEN 'settled'
+        WHEN sale_credit_totals.sale_date::date < CURRENT_DATE THEN 'overdue'
         ELSE 'pending'
       END AS status
-    FROM sales
-    LEFT JOIN credit_payments
-      ON credit_payments.sale_id = sales.id
-      AND credit_payments.business_id = sales.business_id
-    WHERE ${conditions.join(" AND ")}
-    GROUP BY sales.id
-    HAVING sales.balance_due > 0
-    ORDER BY sales.sale_date DESC, sales.id DESC
+    FROM sale_credit_totals
+    WHERE (
+      CASE
+        WHEN ABS(sale_credit_totals.raw_balance_due) < 0.005 THEN 0
+        WHEN sale_credit_totals.raw_balance_due < 0 THEN 0
+        ELSE ROUND(sale_credit_totals.raw_balance_due::numeric, 2)
+      END
+    ) > 0
+    ORDER BY sale_credit_totals.sale_date DESC, sale_credit_totals.sale_id DESC
   `;
 
   const { rows } = await pool.query(query, values);
