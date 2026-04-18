@@ -107,11 +107,30 @@ function buildMonthCells(monthKey: string) {
   return cells;
 }
 
+function normalizeReminderText(value: unknown) {
+  return String(value || "").trim();
+}
+
+function isTechnicalReminderValue(value: unknown) {
+  const normalized = normalizeReminderText(value).toLowerCase();
+  if (!normalized) return false;
+  if (normalized === "restock_view_update" || normalized === "restock_view_batch_update") return true;
+  if (normalized.startsWith("restock_view_")) return true;
+  if (normalized.startsWith("source_")) return true;
+  if (normalized.startsWith("movement_")) return true;
+  return false;
+}
+
+function sanitizeReminderText(value: unknown) {
+  const normalized = normalizeReminderText(value);
+  return isTechnicalReminderValue(normalized) ? "" : normalized;
+}
+
 function getReminderMetaSummary(reminder: Reminder) {
   const metadata = reminder.metadata || {};
   const amount = typeof metadata.amount === "number" ? metadata.amount : null;
-  const concept = typeof metadata.concept === "string" ? metadata.concept : "";
-  const reminderLabel = typeof metadata.reminder_label === "string" ? metadata.reminder_label : "";
+  const concept = sanitizeReminderText(metadata.concept);
+  const reminderLabel = sanitizeReminderText(metadata.reminder_label);
   const dateSummary = typeof metadata.date_summary === "string" ? metadata.date_summary : "";
   const parts = [
     reminderLabel ? `Categoria: ${reminderLabel}` : "",
@@ -123,11 +142,11 @@ function getReminderMetaSummary(reminder: Reminder) {
 }
 
 function getReminderDisplayTitle(reminder: Reminder) {
-  const title = String(reminder.title || "").trim();
+  const title = sanitizeReminderText(reminder.title);
   if (title) return title;
   const metadata = reminder.metadata || {};
-  const concept = typeof metadata.concept === "string" ? metadata.concept.trim() : "";
-  const label = typeof metadata.reminder_label === "string" ? metadata.reminder_label.trim() : "";
+  const concept = sanitizeReminderText(metadata.concept);
+  const label = sanitizeReminderText(metadata.reminder_label);
   if (label && concept) return `${label}: ${concept}`;
   if (concept) return concept;
   if (label) return label;
@@ -444,7 +463,7 @@ export function RemindersPage() {
                       <article className="reminder-card" key={`selected-day-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`}>
                         <div>
                           <strong>{getReminderDisplayTitle(reminder)}</strong>
-                          <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
+                          <p className="muted reminder-notes">{sanitizeReminderText(reminder.notes) || "Sin notas"}</p>
                           {getReminderMetaSummary(reminder) ? <small>{getReminderMetaSummary(reminder)}</small> : null}
                         </div>
                         <span className="pill">{getReminderStatusLabel(reminder.status)}</span>
@@ -481,7 +500,7 @@ export function RemindersPage() {
                       <article className="reminder-card" key={`agenda-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`}>
                         <div>
                           <strong>{getReminderDisplayTitle(reminder)}</strong>
-                          <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
+                          <p className="muted reminder-notes">{sanitizeReminderText(reminder.notes) || "Sin notas"}</p>
                           <small>{getReminderCategoryLabel(reminder)}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                           {getReminderMetaSummary(reminder) ? <><br /><small>{getReminderMetaSummary(reminder)}</small></> : null}
                         </div>
@@ -516,7 +535,7 @@ export function RemindersPage() {
                 <article key={`list-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`} className="reminder-card">
                   <div>
                     <strong>{getReminderDisplayTitle(reminder)}</strong>
-                    <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
+                    <p className="muted reminder-notes">{sanitizeReminderText(reminder.notes) || "Sin notas"}</p>
                     <small>{getReminderCategoryLabel(reminder)}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                     <br />
                     <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(resolveReminderDateKey(reminder))}</small>

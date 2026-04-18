@@ -31,11 +31,19 @@ const emptyPayment: PaymentFormState = {
 };
 
 function normalizeDebtorName(value: string | null | undefined) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
 function normalizeDebtorPhone(value: string | null | undefined) {
-  return String(value || "").replace(/\D/g, "");
+  const digits = String(value || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length > 10) {
+    return digits.slice(-10);
+  }
+  return digits;
 }
 
 function buildDebtorGroups(items: Debtor[]) {
