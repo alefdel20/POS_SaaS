@@ -200,14 +200,41 @@ export function SalesPage() {
     return suggestion.selection_label || (suggestion.customer_phone ? `${suggestion.customer_name} · ${suggestion.customer_phone}` : suggestion.customer_name);
   }
 
+  function normalizeDebtorSuggestionText(value: string) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/·|�/g, "|")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function normalizeDebtorPhoneDigits(value: string | null | undefined) {
+    return String(value || "").replace(/\D/g, "");
+  }
+
   function findMatchingDebtorSuggestion(value: string) {
-    const normalizedValue = value.trim().toLowerCase();
+    const normalizedValue = normalizeDebtorSuggestionText(value);
+    const normalizedValueDigits = normalizeDebtorPhoneDigits(value);
     if (!normalizedValue) {
       return null;
     }
     return debtorSuggestions.find((suggestion) => {
-      const optionLabel = getDebtorSelectionLabel(suggestion).toLowerCase();
-      return optionLabel === normalizedValue || suggestion.customer_name.toLowerCase() === normalizedValue;
+      const normalizedName = normalizeDebtorSuggestionText(suggestion.customer_name || "");
+      const normalizedPhone = normalizeDebtorPhoneDigits(suggestion.customer_phone);
+      const normalizedLabel = normalizeDebtorSuggestionText(getDebtorSelectionLabel(suggestion));
+      const normalizedNamePhone = normalizeDebtorSuggestionText(
+        suggestion.customer_phone ? `${suggestion.customer_name} | ${suggestion.customer_phone}` : suggestion.customer_name
+      );
+      if (normalizedLabel === normalizedValue || normalizedName === normalizedValue || normalizedNamePhone === normalizedValue) {
+        return true;
+      }
+      if (normalizedPhone && normalizedValueDigits && normalizedPhone === normalizedValueDigits && normalizedName) {
+        return true;
+      }
+      if (normalizedName && normalizedValue.startsWith(normalizedName) && normalizedPhone && normalizedValueDigits === normalizedPhone) {
+        return true;
+      }
+      return false;
     }) || null;
   }
 
@@ -1117,14 +1144,30 @@ export function SalesPage() {
                 value={customerNameInput}
                 onChange={(event) => {
                   const nextValue = event.target.value;
-                  setCustomerNameInput(nextValue);
                   const matchedSuggestion = findMatchingDebtorSuggestion(nextValue);
-                  setCustomerName(matchedSuggestion?.customer_name || nextValue.trim());
-                  if (matchedSuggestion?.customer_phone && !customerPhone.trim()) {
-                    setCustomerPhone(matchedSuggestion.customer_phone);
+                  if (matchedSuggestion) {
+                    const normalizedSelectedName = String(matchedSuggestion.customer_name || "").trim();
+                    const normalizedSelectedPhone = String(matchedSuggestion.customer_phone || "").trim();
+                    setCustomerNameInput(normalizedSelectedName);
+                    setCustomerName(normalizedSelectedName);
+                    setCustomerPhone(normalizedSelectedPhone);
+                    return;
                   }
+                  setCustomerNameInput(nextValue);
+                  setCustomerName(nextValue.trim());
                 }}
-                onBlur={() => setCustomerName(findMatchingDebtorSuggestion(customerNameInput)?.customer_name || customerNameInput.trim())}
+                onBlur={() => {
+                  const matchedSuggestion = findMatchingDebtorSuggestion(customerNameInput);
+                  if (matchedSuggestion) {
+                    const normalizedSelectedName = String(matchedSuggestion.customer_name || "").trim();
+                    const normalizedSelectedPhone = String(matchedSuggestion.customer_phone || "").trim();
+                    setCustomerNameInput(normalizedSelectedName);
+                    setCustomerName(normalizedSelectedName);
+                    setCustomerPhone(normalizedSelectedPhone);
+                    return;
+                  }
+                  setCustomerName(customerNameInput.trim());
+                }}
               />
             </label>
             <label>
