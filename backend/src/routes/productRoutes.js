@@ -1,12 +1,12 @@
 const express = require("express");
 const controller = require("../controllers/productController");
-const { requireRole } = require("../middleware/authMiddleware");
+const { requireAuth, requireRole } = require("../middleware/authMiddleware");
 const { uploadProductImage } = require("../middleware/productImageUpload");
 const { uploadProductImportFile } = require("../middleware/productImportUpload");
 
 const router = express.Router();
 
-router.get("/", controller.listValidation, controller.listProducts);
+router.get("/", requireAuth, controller.listValidation, controller.listProducts);
 router.get("/restock", requireRole(["superusuario", "superadmin", "admin", "cajero"]), controller.restockValidation, controller.listRestockProducts);
 router.get("/restock-history", requireRole(["superusuario", "superadmin", "admin", "cajero"]), controller.restockHistoryValidation, controller.listRestockHistory);
 router.get("/restock-history/metrics", requireRole(["superusuario", "superadmin", "admin", "cajero"]), controller.restockHistoryValidation, controller.getRestockHistoryMetrics);
@@ -16,7 +16,7 @@ router.get("/suppliers", requireRole(["superusuario", "superadmin", "admin", "ca
 router.get("/categories", requireRole(["superusuario", "superadmin", "admin", "cajero"]), controller.categoryListValidation, controller.listCategories);
 router.post("/import/preview", requireRole(["superusuario", "superadmin", "admin"]), uploadProductImportFile, controller.previewProductImport);
 router.post("/import/confirm", requireRole(["superusuario", "superadmin", "admin"]), controller.importConfirmValidation, controller.confirmProductImport);
-router.get("/:id", controller.idValidation, controller.getProductDetail);
+router.get("/:id", requireAuth, controller.idValidation, controller.getProductDetail);
 router.get("/:id/barcode.svg", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.getProductBarcode);
 router.post("/remate/bulk", requireRole(["superusuario", "superadmin", "admin"]), controller.bulkDiscountValidation, controller.applyBulkDiscount);
 router.post("/", requireRole(["superadmin", "admin", "cajero"]), controller.createValidation, controller.createProduct);
