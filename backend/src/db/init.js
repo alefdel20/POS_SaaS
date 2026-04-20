@@ -75,6 +75,12 @@ async function ensureSchema(client) {
     )`,
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS last_payment_date DATE",
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS last_payment_note TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS openpay_customer_id VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS openpay_plan_id VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS openpay_subscription_id VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS payment_provider VARCHAR(20) NOT NULL DEFAULT 'manual'",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS subscription_amount NUMERIC(10,2) DEFAULT NULL",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS subscription_currency VARCHAR(3) NOT NULL DEFAULT 'MXN'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(40)",
@@ -762,7 +768,27 @@ async function ensureSchema(client) {
       response JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
-    "ALTER TABLE sync_logs ADD COLUMN IF NOT EXISTS business_id INTEGER"
+    "ALTER TABLE sync_logs ADD COLUMN IF NOT EXISTS business_id INTEGER",
+
+    `CREATE TABLE IF NOT EXISTS subscription_payment_history (
+      id                     SERIAL PRIMARY KEY,
+      business_id            INTEGER       NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      openpay_transaction_id VARCHAR(100),
+      openpay_order_id       VARCHAR(100),
+      payment_provider       VARCHAR(20)   NOT NULL DEFAULT 'manual',
+      amount                 NUMERIC(10,2) NOT NULL,
+      currency               VARCHAR(3)    NOT NULL DEFAULT 'MXN',
+      status                 VARCHAR(20)   NOT NULL,
+      payment_method         VARCHAR(30),
+      card_last4             VARCHAR(4),
+      card_brand             VARCHAR(20),
+      error_message          TEXT,
+      raw_webhook_payload    JSONB,
+      paid_at                TIMESTAMP,
+      created_at             TIMESTAMP     NOT NULL DEFAULT NOW()
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_payment_history_business_id ON subscription_payment_history(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_payment_history_transaction_id ON subscription_payment_history(openpay_transaction_id)"
   ]);
 }
 
