@@ -1,5 +1,7 @@
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const path = require("path");
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
@@ -36,6 +38,8 @@ const medicalPreventiveEventRoutes = require("./routes/medicalPreventiveEventRou
 const productUpdateRequestRoutes = require("./routes/productUpdateRequestRoutes");
 
 const app = express();
+app.disable("x-powered-by");
+app.use(helmet());
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -56,8 +60,16 @@ app.get(["/health", "/api/health"], (req, res) => {
   res.json({ status: "ok", message: "Servidor vivo" });
 });
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many login attempts, please try again later." }
+});
+
 const routes = [
-  { path: "/auth", router: authRoutes, auth: false },
+  { path: "/auth", router: authRoutes, auth: false, limiter: loginLimiter },
   { path: "/automation", router: automationRoutes, auth: false },
   { path: "/users", router: userRoutes, auth: true },
   { path: "/products", router: productRoutes, auth: true },
@@ -85,7 +97,8 @@ const routes = [
 ];
 
 routes.forEach((route) => {
-  const handlers = route.auth ? [requireAuth, route.router] : [route.router];
+  const base = route.auth ? [requireAuth, route.router] : [route.router];
+  const handlers = route.limiter ? [route.limiter, ...base] : base;
   app.use(route.path, ...handlers);
   app.use(`/api${route.path}`, ...handlers);
 });
