@@ -9,4 +9,5 @@ COPY . .
 
 EXPOSE 5173
 
+USER node
 CMD ["npm", "run", "dev"]
