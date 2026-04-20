@@ -36,6 +36,7 @@ const clinicalHistoryRoutes = require("./routes/clinicalHistoryRoutes");
 const medicalPrescriptionRoutes = require("./routes/medicalPrescriptionRoutes");
 const medicalPreventiveEventRoutes = require("./routes/medicalPreventiveEventRoutes");
 const productUpdateRequestRoutes = require("./routes/productUpdateRequestRoutes");
+const openPayRoutes = require("./routes/openPayRoutes");
 
 const app = express();
 app.disable("x-powered-by");
@@ -52,7 +53,7 @@ app.use(cors({
   allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
 }));
 
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
 app.use("/api/uploads", express.static(path.resolve(__dirname, "../uploads")));
 
@@ -71,6 +72,7 @@ const loginLimiter = rateLimit({
 const routes = [
   { path: "/auth", router: authRoutes, auth: false, limiter: loginLimiter },
   { path: "/automation", router: automationRoutes, auth: false },
+  { path: "/openpay", router: openPayRoutes, auth: false },
   { path: "/users", router: userRoutes, auth: true },
   { path: "/products", router: productRoutes, auth: true },
   { path: "/product-update-requests", router: productUpdateRequestRoutes, auth: true },
