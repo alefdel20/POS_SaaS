@@ -440,6 +440,7 @@ export function ProfilePage() {
         </button>
       </form>
 
+      {/* HIDDEN: Transferencias y tarjeta — pending PCI DSS compliance
       <form className="panel grid-form" onSubmit={(event) => saveSection(event, "banking", {
         bank_name: formData.bank_name,
         bank_clabe: formData.bank_clabe,
@@ -487,6 +488,7 @@ export function ProfilePage() {
           {savingSection === "banking" ? "Guardando..." : "Guardar transferencias"}
         </button>
       </form>
+      */}
 
       <form className="panel grid-form" onSubmit={(event) => saveSection(event, "fiscal", {
         fiscal_rfc: formData.fiscal_rfc,
@@ -521,6 +523,7 @@ export function ProfilePage() {
         </button>
       </form>
 
+      {/* HIDDEN: Configuración > Facturación — pending PAC CFDI contract
       <form className="panel grid-form" onSubmit={(event) => saveSection(event, "stamps", {
         fiscal_rfc: formData.fiscal_rfc,
         pac_provider: formData.pac_provider,
@@ -569,6 +572,7 @@ export function ProfilePage() {
           </button>
         ) : null}
       </form>
+      */}
     </section>
   );
 }
