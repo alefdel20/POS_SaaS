@@ -1,3 +1,5 @@
+const https = require("https");
+const crypto = require("crypto");
 const { body } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
@@ -7,6 +9,57 @@ const { saveAuditLog } = require("../services/auditLogService");
 const { registerBusinessSubscriptionPayment } = require("../services/businessSubscriptionService");
 const openPayService = require("../services/openPayService");
 const { getMexicoCityDate } = require("../utils/timezone");
+const {
+  createPendingOnboarding,
+  provisionBusinessFromOnboarding,
+  markOnboardingFailed,
+  getPendingOnboarding
+} = require("../services/paymentProvisioningService");
+
+// URL for the n8n workflow that sends the welcome email after a business is provisioned.
+// Override per environment via N8N_WELCOME_EMAIL_URL.
+const N8N_WELCOME_EMAIL_URL =
+  process.env.N8N_WELCOME_EMAIL_URL || "https://chatbotsn8n.com/webhook/ankode-welcome-email";
+
+// Fire-and-forget POST to n8n. Resolves with the HTTP status (or null on error/timeout).
+// Never throws — a failed n8n call must never block the webhook response.
+function notifyN8nWelcomeEmail(data) {
+  return new Promise((resolve) => {
+    try {
+      const body = JSON.stringify(data);
+      const url = new URL(N8N_WELCOME_EMAIL_URL);
+      const options = {
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body)
+        }
+      };
+      const req = https.request(options, (res) => {
+        res.resume();
+        console.info(`[N8N] Welcome email webhook responded: ${res.statusCode}`);
+        resolve({ status: res.statusCode });
+      });
+      req.on("error", (err) => {
+        console.error("[N8N] Welcome email webhook request error:", err.message);
+        resolve(null);
+      });
+      req.setTimeout(8000, () => {
+        req.destroy();
+        console.error("[N8N] Welcome email webhook timed out after 8 s");
+        resolve(null);
+      });
+      req.write(body);
+      req.end();
+    } catch (setupError) {
+      console.error("[N8N] Welcome email webhook setup error:", setupError.message);
+      resolve(null);
+    }
+  });
+}
 
 // Synthetic actor for system-triggered operations (webhook, automated charges).
 // isSuperUser() only checks actor.role — id: null sets updated_by/usuario_id to NULL,
@@ -18,12 +71,23 @@ const SYSTEM_ACTOR = { id: null, role: "superusuario" };
 // ---------------------------------------------------------------------------
 
 const checkoutValidation = [
-  body("businessId").isInt({ min: 1 }),
+  // businessId is required for existing-business renewals; absent for new signups
+  body("businessId").optional().isInt({ min: 1 }),
   body("planType").isIn(["monthly", "yearly"]),
   body("amount").isFloat({ min: 0.01 }),
   body("cardToken").trim().notEmpty(),
   body("email").isEmail().normalizeEmail(),
   body("name").trim().notEmpty(),
+  // New-signup fields (required when creating a new business; absent for renewals)
+  body("businessName").optional({ nullable: true }).trim().notEmpty()
+    .withMessage("businessName is required for new signups"),
+  body("ownerName").optional({ nullable: true }).trim().notEmpty()
+    .withMessage("ownerName is required for new signups"),
+  body("password").optional({ nullable: true }).isLength({ min: 8 })
+    .withMessage("password must be at least 8 characters"),
+  body("posType").optional({ nullable: true }).trim().notEmpty()
+    .withMessage("posType is required for new signups"),
+  body("planName").optional({ nullable: true }).trim(),
   validateRequest
 ];
 
@@ -151,16 +215,37 @@ const handleWebhook = asyncHandler(async (req, res) => {
 
     const businessId = await resolveBusinessIdFromTransaction(transaction);
 
-    if (!businessId) {
-      console.warn(`[OPENPAY-WEBHOOK] Could not resolve business_id for event ${eventType}`, {
-        customer_id: transaction.customer_id,
-        order_id: transaction.order_id
+    // Extract orderId and rawCustomerId early — needed to look up pending onboardings
+    // before deciding whether to bail out (new signups have no businessId yet).
+    const orderId = transaction.order_id || null;
+    const rawCustomerId = transaction.customer_id
+      || (transaction.customer && transaction.customer.id)
+      || null;
+
+    // Resolve pending onboarding for new-signup charges where no business_id exists yet.
+    // Primary lookup: order_id (set by createCheckoutSession for new signups).
+    // Fallback: openpay_customer_id (subscription webhooks may omit order_id).
+    let pendingOnboarding = null;
+    if (orderId) {
+      pendingOnboarding = await getPendingOnboarding(orderId);
+    }
+    if (!pendingOnboarding && rawCustomerId) {
+      const { rows: pobRows } = await pool.query(
+        `SELECT * FROM pending_onboardings WHERE openpay_customer_id = $1 LIMIT 1`,
+        [String(rawCustomerId)]
+      );
+      pendingOnboarding = pobRows[0] || null;
+    }
+
+    if (!businessId && !pendingOnboarding) {
+      console.warn(`[OPENPAY-WEBHOOK] Could not resolve business_id or pending onboarding for event ${eventType}`, {
+        customer_id: rawCustomerId,
+        order_id: orderId
       });
       return res.status(200).json({ received: true, warning: "unresolved_business" });
     }
 
     const transactionId = transaction.id || null;
-    const orderId = transaction.order_id || null;
     const amount = Number(transaction.amount || 0);
     const currency = transaction.currency || "MXN";
     const card = transaction.card || {};
@@ -169,59 +254,91 @@ const handleWebhook = asyncHandler(async (req, res) => {
     const creationDate = transaction.creation_date || null;
 
     if (eventType === "charge.succeeded") {
-      // Step 1: persist payment history in its own committed transaction
-      const historyClient = await pool.connect();
-      try {
-        await historyClient.query("BEGIN");
-        await insertPaymentHistory(historyClient, {
-          businessId,
-          transactionId,
-          orderId,
-          provider: "openpay",
-          amount,
-          currency,
-          status: "succeeded",
-          paymentMethod: transaction.method || "card",
-          cardLast4,
-          cardBrand,
-          errorMessage: null,
-          rawPayload: event,
-          paidAt: creationDate ? new Date(creationDate).toISOString() : null
-        });
-        await historyClient.query("COMMIT");
-      } catch (historyError) {
-        await historyClient.query("ROLLBACK").catch(() => {});
-        console.error("[OPENPAY-WEBHOOK] Failed to insert payment history:", historyError);
-        return res.status(200).json({ received: true, warning: "history_insert_failed" });
-      } finally {
-        historyClient.release();
+      // Step 1 + 2: payment history and subscription advance (existing-business path only)
+      if (businessId) {
+        // Step 1: persist payment history in its own committed transaction
+        const historyClient = await pool.connect();
+        try {
+          await historyClient.query("BEGIN");
+          await insertPaymentHistory(historyClient, {
+            businessId,
+            transactionId,
+            orderId,
+            provider: "openpay",
+            amount,
+            currency,
+            status: "succeeded",
+            paymentMethod: transaction.method || "card",
+            cardLast4,
+            cardBrand,
+            errorMessage: null,
+            rawPayload: event,
+            paidAt: creationDate ? new Date(creationDate).toISOString() : null
+          });
+          await historyClient.query("COMMIT");
+        } catch (historyError) {
+          await historyClient.query("ROLLBACK").catch(() => {});
+          console.error("[OPENPAY-WEBHOOK] Failed to insert payment history:", historyError);
+          return res.status(200).json({ received: true, warning: "history_insert_failed" });
+        } finally {
+          historyClient.release();
+        }
+
+        // Step 2: advance subscription dates — manages its own transaction
+        try {
+          const paidAtDate = creationDate
+            ? getMexicoCityDate(new Date(creationDate))
+            : null;
+
+          await registerBusinessSubscriptionPayment(
+            businessId,
+            {
+              paid_at: paidAtDate,
+              note: `Cobro automático OpenPay | txn: ${transactionId || "—"}`
+            },
+            SYSTEM_ACTOR
+          );
+
+          console.info(
+            `[OPENPAY-WEBHOOK] Subscription advanced for business ${businessId}, txn ${transactionId}`
+          );
+        } catch (subError) {
+          // History is already committed — payment is recorded. Log for manual follow-up.
+          console.error(
+            `[OPENPAY-WEBHOOK] Payment history saved but subscription dates not advanced for business ${businessId}:`,
+            subError
+          );
+        }
       }
 
-      // Step 2: advance subscription dates — registerBusinessSubscriptionPayment
-      // manages its own transaction; called after history is committed
-      try {
-        const paidAtDate = creationDate
-          ? getMexicoCityDate(new Date(creationDate))
-          : null;
-
-        await registerBusinessSubscriptionPayment(
-          businessId,
-          {
-            paid_at: paidAtDate,
-            note: `Cobro automático OpenPay | txn: ${transactionId || "—"}`
-          },
-          SYSTEM_ACTOR
-        );
-
-        console.info(
-          `[OPENPAY-WEBHOOK] Subscription advanced for business ${businessId}, txn ${transactionId}`
-        );
-      } catch (subError) {
-        // History is already committed — payment is recorded. Log for manual follow-up.
-        console.error(
-          `[OPENPAY-WEBHOOK] Payment history saved but subscription dates not advanced for business ${businessId}:`,
-          subError
-        );
+      // Step 3: provision a new business if this charge belongs to a new signup
+      if (pendingOnboarding && pendingOnboarding.status === "pending") {
+        try {
+          const provisionResult = await provisionBusinessFromOnboarding(pendingOnboarding.order_id);
+          if (provisionResult && !provisionResult.alreadyProvisioned) {
+            console.info(
+              `[OPENPAY-WEBHOOK] Business provisioned for order_id=${pendingOnboarding.order_id}`
+            );
+            // Notify n8n to send the welcome email — fire and forget
+            try {
+              await notifyN8nWelcomeEmail({
+                email: pendingOnboarding.email,
+                owner_name: pendingOnboarding.owner_name,
+                business_name: pendingOnboarding.business_name,
+                frontend_url: process.env.FRONTEND_URL || ""
+              });
+            } catch (n8nError) {
+              console.error(
+                "[OPENPAY-WEBHOOK] n8n welcome email notification failed:", n8nError.message
+              );
+            }
+          }
+        } catch (provisionError) {
+          console.error(
+            `[OPENPAY-WEBHOOK] Business provisioning failed for order_id=${pendingOnboarding.order_id}:`,
+            provisionError
+          );
+        }
       }
     } else {
       // charge.failed or subscription.charge.failed
@@ -229,48 +346,63 @@ const handleWebhook = asyncHandler(async (req, res) => {
         || event.error_message
         || `Cargo fallido (${eventType})`;
 
-      const failClient = await pool.connect();
-      try {
-        await failClient.query("BEGIN");
+      // Log payment failure for existing businesses (subscription_payment_history requires business_id)
+      if (businessId) {
+        const failClient = await pool.connect();
+        try {
+          await failClient.query("BEGIN");
 
-        await insertPaymentHistory(failClient, {
-          businessId,
-          transactionId,
-          orderId,
-          provider: "openpay",
-          amount,
-          currency,
-          status: "failed",
-          paymentMethod: transaction.method || "card",
-          cardLast4,
-          cardBrand,
-          errorMessage: errorDesc,
-          rawPayload: event,
-          paidAt: null
-        });
+          await insertPaymentHistory(failClient, {
+            businessId,
+            transactionId,
+            orderId,
+            provider: "openpay",
+            amount,
+            currency,
+            status: "failed",
+            paymentMethod: transaction.method || "card",
+            cardLast4,
+            cardBrand,
+            errorMessage: errorDesc,
+            rawPayload: event,
+            paidAt: null
+          });
 
-        await saveAuditLog({
-          business_id: businessId,
-          usuario_id: null,
-          modulo: "business_subscriptions",
-          accion: "subscription_charge_failed",
-          entidad_tipo: "subscription_payment_history",
-          entidad_id: transactionId,
-          detalle_anterior: {},
-          detalle_nuevo: { event_type: eventType, amount, currency, error: errorDesc },
-          motivo: errorDesc,
-          metadata: { openpay_transaction_id: transactionId, event_type: eventType }
-        }, { client: failClient });
+          await saveAuditLog({
+            business_id: businessId,
+            usuario_id: null,
+            modulo: "business_subscriptions",
+            accion: "subscription_charge_failed",
+            entidad_tipo: "subscription_payment_history",
+            entidad_id: transactionId,
+            detalle_anterior: {},
+            detalle_nuevo: { event_type: eventType, amount, currency, error: errorDesc },
+            motivo: errorDesc,
+            metadata: { openpay_transaction_id: transactionId, event_type: eventType }
+          }, { client: failClient });
 
-        await failClient.query("COMMIT");
-        console.warn(
-          `[OPENPAY-WEBHOOK] Charge failed for business ${businessId}, txn ${transactionId}: ${errorDesc}`
-        );
-      } catch (failError) {
-        await failClient.query("ROLLBACK").catch(() => {});
-        console.error("[OPENPAY-WEBHOOK] Failed to log charge failure:", failError);
-      } finally {
-        failClient.release();
+          await failClient.query("COMMIT");
+          console.warn(
+            `[OPENPAY-WEBHOOK] Charge failed for business ${businessId}, txn ${transactionId}: ${errorDesc}`
+          );
+        } catch (failError) {
+          await failClient.query("ROLLBACK").catch(() => {});
+          console.error("[OPENPAY-WEBHOOK] Failed to log charge failure:", failError);
+        } finally {
+          failClient.release();
+        }
+      }
+
+      // Mark pending onboarding as failed (new-signup path)
+      if (pendingOnboarding) {
+        try {
+          await markOnboardingFailed(pendingOnboarding.order_id, errorDesc);
+        } catch (onboardingFailError) {
+          console.error(
+            `[OPENPAY-WEBHOOK] markOnboardingFailed error for order_id=${pendingOnboarding.order_id}:`,
+            onboardingFailError
+          );
+        }
       }
     }
   } catch (unexpectedError) {
@@ -287,8 +419,99 @@ const handleWebhook = asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const createCheckoutSession = asyncHandler(async (req, res) => {
-  const { businessId, planType, amount, cardToken, email, name } = req.body;
+  const {
+    businessId,
+    planType,
+    amount,
+    cardToken,
+    email,
+    name,
+    // New-signup fields
+    businessName,
+    ownerName,
+    password,
+    posType,
+    planName
+  } = req.body;
+
   const normalized = String(planType).toLowerCase();
+  const isNewSignup = Boolean(password && businessName && ownerName && posType);
+
+  // ---------------------------------------------------------------------------
+  // Path A — New business signup (no existing businessId)
+  // Order: createPendingOnboarding → OpenPay customer → plan → subscription
+  // ---------------------------------------------------------------------------
+  if (isNewSignup) {
+    // Generate a unique order_id that the webhook will use to find this pending row
+    const orderId = `onb-${crypto.randomBytes(8).toString("hex")}`;
+
+    // 1. Persist the pending onboarding BEFORE charging the card.
+    //    Password is bcrypt-hashed inside createPendingOnboarding — never stored plain.
+    let pendingRow;
+    try {
+      pendingRow = await createPendingOnboarding({
+        order_id: orderId,
+        business_name: businessName,
+        owner_name: ownerName,
+        email: String(email).trim(),
+        password,
+        pos_type: posType,
+        plan_type: normalized,
+        plan_name: planName || normalized,
+        amount: Number(amount),
+        raw_checkout_payload: {
+          planType: normalized,
+          amount: Number(amount),
+          posType,
+          planName: planName || normalized
+        }
+      });
+    } catch (onboardingError) {
+      console.error("[CHECKOUT] createPendingOnboarding failed:", onboardingError);
+      throw new ApiError(400, "Could not create onboarding record");
+    }
+
+    // 2. Create OpenPay customer (no existing businessId — pass null)
+    const customerId = await openPayService.createCustomer(null, name || ownerName, email);
+
+    // 3. Store customer_id on the pending row so the webhook can find it via customer_id
+    //    (subscription webhooks may not include order_id)
+    await pool.query(
+      `UPDATE pending_onboardings
+       SET openpay_customer_id = $1, updated_at = NOW()
+       WHERE order_id = $2`,
+      [customerId, orderId]
+    );
+
+    // 4. Always create a new plan (no existing business_subscriptions to check)
+    const planId = await openPayService.createPlan(normalized, amount);
+
+    // 5. Create OpenPay subscription — card token linked to the recurring plan
+    const subscriptionId = await openPayService.createSubscription(customerId, planId, cardToken);
+
+    // 6. Update pending row with all OpenPay IDs for reference
+    await pool.query(
+      `UPDATE pending_onboardings
+       SET openpay_plan_id = $1,
+           openpay_subscription_id = $2,
+           updated_at = NOW()
+       WHERE order_id = $3`,
+      [planId, subscriptionId, orderId]
+    );
+
+    return res.status(201).json({
+      success: true,
+      subscriptionId,
+      customerId,
+      planId,
+      orderId
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Path B — Existing business renewal (businessId present, no password)
+  // Preserved exactly from the original implementation.
+  // ---------------------------------------------------------------------------
 
   // 1. Ensure OpenPay customer exists for this business (idempotent)
   const customerId = await openPayService.createCustomer(businessId, name, email);
