@@ -203,7 +203,7 @@ export function SalesPage() {
   function normalizeDebtorSuggestionText(value: string) {
     return String(value || "")
       .toLowerCase()
-      .replace(/Â·|·/g, "|")
+      .replace(/Â·|ï¿½/g, "|")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -313,6 +313,7 @@ export function SalesPage() {
 
   function resetSaleForm() {
     setCart([]);
+    setSearch("");
     setScannerFeedback("");
     setScannerSelectionId(null);
     setPaymentMethod("cash");
@@ -847,7 +848,7 @@ export function SalesPage() {
 
     const ticketWindow = window.open("", "_blank", "width=420,height=720");
     if (!ticketWindow) {
-      setError("El navegador bloqueó la ventana de impresión. Permite popups e intenta nuevamente.");
+      setError("El navegador bloqueï¿½ la ventana de impresiï¿½n. Permite popups e intenta nuevamente.");
       return;
     }
 
@@ -890,17 +891,17 @@ export function SalesPage() {
       window.setTimeout(() => {
         try {
           if (!ticketWindow || ticketWindow.closed) {
-            setError("La ventana de impresión ya no está disponible.");
+            setError("La ventana de impresiï¿½n ya no estï¿½ disponible.");
             return;
           }
           ticketWindow.print();
         } catch {
-          setError("No fue posible iniciar la impresión del ticket.");
+          setError("No fue posible iniciar la impresiï¿½n del ticket.");
         }
       }, 200);
     } catch {
       ticketWindow.close();
-      setError("No fue posible preparar la ventana de impresión del ticket.");
+      setError("No fue posible preparar la ventana de impresiï¿½n del ticket.");
     }
   }
 

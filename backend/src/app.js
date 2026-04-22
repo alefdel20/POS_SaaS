@@ -40,7 +40,7 @@ const openPayRoutes = require("./routes/openPayRoutes");
 
 const app = express();
 app.disable("x-powered-by");
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
 app.use(cors({
   origin: (origin, callback) => {
