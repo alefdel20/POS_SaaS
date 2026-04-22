@@ -788,7 +788,35 @@ async function ensureSchema(client) {
       created_at             TIMESTAMP     NOT NULL DEFAULT NOW()
     )`,
     "CREATE INDEX IF NOT EXISTS idx_payment_history_business_id ON subscription_payment_history(business_id)",
-    "CREATE INDEX IF NOT EXISTS idx_payment_history_transaction_id ON subscription_payment_history(openpay_transaction_id)"
+    "CREATE INDEX IF NOT EXISTS idx_payment_history_transaction_id ON subscription_payment_history(openpay_transaction_id)",
+
+    `CREATE TABLE IF NOT EXISTS pending_onboardings (
+      id                      SERIAL PRIMARY KEY,
+      order_id                VARCHAR(100) NOT NULL UNIQUE,
+      openpay_customer_id     VARCHAR(100),
+      openpay_plan_id         VARCHAR(100),
+      openpay_subscription_id VARCHAR(100),
+      business_name           VARCHAR(180) NOT NULL,
+      owner_name              VARCHAR(180) NOT NULL,
+      email                   VARCHAR(255) NOT NULL,
+      password_hash           TEXT NOT NULL,
+      pos_type                VARCHAR(40) NOT NULL,
+      plan_type               VARCHAR(20) NOT NULL DEFAULT 'monthly',
+      plan_name               VARCHAR(50) NOT NULL,
+      amount                  NUMERIC(10,2) NOT NULL,
+      currency                VARCHAR(3) NOT NULL DEFAULT 'MXN',
+      status                  VARCHAR(20) NOT NULL DEFAULT 'pending',
+      failure_reason          TEXT,
+      provisioned_business_id INTEGER REFERENCES businesses(id) ON DELETE SET NULL,
+      provisioned_user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      idempotency_key         VARCHAR(100) UNIQUE,
+      raw_checkout_payload    JSONB,
+      created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at              TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_pending_onboardings_order_id ON pending_onboardings(order_id)",
+    "CREATE INDEX IF NOT EXISTS idx_pending_onboardings_email ON pending_onboardings(email)",
+    "CREATE INDEX IF NOT EXISTS idx_pending_onboardings_status ON pending_onboardings(status)"
   ]);
 }
 
