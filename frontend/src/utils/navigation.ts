@@ -18,7 +18,7 @@ export type SidebarMenuSection = {
 };
 
 export type CatalogScope = "food-accessories" | "medications-supplies";
-export type BusinessVertical = "healthcare" | "retail";
+export type BusinessVertical = "healthcare" | "retail" | "restaurant";
 
 const HEALTHCARE_POS_TYPES = new Set<PosType>(["Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
 
@@ -126,6 +126,7 @@ function filterMenuItems(items: SidebarMenuItem[], role?: string | null, canShow
 }
 
 export function resolveBusinessVertical(posType?: string | null): BusinessVertical {
+  if (posType === "Restaurante") return "restaurant";
   return HEALTHCARE_POS_TYPES.has((posType || "Otro") as PosType) ? "healthcare" : "retail";
 }
 
@@ -183,6 +184,11 @@ export function getDefaultRouteForUser(role?: string | null, posType?: string | 
   }
 
   const vertical = resolveBusinessVertical(posType);
+
+  if (vertical === "restaurant") {
+    return "/restaurant/map";
+  }
+
   const managementHome = vertical === "healthcare" ? "/health/admin/summary" : "/retail/admin/summary";
   const salesHome = vertical === "healthcare" ? "/health/sales/accessories" : "/retail/sales";
   if (normalizeRole(role) === "clinico") {
@@ -342,11 +348,35 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
     }
   ];
 
-  const baseSections = vertical === "healthcare" ? healthcareSections : retailSections;
-  return baseSections
-    .map((section) => ({
+  const restaurantSections: SidebarMenuSection[] = [
+    {
+      title: "Restaurante",
+      items: [
+        { label: "Mapa de Mesas", to: "/restaurant/map", roles: "all", activeMatch: ["/restaurant/map", "/restaurant/orders"] },
+        { label: "Cocina", to: "/restaurant/kds", roles: "all", activeMatch: ["/restaurant/kds"] }
+      ]
+    },
+    {
+      title: "Administracion",
+      items: getAdminLinksByRole(role)
+    }
+  ];
+
+  const baseSections = vertical === "restaurant" ? restaurantSections
+    : vertical === "healthcare" ? healthcareSections
+    : retailSections;
+
+  const filterFn = vertical === "restaurant"
+    ? (section: SidebarMenuSection) => ({
+      ...section,
+      items: filterMenuItems(section.items, role, canShowCreditCollections)
+    })
+    : (section: SidebarMenuSection) => ({
       ...section,
       items: filterByBusinessContext(filterMenuItems(section.items, role, canShowCreditCollections), posType, role)
-    }))
+    });
+
+  return baseSections
+    .map(filterFn)
     .filter((section) => section.items.length > 0);
 }

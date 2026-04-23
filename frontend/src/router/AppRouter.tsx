@@ -26,6 +26,8 @@ import { UsersPage } from "../pages/UsersPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { BusinessesPage } from "../pages/BusinessesPage";
 import { InvoicesPage } from "../pages/InvoicesPage";
+import { RestaurantMapPage } from "../pages/RestaurantMapPage";
+import { RestaurantOrderPage } from "../pages/RestaurantOrderPage";
 import { ROUTE_ROLES } from "../utils/roles";
 import { getDefaultRouteForUser } from "../utils/navigation";
 import { Navigate } from "react-router-dom";
@@ -144,6 +146,10 @@ export function AppRouter() {
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.businesses]} />}>
               <Route path="/businesses" element={<BusinessesPage />} />
               <Route path="/retail/admin/businesses" element={<BusinessesPage />} />
+            </Route>
+            <Route element={<ProtectedRoute posTypes={["Restaurante"]} />}>
+              <Route path="/restaurant/map" element={<RestaurantMapPage />} />
+              <Route path="/restaurant/orders/:orderId" element={<RestaurantOrderPage />} />
             </Route>
           </Route>
         </Route>
