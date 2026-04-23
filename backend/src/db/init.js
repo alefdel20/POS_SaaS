@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const pool = require("./pool");
 
-const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Dentista", "FarmaciaConsultorio", "ClinicaChica", "Otro"];
+const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Dentista", "FarmaciaConsultorio", "ClinicaChica", "Otro", "Restaurante"];
 const SEED_BUSINESS = { name: "Negocio Semilla", slug: "default" };
 const INIT_VERSION_MARKER = "=== DB INIT VERSION 2026-04-01 FIX 3 ===";
 
@@ -816,7 +816,101 @@ async function ensureSchema(client) {
     )`,
     "CREATE INDEX IF NOT EXISTS idx_pending_onboardings_order_id ON pending_onboardings(order_id)",
     "CREATE INDEX IF NOT EXISTS idx_pending_onboardings_email ON pending_onboardings(email)",
-    "CREATE INDEX IF NOT EXISTS idx_pending_onboardings_status ON pending_onboardings(status)"
+    "CREATE INDEX IF NOT EXISTS idx_pending_onboardings_status ON pending_onboardings(status)",
+
+    // === RESTAURANT MODULE ===
+    `CREATE TABLE IF NOT EXISTS restaurant_zones (
+      id           SERIAL PRIMARY KEY,
+      business_id  INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      name         VARCHAR(80) NOT NULL,
+      description  TEXT,
+      is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order   INTEGER NOT NULL DEFAULT 0,
+      created_by   INTEGER REFERENCES users(id),
+      created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at   TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS restaurant_tables (
+      id           SERIAL PRIMARY KEY,
+      business_id  INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      zone_id      INTEGER NOT NULL REFERENCES restaurant_zones(id) ON DELETE CASCADE,
+      name         VARCHAR(40) NOT NULL,
+      capacity     INTEGER NOT NULL DEFAULT 4,
+      status       VARCHAR(20) NOT NULL DEFAULT 'available',
+      is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+      position_x   NUMERIC(6,2) DEFAULT NULL,
+      position_y   NUMERIC(6,2) DEFAULT NULL,
+      created_by   INTEGER REFERENCES users(id),
+      created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+      CONSTRAINT restaurant_tables_status_check
+        CHECK (status IN ('available','occupied','bill_requested','reserved','cleaning'))
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS restaurant_orders (
+      id               SERIAL PRIMARY KEY,
+      business_id      INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      table_id         INTEGER NOT NULL REFERENCES restaurant_tables(id),
+      zone_id          INTEGER NOT NULL REFERENCES restaurant_zones(id),
+      order_number     VARCHAR(20) NOT NULL,
+      status           VARCHAR(20) NOT NULL DEFAULT 'open',
+      diners_count     INTEGER NOT NULL DEFAULT 1,
+      notes            TEXT,
+      opened_by        INTEGER REFERENCES users(id),
+      closed_by        INTEGER REFERENCES users(id),
+      opened_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+      closed_at        TIMESTAMP,
+      total_amount     NUMERIC(10,2) NOT NULL DEFAULT 0,
+      created_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+      CONSTRAINT restaurant_orders_status_check
+        CHECK (status IN ('open','bill_requested','paid','cancelled'))
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS restaurant_order_items (
+      id              SERIAL PRIMARY KEY,
+      business_id     INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      order_id        INTEGER NOT NULL REFERENCES restaurant_orders(id) ON DELETE CASCADE,
+      product_id      INTEGER REFERENCES products(id),
+      product_name    VARCHAR(180) NOT NULL,
+      product_price   NUMERIC(10,2) NOT NULL,
+      quantity        INTEGER NOT NULL DEFAULT 1,
+      notes           TEXT,
+      status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+      sent_to_kitchen_at TIMESTAMP,
+      prepared_at     TIMESTAMP,
+      served_at       TIMESTAMP,
+      created_by      INTEGER REFERENCES users(id),
+      created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+      CONSTRAINT restaurant_order_items_status_check
+        CHECK (status IN ('pending','sent','preparing','ready','served','cancelled'))
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS restaurant_payments (
+      id              SERIAL PRIMARY KEY,
+      business_id     INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      order_id        INTEGER NOT NULL REFERENCES restaurant_orders(id) ON DELETE CASCADE,
+      payment_method  VARCHAR(30) NOT NULL DEFAULT 'cash',
+      amount          NUMERIC(10,2) NOT NULL,
+      tip_amount      NUMERIC(10,2) NOT NULL DEFAULT 0,
+      diner_number    INTEGER,
+      notes           TEXT,
+      created_by      INTEGER REFERENCES users(id),
+      created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_zones_business_id ON restaurant_zones(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_tables_business_id ON restaurant_tables(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_tables_zone_id ON restaurant_tables(zone_id)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_tables_status ON restaurant_tables(business_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_orders_business_id ON restaurant_orders(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_orders_table_id ON restaurant_orders(table_id)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_orders_status ON restaurant_orders(business_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_order_items_order_id ON restaurant_order_items(order_id)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_order_items_status ON restaurant_order_items(business_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_payments_order_id ON restaurant_payments(order_id)"
   ]);
 }
 
@@ -1355,7 +1449,7 @@ async function ensureConstraints(client) {
       END IF;
 
       ALTER TABLE businesses
-      ADD CONSTRAINT businesses_pos_type_check CHECK (pos_type IN ('Tlapaleria', 'Tienda', 'Farmacia', 'Veterinaria', 'Papeleria', 'Dentista', 'FarmaciaConsultorio', 'ClinicaChica', 'Otro'));
+      ADD CONSTRAINT businesses_pos_type_check CHECK (pos_type IN ('Tlapaleria', 'Tienda', 'Farmacia', 'Veterinaria', 'Papeleria', 'Dentista', 'FarmaciaConsultorio', 'ClinicaChica', 'Otro', 'Restaurante'));
 
       IF EXISTS (
         SELECT 1
