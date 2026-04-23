@@ -352,13 +352,16 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
     {
       title: "Restaurante",
       items: [
-        { label: "Mapa de Mesas", to: "/restaurant/map", roles: "all", activeMatch: ["/restaurant/map", "/restaurant/orders"] },
-        { label: "Cocina", to: "/restaurant/kds", roles: "all", activeMatch: ["/restaurant/kds"] }
+        { label: "Mapa de Mesas", to: "/restaurant/map", roles: "all", activeMatch: ["/restaurant/map", "/restaurant/orders"] }
       ]
     },
     {
       title: "Administracion",
-      items: getAdminLinksByRole(role)
+      items: [
+        { label: "Configuracion", to: "/restaurant/admin", roles: "management", activeMatch: ["/restaurant/admin"] },
+        { label: "Usuarios", to: "/users", roles: "users", activeMatch: ["/users"] },
+        { label: "Perfil", to: "/profile", roles: "profile", activeMatch: ["/profile"] }
+      ]
     }
   ];
 

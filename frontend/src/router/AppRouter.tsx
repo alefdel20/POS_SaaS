@@ -26,6 +26,7 @@ import { UsersPage } from "../pages/UsersPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { BusinessesPage } from "../pages/BusinessesPage";
 import { InvoicesPage } from "../pages/InvoicesPage";
+import { RestaurantAdminPage } from "../pages/RestaurantAdminPage";
 import { RestaurantMapPage } from "../pages/RestaurantMapPage";
 import { RestaurantOrderPage } from "../pages/RestaurantOrderPage";
 import { ROUTE_ROLES } from "../utils/roles";
@@ -150,6 +151,9 @@ export function AppRouter() {
             <Route element={<ProtectedRoute posTypes={["Restaurante"]} />}>
               <Route path="/restaurant/map" element={<RestaurantMapPage />} />
               <Route path="/restaurant/orders/:orderId" element={<RestaurantOrderPage />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin"]} posTypes={["Restaurante"]} />}>
+              <Route path="/restaurant/admin" element={<RestaurantAdminPage />} />
             </Route>
           </Route>
         </Route>
