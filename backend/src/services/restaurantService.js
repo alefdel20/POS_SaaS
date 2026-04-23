@@ -256,11 +256,11 @@ async function getOrderById(businessId, orderId) {
             t.name AS table_name,
             z.name AS zone_name,
             COALESCE(
-              json_agg(DISTINCT i ORDER BY i.created_at ASC) FILTER (WHERE i.id IS NOT NULL),
+              json_agg(i ORDER BY i.created_at ASC) FILTER (WHERE i.id IS NOT NULL),
               '[]'
             ) AS items,
             COALESCE(
-              json_agg(DISTINCT p ORDER BY p.created_at ASC) FILTER (WHERE p.id IS NOT NULL),
+              json_agg(p ORDER BY p.created_at ASC) FILTER (WHERE p.id IS NOT NULL),
               '[]'
             ) AS payments
      FROM restaurant_orders o
