@@ -320,7 +320,7 @@ export function RestaurantOrderPage() {
           </div>
 
           {/* Items list */}
-          {!order.items || order.items.length === 0 ? (
+          {(order.items ?? []).length === 0 ? (
             <div className="empty-state-card">
               <p className="muted" style={{ margin: 0 }}>
                 Sin productos. Agrega productos desde el panel izquierdo.
@@ -328,7 +328,7 @@ export function RestaurantOrderPage() {
             </div>
           ) : (
             <div className="stack-list">
-              {order.items.map((item: RestaurantOrderItem) => {
+              {(order.items ?? []).map((item: RestaurantOrderItem) => {
                 const badge = getItemBadge(item.status);
                 return (
                   <div

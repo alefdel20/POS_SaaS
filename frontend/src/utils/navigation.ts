@@ -356,6 +356,13 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
       ]
     },
     {
+      title: "Operacion",
+      items: [
+        { label: "Productos", to: "/products", roles: "all", activeMatch: ["/products"] },
+        { label: "Historial", to: "/history", roles: "all", activeMatch: ["/history"] }
+      ]
+    },
+    {
       title: "Administracion",
       items: [
         { label: "Configuracion", to: "/restaurant/admin", roles: "management", activeMatch: ["/restaurant/admin"] },
