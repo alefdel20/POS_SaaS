@@ -37,6 +37,7 @@ const medicalPrescriptionRoutes = require("./routes/medicalPrescriptionRoutes");
 const medicalPreventiveEventRoutes = require("./routes/medicalPreventiveEventRoutes");
 const productUpdateRequestRoutes = require("./routes/productUpdateRequestRoutes");
 const openPayRoutes = require("./routes/openPayRoutes");
+const restaurantRoutes = require("./routes/restaurantRoutes");
 
 const app = express();
 app.disable("x-powered-by");
@@ -95,7 +96,8 @@ const routes = [
   { path: "/medical-appointments", router: clinicalAppointmentRoutes, auth: true },
   { path: "/medical-history", router: clinicalHistoryRoutes, auth: true },
   { path: "/medical-prescriptions", router: medicalPrescriptionRoutes, auth: true },
-  { path: "/medical-preventive-events", router: medicalPreventiveEventRoutes, auth: true }
+  { path: "/medical-preventive-events", router: medicalPreventiveEventRoutes, auth: true },
+  { path: "/restaurant", router: restaurantRoutes, auth: true }
 ];
 
 routes.forEach((route) => {
