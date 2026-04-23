@@ -7,7 +7,8 @@ const POS_TYPE_CATALOG = [
   { value: "Farmacia", label: "Farmacia" },
   { value: "FarmaciaConsultorio", label: "Farmacia con consultorio" },
   { value: "ClinicaChica", label: "Clinica chica" },
-  { value: "Otro", label: "Otro" }
+  { value: "Otro", label: "Otro" },
+  { value: "Restaurante", label: "Restaurante" }
 ];
 
 const POS_TYPE_OPTIONS = POS_TYPE_CATALOG.map((option) => option.value);
@@ -51,7 +52,8 @@ const POS_TYPE_SYNONYMS = new Map([
   ["clinica chica", "ClinicaChica"],
   ["clinicachica", "ClinicaChica"],
   ["clinca chica", "ClinicaChica"],
-  ["otro", "Otro"]
+  ["otro", "Otro"],
+  ["restaurante", "Restaurante"]
 ]);
 
 function normalizeBusinessValue(value) {
