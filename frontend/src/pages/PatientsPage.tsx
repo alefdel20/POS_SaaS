@@ -356,7 +356,7 @@ export function PatientsPage() {
 
         <form className="grid-form" onSubmit={handleSubmit}>
           <label>
-            {humanPatientsOnly ? "Contacto *" : "Responsable *"}
+            {humanPatientsOnly ? "Contacto" : "Responsable *"}
             <input
               list="patient-client-options"
               placeholder="Busca por nombre o telefono"
@@ -368,7 +368,7 @@ export function PatientsPage() {
             {clients.map((client) => <option key={client.id} value={buildClientSearchLabel(client)} />)}
           </datalist>
           <label>
-            Nombre *
+            Nombre Completo *
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           </label>
           {showSpecies ? (

@@ -61,6 +61,7 @@ type ProductFormState = {
   stock_minimo: string;
   stock_maximo: string;
   expires_at: string;
+  lot_number: string;
   is_active: boolean;
   status: "activo" | "inactivo";
   suppliers: ProductSupplierFormState[];
@@ -111,6 +112,7 @@ const emptyProduct: ProductFormState = {
   stock_minimo: "",
   stock_maximo: "",
   expires_at: "",
+  lot_number: "",
   is_active: true,
   status: "activo",
   suppliers: [{ ...emptySupplier }],
@@ -270,6 +272,7 @@ function productToForm(product: Product): ProductFormState {
     stock_minimo: String(product.stock_minimo ?? ""),
     stock_maximo: String(product.stock_maximo ?? ""),
     expires_at: normalizeNullableString(product.expires_at).slice(0, 10),
+    lot_number: normalizeNullableString(product.lot_number),
     is_active: Boolean(product.is_active),
     status: normalizedStatus,
     suppliers: product.suppliers?.length
@@ -355,6 +358,7 @@ function sanitizeProductDraftForm(value: unknown, fallback: ProductFormState): P
     stock_minimo: sanitizeDraftString(source.stock_minimo, 30),
     stock_maximo: sanitizeDraftString(source.stock_maximo, 30),
     expires_at: sanitizeDraftString(source.expires_at, 20),
+    lot_number: sanitizeDraftString(source.lot_number, 80),
     status,
     is_active: status === "activo",
     suppliers: suppliers.length ? suppliers : [{ ...emptySupplier }],
@@ -463,6 +467,10 @@ export function ProductsPage() {
   const [importLoading, setImportLoading] = useState(false);
   const [importConfirming, setImportConfirming] = useState(false);
   const [importResult, setImportResult] = useState<ProductImportConfirmResponse | null>(null);
+  const [contenidoPorUnidad, setContenidoPorUnidad] = useState("");
+  const [venderAGranel, setVenderAGranel] = useState(false);
+  const [precioGranel, setPrecioGranel] = useState("");
+  const [barcodeGranel, setBarcodeGranel] = useState("");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1471,6 +1479,7 @@ export function ProductsPage() {
       stock_minimo: stockMinimo,
       stock_maximo: stockMaximo,
       expires_at: showExpiryField ? (form.expires_at || null) : null,
+      lot_number: showExpiryField ? (form.lot_number || null) : null,
       supplier_id: primarySupplier?.supplier_id ?? null,
       supplier_name: primarySupplier?.supplier_name || null,
       supplier_email: primarySupplier?.supplier_email || null,
@@ -1571,6 +1580,10 @@ export function ProductsPage() {
     const nextForm = productToForm(product);
     setEditingId(product.id);
     setForm(nextForm);
+    setContenidoPorUnidad("");
+    setVenderAGranel(false);
+    setPrecioGranel("");
+    setBarcodeGranel("");
     syncBaseline(nextForm);
     setImageFile(null);
     setCurrentImagePath(product.image_path || null);
@@ -1600,6 +1613,10 @@ export function ProductsPage() {
 
     setEditingId(null);
     setForm(emptyProductState);
+    setContenidoPorUnidad("");
+    setVenderAGranel(false);
+    setPrecioGranel("");
+    setBarcodeGranel("");
     syncBaseline(emptyProductState);
     clearProductDraft();
     setImageFile(null);
@@ -1822,12 +1839,51 @@ export function ProductsPage() {
           <label>
             Unidad de venta
             <select value={form.unidad_de_venta} onChange={(event) => setForm({ ...form, unidad_de_venta: event.target.value as SaleUnit | "" })}>
-              <option value="">pieza (default)</option>
-              {SALE_UNITS.map((unit) => (
-                <option key={unit} value={unit}>{unit}</option>
+              <option value="">Pieza</option>
+              {SALE_UNITS.filter((u) => u !== "pieza").map((unit) => (
+                <option key={unit} value={unit}>{unit.charAt(0).toUpperCase() + unit.slice(1)}</option>
               ))}
             </select>
           </label>
+          {(form.unidad_de_venta === "caja" || form.unidad_de_venta === "kg" || form.unidad_de_venta === "litro") ? (
+            <label>
+              Contenido por unidad
+              <input
+                placeholder="Ej. 20 piezas / 1000 gramos"
+                value={contenidoPorUnidad}
+                onChange={(event) => setContenidoPorUnidad(event.target.value)}
+              />
+            </label>
+          ) : null}
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={venderAGranel}
+              onChange={(event) => setVenderAGranel(event.target.checked)}
+            />
+            <span>¿Vender también a granel?</span>
+          </label>
+          {venderAGranel ? (
+            <>
+              <label>
+                Precio Granel
+                <input
+                  min="0"
+                  step="0.00001"
+                  type="number"
+                  value={precioGranel}
+                  onChange={(event) => setPrecioGranel(event.target.value)}
+                />
+              </label>
+              <label>
+                Código de Barras Granel
+                <input
+                  value={barcodeGranel}
+                  onChange={(event) => setBarcodeGranel(event.target.value.replace(/\D/g, ""))}
+                />
+              </label>
+            </>
+          ) : null}
           <label>
             Estado
             <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "activo" | "inactivo", is_active: event.target.value === "activo" })}>
@@ -1838,6 +1894,19 @@ export function ProductsPage() {
           <label className="form-span-2">
             Descripción
             <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+          </label>
+          <label>
+            Costo del producto
+            <input
+              type="number"
+              min="0"
+              step="0.00001"
+              value={form.cost_price}
+              onChange={(event) => {
+                const nextCostPrice = normalizeMoneyInput(event.target.value);
+                setForm({ ...form, cost_price: nextCostPrice, porcentaje_ganancia: recalculateGain(nextCostPrice, form.price) });
+              }}
+            />
           </label>
           <label>
             {requiredLabel("Precio al público")}
@@ -1851,19 +1920,6 @@ export function ProductsPage() {
                 setForm({ ...form, price: nextPrice, porcentaje_ganancia: recalculateGain(form.cost_price, nextPrice) });
               }}
               required
-            />
-          </label>
-          <label>
-            Costo del producto
-            <input
-              type="number"
-              min="0"
-              step="0.00001"
-              value={form.cost_price}
-              onChange={(event) => {
-                const nextCostPrice = normalizeMoneyInput(event.target.value);
-                setForm({ ...form, cost_price: nextCostPrice, porcentaje_ganancia: recalculateGain(nextCostPrice, form.price) });
-              }}
             />
           </label>
           {showIepsField ? (
@@ -1890,10 +1946,20 @@ export function ProductsPage() {
             <input type="number" min="0" onKeyDown={handleStockMaximoEnter} step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
           </label>
           {showExpiryField ? (
-            <label>
-              Fecha de vencimiento
-              <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
-            </label>
+            <>
+              <label>
+                Número de lote
+                <input
+                  placeholder="Opcional"
+                  value={form.lot_number}
+                  onChange={(event) => setForm({ ...form, lot_number: event.target.value })}
+                />
+              </label>
+              <label>
+                Fecha de vencimiento
+                <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
+              </label>
+            </>
           ) : null}
         </div>
 

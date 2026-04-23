@@ -7,7 +7,7 @@ import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { isCashierRole, isManagementRole } from "../utils/roles";
 import { resolveProductImageUrl } from "../utils/assets";
-import { canUseCreditCollections, getDefaultUnitForPosType } from "../utils/pos";
+import { canUseCreditCollections, canUseExpiryDate, getDefaultUnitForPosType } from "../utils/pos";
 import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
@@ -35,6 +35,8 @@ interface QuickProductFormState {
   supplier_whatsapp: string;
   supplier_email: string;
   supplier_observations: string;
+  lot_number: string;
+  expires_at: string;
 }
 
 interface QuickSupplierTouchedState {
@@ -76,7 +78,9 @@ const emptyQuickProduct: QuickProductFormState = {
   supplier_phone: "",
   supplier_whatsapp: "",
   supplier_email: "",
-  supplier_observations: ""
+  supplier_observations: "",
+  lot_number: "",
+  expires_at: ""
 };
 
 const emptyQuickSupplierTouched: QuickSupplierTouchedState = {
@@ -190,6 +194,10 @@ export function SalesPage() {
   const [quickSupplierTouched, setQuickSupplierTouched] = useState<QuickSupplierTouchedState>(emptyQuickSupplierTouched);
   const [quickProductError, setQuickProductError] = useState("");
   const [quickProductSaving, setQuickProductSaving] = useState(false);
+  const [quickContenidoPorUnidad, setQuickContenidoPorUnidad] = useState("");
+  const [quickVenderAGranel, setQuickVenderAGranel] = useState(false);
+  const [quickPrecioGranel, setQuickPrecioGranel] = useState("");
+  const [quickBarcodeGranel, setQuickBarcodeGranel] = useState("");
   const [scannerFeedback, setScannerFeedback] = useState("");
   const [scannerSelectionId, setScannerSelectionId] = useState<number | null>(null);
   const [prescriptionSeedId, setPrescriptionSeedId] = useState<number | null>(Number(searchParams.get("prescription_id") || 0) || null);
@@ -432,6 +440,7 @@ export function SalesPage() {
   const canQuickCreateProduct = isManagementRole(user?.role) || isCashierRole(user?.role);
   const requiresQuickCreateReason = isCashierRole(user?.role);
   const canUseCredit = canUseCreditCollections(user?.pos_type);
+  const showLotExpiryInQuickAdd = canUseExpiryDate(user?.pos_type);
   const stampCount = Number(profile?.stamps_available || 0);
 
   useEffect(() => {
@@ -560,6 +569,10 @@ export function SalesPage() {
     setQuickSupplierTouched(emptyQuickSupplierTouched);
     setQuickProductError("");
     setQuickProductSaving(false);
+    setQuickContenidoPorUnidad("");
+    setQuickVenderAGranel(false);
+    setQuickPrecioGranel("");
+    setQuickBarcodeGranel("");
   }
 
   function handleQuickSupplierNameChange(value: string) {
@@ -722,7 +735,9 @@ export function SalesPage() {
           reason: quickProductForm.reason.trim() || undefined,
           source: "quick_sale_add",
           status: "activo",
-          is_active: true
+          is_active: true,
+          lot_number: showLotExpiryInQuickAdd ? (quickProductForm.lot_number.trim() || undefined) : undefined,
+          expires_at: showLotExpiryInQuickAdd ? (quickProductForm.expires_at || undefined) : undefined
         })
       });
 
@@ -1327,7 +1342,7 @@ export function SalesPage() {
                   step="0.00001"
                   type="number"
                   value={quickProductForm.cost_price}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, cost_price: event.target.value, price: quickProductForm.porcentaje_ganancia === "" ? quickProductForm.price : recalculatePrice(event.target.value, quickProductForm.porcentaje_ganancia) })}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, cost_price: event.target.value, price: quickProductForm.porcentaje_ganancia === "" ? quickProductForm.price : recalculatePrice(event.target.value, quickProductForm.porcentaje_ganancia), porcentaje_ganancia: quickProductForm.porcentaje_ganancia !== "" ? quickProductForm.porcentaje_ganancia : recalculateGain(event.target.value, quickProductForm.price) })}
                 />
               </label>
               <label>
@@ -1373,12 +1388,51 @@ export function SalesPage() {
               <label>
                 Unidad de venta
                 <select value={quickProductForm.unidad_de_venta} onChange={(event) => setQuickProductForm({ ...quickProductForm, unidad_de_venta: event.target.value as SaleUnit | "" })}>
-                  <option value="">{defaultSaleUnit} (default)</option>
-                  {SALE_UNITS.map((unit) => (
-                    <option key={unit} value={unit}>{unit}</option>
+                  <option value="">Pieza</option>
+                  {SALE_UNITS.filter((u) => u !== "pieza").map((unit) => (
+                    <option key={unit} value={unit}>{unit.charAt(0).toUpperCase() + unit.slice(1)}</option>
                   ))}
                 </select>
               </label>
+              {(quickProductForm.unidad_de_venta === "caja" || quickProductForm.unidad_de_venta === "kg" || quickProductForm.unidad_de_venta === "litro") ? (
+                <label>
+                  Contenido por unidad
+                  <input
+                    placeholder="Ej. 20 piezas / 1000 gramos"
+                    value={quickContenidoPorUnidad}
+                    onChange={(event) => setQuickContenidoPorUnidad(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={quickVenderAGranel}
+                  onChange={(event) => setQuickVenderAGranel(event.target.checked)}
+                />
+                <span>¿Vender también a granel?</span>
+              </label>
+              {quickVenderAGranel ? (
+                <>
+                  <label>
+                    Precio Granel
+                    <input
+                      min="0"
+                      step="0.00001"
+                      type="number"
+                      value={quickPrecioGranel}
+                      onChange={(event) => setQuickPrecioGranel(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Código de Barras Granel
+                    <input
+                      value={quickBarcodeGranel}
+                      onChange={(event) => setQuickBarcodeGranel(event.target.value.replace(/\D/g, ""))}
+                    />
+                  </label>
+                </>
+              ) : null}
               <label>
                 Nombre del proveedor
                 <input
@@ -1396,6 +1450,26 @@ export function SalesPage() {
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, barcode: event.target.value.replace(/\D/g, ""), barcode_manually_edited: true })}
                 />
               </label>
+              {showLotExpiryInQuickAdd ? (
+                <>
+                  <label>
+                    Número de lote
+                    <input
+                      placeholder="Opcional"
+                      value={quickProductForm.lot_number}
+                      onChange={(event) => setQuickProductForm({ ...quickProductForm, lot_number: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Fecha de caducidad
+                    <input
+                      type="date"
+                      value={quickProductForm.expires_at}
+                      onChange={(event) => setQuickProductForm({ ...quickProductForm, expires_at: event.target.value })}
+                    />
+                  </label>
+                </>
+              ) : null}
               <label>
                 WhatsApp proveedor
                 <input
