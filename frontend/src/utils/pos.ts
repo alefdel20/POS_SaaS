@@ -18,7 +18,8 @@ export const POS_TYPE_OPTIONS: Array<{ value: PosType; label: string }> = [
   { value: "Farmacia", label: "Farmacia" },
   { value: "FarmaciaConsultorio", label: "Farmacia con consultorio" },
   { value: "ClinicaChica", label: "Clinica chica" },
-  { value: "Otro", label: "Otro" }
+  { value: "Otro", label: "Otro" },
+  { value: "Restaurante", label: "Restaurante" }
 ];
 
 export const VETERINARY_PRODUCT_CATEGORIES = [
