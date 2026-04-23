@@ -779,19 +779,18 @@ async function reviewProductUpdateRequest(id, payload, actor) {
 
     if (decision === "approve") {
       if (
-        (currentRequest.requested_price !== null && Number(currentProduct.price) !== Number(currentRequest.current_price_snapshot))
-        || (currentRequest.requested_stock !== null && Number(currentProduct.stock) !== Number(currentRequest.current_stock_snapshot))
+        currentRequest.requested_price !== null && Number(currentProduct.price) !== Number(currentRequest.current_price_snapshot)
       ) {
-        throw new ApiError(409, "Request is stale because the product changed after it was submitted");
+        throw new ApiError(409, "Request is stale because the product price changed after it was submitted");
       }
 
       const afterSnapshot = currentRequest.after_snapshot || {};
       const nextPrice = afterSnapshot.price === undefined || afterSnapshot.price === null
         ? (currentRequest.requested_price === null ? Number(currentProduct.price) : Number(currentRequest.requested_price))
         : Number(afterSnapshot.price);
-      const nextStock = afterSnapshot.stock === undefined || afterSnapshot.stock === null
-        ? (currentRequest.requested_stock === null ? Number(currentProduct.stock) : Number(currentRequest.requested_stock))
-        : Number(afterSnapshot.stock);
+      const nextStock = currentRequest.requested_stock !== null
+        ? Number(currentProduct.stock) + Number(currentRequest.requested_stock)
+        : Number(currentProduct.stock);
 
       const { rows: updatedProductRows } = await client.query(
         `UPDATE products

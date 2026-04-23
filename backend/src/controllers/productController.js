@@ -41,6 +41,8 @@ const restockHistoryValidation = [
 const restockUpdateValidation = [
   body("stock").isFloat({ min: 0 }),
   body("reason").optional({ values: "falsy" }).trim(),
+  body("lot_number").optional({ values: "falsy" }).trim(),
+  body("expires_at").optional({ values: "falsy" }).isISO8601(),
   validateRequest
 ];
 const restockBatchValidation = [

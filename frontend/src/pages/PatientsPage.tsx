@@ -36,7 +36,7 @@ const emptyForm: PatientFormState = {
   name: "",
   species: "",
   breed: "",
-  sex: "",
+  sex: "Masculino",
   birth_date: "",
   weight: "",
   allergies: "",
@@ -385,7 +385,11 @@ export function PatientsPage() {
           ) : null}
           <label>
             Sexo
-            <input value={form.sex} onChange={(event) => setForm({ ...form, sex: event.target.value })} />
+            <select value={form.sex} onChange={(event) => setForm({ ...form, sex: event.target.value })}>
+              <option value="Masculino">Masculino</option>
+              <option value="Femenino">Femenino</option>
+              <option value="Otro">Otro</option>
+            </select>
           </label>
           <label>
             Fecha de nacimiento

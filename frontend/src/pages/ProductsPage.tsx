@@ -454,6 +454,8 @@ export function ProductsPage() {
   const [restockRowFeedback, setRestockRowFeedback] = useState<Record<number, RestockRowFeedback>>({});
   const [restockReasonModalItem, setRestockReasonModalItem] = useState<RestockProductItem | null>(null);
   const [restockReasonModalValue, setRestockReasonModalValue] = useState("");
+  const [restockModalLotNumber, setRestockModalLotNumber] = useState("");
+  const [restockModalExpiresAt, setRestockModalExpiresAt] = useState("");
   const [loadingRestock, setLoadingRestock] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -762,7 +764,7 @@ export function ProductsPage() {
       .filter((entry): entry is { item: RestockProductItem; quantity: number } => Boolean(entry));
   }
 
-  async function saveRestockItem(item: RestockProductItem, reasonOverride = "") {
+  async function saveRestockItem(item: RestockProductItem, reasonOverride = "", lotNumber = "", expiresAt = "") {
     if (!token || isSavingRestockBatch || restockSavingIds[item.id]) return false;
 
     const nextStockValue = getRestockDraftValue(item.id);
@@ -803,7 +805,9 @@ export function ProductsPage() {
           token,
           body: JSON.stringify({
             stock: restockQuantity,
-            reason: reason || "restock_view_update"
+            reason: reason || "restock_view_update",
+            lot_number: lotNumber || undefined,
+            expires_at: expiresAt || undefined
           })
         });
         setProducts((current) => current.map((product) => (product.id === item.id ? updatedProduct : product)));
@@ -926,10 +930,12 @@ export function ProductsPage() {
       return;
     }
 
-    if (isCashier) {
+    if (isCashier || showExpiryField) {
       setError("");
       setRestockReasonModalItem(item);
       setRestockReasonModalValue("");
+      setRestockModalLotNumber("");
+      setRestockModalExpiresAt("");
       return;
     }
 
@@ -940,15 +946,17 @@ export function ProductsPage() {
     if (!restockReasonModalItem) return;
 
     const trimmedReason = restockReasonModalValue.trim();
-    if (trimmedReason.length < 5) {
+    if (isCashier && trimmedReason.length < 5) {
       setError("El motivo es obligatorio y debe tener al menos 5 caracteres");
       return;
     }
 
-    const saved = await saveRestockItem(restockReasonModalItem, trimmedReason);
+    const saved = await saveRestockItem(restockReasonModalItem, trimmedReason, restockModalLotNumber, restockModalExpiresAt);
     if (saved) {
       setRestockReasonModalItem(null);
       setRestockReasonModalValue("");
+      setRestockModalLotNumber("");
+      setRestockModalExpiresAt("");
     }
   }
 
@@ -2421,14 +2429,16 @@ export function ProductsPage() {
           <div className="modal-card import-modal-card">
             <div className="panel-header">
               <div>
-                <h3>Motivo del cambio de stock</h3>
-                <p className="muted">Captura el motivo para enviar la solicitud al administrador.</p>
+                <h3>{isCashier ? "Motivo del cambio de stock" : "Detalles del lote / reabastecimiento"}</h3>
+                <p className="muted">{isCashier ? "Captura el motivo para enviar la solicitud al administrador." : "Registra número de lote y fecha de caducidad del producto recibido."}</p>
               </div>
               <button
                 className="button ghost"
                 onClick={() => {
                   setRestockReasonModalItem(null);
                   setRestockReasonModalValue("");
+                  setRestockModalLotNumber("");
+                  setRestockModalExpiresAt("");
                 }}
                 type="button"
               >
@@ -2441,14 +2451,36 @@ export function ProductsPage() {
                 <p><strong>SKU:</strong> {restockReasonModalItem.sku}</p>
                 <p><strong>Cantidad a agregar:</strong> {restockDrafts[restockReasonModalItem.id] ?? "0"}</p>
               </div>
-              <label className="form-span-2">
-                Motivo *
-                <textarea
-                  placeholder="Describe por qué necesitas ajustar el stock"
-                  value={restockReasonModalValue}
-                  onChange={(event) => setRestockReasonModalValue(event.target.value)}
-                />
-              </label>
+              {showExpiryField ? (
+                <>
+                  <label>
+                    Número de lote
+                    <input
+                      placeholder="Opcional"
+                      value={restockModalLotNumber}
+                      onChange={(event) => setRestockModalLotNumber(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Fecha de caducidad
+                    <input
+                      type="date"
+                      value={restockModalExpiresAt}
+                      onChange={(event) => setRestockModalExpiresAt(event.target.value)}
+                    />
+                  </label>
+                </>
+              ) : null}
+              {isCashier ? (
+                <label className="form-span-2">
+                  Motivo *
+                  <textarea
+                    placeholder="Describe por qué necesitas ajustar el stock"
+                    value={restockReasonModalValue}
+                    onChange={(event) => setRestockReasonModalValue(event.target.value)}
+                  />
+                </label>
+              ) : null}
             </div>
             <div className="inline-actions modal-actions-end">
               <button
@@ -2456,14 +2488,16 @@ export function ProductsPage() {
                 onClick={() => {
                   setRestockReasonModalItem(null);
                   setRestockReasonModalValue("");
+                  setRestockModalLotNumber("");
+                  setRestockModalExpiresAt("");
                 }}
                 type="button"
               >
                 Cancelar
               </button>
-	              <button className="button" disabled={Boolean(restockSavingIds[restockReasonModalItem.id]) || isSavingRestockBatch} onClick={() => submitRestockReasonModal().catch(() => undefined)} type="button">
-	                {Boolean(restockSavingIds[restockReasonModalItem.id]) || isSavingRestockBatch ? "Enviando..." : "Enviar solicitud"}
-	              </button>
+              <button className="button" disabled={Boolean(restockSavingIds[restockReasonModalItem.id]) || isSavingRestockBatch} onClick={() => submitRestockReasonModal().catch(() => undefined)} type="button">
+                {Boolean(restockSavingIds[restockReasonModalItem.id]) || isSavingRestockBatch ? "Guardando..." : (isCashier ? "Enviar solicitud" : "Guardar")}
+              </button>
             </div>
           </div>
         </div>

@@ -11,7 +11,7 @@ const listValidation = [
 ];
 
 const createValidation = [
-  body("client_id").isInt(),
+  body("client_id").optional({ values: "falsy" }).isInt({ min: 1 }),
   body("name").trim().notEmpty(),
   body("species").optional().trim(),
   body("breed").optional().trim(),

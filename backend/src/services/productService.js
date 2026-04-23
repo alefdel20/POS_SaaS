@@ -1650,14 +1650,16 @@ async function restockProduct(id, payload = {}, actor) {
       "Product stock"
     );
 
+    const incomingExpiresAt = payload.expires_at ? String(payload.expires_at).slice(0, 10) : null;
     const { rows } = await client.query(
       `UPDATE products
        SET stock = $1,
+           expires_at = COALESCE($4, expires_at),
            updated_at = NOW()
        WHERE id = $2
          AND business_id = $3
        RETURNING *`,
-      [finalStock, id, current.business_id]
+      [finalStock, id, current.business_id, incomingExpiresAt]
     );
 
     const unitCost = Number(restockContext?.purchase_cost ?? current.cost_price ?? 0);
@@ -1691,7 +1693,9 @@ async function restockProduct(id, payload = {}, actor) {
           supplier_name: restockContext?.supplier_name || null,
           purchase_cost: restockContext?.purchase_cost === null || restockContext?.purchase_cost === undefined ? null : Number(restockContext.purchase_cost),
           cost_updated_at: restockContext?.cost_updated_at || null,
-          unit: unidadDeVenta
+          unit: unidadDeVenta,
+          lot_number: payload.lot_number ? String(payload.lot_number).trim() : null,
+          expires_at: incomingExpiresAt
         })
       ]
     );

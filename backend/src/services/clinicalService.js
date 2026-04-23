@@ -159,7 +159,7 @@ async function getOwnedPatient(id, actor, client = pool) {
   const { rows } = await client.query(
     `SELECT p.*, c.name AS client_name
      FROM patients p
-     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
+     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
      WHERE p.id = $1 AND p.business_id = $2`,
     [id, businessId]
   );
@@ -234,7 +234,7 @@ async function getOwnedPrescription(id, actor, client = pool) {
             COUNT(mpi.id)::int AS item_count
      FROM medical_prescriptions mp
      INNER JOIN patients p ON p.id = mp.patient_id AND p.business_id = mp.business_id
-     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
+     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
      LEFT JOIN users u ON u.id = mp.doctor_user_id
      LEFT JOIN medical_prescription_items mpi ON mpi.prescription_id = mp.id
      WHERE mp.id = $1 AND mp.business_id = $2
@@ -254,7 +254,7 @@ async function getOwnedPreventiveEvent(id, actor, client = pool) {
             c.name AS client_name
      FROM medical_preventive_events mpe
      INNER JOIN patients p ON p.id = mpe.patient_id AND p.business_id = mpe.business_id
-     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = mpe.business_id
+     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = mpe.business_id
      WHERE mpe.id = $1 AND mpe.business_id = $2`,
     [id, businessId]
   );
@@ -462,12 +462,15 @@ function buildClientPayload(payload = {}) {
 }
 
 function buildPatientPayload(payload = {}) {
-  const clientId = Number(payload.client_id);
+  const rawClientId = payload.client_id;
+  const clientId = rawClientId !== undefined && rawClientId !== null && rawClientId !== "" && rawClientId !== 0
+    ? Number(rawClientId)
+    : null;
   const name = normalizeText(payload.name);
   const weight = payload.weight === undefined || payload.weight === null || payload.weight === "" ? null : Number(payload.weight);
 
-  if (!Number.isInteger(clientId) || clientId <= 0) {
-    throw new ApiError(400, "Client is required");
+  if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) {
+    throw new ApiError(400, "Client is invalid");
   }
   if (!name) throw new ApiError(400, "Patient name is required");
   if (weight !== null && (!Number.isFinite(weight) || weight < 0 || weight > 500)) {
@@ -807,7 +810,7 @@ async function listPatients(filters = {}, actor) {
        COUNT(DISTINCT mc.id)::int AS consultation_count,
        COUNT(DISTINCT ma.id)::int AS appointment_count
      FROM patients p
-     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
+     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
      LEFT JOIN consultations mc
        ON mc.patient_id = p.id
       AND mc.business_id = p.business_id
@@ -849,7 +852,7 @@ async function getPatientDetail(id, actor) {
        COUNT(DISTINCT mc.id)::int AS consultation_count,
        COUNT(DISTINCT ma.id)::int AS appointment_count
      FROM patients p
-     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
+     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
      LEFT JOIN consultations mc
        ON mc.patient_id = p.id
       AND mc.business_id = p.business_id
@@ -911,7 +914,9 @@ async function getPatientDetail(id, actor) {
 async function createPatient(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const data = buildPatientPayload(payload);
-  await getOwnedClient(data.client_id, actor);
+  if (data.client_id !== null) {
+    await getOwnedClient(data.client_id, actor);
+  }
   const client = await pool.connect();
 
   try {
@@ -1204,7 +1209,7 @@ async function listPrescriptions(filters = {}, actor) {
             COUNT(mpi.id)::int AS item_count
      FROM medical_prescriptions mp
      INNER JOIN patients p ON p.id = mp.patient_id AND p.business_id = mp.business_id
-     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = mp.business_id
+     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = mp.business_id
      LEFT JOIN users u ON u.id = mp.doctor_user_id
      LEFT JOIN medical_prescription_items mpi ON mpi.prescription_id = mp.id
      WHERE ${conditions.join(" AND ")}
@@ -1460,7 +1465,7 @@ async function listPreventiveEvents(filters = {}, actor) {
             c.name AS client_name
      FROM medical_preventive_events mpe
      INNER JOIN patients p ON p.id = mpe.patient_id AND p.business_id = mpe.business_id
-     INNER JOIN clients c ON c.id = p.client_id AND c.business_id = mpe.business_id
+     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = mpe.business_id
      WHERE ${conditions.join(" AND ")}
      ORDER BY COALESCE(mpe.date_administered, mpe.next_due_date) DESC NULLS LAST, mpe.id DESC`,
     params

@@ -1321,16 +1321,6 @@ export function SalesPage() {
                 </label>
               ) : null}
               <label>
-                Precio al público *
-                <input
-                  min="0"
-                  step="0.00001"
-                  type="number"
-                  value={quickProductForm.price}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, price: event.target.value, porcentaje_ganancia: recalculateGain(quickProductForm.cost_price, event.target.value) })}
-                />
-              </label>
-              <label>
                 Costo del producto
                 <input
                   min="0"
@@ -1338,6 +1328,16 @@ export function SalesPage() {
                   type="number"
                   value={quickProductForm.cost_price}
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, cost_price: event.target.value, price: quickProductForm.porcentaje_ganancia === "" ? quickProductForm.price : recalculatePrice(event.target.value, quickProductForm.porcentaje_ganancia) })}
+                />
+              </label>
+              <label>
+                Precio al público *
+                <input
+                  min="0"
+                  step="0.00001"
+                  type="number"
+                  value={quickProductForm.price}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, price: event.target.value, porcentaje_ganancia: recalculateGain(quickProductForm.cost_price, event.target.value) })}
                 />
               </label>
               <label>

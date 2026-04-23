@@ -404,7 +404,7 @@ async function createPayment(saleId, payload, actor) {
     const totalPaidBeforePayment = roundMoney(Number(sale.initial_payment || 0) + Number(totalsRows[0]?.paid || 0));
     const authoritativeBalanceDue = normalizeBalanceDue(roundMoney(Number(sale.total || 0)) - totalPaidBeforePayment);
 
-    if (amount > authoritativeBalanceDue + Number.EPSILON) {
+    if (amount > authoritativeBalanceDue + MONEY_EPSILON) {
       throw new ApiError(400, "Payment amount cannot exceed pending balance");
     }
 

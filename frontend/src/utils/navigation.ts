@@ -88,6 +88,7 @@ function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | nu
           || nextItem.to === "/retail/products/restock"
           || nextItem.to === "/health/products/accessories/restock"
           || nextItem.to === "/health/products/medications/restock"
+          || nextItem.to === "/health/products/restock"
         ) {
           return { ...nextItem, roles: "sales" };
         }
@@ -190,11 +191,19 @@ export function getDefaultRouteForUser(role?: string | null, posType?: string | 
   }
 
   const managementHome = vertical === "healthcare" ? "/health/admin/summary" : "/retail/admin/summary";
-  const salesHome = vertical === "healthcare" ? "/health/sales/accessories" : "/retail/sales";
+  const salesHome = vertical === "healthcare"
+    ? (isPharmacyPos(posType) ? "/health/sales" : "/health/sales/accessories")
+    : "/retail/sales";
   if (normalizeRole(role) === "clinico") {
     return "/health/patients";
   }
   return isManagementRole(role) ? managementHome : salesHome;
+}
+
+const PHARMACY_POS_TYPES = new Set<PosType>(["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
+
+function isPharmacyPos(posType?: string | null) {
+  return PHARMACY_POS_TYPES.has((posType || "Otro") as PosType);
 }
 
 export function getSidebarSectionsForVertical(posType?: string | null, role?: string | null, canShowCreditCollections = true): SidebarMenuSection[] {
@@ -209,6 +218,11 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
     { label: "Productos", to: "/health/products/medications", roles: "management", activeMatch: ["/health/products/medications"] },
     { label: "Productos por reabastecer", to: "/health/products/medications/restock", roles: "sales", activeMatch: ["/health/products/medications/restock"] }
   ];
+  const healthUnifiedProductChildren: SidebarMenuItem[] = [
+    { label: "Nuevo producto", to: "/health/products/new", roles: "management", activeMatch: ["/health/products/new"] },
+    { label: "Productos", to: "/health/products", roles: "management", activeMatch: ["/health/products"] },
+    { label: "Productos por reabastecer", to: "/health/products/restock", roles: "sales", activeMatch: ["/health/products/restock"] }
+  ];
   const retailProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/retail/products/new", roles: "management", activeMatch: ["/retail/products/new"] },
     { label: "Productos", to: "/retail/products", roles: "management", activeMatch: withAlias("/retail/products", "/products") },
@@ -219,22 +233,33 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
     {
       title: getHealthcareSidebarTitle(posType),
       items: [
-        {
-          label: "Alimentos y accesorios",
-          children: [
-            { label: "Ventas", to: "/health/sales/accessories", roles: "sales", activeMatch: withAlias("/health/sales/accessories", "/sales") },
-            { label: "Productos", roles: "management", children: healthAccessoriesProductChildren },
-            { label: "Proveedores", to: "/health/suppliers/accessories", roles: "management", activeMatch: withAlias("/health/suppliers/accessories", "/suppliers") }
-          ]
-        },
-        {
-          label: "Medicamentos e insumos",
-          children: [
-            { label: "Ventas", to: "/health/sales/medications", roles: "sales", activeMatch: ["/health/sales/medications"] },
-            { label: "Productos", roles: "management", children: healthMedicationProductChildren },
-            { label: "Proveedores", to: "/health/suppliers/medications", roles: "management", activeMatch: ["/health/suppliers/medications"] }
-          ]
-        },
+        ...(isPharmacyPos(posType) ? [
+          {
+            label: "Productos",
+            children: [
+              { label: "Ventas", to: "/health/sales", roles: "sales" as const, activeMatch: ["/health/sales", "/health/sales/accessories", "/health/sales/medications", "/sales"] },
+              { label: "Productos", roles: "management" as const, children: healthUnifiedProductChildren },
+              { label: "Proveedores", to: "/health/suppliers", roles: "management" as const, activeMatch: ["/health/suppliers", "/health/suppliers/accessories", "/health/suppliers/medications", "/suppliers"] }
+            ]
+          }
+        ] : [
+          {
+            label: "Alimentos y accesorios",
+            children: [
+              { label: "Ventas", to: "/health/sales/accessories", roles: "sales" as const, activeMatch: withAlias("/health/sales/accessories", "/sales") },
+              { label: "Productos", roles: "management" as const, children: healthAccessoriesProductChildren },
+              { label: "Proveedores", to: "/health/suppliers/accessories", roles: "management" as const, activeMatch: withAlias("/health/suppliers/accessories", "/suppliers") }
+            ]
+          },
+          {
+            label: "Medicamentos e insumos",
+            children: [
+              { label: "Ventas", to: "/health/sales/medications", roles: "sales" as const, activeMatch: ["/health/sales/medications"] },
+              { label: "Productos", roles: "management" as const, children: healthMedicationProductChildren },
+              { label: "Proveedores", to: "/health/suppliers/medications", roles: "management" as const, activeMatch: ["/health/suppliers/medications"] }
+            ]
+          }
+        ]),
         {
           label: "Atencion medica o clinica",
           children: [

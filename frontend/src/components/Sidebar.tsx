@@ -11,6 +11,7 @@ import { isManagementRole } from "../utils/roles";
 const NEW_TAB_ALLOWED_ROUTES = new Set<string>([
   "/products",
   "/retail/products",
+  "/health/products",
   "/health/products/accessories",
   "/health/products/medications",
   "/suppliers",
