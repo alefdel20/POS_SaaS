@@ -283,6 +283,7 @@ export interface Product {
   pending_update_request_count?: number;
   stock: number;
   expires_at?: string | null;
+  lot_number?: string | null;
   is_active: boolean;
   status?: "activo" | "inactivo";
 }

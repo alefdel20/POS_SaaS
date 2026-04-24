@@ -61,6 +61,7 @@ type ProductFormState = {
   stock_minimo: string;
   stock_maximo: string;
   expires_at: string;
+  lot_number: string;
   is_active: boolean;
   status: "activo" | "inactivo";
   suppliers: ProductSupplierFormState[];
@@ -111,6 +112,7 @@ const emptyProduct: ProductFormState = {
   stock_minimo: "",
   stock_maximo: "",
   expires_at: "",
+  lot_number: "",
   is_active: true,
   status: "activo",
   suppliers: [{ ...emptySupplier }],
@@ -270,6 +272,7 @@ function productToForm(product: Product): ProductFormState {
     stock_minimo: String(product.stock_minimo ?? ""),
     stock_maximo: String(product.stock_maximo ?? ""),
     expires_at: normalizeNullableString(product.expires_at).slice(0, 10),
+    lot_number: normalizeNullableString(product.lot_number),
     is_active: Boolean(product.is_active),
     status: normalizedStatus,
     suppliers: product.suppliers?.length
@@ -355,6 +358,7 @@ function sanitizeProductDraftForm(value: unknown, fallback: ProductFormState): P
     stock_minimo: sanitizeDraftString(source.stock_minimo, 30),
     stock_maximo: sanitizeDraftString(source.stock_maximo, 30),
     expires_at: sanitizeDraftString(source.expires_at, 20),
+    lot_number: sanitizeDraftString(source.lot_number, 80),
     status,
     is_active: status === "activo",
     suppliers: suppliers.length ? suppliers : [{ ...emptySupplier }],
@@ -1471,6 +1475,7 @@ export function ProductsPage() {
       stock_minimo: stockMinimo,
       stock_maximo: stockMaximo,
       expires_at: showExpiryField ? (form.expires_at || null) : null,
+      lot_number: showExpiryField ? (form.lot_number || null) : null,
       supplier_id: primarySupplier?.supplier_id ?? null,
       supplier_name: primarySupplier?.supplier_name || null,
       supplier_email: primarySupplier?.supplier_email || null,
@@ -1840,6 +1845,19 @@ export function ProductsPage() {
             <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
           </label>
           <label>
+            Costo del producto
+            <input
+              type="number"
+              min="0"
+              step="0.00001"
+              value={form.cost_price}
+              onChange={(event) => {
+                const nextCostPrice = normalizeMoneyInput(event.target.value);
+                setForm({ ...form, cost_price: nextCostPrice, porcentaje_ganancia: recalculateGain(nextCostPrice, form.price) });
+              }}
+            />
+          </label>
+          <label>
             {requiredLabel("Precio al público")}
             <input
               type="number"
@@ -1851,19 +1869,6 @@ export function ProductsPage() {
                 setForm({ ...form, price: nextPrice, porcentaje_ganancia: recalculateGain(form.cost_price, nextPrice) });
               }}
               required
-            />
-          </label>
-          <label>
-            Costo del producto
-            <input
-              type="number"
-              min="0"
-              step="0.00001"
-              value={form.cost_price}
-              onChange={(event) => {
-                const nextCostPrice = normalizeMoneyInput(event.target.value);
-                setForm({ ...form, cost_price: nextCostPrice, porcentaje_ganancia: recalculateGain(nextCostPrice, form.price) });
-              }}
             />
           </label>
           {showIepsField ? (
@@ -1890,10 +1895,20 @@ export function ProductsPage() {
             <input type="number" min="0" onKeyDown={handleStockMaximoEnter} step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
           </label>
           {showExpiryField ? (
-            <label>
-              Fecha de vencimiento
-              <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
-            </label>
+            <>
+              <label>
+                Número de lote
+                <input
+                  placeholder="Opcional"
+                  value={form.lot_number}
+                  onChange={(event) => setForm({ ...form, lot_number: event.target.value })}
+                />
+              </label>
+              <label>
+                Fecha de vencimiento
+                <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
+              </label>
+            </>
           ) : null}
         </div>
 

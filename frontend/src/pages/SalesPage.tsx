@@ -7,7 +7,7 @@ import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { isCashierRole, isManagementRole } from "../utils/roles";
 import { resolveProductImageUrl } from "../utils/assets";
-import { canUseCreditCollections, getDefaultUnitForPosType } from "../utils/pos";
+import { canUseCreditCollections, canUseExpiryDate, getDefaultUnitForPosType } from "../utils/pos";
 import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
@@ -35,6 +35,8 @@ interface QuickProductFormState {
   supplier_whatsapp: string;
   supplier_email: string;
   supplier_observations: string;
+  lot_number: string;
+  expires_at: string;
 }
 
 interface QuickSupplierTouchedState {
@@ -76,7 +78,9 @@ const emptyQuickProduct: QuickProductFormState = {
   supplier_phone: "",
   supplier_whatsapp: "",
   supplier_email: "",
-  supplier_observations: ""
+  supplier_observations: "",
+  lot_number: "",
+  expires_at: ""
 };
 
 const emptyQuickSupplierTouched: QuickSupplierTouchedState = {
@@ -432,6 +436,7 @@ export function SalesPage() {
   const canQuickCreateProduct = isManagementRole(user?.role) || isCashierRole(user?.role);
   const requiresQuickCreateReason = isCashierRole(user?.role);
   const canUseCredit = canUseCreditCollections(user?.pos_type);
+  const showLotExpiryInQuickAdd = canUseExpiryDate(user?.pos_type);
   const stampCount = Number(profile?.stamps_available || 0);
 
   useEffect(() => {
@@ -722,7 +727,9 @@ export function SalesPage() {
           reason: quickProductForm.reason.trim() || undefined,
           source: "quick_sale_add",
           status: "activo",
-          is_active: true
+          is_active: true,
+          lot_number: showLotExpiryInQuickAdd ? (quickProductForm.lot_number.trim() || undefined) : undefined,
+          expires_at: showLotExpiryInQuickAdd ? (quickProductForm.expires_at || undefined) : undefined
         })
       });
 
@@ -1396,6 +1403,26 @@ export function SalesPage() {
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, barcode: event.target.value.replace(/\D/g, ""), barcode_manually_edited: true })}
                 />
               </label>
+              {showLotExpiryInQuickAdd ? (
+                <>
+                  <label>
+                    Número de lote
+                    <input
+                      placeholder="Opcional"
+                      value={quickProductForm.lot_number}
+                      onChange={(event) => setQuickProductForm({ ...quickProductForm, lot_number: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Fecha de vencimiento
+                    <input
+                      type="date"
+                      value={quickProductForm.expires_at}
+                      onChange={(event) => setQuickProductForm({ ...quickProductForm, expires_at: event.target.value })}
+                    />
+                  </label>
+                </>
+              ) : null}
               <label>
                 WhatsApp proveedor
                 <input
