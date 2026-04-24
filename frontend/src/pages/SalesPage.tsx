@@ -1112,22 +1112,6 @@ export function SalesPage() {
           </div>
         ) : null}
 
-        {paymentMethod === "card" ? (
-          <div className="info-card">
-            <h3>Cobro con tarjeta</h3>
-            {cardDetails.terminal || cardDetails.bank || cardDetails.instructions || cardDetails.commission !== null ? (
-              <>
-                <p>Terminal: {cardDetails.terminal || "-"}</p>
-                <p>Banco: {cardDetails.bank || "-"}</p>
-                <p>Comisión: {cardDetails.commission !== null ? `${Number(cardDetails.commission).toFixed(2)}%` : "-"}</p>
-                <p>Instrucciones: {cardDetails.instructions || "-"}</p>
-              </>
-            ) : (
-              <p>No hay información de cobro con tarjeta configurada.</p>
-            )}
-          </div>
-        ) : null}
-
         {paymentMethod === "credit" ? (
           <div className="form-section-grid">
             <label>
