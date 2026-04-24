@@ -414,6 +414,17 @@ const handleWebhook = asyncHandler(async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Webhook verification: OpenPay sends a GET with ?verification_code=XXX
+// ---------------------------------------------------------------------------
+const verifyWebhook = asyncHandler(async (req, res) => {
+  const verificationCode = req.query.verification_code;
+  if (verificationCode) {
+    return res.status(200).send(verificationCode);
+  }
+  return res.status(200).json({ status: "ok" });
+});
+
+// ---------------------------------------------------------------------------
 // Checkout session: customer → plan → subscription
 // Called by an authenticated admin user to initiate a recurring subscription.
 // ---------------------------------------------------------------------------
@@ -578,5 +589,6 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
 module.exports = {
   checkoutValidation,
   handleWebhook,
+  verifyWebhook,
   createCheckoutSession
 };
