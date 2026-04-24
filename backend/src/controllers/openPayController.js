@@ -419,6 +419,7 @@ const handleWebhook = asyncHandler(async (req, res) => {
 const verifyWebhook = asyncHandler(async (req, res) => {
   const verificationCode = req.query.verification_code;
   if (verificationCode) {
+    console.log('[OPENPAY-VERIFY] Verification code received:', verificationCode);
     return res.status(200).send(verificationCode);
   }
   return res.status(200).json({ status: "ok" });
