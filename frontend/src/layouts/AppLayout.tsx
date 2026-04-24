@@ -44,6 +44,26 @@ export function AppLayout() {
   }, [closeSidebar, location.pathname]);
 
   useEffect(() => {
+    let lastScrollY = window.scrollY;
+
+    function handleScroll() {
+      const currentY = window.scrollY;
+      const header = document.querySelector<HTMLElement>(".header");
+      if (!header) return;
+
+      if (currentY > lastScrollY && currentY > 80) {
+        header.classList.add("header-hidden");
+      } else if (currentY < lastScrollY) {
+        header.classList.remove("header-hidden");
+      }
+      lastScrollY = currentY;
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
     if (!isSidebarOpen) return;
 
     function handleKeyDown(event: KeyboardEvent) {

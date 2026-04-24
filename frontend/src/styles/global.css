@@ -388,9 +388,17 @@ td {
 }
 
 .header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(18px);
+  transition: transform 0.22s ease;
+}
+
+.header.header-hidden {
+  transform: translateY(-110%);
 }
 
 .header-left {

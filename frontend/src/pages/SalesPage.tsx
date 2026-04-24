@@ -1380,9 +1380,9 @@ export function SalesPage() {
               <label>
                 Unidad de venta
                 <select value={quickProductForm.unidad_de_venta} onChange={(event) => setQuickProductForm({ ...quickProductForm, unidad_de_venta: event.target.value as SaleUnit | "" })}>
-                  <option value="">{defaultSaleUnit} (default)</option>
-                  {SALE_UNITS.map((unit) => (
-                    <option key={unit} value={unit}>{unit}</option>
+                  <option value="">Pieza</option>
+                  {SALE_UNITS.filter((u) => u !== "pieza").map((unit) => (
+                    <option key={unit} value={unit}>{unit.charAt(0).toUpperCase() + unit.slice(1)}</option>
                   ))}
                 </select>
               </label>
