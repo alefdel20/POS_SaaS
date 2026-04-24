@@ -541,8 +541,8 @@ export interface ClinicalClientSummary {
 export interface ClinicalPatientSummary {
   id: number;
   business_id: number;
-  client_id: number;
   name: string;
+  phone?: string | null;
   species?: string | null;
   breed?: string | null;
   sex?: string | null;
@@ -551,9 +551,6 @@ export interface ClinicalPatientSummary {
   allergies?: string | null;
   notes?: string | null;
   is_active: boolean;
-  client_name?: string;
-  client_phone?: string | null;
-  client_email?: string | null;
   consultation_count: number;
   appointment_count: number;
   created_at: string;
@@ -609,7 +606,6 @@ export interface ClinicalClientDetail extends ClinicalClientSummary {
 }
 
 export interface ClinicalPatientDetail extends ClinicalPatientSummary {
-  client_address?: string | null;
   consultations: ClinicalConsultation[];
   appointments: ClinicalAppointment[];
   prescriptions?: MedicalPrescription[];

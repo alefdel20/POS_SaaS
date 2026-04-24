@@ -194,10 +194,6 @@ export function SalesPage() {
   const [quickSupplierTouched, setQuickSupplierTouched] = useState<QuickSupplierTouchedState>(emptyQuickSupplierTouched);
   const [quickProductError, setQuickProductError] = useState("");
   const [quickProductSaving, setQuickProductSaving] = useState(false);
-  const [quickContenidoPorUnidad, setQuickContenidoPorUnidad] = useState("");
-  const [quickVenderAGranel, setQuickVenderAGranel] = useState(false);
-  const [quickPrecioGranel, setQuickPrecioGranel] = useState("");
-  const [quickBarcodeGranel, setQuickBarcodeGranel] = useState("");
   const [scannerFeedback, setScannerFeedback] = useState("");
   const [scannerSelectionId, setScannerSelectionId] = useState<number | null>(null);
   const [prescriptionSeedId, setPrescriptionSeedId] = useState<number | null>(Number(searchParams.get("prescription_id") || 0) || null);
@@ -569,10 +565,6 @@ export function SalesPage() {
     setQuickSupplierTouched(emptyQuickSupplierTouched);
     setQuickProductError("");
     setQuickProductSaving(false);
-    setQuickContenidoPorUnidad("");
-    setQuickVenderAGranel(false);
-    setQuickPrecioGranel("");
-    setQuickBarcodeGranel("");
   }
 
   function handleQuickSupplierNameChange(value: string) {
@@ -1342,7 +1334,7 @@ export function SalesPage() {
                   step="0.00001"
                   type="number"
                   value={quickProductForm.cost_price}
-                  onChange={(event) => setQuickProductForm({ ...quickProductForm, cost_price: event.target.value, price: quickProductForm.porcentaje_ganancia === "" ? quickProductForm.price : recalculatePrice(event.target.value, quickProductForm.porcentaje_ganancia), porcentaje_ganancia: quickProductForm.porcentaje_ganancia !== "" ? quickProductForm.porcentaje_ganancia : recalculateGain(event.target.value, quickProductForm.price) })}
+                  onChange={(event) => setQuickProductForm({ ...quickProductForm, cost_price: event.target.value, price: quickProductForm.porcentaje_ganancia === "" ? quickProductForm.price : recalculatePrice(event.target.value, quickProductForm.porcentaje_ganancia) })}
                 />
               </label>
               <label>
@@ -1394,45 +1386,6 @@ export function SalesPage() {
                   ))}
                 </select>
               </label>
-              {(quickProductForm.unidad_de_venta === "caja" || quickProductForm.unidad_de_venta === "kg" || quickProductForm.unidad_de_venta === "litro") ? (
-                <label>
-                  Contenido por unidad
-                  <input
-                    placeholder="Ej. 20 piezas / 1000 gramos"
-                    value={quickContenidoPorUnidad}
-                    onChange={(event) => setQuickContenidoPorUnidad(event.target.value)}
-                  />
-                </label>
-              ) : null}
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={quickVenderAGranel}
-                  onChange={(event) => setQuickVenderAGranel(event.target.checked)}
-                />
-                <span>¿Vender también a granel?</span>
-              </label>
-              {quickVenderAGranel ? (
-                <>
-                  <label>
-                    Precio Granel
-                    <input
-                      min="0"
-                      step="0.00001"
-                      type="number"
-                      value={quickPrecioGranel}
-                      onChange={(event) => setQuickPrecioGranel(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Código de Barras Granel
-                    <input
-                      value={quickBarcodeGranel}
-                      onChange={(event) => setQuickBarcodeGranel(event.target.value.replace(/\D/g, ""))}
-                    />
-                  </label>
-                </>
-              ) : null}
               <label>
                 Nombre del proveedor
                 <input
@@ -1461,7 +1414,7 @@ export function SalesPage() {
                     />
                   </label>
                   <label>
-                    Fecha de caducidad
+                    Fecha de vencimiento
                     <input
                       type="date"
                       value={quickProductForm.expires_at}
