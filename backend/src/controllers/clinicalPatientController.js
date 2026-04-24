@@ -5,14 +5,13 @@ const clinicalService = require("../services/clinicalService");
 
 const listValidation = [
   query("search").optional().trim(),
-  query("client_id").optional().isInt(),
   query("active").optional().isBoolean(),
   validateRequest
 ];
 
 const createValidation = [
-  body("client_id").optional({ values: "falsy" }).isInt({ min: 1 }),
   body("name").trim().notEmpty(),
+  body("phone").optional({ values: "falsy" }).trim(),
   body("species").optional().trim(),
   body("breed").optional().trim(),
   body("sex").optional().trim(),
@@ -25,8 +24,8 @@ const createValidation = [
 
 const updateValidation = [
   param("id").isInt(),
-  body("client_id").isInt(),
   body("name").trim().notEmpty(),
+  body("phone").optional({ values: "falsy" }).trim(),
   body("species").optional().trim(),
   body("breed").optional().trim(),
   body("sex").optional().trim(),

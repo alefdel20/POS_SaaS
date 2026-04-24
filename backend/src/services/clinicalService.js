@@ -157,9 +157,8 @@ async function getOwnedClient(id, actor, client = pool) {
 async function getOwnedPatient(id, actor, client = pool) {
   const businessId = requireActorBusinessId(actor);
   const { rows } = await client.query(
-    `SELECT p.*, c.name AS client_name
+    `SELECT p.*
      FROM patients p
-     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
      WHERE p.id = $1 AND p.business_id = $2`,
     [id, businessId]
   );
@@ -229,16 +228,14 @@ async function getOwnedPrescription(id, actor, client = pool) {
   const { rows } = await client.query(
     `SELECT mp.*,
             p.name AS patient_name,
-            c.name AS client_name,
             u.full_name AS doctor_name,
             COUNT(mpi.id)::int AS item_count
      FROM medical_prescriptions mp
      INNER JOIN patients p ON p.id = mp.patient_id AND p.business_id = mp.business_id
-     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
      LEFT JOIN users u ON u.id = mp.doctor_user_id
      LEFT JOIN medical_prescription_items mpi ON mpi.prescription_id = mp.id
      WHERE mp.id = $1 AND mp.business_id = $2
-     GROUP BY mp.id, p.name, c.name, u.full_name`,
+     GROUP BY mp.id, p.name, u.full_name`,
     [id, businessId]
   );
   const owned = rows[0];
@@ -250,11 +247,9 @@ async function getOwnedPreventiveEvent(id, actor, client = pool) {
   const businessId = requireActorBusinessId(actor);
   const { rows } = await client.query(
     `SELECT mpe.*,
-            p.name AS patient_name,
-            c.name AS client_name
+            p.name AS patient_name
      FROM medical_preventive_events mpe
      INNER JOIN patients p ON p.id = mpe.patient_id AND p.business_id = mpe.business_id
-     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = mpe.business_id
      WHERE mpe.id = $1 AND mpe.business_id = $2`,
     [id, businessId]
   );
@@ -265,17 +260,13 @@ async function getOwnedPreventiveEvent(id, actor, client = pool) {
 
 async function validateClinicalRelationship({ patientId, clientId, actor, client = pool }) {
   const patient = await getOwnedPatient(patientId, actor, client);
-  const ownedClient = await getOwnedClient(clientId, actor, client);
-
-  if (Number(patient.client_id) !== Number(ownedClient.id)) {
-    throw new ApiError(409, "Patient does not belong to the selected client");
-  }
+  const ownedClient = clientId ? await getOwnedClient(clientId, actor, client) : null;
 
   if (!patient.is_active) {
     throw new ApiError(409, "Patient is inactive");
   }
 
-  if (!ownedClient.is_active) {
+  if (ownedClient && !ownedClient.is_active) {
     throw new ApiError(409, "Client is inactive");
   }
 
@@ -462,23 +453,16 @@ function buildClientPayload(payload = {}) {
 }
 
 function buildPatientPayload(payload = {}) {
-  const rawClientId = payload.client_id;
-  const clientId = rawClientId !== undefined && rawClientId !== null && rawClientId !== "" && rawClientId !== 0
-    ? Number(rawClientId)
-    : null;
   const name = normalizeText(payload.name);
   const weight = payload.weight === undefined || payload.weight === null || payload.weight === "" ? null : Number(payload.weight);
 
-  if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) {
-    throw new ApiError(400, "Client is invalid");
-  }
   if (!name) throw new ApiError(400, "Patient name is required");
   if (weight !== null && (!Number.isFinite(weight) || weight < 0 || weight > 500)) {
     throw new ApiError(400, "Patient weight is invalid");
   }
 
   return {
-    client_id: clientId,
+    phone: payload.phone ? String(payload.phone).trim() : null,
     name,
     species: normalizeNullableText(payload.species),
     breed: normalizeNullableText(payload.breed),
@@ -768,11 +752,6 @@ async function listPatients(filters = {}, actor) {
   const params = [businessId];
   const conditions = ["p.business_id = $1"];
 
-  if (filters.client_id) {
-    params.push(Number(filters.client_id));
-    conditions.push(`p.client_id = $${params.length}`);
-  }
-
   if (filters.active !== undefined && filters.active !== "") {
     params.push(normalizeBooleanFlag(filters.active));
     conditions.push(`p.is_active = $${params.length}`);
@@ -782,7 +761,7 @@ async function listPatients(filters = {}, actor) {
     params.push(`%${term}%`);
     conditions.push(`(
       p.name ILIKE $${params.length}
-      OR c.name ILIKE $${params.length}
+      OR COALESCE(p.phone, '') ILIKE $${params.length}
       OR COALESCE(p.species, '') ILIKE $${params.length}
       OR COALESCE(p.breed, '') ILIKE $${params.length}
     )`);
@@ -792,7 +771,7 @@ async function listPatients(filters = {}, actor) {
     `SELECT
        p.id,
        p.business_id,
-       p.client_id,
+       p.phone,
        p.name,
        p.species,
        p.breed,
@@ -804,13 +783,9 @@ async function listPatients(filters = {}, actor) {
        p.is_active,
        p.created_at,
        p.updated_at,
-       c.name AS client_name,
-       c.phone AS client_phone,
-       c.email AS client_email,
        COUNT(DISTINCT mc.id)::int AS consultation_count,
        COUNT(DISTINCT ma.id)::int AS appointment_count
      FROM patients p
-     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
      LEFT JOIN consultations mc
        ON mc.patient_id = p.id
       AND mc.business_id = p.business_id
@@ -820,7 +795,7 @@ async function listPatients(filters = {}, actor) {
       AND ma.business_id = p.business_id
       AND ma.is_active = TRUE
      WHERE ${conditions.join(" AND ")}
-     GROUP BY p.id, c.name, c.phone, c.email
+     GROUP BY p.id
      ORDER BY p.is_active DESC, p.name ASC`,
     params
   );
@@ -835,24 +810,21 @@ async function getPatientDetail(id, actor) {
     `SELECT
        p.id,
        p.business_id,
-       p.client_id,
+       p.phone,
        p.name,
        p.species,
        p.breed,
        p.sex,
        p.birth_date,
+       p.weight,
+       p.allergies,
        p.notes,
        p.is_active,
        p.created_at,
        p.updated_at,
-       c.name AS client_name,
-       c.phone AS client_phone,
-       c.email AS client_email,
-       c.address AS client_address,
        COUNT(DISTINCT mc.id)::int AS consultation_count,
        COUNT(DISTINCT ma.id)::int AS appointment_count
      FROM patients p
-     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = p.business_id
      LEFT JOIN consultations mc
        ON mc.patient_id = p.id
       AND mc.business_id = p.business_id
@@ -862,7 +834,7 @@ async function getPatientDetail(id, actor) {
       AND ma.business_id = p.business_id
       AND ma.is_active = TRUE
      WHERE p.id = $1 AND p.business_id = $2
-     GROUP BY p.id, c.name, c.phone, c.email, c.address`,
+     GROUP BY p.id`,
     [id, businessId]
   );
 
@@ -914,20 +886,17 @@ async function getPatientDetail(id, actor) {
 async function createPatient(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const data = buildPatientPayload(payload);
-  if (data.client_id !== null) {
-    await getOwnedClient(data.client_id, actor);
-  }
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
       `INSERT INTO patients (
-        business_id, client_id, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, created_by, updated_by
+        business_id, phone, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, created_by, updated_by
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
       RETURNING *`,
-      [businessId, data.client_id, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id]
+      [businessId, data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id]
     );
 
     await saveAuditLog({
@@ -955,14 +924,13 @@ async function updatePatient(id, payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const current = mapPatient(await getOwnedPatient(id, actor));
   const data = buildPatientPayload({ ...current, ...payload });
-  await getOwnedClient(data.client_id, actor);
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
       `UPDATE patients
-       SET client_id = $1,
+       SET phone = $1,
            name = $2,
            species = $3,
            breed = $4,
@@ -976,7 +944,7 @@ async function updatePatient(id, payload, actor) {
            updated_at = NOW()
        WHERE id = $12 AND business_id = $13
        RETURNING *`,
-      [data.client_id, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id, id, businessId]
+      [data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id, id, businessId]
     );
 
     await saveAuditLog({

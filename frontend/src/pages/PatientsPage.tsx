@@ -2,14 +2,14 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalClientSummary, ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
+import type { ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
 import { PREVENTIVE_EVENT_STATUSES, PREVENTIVE_EVENT_TYPES } from "../utils/domainEnums";
 import { getClinicalPatientLabel, showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
 import { shortDate, shortDateTime } from "../utils/format";
 
 type PatientFormState = {
-  client_id: string;
   name: string;
+  phone: string;
   species: string;
   breed: string;
   sex: string;
@@ -32,8 +32,8 @@ type PreventiveFormState = {
 };
 
 const emptyForm: PatientFormState = {
-  client_id: "",
   name: "",
+  phone: "",
   species: "",
   breed: "",
   sex: "Masculino",
@@ -57,8 +57,8 @@ const emptyPreventiveForm: PreventiveFormState = {
 
 function detailToForm(detail: ClinicalPatientDetail | null): PatientFormState {
   return {
-    client_id: detail?.client_id ? String(detail.client_id) : "",
     name: detail?.name || "",
+    phone: detail?.phone || "",
     species: detail?.species || "",
     breed: detail?.breed || "",
     sex: detail?.sex || "",
@@ -70,22 +70,16 @@ function detailToForm(detail: ClinicalPatientDetail | null): PatientFormState {
   };
 }
 
-function buildClientSearchLabel(client: ClinicalClientSummary) {
-  return client.phone ? `${client.name} - ${client.phone}` : client.name;
-}
-
 export function PatientsPage() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
-  const [clients, setClients] = useState<ClinicalClientSummary[]>([]);
   const [medications, setMedications] = useState<Product[]>([]);
   const [detail, setDetail] = useState<ClinicalPatientDetail | null>(null);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState<PatientFormState>(emptyForm);
-  const [clientSearch, setClientSearch] = useState("");
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [preventiveForm, setPreventiveForm] = useState<PreventiveFormState>(emptyPreventiveForm);
   const [saving, setSaving] = useState(false);
@@ -107,12 +101,6 @@ export function PatientsPage() {
     });
   }
 
-  async function loadClients() {
-    if (!token) return;
-    const response = await apiRequest<ClinicalClientSummary[]>("/clients", { token });
-    setClients(response.filter((client) => client.is_active));
-  }
-
   async function loadMedications() {
     if (!token) return;
     const response = await apiRequest<{ items: Product[] }>("/products?catalog_scope=medications-supplies&page=1&pageSize=15", { token });
@@ -129,9 +117,6 @@ export function PatientsPage() {
   }
 
   useEffect(() => {
-    loadClients().catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar clientes");
-    });
     if (!humanPatientsOnly) {
       loadMedications().catch(() => {
         setMedications([]);
@@ -166,18 +151,6 @@ export function PatientsPage() {
     });
   }, [selectedId, token]);
 
-  useEffect(() => {
-    if (!form.client_id) {
-      setClientSearch("");
-      return;
-    }
-
-    const selectedClient = clients.find((client) => String(client.id) === form.client_id);
-    if (selectedClient) {
-      setClientSearch(buildClientSearchLabel(selectedClient));
-    }
-  }, [form.client_id, clients]);
-
   function resetFeedback() {
     setError("");
     setInfo("");
@@ -187,22 +160,12 @@ export function PatientsPage() {
     resetFeedback();
     setMode("create");
     setForm(emptyForm);
-    setClientSearch("");
   }
 
   function startEdit() {
     resetFeedback();
     setMode("edit");
     setForm(detailToForm(detail));
-  }
-
-  function handleClientSearchChange(value: string) {
-    const matchedClient = clients.find((client) => buildClientSearchLabel(client).toLowerCase() === value.trim().toLowerCase());
-    setClientSearch(value);
-    setForm((current) => ({
-      ...current,
-      client_id: matchedClient ? String(matchedClient.id) : ""
-    }));
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -214,10 +177,10 @@ export function PatientsPage() {
       resetFeedback();
       const payload = {
         ...form,
-        client_id: Number(form.client_id),
         species: showSpecies ? form.species : "",
         breed: showSpecies ? form.breed : "",
         weight: form.weight ? Number(form.weight) : null,
+        phone: form.phone.trim() || null,
         allergies: form.allergies,
         is_active: form.is_active
       };
@@ -234,7 +197,6 @@ export function PatientsPage() {
         await loadDetail(selectedId);
       } else {
         setForm(emptyForm);
-        setClientSearch("");
       }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el paciente");
@@ -314,7 +276,7 @@ export function PatientsPage() {
             <thead>
               <tr>
                 <th>{patientLabel}</th>
-                <th>{humanPatientsOnly ? "Contacto" : "Responsable"}</th>
+                <th>Teléfono</th>
                 <th>{showSpecies ? "Especie / raza" : "Consultas"}</th>
                 <th>Estado</th>
               </tr>
@@ -323,7 +285,7 @@ export function PatientsPage() {
               {patients.map((patient) => (
                 <tr className={patient.id === selectedId ? "table-row-active" : ""} key={patient.id} onClick={() => setSelectedId(patient.id)}>
                   <td>{patient.name}</td>
-                  <td>{patient.client_name}</td>
+                  <td>{patient.phone || "-"}</td>
                   <td>{showSpecies ? `${patient.species || "-"} / ${patient.breed || "-"}` : patient.consultation_count}</td>
                   <td>{patient.is_active ? "Activo" : "Inactivo"}</td>
                 </tr>
@@ -342,7 +304,7 @@ export function PatientsPage() {
         <div className="panel-header">
           <div>
             <h2>{mode === "edit" ? `Editar ${patientLabel.toLowerCase()}` : `Alta de ${patientLabel.toLowerCase()}`}</h2>
-            <p className="muted">Vinculacion directa con cliente responsable y modulo clinico.</p>
+            <p className="muted">Registro de paciente con datos clinicos base.</p>
           </div>
           {detail ? (
             <div className="inline-actions">
@@ -356,20 +318,12 @@ export function PatientsPage() {
 
         <form className="grid-form" onSubmit={handleSubmit}>
           <label>
-            {humanPatientsOnly ? "Contacto" : "Responsable *"}
-            <input
-              list="patient-client-options"
-              placeholder="Busca por nombre o telefono"
-              value={clientSearch}
-              onChange={(event) => handleClientSearchChange(event.target.value)}
-            />
-          </label>
-          <datalist id="patient-client-options">
-            {clients.map((client) => <option key={client.id} value={buildClientSearchLabel(client)} />)}
-          </datalist>
-          <label>
             Nombre Completo *
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+          </label>
+          <label>
+            Teléfono
+            <input type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
           </label>
           {showSpecies ? (
             <>
@@ -424,11 +378,8 @@ export function PatientsPage() {
           <>
             <div className="info-card">
               <p><strong>Paciente:</strong> {detail.name}</p>
-              <p><strong>{humanPatientsOnly ? "Contacto" : "Responsable"}:</strong> {detail.client_name}</p>
+              <p><strong>Teléfono:</strong> {detail.phone || "-"}</p>
               <p><strong>Estado:</strong> {detail.is_active ? "Activo" : "Inactivo"}</p>
-              <p><strong>{humanPatientsOnly ? "Telefono" : "Telefono responsable"}:</strong> {detail.client_phone || "-"}</p>
-              <p><strong>{humanPatientsOnly ? "Correo" : "Correo responsable"}:</strong> {detail.client_email || "-"}</p>
-              <p><strong>{humanPatientsOnly ? "Direccion" : "Direccion responsable"}:</strong> {detail.client_address || "-"}</p>
               <p><strong>Sexo:</strong> {detail.sex || "-"}</p>
               <p><strong>Nacimiento:</strong> {shortDate(detail.birth_date || null)}</p>
               <p><strong>Peso:</strong> {detail.weight ?? "-"}</p>
