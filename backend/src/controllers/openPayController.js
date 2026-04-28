@@ -568,6 +568,21 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
       [customerId, orderId]
     );
 
+    // 3.5. Create card charge with 3D Secure. If Openpay requires redirect for 3DS
+    //      authentication, return the URL to the frontend immediately. The charge.succeeded
+    //      webhook will provision the business once the user completes authentication.
+    const charge = await openPayService.createCardCharge({
+      amount, email, name: name || ownerName, planName, cardToken, orderId
+    });
+    if (charge.payment_method?.type === "redirect") {
+      return res.status(200).json({
+        success: true,
+        requires3DS: true,
+        redirectUrl: charge.payment_method.url,
+        chargeId: charge.id
+      });
+    }
+
     // 4. Always create a new plan (no existing business_subscriptions to check)
     const planId = await openPayService.createPlan(normalized, amount);
 
@@ -617,6 +632,20 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
 
   // 1. Ensure OpenPay customer exists for this business (idempotent)
   const customerId = await openPayService.createCustomer(businessId, name, email);
+
+  // 1.5. Create card charge with 3D Secure for renewal payment.
+  const renewOrderId = `renew-${crypto.randomBytes(8).toString("hex")}`;
+  const renewCharge = await openPayService.createCardCharge({
+    amount, email, name, planName, cardToken, orderId: renewOrderId
+  });
+  if (renewCharge.payment_method?.type === "redirect") {
+    return res.status(200).json({
+      success: true,
+      requires3DS: true,
+      redirectUrl: renewCharge.payment_method.url,
+      chargeId: renewCharge.id
+    });
+  }
 
   // 2. Ensure OpenPay plan exists — check DB first, create only if missing
   const { rows: subRows } = await pool.query(
@@ -693,9 +722,30 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// 3D Secure charge verification
+// Called by the frontend after Openpay redirects back to /pago-resultado
+// ---------------------------------------------------------------------------
+
+const verify3DS = asyncHandler(async (req, res) => {
+  const chargeId = String(req.query.id || "").trim();
+  if (!chargeId) {
+    return res.status(400).json({ success: false, error: "Missing charge id" });
+  }
+  const charge = await openPayService.getCharge(chargeId);
+  if (charge.status === "completed") {
+    return res.status(200).json({ success: true, status: "completed" });
+  }
+  if (charge.status === "failed") {
+    return res.status(200).json({ success: false, status: "failed" });
+  }
+  return res.status(200).json({ success: false, status: charge.status || "unknown" });
+});
+
 module.exports = {
   checkoutValidation,
   handleWebhook,
   verifyWebhook,
-  createCheckoutSession
+  createCheckoutSession,
+  verify3DS
 };

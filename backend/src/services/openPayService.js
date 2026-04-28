@@ -152,6 +152,24 @@ async function createSubscription(customerId, planId, cardToken) {
   return result.id;
 }
 
+async function createCardCharge({ amount, email, name, planName, cardToken, orderId }) {
+  return openpayRequest("POST", "/charges", {
+    method: "card",
+    source_id: cardToken,
+    amount,
+    currency: "MXN",
+    description: planName || "Ankode POS",
+    ...(orderId ? { order_id: orderId } : {}),
+    customer: { name: name || email, email },
+    use_3d_secure: "true",
+    redirect_url: "https://ankode.cloud/pago-resultado"
+  });
+}
+
+async function getCharge(chargeId) {
+  return openpayRequest("GET", `/charges/${encodeURIComponent(chargeId)}`);
+}
+
 async function createSpeiCharge({ amount, email, name, planName }) {
   console.log('[SPEI-CHARGE-PAYLOAD]', JSON.stringify({ method: 'bank_account', amount, currency: 'MXN', description: planName, customer: { name: name || email, email } }));
   return openpayRequest("POST", "/charges", {
@@ -221,6 +239,8 @@ module.exports = {
   createCustomer,
   createPlan,
   createSubscription,
+  createCardCharge,
+  getCharge,
   createSpeiCharge,
   cancelSubscription,
   getSubscription,
