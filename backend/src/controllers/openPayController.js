@@ -83,7 +83,7 @@ const checkoutValidation = [
     .withMessage("businessName is required for new signups"),
   body("ownerName").optional({ nullable: true }).trim().notEmpty()
     .withMessage("ownerName is required for new signups"),
-  body("password").optional({ nullable: true }).isLength({ min: 8 })
+  body("password").optional({ nullable: true, checkFalsy: true }).isLength({ min: 8 })
     .withMessage("password must be at least 8 characters"),
   body("posType").optional({ nullable: true }).trim().notEmpty()
     .withMessage("posType is required for new signups"),
