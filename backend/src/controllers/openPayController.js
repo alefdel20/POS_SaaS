@@ -483,6 +483,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     email,
     name,
     paymentMethod,
+    deviceSessionId,
     // New-signup fields
     businessName,
     ownerName,
@@ -572,7 +573,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     //      authentication, return the URL to the frontend immediately. The charge.succeeded
     //      webhook will provision the business once the user completes authentication.
     const charge = await openPayService.createCardCharge({
-      amount, email, name: name || ownerName, planName, cardToken, orderId
+      amount, email, name: name || ownerName, planName, cardToken, orderId, deviceSessionId
     });
     if (charge.payment_method?.type === "redirect") {
       return res.status(200).json({
@@ -636,7 +637,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   // 1.5. Create card charge with 3D Secure for renewal payment.
   const renewOrderId = `renew-${crypto.randomBytes(8).toString("hex")}`;
   const renewCharge = await openPayService.createCardCharge({
-    amount, email, name, planName, cardToken, orderId: renewOrderId
+    amount, email, name, planName, cardToken, orderId: renewOrderId, deviceSessionId
   });
   if (renewCharge.payment_method?.type === "redirect") {
     return res.status(200).json({

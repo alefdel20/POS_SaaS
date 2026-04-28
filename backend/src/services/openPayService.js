@@ -152,7 +152,7 @@ async function createSubscription(customerId, planId, cardToken) {
   return result.id;
 }
 
-async function createCardCharge({ amount, email, name, planName, cardToken, orderId }) {
+async function createCardCharge({ amount, email, name, planName, cardToken, orderId, deviceSessionId }) {
   return openpayRequest("POST", "/charges", {
     method: "card",
     source_id: cardToken,
@@ -162,7 +162,8 @@ async function createCardCharge({ amount, email, name, planName, cardToken, orde
     ...(orderId ? { order_id: orderId } : {}),
     customer: { name: name || email, email },
     use_3d_secure: "true",
-    redirect_url: "https://ankode.cloud/pago-resultado"
+    redirect_url: "https://ankode.cloud/pago-resultado",
+    device_session_id: deviceSessionId
   });
 }
 
