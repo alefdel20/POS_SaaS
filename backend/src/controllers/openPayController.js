@@ -445,14 +445,25 @@ const handleWebhook = asyncHandler(async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Webhook verification: OpenPay sends a GET with ?verification_code=XXX
+// Webhook verification: OpenPay sends GET or POST with verification_code
 // ---------------------------------------------------------------------------
 const verifyWebhook = asyncHandler(async (req, res) => {
-  const verificationCode = req.query.verification_code;
+  console.log('[OPENPAY-VERIFY] method:', req.method);
+  console.log('[OPENPAY-VERIFY] headers:', req.headers);
+  console.log('[OPENPAY-VERIFY] query:', req.query);
+  console.log('[OPENPAY-VERIFY] body:', req.body);
+
+  const verificationCode =
+    req.query.verification_code ||
+    (req.body && req.body.verification_code) ||
+    null;
+
   if (verificationCode) {
-    console.log('[OPENPAY-VERIFY] Verification code received:', verificationCode);
-    return res.status(200).send(verificationCode);
+    console.log('[OPENPAY-VERIFY] Responding with code:', verificationCode);
+    return res.status(200).send(String(verificationCode));
   }
+
+  console.log('[OPENPAY-VERIFY] No verification_code found');
   return res.status(200).json({ status: "ok" });
 });
 
