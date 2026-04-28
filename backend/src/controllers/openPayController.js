@@ -75,13 +75,13 @@ const checkoutValidation = [
   body("businessId").optional().isInt({ min: 1 }),
   body("planType").isIn(["monthly", "yearly"]),
   body("amount").isFloat({ min: 0.01 }),
-  body("cardToken").trim().notEmpty(),
+  body("cardToken").if(body("paymentMethod").not().equals("spei")).trim().notEmpty(),
   body("email").isEmail().normalizeEmail(),
-  body("name").trim().notEmpty(),
+  body("name").optional({ nullable: true, checkFalsy: true }).trim().notEmpty(),
   // New-signup fields (required when creating a new business; absent for renewals)
-  body("businessName").optional({ nullable: true }).trim().notEmpty()
+  body("businessName").optional({ nullable: true, checkFalsy: true }).trim().notEmpty()
     .withMessage("businessName is required for new signups"),
-  body("ownerName").optional({ nullable: true }).trim().notEmpty()
+  body("ownerName").optional({ nullable: true, checkFalsy: true }).trim().notEmpty()
     .withMessage("ownerName is required for new signups"),
   body("password").optional({ nullable: true, checkFalsy: true }).isLength({ min: 8 })
     .withMessage("password must be at least 8 characters"),
