@@ -27,7 +27,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 // ---------------------------------------------------------------------------
 
 async function sendWelcomeEmail(to, data = {}) {
-  const { businessName = "", ownerName = "", email = "", tempPassword = "" } = data;
+  const { businessName = "", ownerName = "", email = "", tempPassword = "", planName = "", amount = "" } = data;
   const loginUrl = `${FRONTEND_URL}/login`;
 
   const html = `
@@ -107,6 +107,28 @@ async function sendWelcomeEmail(to, data = {}) {
   } catch (error) {
     // Log but never propagate — email failure must not block onboarding
     console.error(`[EMAIL] Failed to send welcome email to ${to}:`, error.message);
+  }
+
+  // Admin purchase notification
+  try {
+    const transporter = createTransporter();
+    const fecha = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: "ankodemx@gmail.com",
+      subject: `Nueva compra — ${planName || "Plan"}`,
+      text: [
+        `Nueva compra en Ankode`,
+        ``,
+        `Cliente: ${email || to}`,
+        `Plan: ${planName || "—"}`,
+        `Monto: $${amount ? Number(amount).toFixed(2) : "—"} MXN`,
+        `Fecha: ${fecha}`
+      ].join("\n")
+    });
+    console.info(`[EMAIL] Admin purchase notification sent for ${to}`);
+  } catch (error) {
+    console.error(`[EMAIL] Failed to send admin purchase notification:`, error.message);
   }
 }
 

@@ -15,6 +15,7 @@ const {
   markOnboardingFailed,
   getPendingOnboarding
 } = require("../services/paymentProvisioningService");
+const { sendWelcomeEmail } = require("../services/emailService");
 
 // URL for the n8n workflow that sends the welcome email after a business is provisioned.
 // Override per environment via N8N_WELCOME_EMAIL_URL.
@@ -526,6 +527,22 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
       [planId, subscriptionId, orderId]
     );
 
+    // Fire-and-forget: send welcome email directly as backup to the webhook
+    sendWelcomeEmail(email, {
+      businessName,
+      ownerName,
+      email,
+      tempPassword: password,
+      planName: planName || normalized,
+      amount
+    }).catch(() => {});
+    notifyN8nWelcomeEmail({
+      email,
+      owner_name: ownerName,
+      business_name: businessName,
+      frontend_url: process.env.FRONTEND_URL || ""
+    });
+
     return res.status(201).json({
       success: true,
       subscriptionId,
@@ -592,6 +609,22 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     },
     motivo: "OpenPay subscription initiated",
     metadata: { plan_type: normalized, payment_provider: "openpay" }
+  });
+
+  // Fire-and-forget: send welcome email directly as backup to the webhook
+  sendWelcomeEmail(email, {
+    businessName: name,
+    ownerName: name,
+    email,
+    tempPassword: "",
+    planName: planName || normalized,
+    amount
+  }).catch(() => {});
+  notifyN8nWelcomeEmail({
+    email,
+    owner_name: name,
+    business_name: name,
+    frontend_url: process.env.FRONTEND_URL || ""
   });
 
   res.status(201).json({
