@@ -432,9 +432,7 @@ const verifyWebhook = asyncHandler(async (req, res) => {
 
 const createCheckoutSession = asyncHandler(async (req, res) => {
   const {
-    businessId,
     planType,
-    amount,
     cardToken,
     email,
     name,
@@ -445,6 +443,9 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     posType,
     planName
   } = req.body;
+
+  const businessId = parseInt(req.body.businessId) || null;
+  const amount = parseFloat(req.body.amount) || 0;
 
   const normalized = String(planType).toLowerCase();
   const isNewSignup = Boolean(password && businessName && ownerName && posType);
