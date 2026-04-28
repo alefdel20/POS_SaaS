@@ -216,6 +216,10 @@ const handleWebhook = asyncHandler(async (req, res) => {
 
     // SPEI payment received — send confirmation email and return immediately
     if (eventType === "spei.received") {
+      console.log('[SPEI-WEBHOOK] transaction completa:', JSON.stringify(transaction));
+      console.log('[SPEI-WEBHOOK] customer:', JSON.stringify(transaction?.customer));
+      console.log('[SPEI-WEBHOOK] email encontrado:', transaction?.customer?.email);
+      console.log('[SPEI-WEBHOOK] intentando enviar correo:', !!(transaction?.customer?.email));
       const custEmail = (transaction.customer && transaction.customer.email) || null;
       const custName = (transaction.customer && transaction.customer.name) || custEmail || "";
       if (custEmail) {

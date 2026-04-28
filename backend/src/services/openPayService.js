@@ -153,6 +153,7 @@ async function createSubscription(customerId, planId, cardToken) {
 }
 
 async function createSpeiCharge({ amount, email, name, planName }) {
+  console.log('[SPEI-CHARGE-PAYLOAD]', JSON.stringify({ method: 'bank_account', amount, currency: 'MXN', description: planName, customer: { name: name || email, email } }));
   return openpayRequest("POST", "/charges", {
     method: "bank_account",
     amount,
