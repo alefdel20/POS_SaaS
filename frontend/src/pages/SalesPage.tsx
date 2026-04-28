@@ -1079,12 +1079,6 @@ export function SalesPage() {
           </div>
         ) : null}
 
-        {!canUseInvoice ? (
-          <div className="warning-box">
-            <p>La opcion de factura no esta disponible porque faltan datos fiscales en Perfil.</p>
-          </div>
-        ) : null}
-
         {invoiceBlockedByStamps ? (
           <div className="warning-box">
             <p>Facturación no disponible (sin timbres).</p>
@@ -1115,31 +1109,6 @@ export function SalesPage() {
               <span>Cambio</span>
               <strong>{currency(cashChange)}</strong>
             </div>
-          </div>
-        ) : null}
-
-        {paymentMethod === "card" ? (
-          <div className="info-card">
-            <h3>Cobro con tarjeta</h3>
-            {cardDetails.terminal || cardDetails.bank || cardDetails.instructions || cardDetails.commission !== null ? (
-              <>
-                <p>Terminal: {cardDetails.terminal || "-"}</p>
-                <p>Banco: {cardDetails.bank || "-"}</p>
-                <p>Comisión: {cardDetails.commission !== null ? `${Number(cardDetails.commission).toFixed(2)}%` : "-"}</p>
-                <p>Instrucciones: {cardDetails.instructions || "-"}</p>
-              </>
-            ) : (
-              <p>No hay información de cobro con tarjeta configurada.</p>
-            )}
-          </div>
-        ) : null}
-
-        {paymentMethod === "transfer" ? (
-          <div className="info-card">
-            <h3>Datos bancarios</h3>
-            <p>Banco: {transferDetails.bank}</p>
-            <p>CLABE: {transferDetails.clabe}</p>
-            <p>Beneficiario: {transferDetails.beneficiary}</p>
           </div>
         ) : null}
 
