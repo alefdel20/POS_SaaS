@@ -145,7 +145,7 @@ async function createSubscription(customerId, planId, cardToken) {
     `/customers/${encodeURIComponent(customerId)}/subscriptions`,
     {
       plan_id: planId,
-      card: { token_id: cardToken }
+      source_id: cardToken
     }
   );
 
