@@ -465,11 +465,23 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   const normalized = String(planType).toLowerCase();
   const isNewSignup = Boolean(password && businessName && ownerName && posType);
 
+  console.log("[CHECKOUT] Request received:", {
+    paymentMethod,
+    isNewSignup,
+    businessId,
+    email,
+    passwordPresent: Boolean(password),
+    businessName,
+    ownerName,
+    posType
+  });
+
   // ---------------------------------------------------------------------------
   // Path A — New business signup (no existing businessId)
   // Order: createPendingOnboarding → OpenPay customer → plan → subscription
   // ---------------------------------------------------------------------------
   if (isNewSignup) {
+    console.log("[CHECKOUT] Taking Path A — new business signup");
     // Generate a unique order_id that the webhook will use to find this pending row
     const orderId = `onb-${crypto.randomBytes(8).toString("hex")}`;
 
@@ -556,6 +568,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   // Path B — Existing business renewal (businessId present, no password)
   // Preserved exactly from the original implementation.
   // ---------------------------------------------------------------------------
+  console.log("[CHECKOUT] Taking Path B — existing business renewal");
 
   // 1. Ensure OpenPay customer exists for this business (idempotent)
   const customerId = await openPayService.createCustomer(businessId, name, email);
