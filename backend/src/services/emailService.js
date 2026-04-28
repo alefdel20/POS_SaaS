@@ -16,8 +16,8 @@ function createTransporter() {
   });
 }
 
-const EMAIL_FROM = process.env.EMAIL_FROM || "noreply@ankode.mx";
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+function getEmailFrom() { return process.env.EMAIL_FROM || "noreply@ankode.mx"; }
+function getFrontendUrl() { return process.env.FRONTEND_URL || "http://localhost:5173"; }
 
 // ---------------------------------------------------------------------------
 // sendWelcomeEmail
@@ -27,8 +27,10 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 // ---------------------------------------------------------------------------
 
 async function sendWelcomeEmail(to, data = {}) {
+  console.log(`[EMAIL] Attempting to send to: ${to}`);
   const { businessName = "", ownerName = "", email = "", tempPassword = "", planName = "", amount = "" } = data;
-  const loginUrl = `${FRONTEND_URL}/login`;
+  const EMAIL_FROM = getEmailFrom();
+  const loginUrl = `${getFrontendUrl()}/login`;
 
   const html = `
 <!DOCTYPE html>
@@ -105,8 +107,7 @@ async function sendWelcomeEmail(to, data = {}) {
     });
     console.info(`[EMAIL] Welcome email sent to ${to} for business "${businessName}"`);
   } catch (error) {
-    // Log but never propagate — email failure must not block onboarding
-    console.error(`[EMAIL] Failed to send welcome email to ${to}:`, error.message);
+    console.error("[EMAIL] Error completo:", error);
   }
 
   // Admin purchase notification
@@ -141,7 +142,8 @@ async function sendWelcomeEmail(to, data = {}) {
 
 async function sendPaymentFailedEmail(to, data = {}) {
   const { businessName = "", ownerName = "", amount = "", currency = "MXN" } = data;
-  const loginUrl = `${FRONTEND_URL}/login`;
+  const EMAIL_FROM = getEmailFrom();
+  const loginUrl = `${getFrontendUrl()}/login`;
 
   const amountText = amount ? `$${Number(amount).toFixed(2)} ${currency}` : "";
 
