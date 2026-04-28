@@ -15,7 +15,7 @@ const {
   markOnboardingFailed,
   getPendingOnboarding
 } = require("../services/paymentProvisioningService");
-const { sendWelcomeEmail } = require("../services/emailService");
+const { sendWelcomeEmail, sendPaymentConfirmationEmail } = require("../services/emailService");
 
 // URL for the n8n workflow that sends the welcome email after a business is provisioned.
 // Override per environment via N8N_WELCOME_EMAIL_URL.
@@ -210,7 +210,23 @@ const handleWebhook = asyncHandler(async (req, res) => {
 
     console.info(`[OPENPAY-WEBHOOK] Event received: ${eventType}`);
 
-    if (!["charge.succeeded", "charge.failed", "subscription.charge.failed"].includes(eventType)) {
+    if (!["charge.succeeded", "charge.failed", "subscription.charge.failed", "spei.received"].includes(eventType)) {
+      return res.status(200).json({ received: true });
+    }
+
+    // SPEI payment received — send confirmation email and return immediately
+    if (eventType === "spei.received") {
+      const custEmail = (transaction.customer && transaction.customer.email) || null;
+      const custName = (transaction.customer && transaction.customer.name) || custEmail || "";
+      if (custEmail) {
+        sendPaymentConfirmationEmail(custEmail, {
+          name: custName,
+          amount: Number(transaction.amount || 0),
+          currency: transaction.currency || "MXN",
+          method: "SPEI"
+        }).catch(() => {});
+      }
+      console.info(`[OPENPAY-WEBHOOK] SPEI received, confirmation email queued for ${custEmail}`);
       return res.status(200).json({ received: true });
     }
 
@@ -309,6 +325,20 @@ const handleWebhook = asyncHandler(async (req, res) => {
             `[OPENPAY-WEBHOOK] Payment history saved but subscription dates not advanced for business ${businessId}:`,
             subError
           );
+        }
+      }
+
+      // Send payment confirmation to existing business customer
+      if (businessId) {
+        const custEmail = (transaction.customer && transaction.customer.email) || null;
+        const custName = (transaction.customer && transaction.customer.name) || custEmail || "";
+        if (custEmail) {
+          sendPaymentConfirmationEmail(custEmail, {
+            name: custName,
+            amount,
+            currency,
+            method: "tarjeta"
+          }).catch(() => {});
         }
       }
 
@@ -453,7 +483,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   // SPEI path — generate a bank_account charge and return the CLABE
   // ---------------------------------------------------------------------------
   if (paymentMethod === "spei") {
-    const charge = await openPayService.createSpeiCharge({ amount, email, planName });
+    const charge = await openPayService.createSpeiCharge({ amount, email, name, planName });
     return res.status(201).json({
       success: true,
       paymentMethod: "spei",

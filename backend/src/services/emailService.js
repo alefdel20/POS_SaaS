@@ -213,7 +213,87 @@ async function sendPaymentFailedEmail(to, data = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// sendPaymentConfirmationEmail
+// Sent after charge.succeeded (existing business) or spei.received.
+// data: { name, amount, currency, method }
+// Never throws.
+// ---------------------------------------------------------------------------
+
+async function sendPaymentConfirmationEmail(to, data = {}) {
+  const { name = "", amount = 0, currency = "MXN", method = "tarjeta" } = data;
+  const EMAIL_FROM = getEmailFrom();
+  const fecha = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+  const amountText = `$${Number(amount).toFixed(2)} ${currency}`;
+
+  const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Confirmación de pago — Ankode</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
+    .container { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 8px; overflow: hidden; }
+    .header { background: #0d9488; padding: 32px 40px; }
+    .header h1 { color: #fff; margin: 0; font-size: 22px; }
+    .body { padding: 32px 40px; color: #333; font-size: 15px; line-height: 1.6; }
+    .detail { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 16px 20px; margin: 20px 0; }
+    .detail p { margin: 6px 0; }
+    .detail strong { color: #0d9488; }
+    .footer { padding: 20px 40px; font-size: 12px; color: #888; border-top: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Pago confirmado ✓</h1>
+    </div>
+    <div class="body">
+      <p>Hola <strong>${name || to}</strong>,</p>
+      <p>Tu pago en Ankode fue procesado correctamente.</p>
+      <div class="detail">
+        <p><strong>Monto:</strong> ${amountText}</p>
+        <p><strong>Método:</strong> ${method}</p>
+        <p><strong>Fecha:</strong> ${fecha}</p>
+      </div>
+      <p>Gracias por confiar en Ankode.</p>
+    </div>
+    <div class="footer">
+      ¿Dudas? Escríbenos a soporte@ankode.mx
+    </div>
+  </div>
+</body>
+</html>`.trim();
+
+  const text = [
+    `Pago confirmado — Ankode`,
+    ``,
+    `Hola ${name || to},`,
+    `Tu pago de ${amountText} fue procesado correctamente vía ${method}.`,
+    `Fecha: ${fecha}`,
+    ``,
+    `Gracias por confiar en Ankode.`,
+    `¿Dudas? soporte@ankode.mx`
+  ].join("\n");
+
+  try {
+    const transporter = createTransporter();
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to,
+      subject: "Confirmación de pago — Ankode",
+      html,
+      text
+    });
+    console.info(`[EMAIL] Payment confirmation sent to ${to}`);
+  } catch (error) {
+    console.error("[EMAIL] Error sending payment confirmation:", error);
+  }
+}
+
 module.exports = {
   sendWelcomeEmail,
-  sendPaymentFailedEmail
+  sendPaymentFailedEmail,
+  sendPaymentConfirmationEmail
 };

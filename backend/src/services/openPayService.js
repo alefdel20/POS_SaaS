@@ -152,13 +152,13 @@ async function createSubscription(customerId, planId, cardToken) {
   return result.id;
 }
 
-async function createSpeiCharge({ amount, email, planName }) {
+async function createSpeiCharge({ amount, email, name, planName }) {
   return openpayRequest("POST", "/charges", {
     method: "bank_account",
     amount,
     currency: "MXN",
     description: planName || "Ankode POS",
-    customer: { name: email, email }
+    customer: { name: name || email, email }
   });
 }
 
