@@ -436,6 +436,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     cardToken,
     email,
     name,
+    paymentMethod,
     // New-signup fields
     businessName,
     ownerName,
@@ -446,6 +447,19 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
 
   const businessId = parseInt(req.body.businessId) || null;
   const amount = parseFloat(req.body.amount) || 0;
+
+  // ---------------------------------------------------------------------------
+  // SPEI path — generate a bank_account charge and return the CLABE
+  // ---------------------------------------------------------------------------
+  if (paymentMethod === "spei") {
+    const charge = await openPayService.createSpeiCharge({ amount, email, planName });
+    return res.status(201).json({
+      success: true,
+      paymentMethod: "spei",
+      clabe: charge.payment_method?.clabe,
+      orderId: charge.id
+    });
+  }
 
   const normalized = String(planType).toLowerCase();
   const isNewSignup = Boolean(password && businessName && ownerName && posType);

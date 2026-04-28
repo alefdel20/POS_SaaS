@@ -152,6 +152,16 @@ async function createSubscription(customerId, planId, cardToken) {
   return result.id;
 }
 
+async function createSpeiCharge({ amount, email, planName }) {
+  return openpayRequest("POST", "/charges", {
+    method: "bank_account",
+    amount,
+    currency: "MXN",
+    description: planName || "Ankode POS",
+    customer: { name: email, email }
+  });
+}
+
 async function cancelSubscription(customerId, subscriptionId) {
   return openpayRequest(
     "DELETE",
@@ -210,6 +220,7 @@ module.exports = {
   createCustomer,
   createPlan,
   createSubscription,
+  createSpeiCharge,
   cancelSubscription,
   getSubscription,
   verifyWebhookSignature
