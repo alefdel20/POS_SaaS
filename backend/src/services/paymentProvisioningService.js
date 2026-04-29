@@ -19,7 +19,7 @@ const ApiError = require("../utils/ApiError");
 const { resolveBusinessClassification } = require("../utils/business");
 const { initializeBusinessSubscriptionForNewBusiness } = require("./businessSubscriptionService");
 const { saveAuditLog } = require("./auditLogService");
-const { sendWelcomeEmail, sendPaymentFailedEmail } = require("./emailService");
+const { sendPaymentFailedEmail } = require("./emailService");
 
 // ---------------------------------------------------------------------------
 // Internal helpers (same logic as authService / businessService)
@@ -317,16 +317,6 @@ async function provisionBusinessFromOnboarding(orderId) {
       `[PROVISIONING] Business provisioned: order_id=${orderId}, ` +
       `business_id=${business.id}, user_id=${user.id}`
     );
-
-    // Send welcome email — fire and forget; failure must never propagate
-    // Note: we cannot recover the original plain-text password from the hash.
-    // The email informs the user to use the password they entered at checkout.
-    await sendWelcomeEmail(email, {
-      businessName: business_name,
-      ownerName: owner_name,
-      email,
-      tempPassword: "(la contraseña que ingresaste al registrarte)"
-    });
 
     return { business, user };
   } catch (error) {

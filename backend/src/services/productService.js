@@ -1866,16 +1866,17 @@ async function createProduct(payload, actor) {
           `INSERT INTO products (
             name, sku, barcode, category, catalog_type, description, price, cost_price, liquidation_price, stock, expires_at,
             is_active, supplier_id, status, discount_type, discount_value, discount_start, discount_end,
-            stock_minimo, stock_maximo, business_id, unidad_de_venta, porcentaje_ganancia, ieps
+            stock_minimo, stock_maximo, business_id, unidad_de_venta, porcentaje_ganancia, ieps, lot_number
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
           RETURNING *`,
           [
             sanitizedPayload.name.trim(), resolvedSku, resolvedBarcode, sanitizedPayload.category || null, catalogType, sanitizedPayload.description || "",
             price, costPrice, liquidationPrice, stock,
             sanitizedPayload.expires_at || null, sanitizedPayload.is_active ?? true, primarySupplierId, sanitizedPayload.status || "activo",
             discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end,
-            stockMinimo, stockMaximo, businessId, unidadDeVenta, porcentajeGanancia, ieps
+            stockMinimo, stockMaximo, businessId, unidadDeVenta, porcentajeGanancia, ieps,
+            sanitizedPayload.lot_number ? String(sanitizedPayload.lot_number).trim() : null
           ]
         ));
         lastError = null;
@@ -1982,8 +1983,9 @@ async function updateProduct(id, payload, actor) {
        SET name = $1, sku = $2, barcode = $3, category = $4, catalog_type = $5, description = $6, price = $7, cost_price = $8,
            liquidation_price = $9, stock = $10, expires_at = $11, is_active = $12, supplier_id = $13, status = $14,
            discount_type = $15, discount_value = $16, discount_start = $17, discount_end = $18,
-           stock_minimo = $19, stock_maximo = $20, unidad_de_venta = $21, porcentaje_ganancia = $22, ieps = $23, updated_at = NOW()
-       WHERE id = $24 AND business_id = $25
+           stock_minimo = $19, stock_maximo = $20, unidad_de_venta = $21, porcentaje_ganancia = $22, ieps = $23,
+           lot_number = $24, updated_at = NOW()
+       WHERE id = $25 AND business_id = $26
        RETURNING *`,
       [
         sanitizedPayload.name ?? current.name, resolvedSku, resolvedBarcode, sanitizedPayload.category ?? current.category, catalogType,
@@ -2001,6 +2003,7 @@ async function updateProduct(id, payload, actor) {
         sanitizedPayload.unidad_de_venta !== undefined ? unidadDeVenta : normalizeSaleUnit(current.unidad_de_venta),
         sanitizedPayload.porcentaje_ganancia !== undefined ? porcentajeGanancia : current.porcentaje_ganancia,
         sanitizedPayload.ieps !== undefined ? ieps : current.ieps,
+        sanitizedPayload.lot_number !== undefined ? (sanitizedPayload.lot_number ? String(sanitizedPayload.lot_number).trim() : null) : current.lot_number,
         id, businessId
       ]
     );

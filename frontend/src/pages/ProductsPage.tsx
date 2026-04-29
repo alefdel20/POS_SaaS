@@ -467,6 +467,10 @@ export function ProductsPage() {
   const [importLoading, setImportLoading] = useState(false);
   const [importConfirming, setImportConfirming] = useState(false);
   const [importResult, setImportResult] = useState<ProductImportConfirmResponse | null>(null);
+  const [contenidoPorUnidad, setContenidoPorUnidad] = useState("");
+  const [venderAGranel, setVenderAGranel] = useState(false);
+  const [precioGranel, setPrecioGranel] = useState("");
+  const [barcodeGranel, setBarcodeGranel] = useState("");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1576,6 +1580,10 @@ export function ProductsPage() {
     const nextForm = productToForm(product);
     setEditingId(product.id);
     setForm(nextForm);
+    setContenidoPorUnidad("");
+    setVenderAGranel(false);
+    setPrecioGranel("");
+    setBarcodeGranel("");
     syncBaseline(nextForm);
     setImageFile(null);
     setCurrentImagePath(product.image_path || null);
@@ -1605,6 +1613,10 @@ export function ProductsPage() {
 
     setEditingId(null);
     setForm(emptyProductState);
+    setContenidoPorUnidad("");
+    setVenderAGranel(false);
+    setPrecioGranel("");
+    setBarcodeGranel("");
     syncBaseline(emptyProductState);
     clearProductDraft();
     setImageFile(null);
@@ -1833,6 +1845,45 @@ export function ProductsPage() {
               ))}
             </select>
           </label>
+          {(form.unidad_de_venta === "caja" || form.unidad_de_venta === "kg" || form.unidad_de_venta === "litro") ? (
+            <label>
+              Contenido por unidad
+              <input
+                placeholder="Ej. 20 piezas / 1000 gramos"
+                value={contenidoPorUnidad}
+                onChange={(event) => setContenidoPorUnidad(event.target.value)}
+              />
+            </label>
+          ) : null}
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={venderAGranel}
+              onChange={(event) => setVenderAGranel(event.target.checked)}
+            />
+            <span>¿Vender también a granel?</span>
+          </label>
+          {venderAGranel ? (
+            <>
+              <label>
+                Precio Granel
+                <input
+                  min="0"
+                  step="0.00001"
+                  type="number"
+                  value={precioGranel}
+                  onChange={(event) => setPrecioGranel(event.target.value)}
+                />
+              </label>
+              <label>
+                Código de Barras Granel
+                <input
+                  value={barcodeGranel}
+                  onChange={(event) => setBarcodeGranel(event.target.value.replace(/\D/g, ""))}
+                />
+              </label>
+            </>
+          ) : null}
           <label>
             Estado
             <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "activo" | "inactivo", is_active: event.target.value === "activo" })}>

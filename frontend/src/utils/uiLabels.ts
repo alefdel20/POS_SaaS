@@ -101,7 +101,8 @@ const errorTranslations: Record<string, string> = {
   "El doctor ya tiene una cita programada en ese horario": "El doctor ya tiene una cita programada en ese horario",
   "Request has already been resolved": "La solicitud ya fue procesada",
   "Feature schema is not ready": "La funcionalidad aún no está lista en la base de datos",
-  "Cashiers can only request stock changes": "El cajero solo puede solicitar cambios de stock"
+  "Cashiers can only request stock changes": "El cajero solo puede solicitar cambios de stock",
+  "Token inválido o expirado": "El enlace de recuperación es inválido o ya expiró"
 };
 
 export function getPaymentMethodLabel(value: Sale["payment_method"]) {

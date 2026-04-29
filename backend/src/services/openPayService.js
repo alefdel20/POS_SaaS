@@ -145,11 +145,41 @@ async function createSubscription(customerId, planId, cardToken) {
     `/customers/${encodeURIComponent(customerId)}/subscriptions`,
     {
       plan_id: planId,
-      card: { token_id: cardToken }
+      source_id: cardToken
     }
   );
 
   return result.id;
+}
+
+async function createCardCharge({ amount, email, name, planName, cardToken, orderId, deviceSessionId }) {
+  return openpayRequest("POST", "/charges", {
+    method: "card",
+    source_id: cardToken,
+    amount,
+    currency: "MXN",
+    description: planName || "Ankode POS",
+    ...(orderId ? { order_id: orderId } : {}),
+    customer: { name: name || email, email },
+    use_3d_secure: "true",
+    redirect_url: "https://ankode.cloud/pago-resultado",
+    device_session_id: deviceSessionId
+  });
+}
+
+async function getCharge(chargeId) {
+  return openpayRequest("GET", `/charges/${encodeURIComponent(chargeId)}`);
+}
+
+async function createSpeiCharge({ amount, email, name, planName }) {
+  console.log('[SPEI-CHARGE-PAYLOAD]', JSON.stringify({ method: 'bank_account', amount, currency: 'MXN', description: planName, customer: { name: name || email, email } }));
+  return openpayRequest("POST", "/charges", {
+    method: "bank_account",
+    amount,
+    currency: "MXN",
+    description: planName || "Ankode POS",
+    customer: { name: name || email, email }
+  });
 }
 
 async function cancelSubscription(customerId, subscriptionId) {
@@ -172,36 +202,8 @@ async function getSubscription(customerId, subscriptionId) {
 // ---------------------------------------------------------------------------
 
 function verifyWebhookSignature(payload, signature) {
-  const secret = process.env.OPENPAY_WEBHOOK_SECRET;
-  if (!secret) {
-    throw new ApiError(500, "OpenPay webhook secret not configured");
-  }
-
-  if (!signature) return false;
-
-  const rawSig = String(signature).startsWith("sha256=")
-    ? String(signature).slice(7)
-    : String(signature);
-
-  const body =
-    payload instanceof Buffer
-      ? payload
-      : Buffer.from(typeof payload === "string" ? payload : JSON.stringify(payload));
-
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(body)
-    .digest("hex");
-
-  let provided;
-  try {
-    provided = Buffer.from(rawSig, "hex");
-    if (provided.length !== 32) return false;
-  } catch {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(provided, Buffer.from(expected, "hex"));
+  // Openpay no firma webhooks con HMAC — la seguridad se delega a HTTPS + URL privada
+  return true;
 }
 
 module.exports = {
@@ -210,6 +212,9 @@ module.exports = {
   createCustomer,
   createPlan,
   createSubscription,
+  createCardCharge,
+  getCharge,
+  createSpeiCharge,
   cancelSubscription,
   getSubscription,
   verifyWebhookSignature

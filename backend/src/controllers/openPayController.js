@@ -15,6 +15,7 @@ const {
   markOnboardingFailed,
   getPendingOnboarding
 } = require("../services/paymentProvisioningService");
+const { sendPaymentConfirmationEmail } = require("../services/emailService");
 
 // URL for the n8n workflow that sends the welcome email after a business is provisioned.
 // Override per environment via N8N_WELCOME_EMAIL_URL.
@@ -75,15 +76,15 @@ const checkoutValidation = [
   body("businessId").optional().isInt({ min: 1 }),
   body("planType").isIn(["monthly", "yearly"]),
   body("amount").isFloat({ min: 0.01 }),
-  body("cardToken").trim().notEmpty(),
+  body("cardToken").if(body("paymentMethod").not().equals("spei")).trim().notEmpty(),
   body("email").isEmail().normalizeEmail(),
-  body("name").trim().notEmpty(),
+  body("name").optional({ nullable: true, checkFalsy: true }).trim().notEmpty(),
   // New-signup fields (required when creating a new business; absent for renewals)
-  body("businessName").optional({ nullable: true }).trim().notEmpty()
+  body("businessName").optional({ nullable: true, checkFalsy: true }).trim().notEmpty()
     .withMessage("businessName is required for new signups"),
-  body("ownerName").optional({ nullable: true }).trim().notEmpty()
+  body("ownerName").optional({ nullable: true, checkFalsy: true }).trim().notEmpty()
     .withMessage("ownerName is required for new signups"),
-  body("password").optional({ nullable: true }).isLength({ min: 8 })
+  body("password").optional({ nullable: true, checkFalsy: true }).isLength({ min: 8 })
     .withMessage("password must be at least 8 characters"),
   body("posType").optional({ nullable: true }).trim().notEmpty()
     .withMessage("posType is required for new signups"),
@@ -209,7 +210,27 @@ const handleWebhook = asyncHandler(async (req, res) => {
 
     console.info(`[OPENPAY-WEBHOOK] Event received: ${eventType}`);
 
-    if (!["charge.succeeded", "charge.failed", "subscription.charge.failed"].includes(eventType)) {
+    if (!["charge.succeeded", "charge.failed", "subscription.charge.failed", "spei.received"].includes(eventType)) {
+      return res.status(200).json({ received: true });
+    }
+
+    // SPEI payment received — send confirmation email and return immediately
+    if (eventType === "spei.received") {
+      console.log('[SPEI-WEBHOOK] transaction completa:', JSON.stringify(transaction));
+      console.log('[SPEI-WEBHOOK] customer:', JSON.stringify(transaction?.customer));
+      console.log('[SPEI-WEBHOOK] email encontrado:', transaction?.customer?.email);
+      console.log('[SPEI-WEBHOOK] intentando enviar correo:', !!(transaction?.customer?.email));
+      const custEmail = (transaction.customer && transaction.customer.email) || null;
+      const custName = (transaction.customer && transaction.customer.name) || custEmail || "";
+      if (custEmail) {
+        sendPaymentConfirmationEmail(custEmail, {
+          name: custName,
+          amount: Number(transaction.amount || 0),
+          currency: transaction.currency || "MXN",
+          method: "SPEI"
+        }).catch(() => {});
+      }
+      console.info(`[OPENPAY-WEBHOOK] SPEI received, confirmation email queued for ${custEmail}`);
       return res.status(200).json({ received: true });
     }
 
@@ -311,6 +332,20 @@ const handleWebhook = asyncHandler(async (req, res) => {
         }
       }
 
+      // Send payment confirmation to existing business customer
+      if (businessId) {
+        const custEmail = (transaction.customer && transaction.customer.email) || null;
+        const custName = (transaction.customer && transaction.customer.name) || custEmail || "";
+        if (custEmail) {
+          sendPaymentConfirmationEmail(custEmail, {
+            name: custName,
+            amount,
+            currency,
+            method: "tarjeta"
+          }).catch(() => {});
+        }
+      }
+
       // Step 3: provision a new business if this charge belongs to a new signup
       if (pendingOnboarding && pendingOnboarding.status === "pending") {
         try {
@@ -319,7 +354,6 @@ const handleWebhook = asyncHandler(async (req, res) => {
             console.info(
               `[OPENPAY-WEBHOOK] Business provisioned for order_id=${pendingOnboarding.order_id}`
             );
-            // Notify n8n to send the welcome email — fire and forget
             try {
               await notifyN8nWelcomeEmail({
                 email: pendingOnboarding.email,
@@ -414,18 +448,41 @@ const handleWebhook = asyncHandler(async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Webhook verification: OpenPay sends GET or POST with verification_code
+// ---------------------------------------------------------------------------
+const verifyWebhook = asyncHandler(async (req, res) => {
+  console.log('[OPENPAY-VERIFY] method:', req.method);
+  console.log('[OPENPAY-VERIFY] headers:', req.headers);
+  console.log('[OPENPAY-VERIFY] query:', req.query);
+  console.log('[OPENPAY-VERIFY] body:', req.body);
+
+  const verificationCode =
+    req.query.verification_code ||
+    (req.body && req.body.verification_code) ||
+    null;
+
+  if (verificationCode) {
+    console.log('[OPENPAY-VERIFY] Responding with code:', verificationCode);
+    return res.status(200).send(String(verificationCode));
+  }
+
+  console.log('[OPENPAY-VERIFY] No verification_code found');
+  return res.status(200).json({ status: "ok" });
+});
+
+// ---------------------------------------------------------------------------
 // Checkout session: customer → plan → subscription
 // Called by an authenticated admin user to initiate a recurring subscription.
 // ---------------------------------------------------------------------------
 
 const createCheckoutSession = asyncHandler(async (req, res) => {
   const {
-    businessId,
     planType,
-    amount,
     cardToken,
     email,
     name,
+    paymentMethod,
+    deviceSessionId,
     // New-signup fields
     businessName,
     ownerName,
@@ -434,14 +491,42 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     planName
   } = req.body;
 
+  const businessId = parseInt(req.body.businessId) || null;
+  const amount = parseFloat(req.body.amount) || 0;
+
+  // ---------------------------------------------------------------------------
+  // SPEI path — generate a bank_account charge and return the CLABE
+  // ---------------------------------------------------------------------------
+  if (paymentMethod === "spei") {
+    const charge = await openPayService.createSpeiCharge({ amount, email, name, planName });
+    return res.status(201).json({
+      success: true,
+      paymentMethod: "spei",
+      clabe: charge.payment_method?.clabe,
+      orderId: charge.id
+    });
+  }
+
   const normalized = String(planType).toLowerCase();
   const isNewSignup = Boolean(password && businessName && ownerName && posType);
+
+  console.log("[CHECKOUT] Request received:", {
+    paymentMethod,
+    isNewSignup,
+    businessId,
+    email,
+    passwordPresent: Boolean(password),
+    businessName,
+    ownerName,
+    posType
+  });
 
   // ---------------------------------------------------------------------------
   // Path A — New business signup (no existing businessId)
   // Order: createPendingOnboarding → OpenPay customer → plan → subscription
   // ---------------------------------------------------------------------------
   if (isNewSignup) {
+    console.log("[CHECKOUT] Taking Path A — new business signup");
     // Generate a unique order_id that the webhook will use to find this pending row
     const orderId = `onb-${crypto.randomBytes(8).toString("hex")}`;
 
@@ -483,6 +568,21 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
       [customerId, orderId]
     );
 
+    // 3.5. Create card charge with 3D Secure. If Openpay requires redirect for 3DS
+    //      authentication, return the URL to the frontend immediately. The charge.succeeded
+    //      webhook will provision the business once the user completes authentication.
+    const charge = await openPayService.createCardCharge({
+      amount, email, name: name || ownerName, planName, cardToken, orderId, deviceSessionId
+    });
+    if (charge.payment_method?.type === "redirect") {
+      return res.status(200).json({
+        success: true,
+        requires3DS: true,
+        redirectUrl: charge.payment_method.url,
+        chargeId: charge.id
+      });
+    }
+
     // 4. Always create a new plan (no existing business_subscriptions to check)
     const planId = await openPayService.createPlan(normalized, amount);
 
@@ -512,9 +612,24 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   // Path B — Existing business renewal (businessId present, no password)
   // Preserved exactly from the original implementation.
   // ---------------------------------------------------------------------------
+  console.log("[CHECKOUT] Taking Path B — existing business renewal");
 
   // 1. Ensure OpenPay customer exists for this business (idempotent)
   const customerId = await openPayService.createCustomer(businessId, name, email);
+
+  // 1.5. Create card charge with 3D Secure for renewal payment.
+  const renewOrderId = `renew-${crypto.randomBytes(8).toString("hex")}`;
+  const renewCharge = await openPayService.createCardCharge({
+    amount, email, name, planName, cardToken, orderId: renewOrderId, deviceSessionId
+  });
+  if (renewCharge.payment_method?.type === "redirect") {
+    return res.status(200).json({
+      success: true,
+      requires3DS: true,
+      redirectUrl: renewCharge.payment_method.url,
+      chargeId: renewCharge.id
+    });
+  }
 
   // 2. Ensure OpenPay plan exists — check DB first, create only if missing
   const { rows: subRows } = await pool.query(
@@ -575,8 +690,30 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// 3D Secure charge verification
+// Called by the frontend after Openpay redirects back to /pago-resultado
+// ---------------------------------------------------------------------------
+
+const verify3DS = asyncHandler(async (req, res) => {
+  const chargeId = String(req.query.id || "").trim();
+  if (!chargeId) {
+    return res.status(400).json({ success: false, error: "Missing charge id" });
+  }
+  const charge = await openPayService.getCharge(chargeId);
+  if (charge.status === "completed") {
+    return res.status(200).json({ success: true, status: "completed" });
+  }
+  if (charge.status === "failed") {
+    return res.status(200).json({ success: false, status: "failed" });
+  }
+  return res.status(200).json({ success: false, status: charge.status || "unknown" });
+});
+
 module.exports = {
   checkoutValidation,
   handleWebhook,
-  createCheckoutSession
+  verifyWebhook,
+  createCheckoutSession,
+  verify3DS
 };

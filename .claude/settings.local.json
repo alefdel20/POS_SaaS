@@ -3,7 +3,11 @@
     "allow": [
       "Bash(tree -d -L 2 /c/Users/tatue/Documents/POS_SaaS/pos-app --ignore node_modules)",
       "Bash(git *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(sort -t- -k1 -n)",
+      "Bash(PGPASSWORD=\"POSS@@A2010Ale\" psql *)",
+      "PowerShell(psql *)",
+      "Bash(node -e ' *)"
     ]
   }
 }

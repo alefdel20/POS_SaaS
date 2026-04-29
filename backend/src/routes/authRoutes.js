@@ -14,5 +14,7 @@ router.post(
 );
 router.get("/me", requireAuth, controller.me);
 router.post("/change-password", requireAuth, controller.changePasswordValidation, controller.changePassword);
+router.post("/forgot-password", controller.forgotPasswordValidation, controller.forgotPassword);
+router.post("/reset-password", controller.resetPasswordValidation, controller.resetPassword);
 
 module.exports = router;
