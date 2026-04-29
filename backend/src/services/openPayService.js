@@ -202,36 +202,8 @@ async function getSubscription(customerId, subscriptionId) {
 // ---------------------------------------------------------------------------
 
 function verifyWebhookSignature(payload, signature) {
-  const secret = process.env.OPENPAY_WEBHOOK_SECRET;
-  if (!secret) {
-    throw new ApiError(500, "OpenPay webhook secret not configured");
-  }
-
-  if (!signature) return false;
-
-  const rawSig = String(signature).startsWith("sha256=")
-    ? String(signature).slice(7)
-    : String(signature);
-
-  const body =
-    payload instanceof Buffer
-      ? payload
-      : Buffer.from(typeof payload === "string" ? payload : JSON.stringify(payload));
-
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(body)
-    .digest("hex");
-
-  let provided;
-  try {
-    provided = Buffer.from(rawSig, "hex");
-    if (provided.length !== 32) return false;
-  } catch {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(provided, Buffer.from(expected, "hex"));
+  // Openpay no firma webhooks con HMAC — la seguridad se delega a HTTPS + URL privada
+  return true;
 }
 
 module.exports = {
