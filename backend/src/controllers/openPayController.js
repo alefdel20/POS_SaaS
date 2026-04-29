@@ -15,7 +15,7 @@ const {
   markOnboardingFailed,
   getPendingOnboarding
 } = require("../services/paymentProvisioningService");
-const { sendWelcomeEmail, sendPaymentConfirmationEmail } = require("../services/emailService");
+const { sendPaymentConfirmationEmail } = require("../services/emailService");
 
 // URL for the n8n workflow that sends the welcome email after a business is provisioned.
 // Override per environment via N8N_WELCOME_EMAIL_URL.
@@ -354,15 +354,6 @@ const handleWebhook = asyncHandler(async (req, res) => {
             console.info(
               `[OPENPAY-WEBHOOK] Business provisioned for order_id=${pendingOnboarding.order_id}`
             );
-            sendWelcomeEmail(pendingOnboarding.email, {
-              businessName: pendingOnboarding.business_name,
-              ownerName: pendingOnboarding.owner_name,
-              email: pendingOnboarding.email,
-              tempPassword: "",
-              planName: pendingOnboarding.plan_name || "",
-              amount: Number(pendingOnboarding.amount || 0)
-            }).catch(() => {});
-
             try {
               await notifyN8nWelcomeEmail({
                 email: pendingOnboarding.email,
