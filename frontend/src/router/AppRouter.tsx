@@ -29,6 +29,8 @@ import { InvoicesPage } from "../pages/InvoicesPage";
 import { RestaurantAdminPage } from "../pages/RestaurantAdminPage";
 import { RestaurantMapPage } from "../pages/RestaurantMapPage";
 import { RestaurantOrderPage } from "../pages/RestaurantOrderPage";
+import { ForgotPasswordPage } from "../pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 import { ROUTE_ROLES } from "../utils/roles";
 import { getDefaultRouteForUser } from "../utils/navigation";
 import { Navigate } from "react-router-dom";
@@ -44,6 +46,8 @@ export function AppRouter() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<RoleHomeRedirect />} />

@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { AnkodeLogo } from "../components/AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
 import { getDefaultRouteForRole } from "../utils/roles";
@@ -62,6 +62,9 @@ export function LoginPage() {
           <button className="button login-button" disabled={loading} type="submit">
             {loading ? "Entrando..." : "Iniciar sesión"}
           </button>
+          <p style={{ textAlign: "center", marginTop: "0.5rem", fontSize: "0.875rem" }}>
+            <Link to="/forgot-password">¿Olvidaste tu contraseña?</Link>
+          </p>
         </form>
       </div>
     </div>

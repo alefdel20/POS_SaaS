@@ -292,8 +292,84 @@ async function sendPaymentConfirmationEmail(to, data = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// sendPasswordResetEmail
+// Called after a self-service forgot-password request.
+// Never throws — email failure is logged but does not expose user existence.
+// ---------------------------------------------------------------------------
+
+async function sendPasswordResetEmail(to, resetLink) {
+  const EMAIL_FROM = getEmailFrom();
+
+  const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recupera tu contraseña — Ankode</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
+    .container { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 8px; overflow: hidden; }
+    .header { background: #0d9488; padding: 32px 40px; }
+    .header h1 { color: #fff; margin: 0; font-size: 22px; }
+    .body { padding: 32px 40px; color: #333; font-size: 15px; line-height: 1.6; }
+    .btn { display: inline-block; margin: 24px 0 0; padding: 12px 28px; background: #0d9488; color: #fff !important; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: bold; }
+    .note { margin-top: 20px; font-size: 13px; color: #666; }
+    .footer { padding: 20px 40px; font-size: 12px; color: #888; border-top: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Recupera tu contraseña</h1>
+    </div>
+    <div class="body">
+      <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en Ankode.</p>
+      <p>Haz clic en el botón para crear una nueva contraseña. El enlace es válido por <strong>1 hora</strong>.</p>
+      <a class="btn" href="${resetLink}">Restablecer contraseña</a>
+      <p style="margin-top:24px; font-size:13px; color:#555;">
+        Si el botón no funciona, copia este enlace en tu navegador:<br />
+        <a href="${resetLink}">${resetLink}</a>
+      </p>
+      <p class="note">Si no solicitaste este cambio, ignora este correo. Tu contraseña no será modificada.</p>
+    </div>
+    <div class="footer">
+      Este correo fue generado automáticamente. ¿Dudas? Escríbenos a soporte@ankode.mx
+    </div>
+  </div>
+</body>
+</html>`.trim();
+
+  const text = [
+    `Recupera tu contraseña — Ankode`,
+    ``,
+    `Recibimos una solicitud para restablecer la contraseña de tu cuenta.`,
+    ``,
+    `Haz clic en el siguiente enlace (válido por 1 hora):`,
+    resetLink,
+    ``,
+    `Si no solicitaste este cambio, ignora este correo.`
+  ].join("\n");
+
+  try {
+    const transporter = createTransporter();
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to,
+      subject: "Recupera tu contraseña — Ankode",
+      html,
+      text
+    });
+    console.info(`[EMAIL] Password reset email sent to ${to}`);
+  } catch (error) {
+    console.error(`[EMAIL] Failed to send password reset email to ${to}:`, error.message);
+  }
+}
+
 module.exports = {
   sendWelcomeEmail,
   sendPaymentFailedEmail,
-  sendPaymentConfirmationEmail
+  sendPaymentConfirmationEmail,
+  sendPasswordResetEmail
 };
