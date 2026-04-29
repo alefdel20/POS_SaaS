@@ -40,6 +40,7 @@ const openPayRoutes = require("./routes/openPayRoutes");
 const restaurantRoutes = require("./routes/restaurantRoutes");
 
 const app = express();
+app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
