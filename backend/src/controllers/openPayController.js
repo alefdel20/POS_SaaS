@@ -210,6 +210,17 @@ const handleWebhook = asyncHandler(async (req, res) => {
 
     console.info(`[OPENPAY-WEBHOOK] Event received: ${eventType}`);
 
+    if (eventType === "verification") {
+      const code = event.verification_code ||
+                   req.body.verification_code ||
+                   null;
+      if (code) {
+        console.log('[OPENPAY-WEBHOOK] Verification code:', code);
+        return res.status(200).send(String(code));
+      }
+      return res.status(200).json({ status: "ok" });
+    }
+
     if (!["charge.succeeded", "charge.failed", "subscription.charge.failed", "spei.received"].includes(eventType)) {
       return res.status(200).json({ received: true });
     }
