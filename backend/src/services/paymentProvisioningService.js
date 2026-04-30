@@ -179,7 +179,7 @@ async function provisionBusinessFromOnboarding(orderId) {
     );
   }
 
-  const { business_name, owner_name, email, password_hash, pos_type } = row;
+  const { business_name, owner_name, email, password_hash, pos_type, plan_name } = row;
 
   // Derive business_type and normalized pos_type (same utility as authService)
   const classification = resolveBusinessClassification({ pos_type });
@@ -278,6 +278,14 @@ async function provisionBusinessFromOnboarding(orderId) {
 
     // 5. Initialize subscription (enforcement=true, monthly, anchor=today)
     await initializeBusinessSubscriptionForNewBusiness(business, user.id, client);
+
+    // 5a. Persist plan_name from the onboarding record into business_subscriptions
+    if (plan_name) {
+      await client.query(
+        `UPDATE business_subscriptions SET plan_name = $1, updated_at = NOW() WHERE business_id = $2`,
+        [String(plan_name), business.id]
+      );
+    }
 
     // 6. Audit log entry consistent with registerBusiness
     await saveAuditLog({

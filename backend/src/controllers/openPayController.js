@@ -669,9 +669,10 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
          subscription_amount     = $4,
          subscription_currency   = 'MXN',
          plan_type               = $5,
+         plan_name               = COALESCE($6, plan_name),
          updated_at              = NOW()
-     WHERE business_id = $6`,
-    [customerId, planId, subscriptionId, Number(amount), normalized, Number(businessId)]
+     WHERE business_id = $7`,
+    [customerId, planId, subscriptionId, Number(amount), normalized, planName || null, Number(businessId)]
   );
 
   await saveAuditLog({

@@ -49,6 +49,20 @@ async function ensureSchema(client) {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS business_type VARCHAR(80)",
+    `CREATE TABLE IF NOT EXISTS branches (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      name VARCHAR(255) NOT NULL,
+      pos_type VARCHAR(100) NOT NULL,
+      address TEXT,
+      phone VARCHAR(50),
+      is_active BOOLEAN DEFAULT TRUE,
+      is_default BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS branches_business_default
+     ON branches(business_id) WHERE is_default = TRUE`,
     `CREATE TABLE IF NOT EXISTS business_subscriptions (
       business_id INTEGER PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
       plan_type VARCHAR(20),
@@ -81,6 +95,7 @@ async function ensureSchema(client) {
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS payment_provider VARCHAR(20) NOT NULL DEFAULT 'manual'",
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS subscription_amount NUMERIC(10,2) DEFAULT NULL",
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS subscription_currency VARCHAR(3) NOT NULL DEFAULT 'MXN'",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS plan_name VARCHAR(50) DEFAULT NULL",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(40)",
@@ -910,7 +925,29 @@ async function ensureSchema(client) {
     "CREATE INDEX IF NOT EXISTS idx_restaurant_orders_status ON restaurant_orders(business_id, status)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_order_items_order_id ON restaurant_order_items(order_id)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_order_items_status ON restaurant_order_items(business_id, status)",
-    "CREATE INDEX IF NOT EXISTS idx_restaurant_payments_order_id ON restaurant_payments(order_id)"
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_payments_order_id ON restaurant_payments(order_id)",
+
+    // === BRANCHES: branch_id nullable en tablas clave ===
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
+    "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
+    "ALTER TABLE daily_cuts ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
+
+    // === BRANCHES: migración — crea sucursal default para cada negocio existente ===
+    `INSERT INTO branches (business_id, name, pos_type, is_default, is_active, created_at, updated_at)
+     SELECT b.id, b.name,
+       COALESCE(u.pos_type, 'Tienda') AS pos_type,
+       TRUE AS is_default,
+       TRUE AS is_active,
+       NOW(), NOW()
+     FROM businesses b
+     LEFT JOIN users u ON u.business_id = b.id AND u.role = 'admin'
+     WHERE NOT EXISTS (
+       SELECT 1 FROM branches WHERE business_id = b.id AND is_default = TRUE
+     )
+     ON CONFLICT DO NOTHING`
   ]);
 }
 
