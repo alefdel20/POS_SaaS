@@ -27,12 +27,22 @@ const PLAN_OPTIONS = [
   { value: "All-Inclusive", label: "All-Inclusive — $1,299/mes (hasta 5 sucursales)", maxBranches: 5 },
 ];
 
+const ADDON_PRICE: Record<string, number> = {
+  "Básico":        149,
+  "Starter":       149,
+  "Dúo":           149,
+  "Pro-Caja":      149,
+  "Premium":       129,
+  "Enterprise":     99,
+  "All-Inclusive":  99,
+};
+
 const emptyBusinessForm = {
   name: "",
-  slug: "",
   pos_type: "Tienda" as PosType,
   plan_name: "Básico",
-  branch_count: 1
+  branch_count: 1,
+  extra_branches: 0
 };
 
 const emptyUserForm = {
@@ -460,6 +470,30 @@ export function BusinessesPage() {
           <small style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
             Máximo {PLAN_OPTIONS.find((p) => p.value === form.plan_name)?.maxBranches ?? 1} según el plan seleccionado
           </small>
+        </label>
+        <label>
+          Sucursales extra (add-on)
+          <input
+            type="number"
+            min={0}
+            max={10}
+            value={form.extra_branches}
+            onChange={(event) => {
+              const num = parseInt(event.target.value, 10);
+              setForm({ ...form, extra_branches: isNaN(num) ? 0 : Math.max(0, num) });
+            }}
+          />
+          {form.extra_branches > 0 && (
+            <small style={{ color: "var(--accent)", fontSize: "0.8rem" }}>
+              +${ADDON_PRICE[form.plan_name] ?? 149} MXN/mes por sucursal adicional
+              — Total add-on: ${form.extra_branches * (ADDON_PRICE[form.plan_name] ?? 149)} MXN/mes
+            </small>
+          )}
+          {form.extra_branches === 0 && (
+            <small style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
+              Costo: +${ADDON_PRICE[form.plan_name] ?? 149} MXN/mes por sucursal extra
+            </small>
+          )}
         </label>
         <button className="button" type="submit">Crear negocio</button>
       </form>
