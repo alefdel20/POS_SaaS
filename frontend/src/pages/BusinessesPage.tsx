@@ -415,10 +415,6 @@ export function BusinessesPage() {
           <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
         </label>
         <label>
-          Slug
-          <input value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} placeholder="opcional" />
-        </label>
-        <label>
           Tipo de POS *
           <select value={form.pos_type} onChange={(event) => setForm({ ...form, pos_type: event.target.value as PosType })}>
             {POS_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -448,8 +444,14 @@ export function BusinessesPage() {
             type="number"
             min={1}
             max={PLAN_OPTIONS.find((p) => p.value === form.plan_name)?.maxBranches ?? 1}
-            value={form.branch_count}
-            onChange={(event) => setForm({ ...form, branch_count: Number(event.target.value) })}
+            value={form.branch_count === 0 ? "" : form.branch_count}
+            onChange={(event) => {
+              const val = event.target.value === "" ? 1 : Math.max(1, Math.min(
+                Number(event.target.value),
+                PLAN_OPTIONS.find((p) => p.value === form.plan_name)?.maxBranches ?? 1
+              ));
+              setForm({ ...form, branch_count: val });
+            }}
           />
           <small style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
             Máximo {PLAN_OPTIONS.find((p) => p.value === form.plan_name)?.maxBranches ?? 1} según el plan seleccionado
