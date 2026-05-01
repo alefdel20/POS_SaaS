@@ -10,6 +10,7 @@ type Branch = {
   phone: string | null;
   is_active: boolean;
   is_default: boolean;
+  is_editing?: boolean;
 };
 
 const POS_TYPE_OPTIONS = [
@@ -40,6 +41,9 @@ export function BranchesPage() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [editingBranch, setEditingBranch] = useState<{
+    id: number; name: string; pos_type: string; address: string; phone: string;
+  } | null>(null);
 
   function loadBranches() {
     if (!token) return;
@@ -79,12 +83,33 @@ export function BranchesPage() {
     } catch (submitError) {
       const message = submitError instanceof Error ? submitError.message : "No fue posible crear la sucursal";
       if (message.includes("403") || message.toLowerCase().includes("plan") || message.toLowerCase().includes("límite") || message.toLowerCase().includes("limite")) {
-        setError("Tu plan actual no permite agregar más sucursales. Contacta a soporte para ampliar tu plan.");
+        setError("Tu plan actual no permite agregar más sucursales. Escríbenos a ankodemx@gmail.com para ampliar tu plan.");
       } else {
         setError(message);
       }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleUpdateBranch(event: FormEvent) {
+    event.preventDefault();
+    if (!editingBranch || !token) return;
+    try {
+      await apiRequest(`/branches/${editingBranch.id}`, {
+        token,
+        method: "PUT",
+        body: JSON.stringify({
+          name: editingBranch.name,
+          pos_type: editingBranch.pos_type,
+          address: editingBranch.address,
+          phone: editingBranch.phone,
+        }),
+      });
+      setEditingBranch(null);
+      loadBranches();
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Error al actualizar la sucursal");
     }
   }
 
@@ -178,7 +203,7 @@ export function BranchesPage() {
                 <th>Tipo de POS</th>
                 <th>Estado</th>
                 <th>Predeterminada</th>
-                <th></th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -194,6 +219,19 @@ export function BranchesPage() {
                   </td>
                   <td>
                     <div className="inline-actions">
+                      <button
+                        className="button ghost"
+                        onClick={() => setEditingBranch({
+                          id: branch.id,
+                          name: branch.name,
+                          pos_type: branch.pos_type,
+                          address: branch.address ?? "",
+                          phone: branch.phone ?? ""
+                        })}
+                        type="button"
+                      >
+                        Editar
+                      </button>
                       {!branch.is_default ? (
                         <button
                           className="button ghost"
@@ -217,6 +255,40 @@ export function BranchesPage() {
             </tbody>
           </table>
         </div>
+
+        {editingBranch !== null ? (
+          <form onSubmit={handleUpdateBranch} className="panel grid-form" style={{ marginTop: "1rem" }}>
+            <div className="panel-header">
+              <h3>Editar sucursal</h3>
+              <button type="button" className="button ghost" onClick={() => setEditingBranch(null)}>Cancelar</button>
+            </div>
+            <label>
+              Nombre *
+              <input required value={editingBranch.name}
+                onChange={(e) => setEditingBranch({ ...editingBranch, name: e.target.value })} />
+            </label>
+            <label>
+              Tipo de POS *
+              <select value={editingBranch.pos_type}
+                onChange={(e) => setEditingBranch({ ...editingBranch, pos_type: e.target.value })}>
+                {POS_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Dirección
+              <input value={editingBranch.address}
+                onChange={(e) => setEditingBranch({ ...editingBranch, address: e.target.value })} />
+            </label>
+            <label>
+              Teléfono
+              <input value={editingBranch.phone}
+                onChange={(e) => setEditingBranch({ ...editingBranch, phone: e.target.value })} />
+            </label>
+            <button type="submit" className="button">Guardar cambios</button>
+          </form>
+        ) : null}
       </div>
     </section>
   );
