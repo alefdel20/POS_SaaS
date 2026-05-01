@@ -6,6 +6,7 @@ import { POS_TYPE_OPTIONS, getPosTypeLabel } from "../utils/pos";
 import { shortDate, shortDateTime } from "../utils/format";
 import { getRoleLabel } from "../utils/uiLabels";
 import { normalizeRole } from "../utils/roles";
+import { CLINICAL_POS_TYPES } from "../utils/domainEnums";
 
 type StampMovement = {
   id: number;
@@ -412,6 +413,14 @@ export function BusinessesPage() {
     }
   }
 
+  const selectedBusinessPosType = selectedBusiness?.pos_type || null;
+  const isClinicalBusiness = CLINICAL_POS_TYPES.includes(
+    selectedBusinessPosType as typeof CLINICAL_POS_TYPES[number]
+  );
+  const businessUserRoleOptions = isClinicalBusiness
+    ? ["admin", "gerente", "clinico", "cajero"]
+    : ["admin", "gerente", "cajero"];
+
   return (
     <section className="page-grid two-columns">
       <form className="panel grid-form" onSubmit={handleCreateBusiness}>
@@ -683,7 +692,7 @@ export function BusinessesPage() {
             <label>
               Rol *
               <select value={userForm.role} onChange={(event) => setUserForm((current) => ({ ...current, role: event.target.value as Role }))}>
-                {MANAGED_USER_ROLES.map((role) => (
+                {businessUserRoleOptions.map((role) => (
                   <option key={role} value={role}>{getRoleLabel(role)}</option>
                 ))}
               </select>

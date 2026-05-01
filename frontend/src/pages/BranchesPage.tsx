@@ -43,8 +43,8 @@ export function BranchesPage() {
 
   function loadBranches() {
     if (!token) return;
-    apiRequest<Branch[]>("/branches", { token })
-      .then(setBranches)
+    apiRequest<Branch[] | { branches?: Branch[]; data?: Branch[] }>("/branches", { token })
+      .then((data) => setBranches(Array.isArray(data) ? data : data.branches ?? data.data ?? []))
       .catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar las sucursales");
       });
