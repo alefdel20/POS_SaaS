@@ -243,9 +243,9 @@ async function createUser(payload, actor) {
       `INSERT INTO users (
         username, email, full_name, password_hash, role, pos_type, business_id,
         phone, professional_license, specialty, theme_preference,
-        is_active, must_change_password, password_changed_at
+        is_active, must_change_password, branch_id, password_changed_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
       RETURNING *`,
       [
         payload.username,
@@ -260,7 +260,8 @@ async function createUser(payload, actor) {
         payload.specialty || null,
         payload.theme_preference === "light" ? "light" : "dark",
         payload.is_active ?? true,
-        payload.must_change_password ?? false
+        payload.must_change_password ?? false,
+        payload.branch_id ? Number(payload.branch_id) : null
       ]
     );
 

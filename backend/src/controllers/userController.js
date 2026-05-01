@@ -16,6 +16,7 @@ const createValidation = [
   body("theme_preference").optional().isIn(["light", "dark"]),
   body("role").custom((value) => Boolean(value && USER_ROLES.includes(normalizeRole(value)))),
   body("posType").optional({ nullable: true }).trim(),
+  body("branch_id").optional({ nullable: true }).isInt({ min: 1 }),
   body("password").isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
   body("must_change_password").optional().isBoolean(),

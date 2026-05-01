@@ -12,7 +12,8 @@ const emptyUser = {
   full_name: "",
   password: "",
   role: "cajero" as Role,
-  business_id: undefined as number | undefined
+  business_id: undefined as number | undefined,
+  branch_id: "" as string | number
 };
 
 function generatePassword() {
@@ -38,6 +39,7 @@ export function UsersPage() {
   const { token, user: currentUser, setSession } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [branches, setBranches] = useState<{ id: number; name: string; pos_type: string }[]>([]);
   const [form, setForm] = useState(emptyUser);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -104,6 +106,13 @@ export function UsersPage() {
   useEffect(() => {
     loadBusinesses();
   }, [token, currentRole]);
+
+  useEffect(() => {
+    if (!token) return;
+    apiRequest<{ id: number; name: string; pos_type: string }[] | { branches?: { id: number; name: string; pos_type: string }[] }>("/branches", { token })
+      .then((data) => setBranches(Array.isArray(data) ? data : (data as any).branches ?? []))
+      .catch(() => setBranches([]));
+  }, [token]);
 
   useEffect(() => {
     if (roleOptions.length && !roleOptions.includes(form.role as typeof roleOptions[number])) {
@@ -289,6 +298,22 @@ export function UsersPage() {
               <input value={selectedBusiness?.pos_type || ""} readOnly />
             </label>
           </>
+        ) : null}
+        {(currentRole === "admin" || currentRole === "gerente" || currentRole === "superusuario") && branches.length > 0 ? (
+          <label>
+            Sucursal
+            <select
+              value={form.branch_id}
+              onChange={(event) => setForm({ ...form, branch_id: event.target.value })}
+            >
+              <option value="">— Sin asignar (todas las sucursales) —</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name} ({branch.pos_type})
+                </option>
+              ))}
+            </select>
+          </label>
         ) : null}
         <button className="button" disabled={!canCreateUsers || !roleOptions.length} type="submit">Crear usuario</button>
       </form>
