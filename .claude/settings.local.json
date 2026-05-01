@@ -7,7 +7,10 @@
       "Bash(sort -t- -k1 -n)",
       "Bash(PGPASSWORD=\"POSS@@A2010Ale\" psql *)",
       "PowerShell(psql *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\" -Recurse -Filter \"CheckoutModal*\")",
+      "Bash(Select-Object FullName)",
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\\" -Directory *)"
     ]
   }
 }
