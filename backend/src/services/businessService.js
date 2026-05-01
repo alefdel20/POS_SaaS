@@ -147,6 +147,17 @@ async function createBusiness(payload, actor) {
       }
     }
 
+    const extraBranches = Math.max(0, Number(payload.extra_branches) || 0);
+    if (extraBranches > 0) {
+      for (let i = 0; i < extraBranches; i++) {
+        await client.query(
+          `INSERT INTO branches (business_id, name, pos_type, is_default, is_active, created_at, updated_at)
+           VALUES ($1, $2, $3, FALSE, TRUE, NOW(), NOW())`,
+          [business.id, `Sucursal extra ${i + 1}`, business.pos_type]
+        );
+      }
+    }
+
     await client.query(
       `INSERT INTO users (
         username, email, full_name, password_hash, role, pos_type, business_id, is_active, must_change_password, password_changed_at

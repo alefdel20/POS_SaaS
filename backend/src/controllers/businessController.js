@@ -47,6 +47,7 @@ const createValidation = [
     .trim()
     .isIn(["Básico", "Starter", "Dúo", "Pro-Caja", "Premium", "Enterprise", "All-Inclusive"]),
   body("branch_count").optional({ nullable: true }).isInt({ min: 1, max: 5 }),
+  body("extra_branches").optional({ nullable: true }).isInt({ min: 0, max: 10 }),
   validateRequest
 ];
 
