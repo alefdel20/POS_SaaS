@@ -63,6 +63,7 @@ async function listBusinesses(actor) {
        bs.subscription_amount,
        bs.subscription_currency,
        bs.payment_provider,
+       bs.extra_branches_count,
        COALESCE(branch_counts.total_branches, 0) AS branch_count
      FROM businesses
      LEFT JOIN users ON users.business_id = businesses.id
@@ -91,6 +92,7 @@ async function listBusinesses(actor) {
        bs.subscription_amount,
        bs.subscription_currency,
        bs.payment_provider,
+       bs.extra_branches_count,
        branch_counts.total_branches
      ORDER BY businesses.name ASC`,
     params
@@ -116,6 +118,7 @@ async function listBusinesses(actor) {
       subscription_amount: row.subscription_amount || null,
       subscription_currency: row.subscription_currency || "MXN",
       payment_provider: row.payment_provider || "manual",
+      extra_branches_count: Number(row.extra_branches_count) || 0,
       branch_count: Number(row.branch_count) || 0
     }
   }));
@@ -156,6 +159,15 @@ async function createBusiness(payload, actor) {
       await client.query(
         `UPDATE business_subscriptions SET plan_name = $1, updated_at = NOW() WHERE business_id = $2`,
         [String(payload.plan_name), business.id]
+      );
+    }
+
+    if (payload.extra_branches && Number(payload.extra_branches) > 0) {
+      await client.query(
+        `UPDATE business_subscriptions
+         SET extra_branches_count = $1, updated_at = NOW()
+         WHERE business_id = $2`,
+        [Number(payload.extra_branches), business.id]
       );
     }
 

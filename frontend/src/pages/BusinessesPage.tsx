@@ -615,6 +615,19 @@ export function BusinessesPage() {
               {(selectedBusiness.subscription as any)?.branch_count !== undefined && (
                 <p><strong>Sucursales activas:</strong> {(selectedBusiness.subscription as any).branch_count}</p>
               )}
+              {(selectedBusiness.subscription as any)?.extra_branches_count !== undefined && (
+                <p>
+                  <strong>Sucursales extra (add-on):</strong>{" "}
+                  {(selectedBusiness.subscription as any).extra_branches_count}
+                  {(selectedBusiness.subscription as any).extra_branches_count === 0
+                    ? " — Sin add-on"
+                    : ` (+$${
+                        (selectedBusiness.subscription as any).extra_branches_count *
+                        ((selectedBusiness.subscription as any).extra_branches_cost ?? 0)
+                      } MXN/mes)`
+                  }
+                </p>
+              )}
               {(selectedBusiness.subscription as any)?.payment_provider && (
                 <p><strong>Proveedor de pago:</strong> {(selectedBusiness.subscription as any).payment_provider}</p>
               )}
