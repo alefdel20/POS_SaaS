@@ -58,12 +58,23 @@ async function listBusinesses(actor) {
        bs.last_payment_note,
        bs.grace_period_days,
        bs.enforcement_enabled,
-       bs.manual_adjustment_reason
+       bs.manual_adjustment_reason,
+       bs.plan_name,
+       bs.subscription_amount,
+       bs.subscription_currency,
+       bs.payment_provider,
+       COALESCE(branch_counts.total_branches, 0) AS branch_count
      FROM businesses
      LEFT JOIN users ON users.business_id = businesses.id
      LEFT JOIN company_profiles ON company_profiles.business_id = businesses.id
        AND company_profiles.profile_key = 'default'
      LEFT JOIN business_subscriptions bs ON bs.business_id = businesses.id
+     LEFT JOIN (
+       SELECT business_id, COUNT(*)::int AS total_branches
+       FROM branches
+       WHERE is_active = TRUE
+       GROUP BY business_id
+     ) branch_counts ON branch_counts.business_id = businesses.id
      ${whereClause}
      GROUP BY
        businesses.id,
@@ -75,7 +86,12 @@ async function listBusinesses(actor) {
        bs.last_payment_note,
        bs.grace_period_days,
        bs.enforcement_enabled,
-       bs.manual_adjustment_reason
+       bs.manual_adjustment_reason,
+       bs.plan_name,
+       bs.subscription_amount,
+       bs.subscription_currency,
+       bs.payment_provider,
+       branch_counts.total_branches
      ORDER BY businesses.name ASC`,
     params
   );
@@ -84,17 +100,24 @@ async function listBusinesses(actor) {
     ...row,
     stamps_available: Number(row.stamps_available || 0),
     stamps_used: Number(row.stamps_used || 0),
-    subscription: mapBusinessSubscription({
-      business_id: row.id,
-      plan_type: row.plan_type,
-      billing_anchor_date: row.billing_anchor_date,
-      next_payment_date: row.next_payment_date,
-      last_payment_date: row.last_payment_date,
-      last_payment_note: row.last_payment_note,
-      grace_period_days: row.grace_period_days,
-      enforcement_enabled: row.enforcement_enabled,
-      manual_adjustment_reason: row.manual_adjustment_reason
-    })
+    subscription: {
+      ...mapBusinessSubscription({
+        business_id: row.id,
+        plan_type: row.plan_type,
+        billing_anchor_date: row.billing_anchor_date,
+        next_payment_date: row.next_payment_date,
+        last_payment_date: row.last_payment_date,
+        last_payment_note: row.last_payment_note,
+        grace_period_days: row.grace_period_days,
+        enforcement_enabled: row.enforcement_enabled,
+        manual_adjustment_reason: row.manual_adjustment_reason
+      }),
+      plan_name: row.plan_name || null,
+      subscription_amount: row.subscription_amount || null,
+      subscription_currency: row.subscription_currency || "MXN",
+      payment_provider: row.payment_provider || "manual",
+      branch_count: Number(row.branch_count) || 0
+    }
   }));
 }
 

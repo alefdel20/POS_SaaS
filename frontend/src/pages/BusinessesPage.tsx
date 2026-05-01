@@ -530,7 +530,7 @@ export function BusinessesPage() {
                   <td>{getPosTypeLabel(business.pos_type)}</td>
                   <td>{business.user_count ?? 0}</td>
                   <td>{business.stamps_available ?? 0}</td>
-                  <td>{getPlanLabel(business.subscription)}</td>
+                  <td>{(business.subscription as any)?.plan_name || getPlanLabel(business.subscription) || "-"}</td>
                   <td>{business.subscription?.billing_anchor_date ? shortDate(business.subscription.billing_anchor_date) : "-"}</td>
                   <td>{business.subscription?.next_payment_date ? shortDate(business.subscription.next_payment_date) : "-"}</td>
                   <td>{getSubscriptionStatusLabel(business.subscription)}</td>
@@ -606,6 +606,18 @@ export function BusinessesPage() {
               <p><strong>Enforcement:</strong> {selectedBusiness.subscription?.enforcement_enabled ? "Activo" : "Desactivado"}</p>
               <p><strong>Proximo pago visible para el negocio:</strong> {selectedBusiness.subscription?.next_payment_date ? shortDate(selectedBusiness.subscription.next_payment_date) : "Sin configurar"}</p>
               <p><strong>Ultimo pago registrado:</strong> {selectedBusiness.subscription?.last_payment_date ? shortDate(selectedBusiness.subscription.last_payment_date) : "Sin registro"}</p>
+              {(selectedBusiness.subscription as any)?.plan_name && (
+                <p><strong>Plan:</strong> {(selectedBusiness.subscription as any).plan_name}</p>
+              )}
+              {(selectedBusiness.subscription as any)?.subscription_amount && (
+                <p><strong>Monto mensual:</strong> ${Number((selectedBusiness.subscription as any).subscription_amount).toLocaleString("es-MX")} {(selectedBusiness.subscription as any).subscription_currency || "MXN"}</p>
+              )}
+              {(selectedBusiness.subscription as any)?.branch_count !== undefined && (
+                <p><strong>Sucursales activas:</strong> {(selectedBusiness.subscription as any).branch_count}</p>
+              )}
+              {(selectedBusiness.subscription as any)?.payment_provider && (
+                <p><strong>Proveedor de pago:</strong> {(selectedBusiness.subscription as any).payment_provider}</p>
+              )}
             </div>
             <button className="button" disabled={savingSubscription} type="submit">
               {savingSubscription ? "Guardando..." : "Guardar suscripcion"}
