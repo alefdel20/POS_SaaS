@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { AuthResponse, Business, Role, User } from "../types";
-import { USER_ROLES } from "../utils/domainEnums";
+import { CLINICAL_POS_TYPES, USER_ROLES } from "../utils/domainEnums";
 import { getRoleLabel } from "../utils/uiLabels";
 import { canViewUsers, normalizeRole } from "../utils/roles";
 
@@ -50,6 +50,7 @@ export function UsersPage() {
   const [supportReason, setSupportReason] = useState("");
 
   const currentRole = normalizeRole(currentUser?.role);
+  const posType = currentUser?.pos_type || null;
   const isSupportContextActive = Boolean(currentUser?.support_context);
   const canCreateUsers = currentRole === "superusuario" || currentRole === "admin";
   const canResetPasswords = currentRole === "superusuario";
@@ -58,16 +59,14 @@ export function UsersPage() {
   const canManageUserAcrossBusinesses = currentRole === "superusuario";
 
   const roleOptions = useMemo(() => {
-    if (currentRole === "superusuario") {
-      return USER_ROLES;
-    }
+    const isClinical = CLINICAL_POS_TYPES.includes(posType as typeof CLINICAL_POS_TYPES[number]);
+    const clinicalRoles = isClinical ? (["clinico"] as const) : ([] as const);
 
-    if (currentRole === "admin") {
-      return ["admin", "clinico", "cajero"] as const;
-    }
-
+    if (currentRole === "superusuario") return USER_ROLES;
+    if (currentRole === "admin") return ["admin", "gerente", "cajero", ...clinicalRoles] as const;
+    if (currentRole === "gerente") return ["cajero", ...clinicalRoles] as const;
     return [] as const;
-  }, [currentRole]);
+  }, [currentRole, posType]);
 
   const selectedBusiness = useMemo(() => {
     if (currentRole !== "superusuario") {
@@ -333,11 +332,9 @@ export function UsersPage() {
                         value={normalizeRole(user.role) || "cajero"}
                         onChange={(event) => updateRole(user, event.target.value as Role)}
                       >
-                        <option value="superusuario">Superusuario</option>
-                        <option value="admin">Admin</option>
-                        <option value="clinico">Clinico</option>
-                        <option value="cajero">Cajero</option>
-                        <option value="soporte">Soporte</option>
+                        {roleOptions.map((role) => (
+                          <option key={role} value={role}>{getRoleLabel(role)}</option>
+                        ))}
                       </select>
                     ) : (
                       getRoleLabel(user.role)

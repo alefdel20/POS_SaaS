@@ -1,8 +1,10 @@
-const USER_ROLES = ["superusuario", "admin", "clinico", "cajero", "soporte"];
+const USER_ROLES = ["superusuario", "admin", "gerente", "clinico", "cajero", "soporte"];
+const CLINICAL_POS_TYPES = ["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"];
 const USER_ROLE_ALIASES = {
   superusuario: "superusuario",
   superadmin: "superusuario",
   admin: "admin",
+  gerente: "gerente",
   clinico: "clinico",
   medico: "clinico",
   veterinario: "clinico",
@@ -122,6 +124,7 @@ function normalizePreventiveEventStatus(value) {
 
 module.exports = {
   USER_ROLES,
+  CLINICAL_POS_TYPES,
   PRODUCT_CATALOG_TYPES,
   REMINDER_CATEGORIES,
   REMINDER_STATUSES,

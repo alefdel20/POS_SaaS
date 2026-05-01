@@ -19,10 +19,11 @@ const reminderStatusLabels: Record<Reminder["status"], string> = {
   cancelled: "cancelado"
 };
 
-const roleLabels: Record<Role, string> = {
+const roleLabels: Record<string, string> = {
   superusuario: "superusuario",
   superadmin: "superadministrador",
   admin: "administrador",
+  gerente: "Gerente",
   clinico: "doctor",
   soporte: "soporte",
   support: "soporte",

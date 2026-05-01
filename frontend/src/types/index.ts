@@ -1,4 +1,4 @@
-export type Role = "superusuario" | "superadmin" | "admin" | "clinico" | "soporte" | "support" | "cajero" | "cashier" | "user";
+export type Role = "superusuario" | "superadmin" | "admin" | "gerente" | "clinico" | "soporte" | "support" | "cajero" | "cashier" | "user";
 export type BusinessType = "Tienda" | "Tlapaleria" | "Papeleria" | "Veterinaria" | "Dentista" | "Farmacia" | "FarmaciaConsultorio" | "ClinicaChica" | "Otro";
 export type PosType = string;
 

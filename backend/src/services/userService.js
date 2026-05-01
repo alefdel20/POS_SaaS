@@ -227,7 +227,6 @@ async function createUser(payload, actor) {
 
   const normalizedRole = normalizeRole(payload.role);
   if (!normalizedRole) throw new ApiError(400, "Invalid role");
-  if (!canAssignRole(actor?.role, normalizedRole)) throw new ApiError(403, "Forbidden role assignment");
 
   const passwordHash = await bcrypt.hash(payload.password, 10);
   const client = await pool.connect();
@@ -236,6 +235,10 @@ async function createUser(payload, actor) {
     await client.query("BEGIN");
     // CORRECCIÓN: Pasamos el payload completo para que resolveTargetBusiness sepa a qué negocio va el usuario
     const business = await resolveTargetBusiness(payload, actor, client);
+    const businessPosType = business?.pos_type || null;
+    if (!canAssignRole(actor?.role, normalizedRole, businessPosType)) {
+      throw new ApiError(403, "Rol no permitido para este tipo de negocio");
+    }
     const { rows } = await client.query(
       `INSERT INTO users (
         username, email, full_name, password_hash, role, pos_type, business_id,
