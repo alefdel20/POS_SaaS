@@ -444,13 +444,17 @@ export function BusinessesPage() {
             type="number"
             min={1}
             max={PLAN_OPTIONS.find((p) => p.value === form.plan_name)?.maxBranches ?? 1}
-            value={form.branch_count === 0 ? "" : form.branch_count}
+            value={form.branch_count}
             onChange={(event) => {
-              const val = event.target.value === "" ? 1 : Math.max(1, Math.min(
-                Number(event.target.value),
-                PLAN_OPTIONS.find((p) => p.value === form.plan_name)?.maxBranches ?? 1
-              ));
-              setForm({ ...form, branch_count: val });
+              const raw = event.target.value;
+              if (raw === "") {
+                setForm({ ...form, branch_count: 1 });
+                return;
+              }
+              const num = parseInt(raw, 10);
+              if (isNaN(num)) return;
+              const max = PLAN_OPTIONS.find((p) => p.value === form.plan_name)?.maxBranches ?? 1;
+              setForm({ ...form, branch_count: Math.max(1, Math.min(num, max)) });
             }}
           />
           <small style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
