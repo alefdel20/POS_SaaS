@@ -20,10 +20,19 @@ type StampMovement = {
 
 const MANAGED_USER_ROLES: Role[] = ["admin", "clinico", "cajero", "soporte"];
 
+const PLAN_OPTIONS = [
+  { value: "Básico",        label: "Básico — $349/mes (1 sucursal)",                  maxBranches: 1 },
+  { value: "Premium",       label: "Premium — $699/mes (hasta 3 sucursales)",          maxBranches: 3 },
+  { value: "Enterprise",    label: "Enterprise — $999/mes (hasta 5 sucursales)",       maxBranches: 5 },
+  { value: "All-Inclusive", label: "All-Inclusive — $1,299/mes (hasta 5 sucursales)", maxBranches: 5 },
+];
+
 const emptyBusinessForm = {
   name: "",
   slug: "",
-  pos_type: "Tienda" as PosType
+  pos_type: "Tienda" as PosType,
+  plan_name: "Básico",
+  branch_count: 1
 };
 
 const emptyUserForm = {
@@ -414,6 +423,37 @@ export function BusinessesPage() {
           <select value={form.pos_type} onChange={(event) => setForm({ ...form, pos_type: event.target.value as PosType })}>
             {POS_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
+        </label>
+        <label>
+          Suscripción / Plan
+          <select
+            value={form.plan_name}
+            onChange={(event) => {
+              const selected = PLAN_OPTIONS.find((p) => p.value === event.target.value);
+              setForm({
+                ...form,
+                plan_name: event.target.value,
+                branch_count: Math.min(form.branch_count, selected?.maxBranches ?? 1)
+              });
+            }}
+          >
+            {PLAN_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Número de sucursales iniciales
+          <input
+            type="number"
+            min={1}
+            max={PLAN_OPTIONS.find((p) => p.value === form.plan_name)?.maxBranches ?? 1}
+            value={form.branch_count}
+            onChange={(event) => setForm({ ...form, branch_count: Number(event.target.value) })}
+          />
+          <small style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
+            Máximo {PLAN_OPTIONS.find((p) => p.value === form.plan_name)?.maxBranches ?? 1} según el plan seleccionado
+          </small>
         </label>
         <button className="button" type="submit">Crear negocio</button>
       </form>

@@ -42,6 +42,11 @@ const createValidation = [
     .optional({ values: "falsy" })
     .isIn(POS_TYPE_OPTIONS)
     .withMessage("El tipo de POS no es válido"),
+  body("plan_name")
+    .optional({ nullable: true })
+    .trim()
+    .isIn(["Básico", "Starter", "Dúo", "Pro-Caja", "Premium", "Enterprise", "All-Inclusive"]),
+  body("branch_count").optional({ nullable: true }).isInt({ min: 1, max: 5 }),
   validateRequest
 ];
 

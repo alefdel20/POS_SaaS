@@ -128,6 +128,25 @@ async function createBusiness(payload, actor) {
       [business.id, actor.id]
     );
     await initializeBusinessSubscriptionForNewBusiness(business, actor.id, client);
+
+    if (payload.plan_name) {
+      await client.query(
+        `UPDATE business_subscriptions SET plan_name = $1, updated_at = NOW() WHERE business_id = $2`,
+        [String(payload.plan_name), business.id]
+      );
+    }
+
+    const branchCount = Math.max(1, Number(payload.branch_count) || 1);
+    if (branchCount > 1) {
+      for (let i = 2; i <= branchCount; i++) {
+        await client.query(
+          `INSERT INTO branches (business_id, name, pos_type, is_default, is_active, created_at, updated_at)
+           VALUES ($1, $2, $3, FALSE, TRUE, NOW(), NOW())`,
+          [business.id, `Sucursal ${i}`, business.pos_type]
+        );
+      }
+    }
+
     await client.query(
       `INSERT INTO users (
         username, email, full_name, password_hash, role, pos_type, business_id, is_active, must_change_password, password_changed_at
