@@ -39,6 +39,7 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
   },
   { label: "Resumen", to: "/dashboard", roles: "management", activeMatch: ["/dashboard"] },
   { label: "Usuarios", to: "/users", roles: "users", activeMatch: ["/users"] },
+  { label: "Sucursales", to: "/branches", roles: "management", activeMatch: ["/branches", "/retail/admin/branches", "/health/admin/branches"] },
   { label: "Perfil", to: "/profile", roles: "profile", activeMatch: ["/profile", "/retail/admin/profile", "/health/admin/profile", "/health/doctor/profile"] }
 ];
 
@@ -364,6 +365,8 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
                     ? "/retail/admin/summary"
                     : item.to === "/businesses"
                       ? "/retail/admin/businesses"
+                    : item.to === "/branches"
+                      ? "/retail/admin/branches"
                     : item.to === "/users"
                       ? "/retail/admin/users"
                       : item.to === "/profile"

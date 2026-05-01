@@ -25,6 +25,7 @@ import { ServicesPage } from "../pages/ServicesPage";
 import { UsersPage } from "../pages/UsersPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { BusinessesPage } from "../pages/BusinessesPage";
+import { BranchesPage } from "../pages/BranchesPage";
 import { InvoicesPage } from "../pages/InvoicesPage";
 import { RestaurantAdminPage } from "../pages/RestaurantAdminPage";
 import { RestaurantMapPage } from "../pages/RestaurantMapPage";
@@ -86,6 +87,11 @@ export function AppRouter() {
               <Route path="/users" element={<UsersPage />} />
               <Route path="/retail/admin/users" element={<UsersPage />} />
               <Route path="/health/admin/users" element={<UsersPage />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management]} />}>
+              <Route path="/branches" element={<BranchesPage />} />
+              <Route path="/retail/admin/branches" element={<BranchesPage />} />
+              <Route path="/health/admin/branches" element={<BranchesPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.dailyCut]} />}>
               <Route path="/daily-cut" element={<DailyCutPage />} />
