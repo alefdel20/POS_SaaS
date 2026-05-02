@@ -329,6 +329,18 @@ async function provisionBusinessFromOnboarding(orderId) {
     return { business, user };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
+    console.error(`[PROVISIONING] Error provisioning order_id=${orderId}:`, error.message);
+    // Marcar onboarding como failed para que el polling lo detecte
+    try {
+      await pool.query(
+        `UPDATE pending_onboardings
+         SET status = 'failed', updated_at = NOW()
+         WHERE order_id = $1 AND status = 'pending'`,
+        [orderId]
+      );
+    } catch (updateErr) {
+      console.error('[PROVISIONING] Could not mark onboarding as failed:', updateErr.message);
+    }
     throw error;
   } finally {
     client.release();
