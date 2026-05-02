@@ -163,7 +163,7 @@ async function createCardCharge({ amount, email, name, planName, cardToken, orde
     ...(orderId ? { order_id: orderId } : {}),
     customer: { name: name || email, email },
     use_3d_secure: "true",
-    redirect_url: "https://ankode.cloud/pago-resultado",
+    redirect_url: `https://ankode.cloud/pago-resultado?order_id=${encodeURIComponent(orderId || "")}`,
     device_session_id: deviceSessionId
   });
 }
