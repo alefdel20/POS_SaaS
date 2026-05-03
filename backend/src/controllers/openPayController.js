@@ -579,21 +579,6 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
       [customerId, orderId]
     );
 
-    let charge;
-    try {
-      charge = await openPayService.createCardCharge({
-        amount, email, name: name || ownerName, planName, cardToken, orderId, deviceSessionId
-      });
-    } catch (chargeError) {
-      const errCode = chargeError?.response?.data?.error_code
-        || chargeError?.error_code
-        || null;
-      if (errCode === 1005 || errCode === '1005') {
-        throw new ApiError(400, 'El enlace de pago expiró o ya fue utilizado. Por favor, intenta de nuevo desde el formulario.');
-      }
-      throw chargeError;
-    }
-
     // 4. Always create a new plan (no existing business_subscriptions to check)
     const planId = await openPayService.createPlan(normalized, amount);
 
@@ -627,22 +612,6 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
 
   // 1. Ensure OpenPay customer exists for this business (idempotent)
   const customerId = await openPayService.createCustomer(businessId, name, email);
-
-  const renewOrderId = `renew-${crypto.randomBytes(8).toString("hex")}`;
-  let renewCharge;
-  try {
-    renewCharge = await openPayService.createCardCharge({
-      amount, email, name, planName, cardToken, orderId: renewOrderId, deviceSessionId
-    });
-  } catch (chargeError) {
-    const errCode = chargeError?.response?.data?.error_code
-      || chargeError?.error_code
-      || null;
-    if (errCode === 1005 || errCode === '1005') {
-      throw new ApiError(400, 'El enlace de pago expiró o ya fue utilizado. Por favor, intenta de nuevo desde el formulario.');
-    }
-    throw chargeError;
-  }
 
   // 2. Ensure OpenPay plan exists — check DB first, create only if missing
   const { rows: subRows } = await pool.query(
