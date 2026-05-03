@@ -579,20 +579,9 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
       [customerId, orderId]
     );
 
-    // 3.5. Create card charge with 3D Secure. If Openpay requires redirect for 3DS
-    //      authentication, return the URL to the frontend immediately. The charge.succeeded
-    //      webhook will provision the business once the user completes authentication.
     const charge = await openPayService.createCardCharge({
       amount, email, name: name || ownerName, planName, cardToken, orderId, deviceSessionId
     });
-    if (charge.payment_method?.type === "redirect") {
-      return res.status(200).json({
-        success: true,
-        requires3DS: true,
-        redirectUrl: charge.payment_method.url,
-        chargeId: charge.id
-      });
-    }
 
     // 4. Always create a new plan (no existing business_subscriptions to check)
     const planId = await openPayService.createPlan(normalized, amount);
@@ -628,19 +617,10 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   // 1. Ensure OpenPay customer exists for this business (idempotent)
   const customerId = await openPayService.createCustomer(businessId, name, email);
 
-  // 1.5. Create card charge with 3D Secure for renewal payment.
   const renewOrderId = `renew-${crypto.randomBytes(8).toString("hex")}`;
   const renewCharge = await openPayService.createCardCharge({
     amount, email, name, planName, cardToken, orderId: renewOrderId, deviceSessionId
   });
-  if (renewCharge.payment_method?.type === "redirect") {
-    return res.status(200).json({
-      success: true,
-      requires3DS: true,
-      redirectUrl: renewCharge.payment_method.url,
-      chargeId: renewCharge.id
-    });
-  }
 
   // 2. Ensure OpenPay plan exists — check DB first, create only if missing
   const { rows: subRows } = await pool.query(
@@ -703,29 +683,47 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 3D Secure charge verification
-// Called by the frontend after Openpay redirects back to /pago-resultado
+// Anti-fraud middleware — runs before createCheckoutSession
 // ---------------------------------------------------------------------------
 
-const verify3DS = asyncHandler(async (req, res) => {
-  const chargeId = String(req.query.id || "").trim();
-  if (!chargeId) {
-    return res.status(400).json({ success: false, error: "Missing charge id" });
+const _ipAttempts = new Map();
+const _DISPOSABLE_DOMAINS = new Set([
+  "mailinator.com", "guerrillamail.com", "tempmail.com", "throwam.com", "yopmail.com"
+]);
+
+const antifraudCheck = (req, res, next) => {
+  const ip = req.ip || req.connection?.remoteAddress || "unknown";
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+
+  const record = _ipAttempts.get(ip);
+  if (record && now < record.resetAt) {
+    if (record.count >= 5) {
+      return res.status(429).json({ error: "Demasiados intentos, intenta más tarde" });
+    }
+    record.count += 1;
+  } else {
+    _ipAttempts.set(ip, { count: 1, resetAt: now + windowMs });
   }
-  const charge = await openPayService.getCharge(chargeId);
-  if (charge.status === "completed") {
-    return res.status(200).json({ success: true, status: "completed" });
+
+  const email = String(req.body?.email || "");
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (domain && _DISPOSABLE_DOMAINS.has(domain)) {
+    return res.status(400).json({ error: "Email no válido" });
   }
-  if (charge.status === "failed") {
-    return res.status(200).json({ success: false, status: "failed" });
+
+  const amount = parseFloat(req.body?.amount) || 0;
+  if (amount > 15000) {
+    return res.status(400).json({ error: "Monto fuera de rango permitido" });
   }
-  return res.status(200).json({ success: false, status: charge.status || "unknown" });
-});
+
+  next();
+};
 
 module.exports = {
   checkoutValidation,
   handleWebhook,
   verifyWebhook,
   createCheckoutSession,
-  verify3DS
+  antifraudCheck
 };

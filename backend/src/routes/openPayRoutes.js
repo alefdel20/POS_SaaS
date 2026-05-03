@@ -6,7 +6,6 @@ const router = express.Router();
 
 router.get("/webhook", controller.verifyWebhook);
 router.post("/webhook", controller.handleWebhook);
-router.post("/checkout", controller.checkoutValidation, controller.createCheckoutSession);
-router.get("/verify-3ds", controller.verify3DS);
+router.post("/checkout", controller.checkoutValidation, controller.antifraudCheck, controller.createCheckoutSession);
 
 module.exports = router;
