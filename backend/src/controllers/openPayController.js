@@ -15,7 +15,7 @@ const {
   markOnboardingFailed,
   getPendingOnboarding
 } = require("../services/paymentProvisioningService");
-const { sendPaymentConfirmationEmail } = require("../services/emailService");
+const { sendPaymentConfirmationEmail, sendSpeiInstructionsEmail } = require("../services/emailService");
 
 // URL for the n8n workflow that sends the welcome email after a business is provisioned.
 // Override per environment via N8N_WELCOME_EMAIL_URL.
@@ -510,10 +510,27 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   // ---------------------------------------------------------------------------
   if (paymentMethod === "spei") {
     const charge = await openPayService.createSpeiCharge({ amount, email, name, planName });
+    const clabe = charge.payment_method?.clabe || null;
+    const bank_name = charge.payment_method?.bank_name || null;
+    const due_date = charge.due_date || null;
+
+    // Fire-and-forget — never blocks the response
+    sendSpeiInstructionsEmail(email, {
+      name: name || email,
+      amount,
+      currency: 'MXN',
+      clabe,
+      bank_name,
+      due_date,
+      plan_name: planName || 'Ankode POS',
+    }).catch((err) => console.error('[SPEI-EMAIL] Failed to send instructions email:', err));
+
     return res.status(201).json({
       success: true,
       paymentMethod: "spei",
-      clabe: charge.payment_method?.clabe,
+      clabe,
+      bank_name,
+      due_date,
       orderId: charge.id
     });
   }

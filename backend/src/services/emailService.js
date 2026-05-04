@@ -293,6 +293,47 @@ async function sendPaymentConfirmationEmail(to, data = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// sendSpeiInstructionsEmail
+// Sent immediately after a SPEI charge is created, before payment is received.
+// data: { name, amount, currency, clabe, bank_name, due_date, plan_name }
+// ---------------------------------------------------------------------------
+
+async function sendSpeiInstructionsEmail(to, data = {}) {
+  const { name, amount, currency, clabe, bank_name, due_date, plan_name } = data;
+  const transporter = createTransporter();
+  const from = getEmailFrom();
+  const amountFormatted = Number(amount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+  const dueDateFormatted = due_date
+    ? new Date(due_date).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+    : null;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f9fafb;border-radius:12px;">
+      <div style="background:#6d4aff;padding:24px;border-radius:8px;text-align:center;margin-bottom:24px;">
+        <h1 style="color:white;margin:0;font-size:24px;">Instrucciones de pago SPEI</h1>
+      </div>
+      <p style="color:#374151;font-size:16px;">Hola <strong>${name || to}</strong>,</p>
+      <p style="color:#374151;">Tu orden de suscripción <strong>${plan_name || 'Ankode POS'}</strong> ha sido generada. Realiza la transferencia SPEI con los siguientes datos:</p>
+      <div style="background:white;border:2px solid #e5e7eb;border-radius:8px;padding:24px;margin:20px 0;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6;">Banco receptor</td><td style="padding:10px 0;font-weight:700;text-align:right;">${bank_name || 'OPENBANK'}</td></tr>
+          <tr><td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6;">CLABE</td><td style="padding:10px 0;font-weight:700;font-family:monospace;font-size:16px;text-align:right;color:#6d4aff;">${clabe || '—'}</td></tr>
+          <tr><td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6;">Monto</td><td style="padding:10px 0;font-weight:700;text-align:right;color:#6d4aff;">$${amountFormatted} ${currency || 'MXN'}</td></tr>
+          <tr><td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6;">Concepto</td><td style="padding:10px 0;font-weight:700;text-align:right;">${plan_name || 'Ankode POS'}</td></tr>
+          ${dueDateFormatted ? `<tr><td style="padding:10px 0;color:#6b7280;font-size:14px;">Fecha límite</td><td style="padding:10px 0;font-weight:700;text-align:right;color:#ef4444;">${dueDateFormatted}</td></tr>` : ''}
+        </table>
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:16px;margin:16px 0;">
+        <p style="margin:0;color:#92400e;font-size:14px;">⚠️ <strong>Importante:</strong> Usa exactamente el monto indicado. Tu suscripción se activará automáticamente al detectarse el pago.</p>
+      </div>
+      <p style="color:#6b7280;font-size:13px;margin-top:24px;">¿Tienes dudas? Escríbenos a <a href="mailto:contacto@ankode.cloud" style="color:#6d4aff;">contacto@ankode.cloud</a></p>
+    </div>
+  `;
+
+  await transporter.sendMail({ from, to, subject: `Instrucciones de pago SPEI — ${plan_name || 'Ankode POS'}`, html });
+}
+
+// ---------------------------------------------------------------------------
 // sendPasswordResetEmail
 // Called after a self-service forgot-password request.
 // Never throws — email failure is logged but does not expose user existence.
@@ -371,5 +412,6 @@ module.exports = {
   sendWelcomeEmail,
   sendPaymentFailedEmail,
   sendPaymentConfirmationEmail,
+  sendSpeiInstructionsEmail,
   sendPasswordResetEmail
 };
