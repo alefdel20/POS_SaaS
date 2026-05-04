@@ -326,7 +326,7 @@ async function sendSpeiInstructionsEmail(to, data = {}) {
       <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:16px;margin:16px 0;">
         <p style="margin:0;color:#92400e;font-size:14px;">⚠️ <strong>Importante:</strong> Usa exactamente el monto indicado. Tu suscripción se activará automáticamente al detectarse el pago.</p>
       </div>
-      <p style="color:#6b7280;font-size:13px;margin-top:24px;">¿Tienes dudas? Escríbenos a <a href="mailto:contacto@ankode.cloud" style="color:#6d4aff;">contacto@ankode.cloud</a></p>
+      <p style="color:#6b7280;font-size:13px;margin-top:24px;">¿Tienes dudas? Escríbenos a <a href="mailto:ankodemx@gmail.com" style="color:#6d4aff;">ankodemx@gmail.com</a></p>
     </div>
   `;
 
