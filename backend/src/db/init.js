@@ -1499,7 +1499,7 @@ async function ensureConstraints(client) {
       END IF;
 
       ALTER TABLE users
-      ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'clinico', 'cajero', 'soporte'));
+      ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'gerente', 'clinico', 'cajero', 'soporte'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$;
     `
