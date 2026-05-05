@@ -20,6 +20,7 @@ function signToken(user, options = {}) {
       userId: user.id,
       role: user.role,
       businessId,
+      branch_id: user.branch_id ?? null,
       supportSessionId: options.supportSessionId || null
     },
     jwtSecret,

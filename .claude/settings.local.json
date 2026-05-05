@@ -10,7 +10,13 @@
       "Bash(node -e ' *)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\" -Recurse -Filter \"CheckoutModal*\")",
       "Bash(Select-Object FullName)",
-      "Bash(Get-ChildItem \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\\" -Directory *)"
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\\" -Directory *)",
+      "Bash(Get-Content \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\\\\openPayController.js\")",
+      "Bash(Measure-Object -Line)",
+      "Bash(Select-Object -ExpandProperty Lines)",
+      "Bash(node *)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(grep -E \"\\\\.\\(js|ts\\)$\")"
     ]
   }
 }

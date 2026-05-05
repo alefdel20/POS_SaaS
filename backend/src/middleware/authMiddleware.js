@@ -78,6 +78,7 @@ async function requireAuth(req, res, next) {
       user_id: payload.userId,
       role: payload.role,
       business_id: effectiveBusinessId,
+      branch_id: payload.branch_id ?? null,
     };
 
     await assertBusinessAccessAllowed(effectiveUser);

@@ -9,6 +9,7 @@ export interface User {
   full_name: string;
   role: Role;
   business_id?: number;
+  branch_id?: number | null;
   business_name?: string;
   business_slug?: string;
   business_pos_type?: PosType;

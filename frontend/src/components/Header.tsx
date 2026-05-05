@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import type { AuthResponse, ProductUpdateRequestPendingSummary } from "../types";
 import { isManagementRole } from "../utils/roles";
 import { getRoleLabel } from "../utils/uiLabels";
+import { BranchSelector } from "./BranchSelector";
 
 type HeaderProps = {
   isSidebarOpen: boolean;
@@ -108,6 +109,7 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderPro
               {user?.full_name} | {getRoleLabel(user?.role)}{user?.business_name ? ` | ${user.business_name}` : ""}
             </p>
           </div>
+          {user && <BranchSelector />}
         </div>
         <button className="button ghost" onClick={logout}>
           Cerrar sesion

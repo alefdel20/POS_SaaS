@@ -755,6 +755,9 @@ function resolveProductCatalogType(payload, currentProduct = null) {
 
 async function listProducts(search, activeOnlyOrOptions = false, actor) {
   const options = normalizeListOptions(search, activeOnlyOrOptions);
+  const branchId = (activeOnlyOrOptions && typeof activeOnlyOrOptions === "object")
+    ? (activeOnlyOrOptions.branchId ?? null)
+    : null;
   const baseFilter = buildSearchFilter(actor);
   const effectivePriceCase = buildEffectivePriceCase();
   const page = options.page && options.page > 0 ? options.page : null;
@@ -764,6 +767,10 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
   const filters = [...baseFilter.params];
   const conditions = [];
   if (baseFilter.clause) conditions.push(baseFilter.clause.replace(/^WHERE /, ""));
+  if (branchId !== null) {
+    filters.push(branchId);
+    conditions.push(`(product_data.branch_id = $${filters.length} OR product_data.branch_id IS NULL)`);
+  }
   if (options.activeOnly) conditions.push("product_data.is_active = TRUE AND product_data.status = 'activo'");
   if (options.category) {
     filters.push(options.category);

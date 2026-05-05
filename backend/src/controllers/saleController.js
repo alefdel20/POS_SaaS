@@ -59,7 +59,8 @@ const getSalesTrends = asyncHandler(async (req, res) => {
 });
 
 const createSale = asyncHandler(async (req, res) => {
-  res.status(201).json(await saleService.createSale(req.body, req.user));
+  const branchId = req.user.branch_id ?? req.auth?.branch_id ?? null;
+  res.status(201).json(await saleService.createSale(req.body, req.user, branchId));
 });
 
 const cancelSale = asyncHandler(async (req, res) => {
