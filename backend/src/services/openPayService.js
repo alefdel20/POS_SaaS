@@ -52,7 +52,7 @@ function openpayRequest(method, path, body) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(parsed);
         } else {
-          console.error("[OPENPAY-ERROR] Status:", res.statusCode, "Response:", JSON.stringify(parsed));
+          console.error("[OPENPAY-ERROR] Status:", res.statusCode, "Response:", JSON.stringify(parsed), "URL:", fullUrl.toString(), "Auth:", getAuthHeader().substring(0, 20) + '...');
           const msg = parsed.description || parsed.error_code
             || `OpenPay API error ${res.statusCode}`;
           const err = new ApiError(res.statusCode >= 500 ? 502 : res.statusCode, msg);
