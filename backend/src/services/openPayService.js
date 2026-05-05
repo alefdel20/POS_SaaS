@@ -206,6 +206,19 @@ function verifyWebhookSignature(payload, signature) {
   return true;
 }
 
+async function createCharge({ customerId, amount, cardToken, deviceSessionId, description, email }) {
+  const result = await openpayRequest('POST', `/customers/${encodeURIComponent(customerId)}/charges`, {
+    source_id: cardToken,
+    method: 'card',
+    amount: Number(amount),
+    currency: 'MXN',
+    description: description || 'Compra Ankode',
+    device_session_id: deviceSessionId,
+    customer: { email },
+  });
+  return result;
+}
+
 module.exports = {
   getBaseUrl,
   getAuthHeader,
@@ -213,6 +226,7 @@ module.exports = {
   createPlan,
   createSubscription,
   createCardCharge,
+  createCharge,
   getCharge,
   createSpeiCharge,
   cancelSubscription,

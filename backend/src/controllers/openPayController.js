@@ -536,6 +536,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   }
 
   const normalized = String(planType).toLowerCase();
+  const isCartCheckout = planName === 'Carrito' || posType === 'cart';
   const isNewSignup = Boolean(password && businessName && ownerName && posType);
 
   console.log("[CHECKOUT] Request received:", {
@@ -548,6 +549,36 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     ownerName,
     posType
   });
+
+  // ---------------------------------------------------------------------------
+  // Path C — Cargo único (accesorios/hardware sin suscripción)
+  // ---------------------------------------------------------------------------
+  if (isCartCheckout) {
+    try {
+      const customerId = await openPayService.createCustomer(null, name || email, email);
+
+      const charge = await openPayService.createCharge({
+        customerId,
+        amount,
+        cardToken,
+        deviceSessionId,
+        description: `Compra Ankode - ${planName || 'Accesorios'}`,
+        email,
+      });
+
+      return res.json({
+        success: true,
+        orderId: charge.id,
+        message: 'Pago procesado correctamente',
+      });
+    } catch (err) {
+      console.error('[CHECKOUT PATH C ERROR]', err?.message || err);
+      return res.status(500).json({
+        message: err?.message || 'Error al procesar el pago',
+        details: err?.details || null,
+      });
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Path A — New business signup (no existing businessId)
