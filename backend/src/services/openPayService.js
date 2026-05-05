@@ -219,10 +219,20 @@ async function createCharge({ customerId, amount, cardToken, deviceSessionId, de
   return result;
 }
 
+async function createGuestCustomer(name, email) {
+  const result = await openpayRequest('POST', '/customers', {
+    name: String(name || email || 'Guest').trim(),
+    email: String(email || '').trim(),
+    requires_account: false,
+  });
+  return result.id;
+}
+
 module.exports = {
   getBaseUrl,
   getAuthHeader,
   createCustomer,
+  createGuestCustomer,
   createPlan,
   createSubscription,
   createCardCharge,

@@ -555,7 +555,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   // ---------------------------------------------------------------------------
   if (isCartCheckout) {
     try {
-      const customerId = await openPayService.createCustomer(null, name || email, email);
+      const customerId = await openPayService.createGuestCustomer(name || email, email);
 
       const charge = await openPayService.createCharge({
         customerId,
