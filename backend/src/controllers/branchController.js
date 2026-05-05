@@ -14,26 +14,32 @@ const BRANCH_LIMITS = {
   enterprise: 5
 };
 
-function getBranchLimit({ planType, planName }) {
+function getBranchLimit({ planType, planName, extraBranchesCount }) {
   const name = String(planName || "").toLowerCase().trim();
-  if (name.includes("premium")) return 3;
-  if (name.includes("enterprise") || name.includes("all-inclusive") || name.includes("all inclusive")) return 5;
-  if (
+  let baseLimit;
+  if (name.includes("premium")) baseLimit = 3;
+  else if (name.includes("enterprise") || name.includes("all-inclusive") || name.includes("all inclusive")) baseLimit = 5;
+  else if (
     name.includes("básico") || name.includes("basico") || name.includes("starter") ||
     name.includes("dúo") || name.includes("duo") || name.includes("pro-caja")
-  ) return 1;
-  const type = String(planType || "").toLowerCase();
-  return BRANCH_LIMITS[type] ?? 1;
+  ) baseLimit = 1;
+  else {
+    const type = String(planType || "").toLowerCase();
+    baseLimit = BRANCH_LIMITS[type] ?? 1;
+  }
+  const extras = extraBranchesCount ?? 0;
+  return baseLimit + extras;
 }
 
 async function getPlanType(businessId) {
   const { rows } = await pool.query(
-    `SELECT plan_type, plan_name FROM business_subscriptions WHERE business_id = $1 LIMIT 1`,
+    `SELECT plan_type, plan_name, extra_branches_count FROM business_subscriptions WHERE business_id = $1 LIMIT 1`,
     [Number(businessId)]
   );
   return {
     planType: rows[0]?.plan_type || null,
-    planName: rows[0]?.plan_name || null
+    planName: rows[0]?.plan_name || null,
+    extraBranchesCount: Number(rows[0]?.extra_branches_count ?? 0)
   };
 }
 

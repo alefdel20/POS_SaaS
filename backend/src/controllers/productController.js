@@ -163,12 +163,14 @@ const deleteValidation = [
 ];
 
 const listProducts = asyncHandler(async (req, res) => {
+  const branchId = req.user.branch_id ?? req.auth?.branch_id ?? null;
   res.json(await productService.listProducts(req.query.search, {
     category: req.query.category,
     catalog_scope: req.query.catalog_scope,
     activeOnly: req.query.activeOnly === "true",
     page: req.query.page,
-    pageSize: req.query.pageSize
+    pageSize: req.query.pageSize,
+    branchId
   }, req.user));
 });
 

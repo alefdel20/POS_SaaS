@@ -7,6 +7,8 @@ interface AuthContextValue {
   token: string | null;
   user: User | null;
   loading: boolean;
+  activeBranchId: number | null;
+  setActiveBranchId: (id: number | null) => void;
   login: (identifier: string, password: string) => Promise<void>;
   registerBusiness: (payload: RegisterBusinessPayload) => Promise<AuthResponse>;
   logout: () => void;
@@ -20,6 +22,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(getStoredToken());
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeBranchId, setActiveBranchId] = useState<number | null>(null);
+
+  useEffect(() => {
+    setActiveBranchId(user?.branch_id ?? null);
+  }, [user?.id]);
 
   function normalizeEffectiveUser(user: User | null) {
     if (!user?.support_context) {
@@ -109,7 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ token, user, loading, login, registerBusiness, logout, refreshUser, setSession: (response) => applySession(response.token, normalizeSessionUser(response)) }}>
+    <AuthContext.Provider value={{ token, user, loading, activeBranchId, setActiveBranchId, login, registerBusiness, logout, refreshUser, setSession: (response) => applySession(response.token, normalizeSessionUser(response)) }}>
       {children}
     </AuthContext.Provider>
   );

@@ -51,6 +51,7 @@ function signUserToken(user, supportSessionId = null) {
       userId: user.id,
       role: user.role,
       businessId: requireActorBusinessId(user),
+      branch_id: user.branch_id ?? null,
       supportSessionId
     },
     jwtSecret,

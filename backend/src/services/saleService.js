@@ -348,7 +348,7 @@ async function getSalesTrends(period, actor) {
   return { period: selected.label, items: rows.map((row) => ({ ...row, position: Number(row.position), units_sold: Number(row.units_sold), revenue: Number(row.revenue) })) };
 }
 
-async function createSale(payload, user) {
+async function createSale(payload, user, branchId = null) {
   if (!payload.items?.length) throw new ApiError(400, "Sale requires at least one item");
   if (payload.payment_method === "credit" && !canUseCreditCollections(user?.pos_type)) throw new ApiError(409, "Credit sales are not available for this business type");
   if (payload.payment_method === "credit" && !payload.customer?.name?.trim()) throw new ApiError(400, "Customer name is required for credit sales");
@@ -470,11 +470,12 @@ async function createSale(payload, user) {
       `INSERT INTO sales (
         user_id, business_id, payment_method, sale_type, subtotal, total, total_cost, customer_name, customer_phone,
         initial_payment, balance_due, invoice_data, notes, company_profile_id, transfer_snapshot, invoice_status,
-        stamp_status, stamp_movement_id, stamp_snapshot, sale_date, sale_time, created_at, requires_administrative_invoice, status
+        stamp_status, stamp_movement_id, stamp_snapshot, sale_date, sale_time, created_at, requires_administrative_invoice, status,
+        branch_id
       )
-      VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed')
+      VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed', $22)
       RETURNING *`,
-      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), safeSaleTime, requiresAdministrativeInvoice]
+      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), safeSaleTime, requiresAdministrativeInvoice, branchId]
     );
     const sale = mapSaleRow(saleRows[0]);
 
