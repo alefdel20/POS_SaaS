@@ -10,6 +10,7 @@ export interface User {
   role: Role;
   business_id?: number;
   branch_id?: number | null;
+  branch_name?: string | null;
   business_name?: string;
   business_slug?: string;
   business_pos_type?: PosType;

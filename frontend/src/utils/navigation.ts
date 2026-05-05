@@ -1,8 +1,8 @@
 import type { PosType } from "../types";
-import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessInvoices, canAccessSales, canViewUsers, isManagementRole, normalizeRole } from "./roles";
+import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessInvoices, canAccessSales, canViewUsers, isManagementRole, normalizeRole, ROLE_MANAGER } from "./roles";
 import { getClinicalPatientLabel, getHealthcareSidebarTitle, getMedicalHistoryNavLabel, hidesAesthetics, usesPatientLabel, usesHumanPatientsOnly } from "./pos";
 
-export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "clinical" | "profile" | "invoices" | "businesses" | "all";
+export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "gerente" | "clinical" | "profile" | "invoices" | "businesses" | "all";
 
 export type SidebarMenuItem = {
   label: string;
@@ -64,8 +64,9 @@ function isRoleAllowed(role?: string | null, roleGroup: SidebarRoleGroup = "all"
   if (roleGroup === "users") return canViewUsers(role);
   if (roleGroup === "dailyCut") return canAccessDailyCut(role);
   if (roleGroup === "management") return isManagementRole(role);
+  if (roleGroup === "gerente") return isManagementRole(role) || normalizeRole(role) === ROLE_MANAGER;
   if (roleGroup === "clinical") return canAccessClinical(role);
-  if (roleGroup === "profile") return isManagementRole(role) || normalizeRole(role) === "clinico";
+  if (roleGroup === "profile") return isManagementRole(role) || normalizeRole(role) === "clinico" || normalizeRole(role) === ROLE_MANAGER;
   if (roleGroup === "invoices") return canAccessInvoices(role);
   if (roleGroup === "businesses") return canAccessBusinesses(role);
   return false;
@@ -211,22 +212,22 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
   const vertical = resolveBusinessVertical(posType);
   const healthAccessoriesProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/health/products/accessories/new", roles: "management", activeMatch: ["/health/products/accessories/new"] },
-    { label: "Productos", to: "/health/products/accessories", roles: "management", activeMatch: withAlias("/health/products/accessories", "/products") },
+    { label: "Productos", to: "/health/products/accessories", roles: "gerente", activeMatch: withAlias("/health/products/accessories", "/products") },
     { label: "Productos por reabastecer", to: "/health/products/accessories/restock", roles: "sales", activeMatch: ["/health/products/accessories/restock"] }
   ];
   const healthMedicationProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/health/products/medications/new", roles: "management", activeMatch: ["/health/products/medications/new"] },
-    { label: "Productos", to: "/health/products/medications", roles: "management", activeMatch: ["/health/products/medications"] },
+    { label: "Productos", to: "/health/products/medications", roles: "gerente", activeMatch: ["/health/products/medications"] },
     { label: "Productos por reabastecer", to: "/health/products/medications/restock", roles: "sales", activeMatch: ["/health/products/medications/restock"] }
   ];
   const healthUnifiedProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/health/products/new", roles: "management", activeMatch: ["/health/products/new"] },
-    { label: "Productos", to: "/health/products", roles: "management", activeMatch: ["/health/products"] },
+    { label: "Productos", to: "/health/products", roles: "gerente", activeMatch: ["/health/products"] },
     { label: "Productos por reabastecer", to: "/health/products/restock", roles: "sales", activeMatch: ["/health/products/restock"] }
   ];
   const retailProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/retail/products/new", roles: "management", activeMatch: ["/retail/products/new"] },
-    { label: "Productos", to: "/retail/products", roles: "management", activeMatch: withAlias("/retail/products", "/products") },
+    { label: "Productos", to: "/retail/products", roles: "gerente", activeMatch: withAlias("/retail/products", "/products") },
     { label: "Productos por reabastecer", to: "/retail/products/restock", roles: "sales", activeMatch: ["/retail/products/restock"] }
   ];
 
@@ -239,8 +240,8 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
             label: "Productos",
             children: [
               { label: "Ventas", to: "/health/sales", roles: "sales" as const, activeMatch: ["/health/sales", "/health/sales/accessories", "/health/sales/medications", "/sales"] },
-              { label: "Productos", roles: "management" as const, children: healthUnifiedProductChildren },
-              { label: "Proveedores", to: "/health/suppliers", roles: "management" as const, activeMatch: ["/health/suppliers", "/health/suppliers/accessories", "/health/suppliers/medications", "/suppliers"] }
+              { label: "Productos", roles: "gerente" as const, children: healthUnifiedProductChildren },
+              { label: "Proveedores", to: "/health/suppliers", roles: "gerente" as const, activeMatch: ["/health/suppliers", "/health/suppliers/accessories", "/health/suppliers/medications", "/suppliers"] }
             ]
           }
         ] : [
@@ -248,16 +249,16 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
             label: "Alimentos y accesorios",
             children: [
               { label: "Ventas", to: "/health/sales/accessories", roles: "sales" as const, activeMatch: withAlias("/health/sales/accessories", "/sales") },
-              { label: "Productos", roles: "management" as const, children: healthAccessoriesProductChildren },
-              { label: "Proveedores", to: "/health/suppliers/accessories", roles: "management" as const, activeMatch: withAlias("/health/suppliers/accessories", "/suppliers") }
+              { label: "Productos", roles: "gerente" as const, children: healthAccessoriesProductChildren },
+              { label: "Proveedores", to: "/health/suppliers/accessories", roles: "gerente" as const, activeMatch: withAlias("/health/suppliers/accessories", "/suppliers") }
             ]
           },
           {
             label: "Medicamentos e insumos",
             children: [
               { label: "Ventas", to: "/health/sales/medications", roles: "sales" as const, activeMatch: ["/health/sales/medications"] },
-              { label: "Productos", roles: "management" as const, children: healthMedicationProductChildren },
-              { label: "Proveedores", to: "/health/suppliers/medications", roles: "management" as const, activeMatch: ["/health/suppliers/medications"] }
+              { label: "Productos", roles: "gerente" as const, children: healthMedicationProductChildren },
+              { label: "Proveedores", to: "/health/suppliers/medications", roles: "gerente" as const, activeMatch: ["/health/suppliers/medications"] }
             ]
           }
         ]),
@@ -338,9 +339,9 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
       title: "Operacion",
       items: [
         { label: "Ventas", to: "/retail/sales", roles: "sales", activeMatch: withAlias("/retail/sales", "/sales") },
-        { label: "Productos", roles: "management", children: retailProductChildren },
-        { label: "Proveedores", to: "/retail/suppliers", roles: "management", activeMatch: withAlias("/retail/suppliers", "/suppliers") },
-        { label: "Historial", to: "/retail/history", roles: "management", activeMatch: withAlias("/retail/history", "/sales-history") }
+        { label: "Productos", roles: "gerente", children: retailProductChildren },
+        { label: "Proveedores", to: "/retail/suppliers", roles: "gerente", activeMatch: withAlias("/retail/suppliers", "/suppliers") },
+        { label: "Historial", to: "/retail/history", roles: "gerente", activeMatch: withAlias("/retail/history", "/sales-history") }
       ]
     },
     {

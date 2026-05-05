@@ -3,15 +3,17 @@ import { normalizeUserRole } from "./domainEnums";
 
 export const ROLE_SUPERUSER = "superusuario" as const;
 export const ROLE_ADMIN = "admin" as const;
+export const ROLE_MANAGER = "gerente" as const;
 export const ROLE_CLINICAL = "clinico" as const;
 export const ROLE_SUPPORT = "soporte" as const;
 export const ROLE_CASHIER = "cajero" as const;
 
 export const ROUTE_ROLES = {
-  sales: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_CASHIER] as const,
+  sales: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_MANAGER, ROLE_CASHIER] as const,
   users: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_SUPPORT] as const,
-  dailyCut: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_CASHIER] as const,
+  dailyCut: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_MANAGER, ROLE_CASHIER] as const,
   management: [ROLE_SUPERUSER, ROLE_ADMIN] as const,
+  gerente: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_MANAGER] as const,
   clinical: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_CLINICAL] as const,
   invoices: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_SUPPORT] as const,
   businesses: [ROLE_SUPERUSER] as const,
@@ -43,7 +45,7 @@ export function canAccessSales(role?: string | null) {
 }
 
 export function canManageProducts(role?: string | null) {
-  return isManagementRole(role) || isCashierRole(role);
+  return isManagementRole(role) || isCashierRole(role) || normalizeRole(role) === ROLE_MANAGER;
 }
 
 export function canAccessDailyCut(role?: string | null) {

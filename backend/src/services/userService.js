@@ -177,11 +177,13 @@ async function listUsers(actor) {
 
   const { rows } = await pool.query(
     `SELECT
-       u.id, u.username, u.email, u.full_name, u.role, u.pos_type, u.business_id,
+       u.id, u.username, u.email, u.full_name, u.role, u.pos_type, u.business_id, u.branch_id,
        u.is_active, u.must_change_password, u.support_mode_active, u.created_at, u.updated_at,
-       b.name AS business_name, b.slug AS business_slug, b.pos_type AS business_pos_type
+       b.name AS business_name, b.slug AS business_slug, b.pos_type AS business_pos_type,
+       br.name AS branch_name
      FROM users u
      LEFT JOIN businesses b ON b.id = u.business_id
+     LEFT JOIN branches br ON br.id = u.branch_id
      ${where}
      ORDER BY u.business_id ASC, u.created_at DESC`,
     params

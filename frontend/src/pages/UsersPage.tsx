@@ -335,6 +335,7 @@ export function UsersPage() {
                 <th>Usuario</th>
                 <th>Rol</th>
                 <th>Negocio</th>
+                <th>Sucursal</th>
                 <th>POS</th>
                 <th>Estado</th>
                 <th>Seguridad</th>
@@ -366,6 +367,7 @@ export function UsersPage() {
                     )}
                   </td>
                   <td>{user.business_name || "-"}</td>
+                  <td>{user.branch_name || "—"}</td>
                   <td>{user.pos_type || "Otro"}</td>
                   <td>{user.is_active ? "Activo" : "Inactivo"}</td>
                   <td>{isProtectedSupportUser(user) ? "Protegido" : user.must_change_password ? "Cambio requerido" : "Normal"}</td>
