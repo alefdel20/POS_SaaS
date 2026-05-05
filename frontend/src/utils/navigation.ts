@@ -24,9 +24,9 @@ const HEALTHCARE_POS_TYPES = new Set<PosType>(["Veterinaria", "Dentista", "Farma
 
 const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Aprobaciones", to: "/product-update-requests", roles: "management", activeMatch: ["/product-update-requests", "/retail/admin/approvals", "/health/admin/approvals"] },
-  { label: "Credito y Cobranza", to: "/credit-collections", roles: "management", activeMatch: ["/credit-collections"] },
+  { label: "Credito y Cobranza", to: "/credit-collections", roles: "gerente", activeMatch: ["/credit-collections"] },
   { label: "Corte Diario", to: "/daily-cut", roles: "dailyCut", activeMatch: ["/daily-cut"] },
-  { label: "Finanzas", to: "/finances", roles: "management", activeMatch: ["/finances"] },
+  { label: "Finanzas", to: "/finances", roles: "gerente", activeMatch: ["/finances"] },
   { label: "Facturas", to: "/invoices", roles: "invoices", activeMatch: ["/invoices"] },
   {
     label: "Recordatorios",
@@ -37,7 +37,7 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
       { label: "Calendario", to: "/reminders/calendar", roles: "all", activeMatch: ["/reminders/calendar", "/retail/admin/reminders/calendar", "/health/admin/reminders/calendar"] }
     ]
   },
-  { label: "Resumen", to: "/dashboard", roles: "management", activeMatch: ["/dashboard"] },
+  { label: "Resumen", to: "/dashboard", roles: "gerente", activeMatch: ["/dashboard"] },
   { label: "Usuarios", to: "/users", roles: "users", activeMatch: ["/users"] },
   { label: "Sucursales", to: "/branches", roles: "management", activeMatch: ["/branches", "/retail/admin/branches", "/health/admin/branches"] },
   { label: "Perfil", to: "/profile", roles: "profile", activeMatch: ["/profile", "/retail/admin/profile", "/health/admin/profile", "/health/doctor/profile"] }
@@ -211,22 +211,22 @@ function isPharmacyPos(posType?: string | null) {
 export function getSidebarSectionsForVertical(posType?: string | null, role?: string | null, canShowCreditCollections = true): SidebarMenuSection[] {
   const vertical = resolveBusinessVertical(posType);
   const healthAccessoriesProductChildren: SidebarMenuItem[] = [
-    { label: "Nuevo producto", to: "/health/products/accessories/new", roles: "management", activeMatch: ["/health/products/accessories/new"] },
+    { label: "Nuevo producto", to: "/health/products/accessories/new", roles: "gerente", activeMatch: ["/health/products/accessories/new"] },
     { label: "Productos", to: "/health/products/accessories", roles: "gerente", activeMatch: withAlias("/health/products/accessories", "/products") },
     { label: "Productos por reabastecer", to: "/health/products/accessories/restock", roles: "sales", activeMatch: ["/health/products/accessories/restock"] }
   ];
   const healthMedicationProductChildren: SidebarMenuItem[] = [
-    { label: "Nuevo producto", to: "/health/products/medications/new", roles: "management", activeMatch: ["/health/products/medications/new"] },
+    { label: "Nuevo producto", to: "/health/products/medications/new", roles: "gerente", activeMatch: ["/health/products/medications/new"] },
     { label: "Productos", to: "/health/products/medications", roles: "gerente", activeMatch: ["/health/products/medications"] },
     { label: "Productos por reabastecer", to: "/health/products/medications/restock", roles: "sales", activeMatch: ["/health/products/medications/restock"] }
   ];
   const healthUnifiedProductChildren: SidebarMenuItem[] = [
-    { label: "Nuevo producto", to: "/health/products/new", roles: "management", activeMatch: ["/health/products/new"] },
+    { label: "Nuevo producto", to: "/health/products/new", roles: "gerente", activeMatch: ["/health/products/new"] },
     { label: "Productos", to: "/health/products", roles: "gerente", activeMatch: ["/health/products"] },
     { label: "Productos por reabastecer", to: "/health/products/restock", roles: "sales", activeMatch: ["/health/products/restock"] }
   ];
   const retailProductChildren: SidebarMenuItem[] = [
-    { label: "Nuevo producto", to: "/retail/products/new", roles: "management", activeMatch: ["/retail/products/new"] },
+    { label: "Nuevo producto", to: "/retail/products/new", roles: "gerente", activeMatch: ["/retail/products/new"] },
     { label: "Productos", to: "/retail/products", roles: "gerente", activeMatch: withAlias("/retail/products", "/products") },
     { label: "Productos por reabastecer", to: "/retail/products/restock", roles: "sales", activeMatch: ["/retail/products/restock"] }
   ];

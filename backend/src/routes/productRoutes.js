@@ -19,8 +19,8 @@ router.post("/import/confirm", requireRole(["superusuario", "superadmin", "admin
 router.get("/:id", requireAuth, controller.idValidation, controller.getProductDetail);
 router.get("/:id/barcode.svg", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.getProductBarcode);
 router.post("/remate/bulk", requireRole(["superusuario", "superadmin", "admin"]), controller.bulkDiscountValidation, controller.applyBulkDiscount);
-router.post("/", requireRole(["superadmin", "admin", "cajero"]), controller.createValidation, controller.createProduct);
-router.put("/:id", requireRole(["superadmin", "admin"]), controller.idValidation, controller.updateValidation, controller.updateProduct);
+router.post("/", requireRole(["superadmin", "admin", "gerente", "cajero"]), controller.createValidation, controller.createProduct);
+router.put("/:id", requireRole(["superadmin", "admin", "gerente"]), controller.idValidation, controller.updateValidation, controller.updateProduct);
 router.post("/:id/image", requireRole(["superadmin", "admin"]), controller.idValidation, uploadProductImage, controller.uploadProductImage);
 router.delete("/:id/image", requireRole(["superadmin", "admin"]), controller.idValidation, controller.removeProductImage);
 router.patch("/:id/status", requireRole(["superadmin", "admin"]), controller.idValidation, controller.statusValidation, controller.updateProductStatus);

@@ -16,7 +16,9 @@
       "Bash(Select-Object -ExpandProperty Lines)",
       "Bash(node *)",
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
-      "Bash(grep -E \"\\\\.\\(js|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(js|ts\\)$\")",
+      "Bash(Select-String \"financ|expense|gasto\" -i)",
+      "Bash(Select-Object -First 30)"
     ]
   }
 }

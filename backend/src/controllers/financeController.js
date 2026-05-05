@@ -79,11 +79,13 @@ const updateFixedExpenseValidation = [
 ];
 
 const listExpenses = asyncHandler(async (req, res) => {
-  res.json(await financeService.listExpenses(req.user));
+  const branchId = req.user.branch_id ?? null;
+  res.json(await financeService.listExpenses(req.user, branchId));
 });
 
 const createExpense = asyncHandler(async (req, res) => {
-  res.status(201).json(await financeService.createExpense(req.body, req.user));
+  const branchId = req.user.branch_id ?? null;
+  res.status(201).json(await financeService.createExpense(req.body, req.user, branchId));
 });
 
 const updateExpense = asyncHandler(async (req, res) => {
@@ -111,7 +113,8 @@ const listFixedExpenses = asyncHandler(async (req, res) => {
 });
 
 const createFixedExpense = asyncHandler(async (req, res) => {
-  res.status(201).json(await financeService.createFixedExpense(req.body, req.user));
+  const branchId = req.user.branch_id ?? null;
+  res.status(201).json(await financeService.createFixedExpense(req.body, req.user, branchId));
 });
 
 const updateFixedExpense = asyncHandler(async (req, res) => {
