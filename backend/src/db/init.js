@@ -1525,15 +1525,17 @@ async function ensureConstraints(client) {
         WHEN role IS NULL THEN 'cajero'
         WHEN LOWER(role) IN ('superusuario', 'superadmin') THEN 'superusuario'
         WHEN LOWER(role) = 'admin' THEN 'admin'
+        WHEN LOWER(role) = 'gerente' THEN 'gerente'
         WHEN LOWER(role) IN ('clinico', 'medico', 'veterinario') THEN 'clinico'
         WHEN LOWER(role) IN ('soporte', 'support') THEN 'soporte'
         ELSE 'cajero'
       END
       WHERE role IS NULL
-         OR LOWER(role) NOT IN ('superusuario', 'superadmin', 'admin', 'clinico', 'medico', 'veterinario', 'soporte', 'support', 'cajero', 'cashier', 'user')
+         OR LOWER(role) NOT IN ('superusuario', 'superadmin', 'admin', 'gerente', 'clinico', 'medico', 'veterinario', 'soporte', 'support', 'cajero', 'cashier', 'user')
          OR role <> CASE
            WHEN LOWER(role) IN ('superusuario', 'superadmin') THEN 'superusuario'
            WHEN LOWER(role) = 'admin' THEN 'admin'
+           WHEN LOWER(role) = 'gerente' THEN 'gerente'
            WHEN LOWER(role) IN ('clinico', 'medico', 'veterinario') THEN 'clinico'
            WHEN LOWER(role) IN ('soporte', 'support') THEN 'soporte'
            ELSE 'cajero'
