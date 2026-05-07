@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { OnboardingTour, type OnboardingTourHandle } from "../components/OnboardingTour";
 import { setStoredTheme } from "../services/storage";
 import type { CompanyProfile, DoctorProfile } from "../types";
 import { resolveUploadedAssetUrl } from "../utils/assets";
@@ -96,6 +97,7 @@ const sectionFields = {
 export function ProfilePage() {
   const { token, user, refreshUser } = useAuth();
   const isDoctor = normalizeRole(user?.role) === "clinico";
+  const tourRef = useRef<OnboardingTourHandle | null>(null);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
   const [formData, setFormData] = useState<ProfileFormState>(emptyForm);
@@ -438,7 +440,17 @@ export function ProfilePage() {
         <button className="button" disabled={savingSection === "general"} type="submit">
           {savingSection === "general" ? "Guardando..." : "Guardar información general"}
         </button>
+        {currentRole !== "superusuario" ? (
+          <button
+            className="button ghost"
+            onClick={() => tourRef.current?.startTour()}
+            type="button"
+          >
+            🎓 Ver tutorial de nuevo
+          </button>
+        ) : null}
       </form>
+      <OnboardingTour autoStart={false} ref={tourRef} />
 
       {/* HIDDEN: Transferencias y tarjeta — pending PCI DSS compliance
       <form className="panel grid-form" onSubmit={(event) => saveSection(event, "banking", {

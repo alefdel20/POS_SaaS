@@ -5,9 +5,9 @@ const { requireRole } = require("../middleware/authMiddleware");
 const router = express.Router();
 
 router.get("/export", requireRole(["superadmin", "superusuario", "admin"]), controller.exportValidation, controller.exportDailyCuts);
-router.get("/", requireRole(["superadmin", "superusuario", "admin", "cajero", "cashier"]), controller.listValidation, controller.listDailyCuts);
-router.get("/today", requireRole(["superadmin", "superusuario", "admin", "cajero", "cashier"]), controller.getTodayDailyCut);
-router.get("/manual", requireRole(["superadmin", "superusuario", "admin"]), controller.listValidation, controller.listManualCuts);
-router.post("/manual", requireRole(["superadmin", "superusuario", "admin", "cajero", "cashier"]), controller.manualCutValidation, controller.createManualCut);
+router.get("/", requireRole(["superadmin", "superusuario", "admin", "gerente", "cajero", "cashier"]), controller.listValidation, controller.listDailyCuts);
+router.get("/today", requireRole(["superadmin", "superusuario", "admin", "gerente", "cajero", "cashier"]), controller.getTodayDailyCut);
+router.get("/manual", requireRole(["superadmin", "superusuario", "admin", "gerente"]), controller.listValidation, controller.listManualCuts);
+router.post("/manual", requireRole(["superadmin", "superusuario", "admin", "gerente", "cajero", "cashier"]), controller.manualCutValidation, controller.createManualCut);
 
 module.exports = router;

@@ -79,29 +79,30 @@ async function syncFinancialMovementReminder({ type, row, actor, client }) {
   return null;
 }
 
-async function listExpenses(actor) {
+async function listExpenses(actor, branchId = null) {
   const businessId = requireActorBusinessId(actor);
+  const hasBranch = branchId != null;
   const { rows } = await pool.query(
     `SELECT id, concept, category, amount, date, notes, payment_method, fixed_expense_id, is_voided, void_reason, movement_type, metadata, created_at, updated_at
      FROM expenses
-     WHERE business_id = $1
+     WHERE business_id = $1${hasBranch ? " AND (branch_id = $2 OR branch_id IS NULL)" : ""}
      ORDER BY date DESC, id DESC`,
-    [businessId]
+    hasBranch ? [businessId, branchId] : [businessId]
   );
   return rows.map(mapExpense);
 }
 
-async function createExpense(payload, actor) {
+async function createExpense(payload, actor, branchId = null) {
   const businessId = requireActorBusinessId(actor);
   const expenseDate = normalizeBusinessDate(payload.date, getMexicoCityDate());
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
-      `INSERT INTO expenses (business_id, concept, category, amount, date, notes, payment_method, fixed_expense_id, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO expenses (business_id, concept, category, amount, date, notes, payment_method, fixed_expense_id, updated_by, branch_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [businessId, payload.concept, payload.category || "General", payload.amount, expenseDate, payload.notes || "", payload.payment_method || "cash", payload.fixed_expense_id || null, actor.id]
+      [businessId, payload.concept, payload.category || "General", payload.amount, expenseDate, payload.notes || "", payload.payment_method || "cash", payload.fixed_expense_id || null, actor.id, branchId]
     );
     await syncFinancialMovementReminder({ type: "expenses", row: rows[0], actor, client });
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "create_expense", entidad_tipo: "expense", entidad_id: rows[0].id, detalle_nuevo: { entity: "expense", entity_id: rows[0].id, snapshot: mapExpense(rows[0]), version: 1 }, motivo: payload.notes || "", metadata: {} }, { client });
@@ -271,17 +272,17 @@ async function listFixedExpenses(actor) {
   return rows.map(mapFixedExpense);
 }
 
-async function createFixedExpense(payload, actor) {
+async function createFixedExpense(payload, actor, branchId = null) {
   const businessId = requireActorBusinessId(actor);
   const baseDate = normalizeBusinessDate(payload.base_date || payload.date, getMexicoCityDate());
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
-      `INSERT INTO fixed_expenses (business_id, name, category, default_amount, frequency, payment_method, due_day, base_date, notes, created_by, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+      `INSERT INTO fixed_expenses (business_id, name, category, default_amount, frequency, payment_method, due_day, base_date, notes, created_by, updated_by, branch_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11)
        RETURNING *`,
-      [businessId, payload.name, payload.category || "General", payload.default_amount || 0, normalizeFrequency(payload.frequency), payload.payment_method || "cash", payload.due_day || null, baseDate, payload.notes || "", actor.id]
+      [businessId, payload.name, payload.category || "General", payload.default_amount || 0, normalizeFrequency(payload.frequency), payload.payment_method || "cash", payload.due_day || null, baseDate, payload.notes || "", actor.id, branchId]
     );
     await syncFinancialMovementReminder({ type: "fixed_expenses", row: rows[0], actor, client });
     await saveAuditLog({ business_id: businessId, usuario_id: actor.id, modulo: "finances", accion: "create_fixed_expense", entidad_tipo: "fixed_expense", entidad_id: rows[0].id, detalle_nuevo: { entity: "fixed_expense", entity_id: rows[0].id, snapshot: mapFixedExpense(rows[0]), version: 1 }, motivo: payload.notes || "", metadata: {} }, { client });

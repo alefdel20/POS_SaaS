@@ -2,11 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Header } from "../components/Header";
 import { Sidebar } from "../components/Sidebar";
+import { OnboardingTour, type OnboardingTourHandle } from "../components/OnboardingTour";
+import { useAuth } from "../context/AuthContext";
 
 export function AppLayout() {
+  const { user } = useAuth();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const menuToggleRef = useRef<HTMLButtonElement | null>(null);
+  const tourRef = useRef<OnboardingTourHandle | null>(null);
+  const shouldAutoStart = Boolean(user && user.tutorial_seen === false);
 
   const releaseSidebarFocus = useCallback(() => {
     const sidebar = document.getElementById("app-sidebar");
@@ -88,6 +93,7 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+      {user ? <OnboardingTour autoStart={shouldAutoStart} ref={tourRef} /> : null}
     </div>
   );
 }

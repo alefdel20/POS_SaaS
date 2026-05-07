@@ -112,6 +112,7 @@ async function ensureSchema(client) {
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_activated_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_deactivated_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_updated_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS tutorial_seen BOOLEAN NOT NULL DEFAULT FALSE",
 
     "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(40)",
@@ -934,6 +935,7 @@ async function ensureSchema(client) {
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
+    "ALTER TABLE fixed_expenses ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
     "ALTER TABLE daily_cuts ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",
 
     // === BRANCHES: migración — crea sucursal default para cada negocio existente ===
@@ -1499,7 +1501,7 @@ async function ensureConstraints(client) {
       END IF;
 
       ALTER TABLE users
-      ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'clinico', 'cajero', 'soporte'));
+      ADD CONSTRAINT users_role_check CHECK (role IN ('superusuario', 'admin', 'gerente', 'clinico', 'cajero', 'soporte'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$;
     `
@@ -1524,15 +1526,17 @@ async function ensureConstraints(client) {
         WHEN role IS NULL THEN 'cajero'
         WHEN LOWER(role) IN ('superusuario', 'superadmin') THEN 'superusuario'
         WHEN LOWER(role) = 'admin' THEN 'admin'
+        WHEN LOWER(role) = 'gerente' THEN 'gerente'
         WHEN LOWER(role) IN ('clinico', 'medico', 'veterinario') THEN 'clinico'
         WHEN LOWER(role) IN ('soporte', 'support') THEN 'soporte'
         ELSE 'cajero'
       END
       WHERE role IS NULL
-         OR LOWER(role) NOT IN ('superusuario', 'superadmin', 'admin', 'clinico', 'medico', 'veterinario', 'soporte', 'support', 'cajero', 'cashier', 'user')
+         OR LOWER(role) NOT IN ('superusuario', 'superadmin', 'admin', 'gerente', 'clinico', 'medico', 'veterinario', 'soporte', 'support', 'cajero', 'cashier', 'user')
          OR role <> CASE
            WHEN LOWER(role) IN ('superusuario', 'superadmin') THEN 'superusuario'
            WHEN LOWER(role) = 'admin' THEN 'admin'
+           WHEN LOWER(role) = 'gerente' THEN 'gerente'
            WHEN LOWER(role) IN ('clinico', 'medico', 'veterinario') THEN 'clinico'
            WHEN LOWER(role) IN ('soporte', 'support') THEN 'soporte'
            ELSE 'cajero'

@@ -16,7 +16,17 @@
       "Bash(Select-Object -ExpandProperty Lines)",
       "Bash(node *)",
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
-      "Bash(grep -E \"\\\\.\\(js|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(js|ts\\)$\")",
+      "Bash(Select-String \"financ|expense|gasto\" -i)",
+      "Bash(Select-Object -First 30)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\ankode 2\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(profile)",
+      "Bash(onboard\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\frontend\\\\src\\\\pages\" -File)",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

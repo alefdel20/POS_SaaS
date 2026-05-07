@@ -54,6 +54,35 @@ function toDomId(value: string) {
   return `sidebar-${value.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 }
 
+const TOUR_ROUTE_MAP: Record<string, string> = {
+  "/sales": "nav-sales",
+  "/retail/sales": "nav-sales",
+  "/health/sales": "nav-sales",
+  "/health/sales/accessories": "nav-sales",
+  "/health/sales/medications": "nav-sales",
+  "/products": "nav-products",
+  "/retail/products": "nav-products",
+  "/health/products/accessories": "nav-products",
+  "/health/products/medications": "nav-products",
+  "/health/products": "nav-products",
+  "/finances": "nav-finances",
+  "/retail/admin/finances": "nav-finances",
+  "/health/admin/finances": "nav-finances",
+  "/patients": "nav-patients",
+  "/health/patients": "nav-patients",
+  "/medical-appointments": "nav-appointments",
+  "/health/appointments/medica": "nav-appointments",
+  "/health/appointments/estetica": "nav-appointments",
+  "/restaurant/map": "nav-restaurant-map",
+  "/daily-cut": "nav-daily-cut",
+  "/retail/admin/daily-cut": "nav-daily-cut",
+  "/health/admin/daily-cut": "nav-daily-cut"
+};
+
+function getTourId(to?: string): string | undefined {
+  return to ? TOUR_ROUTE_MAP[to] : undefined;
+}
+
 function canOpenInNewTab(item: SidebarMenuItem) {
   return item.to ? NEW_TAB_ALLOWED_ROUTES.has(item.to) : false;
 }
@@ -148,11 +177,13 @@ function SidebarBranch({
   };
 
   if (hasContextMenu) {
+    const tourId = getTourId(item.to);
     return (
       <div className={`nav-link-with-menu nav-link-level-${level}`}>
         <NavLink
           to={item.to}
           className={() => `nav-link ${isActive ? "active" : ""}`}
+          data-tour={tourId}
           end
           onClick={handleLinkClick}
         >
@@ -203,6 +234,7 @@ function SidebarBranch({
     <NavLink
       to={item.to}
       className={() => `nav-link nav-link-level-${level} ${isActive ? "active" : ""}`}
+      data-tour={getTourId(item.to)}
       end
       onClick={handleLinkClick}
     >
@@ -331,6 +363,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     <aside
       aria-hidden={!isOpen}
       className={`sidebar ${isOpen ? "open" : ""}`}
+      data-tour="sidebar"
       id="app-sidebar"
       onClick={handleSidebarClick}
     >

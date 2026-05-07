@@ -10,6 +10,7 @@ export interface User {
   role: Role;
   business_id?: number;
   branch_id?: number | null;
+  branch_name?: string | null;
   business_name?: string;
   business_slug?: string;
   business_pos_type?: PosType;
@@ -25,6 +26,7 @@ export interface User {
   is_active: boolean;
   must_change_password?: boolean;
   support_mode_active?: boolean;
+  tutorial_seen?: boolean;
   support_session_id?: number;
   support_context?: {
     session_id: number;

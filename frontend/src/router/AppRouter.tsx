@@ -58,7 +58,7 @@ export function AppRouter() {
               <Route path="/health/sales/accessories" element={<SalesPage />} />
               <Route path="/health/sales/medications" element={<SalesPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "cajero"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} />}>
               <Route path="/products/restock" element={<ProductsPage />} />
               <Route path="/products/restock/history" element={<RestockHistoryPage />} />
               <Route path="/retail/products/restock" element={<ProductsPage />} />
@@ -66,11 +66,11 @@ export function AppRouter() {
               <Route path="/health/products/accessories/restock" element={<ProductsPage />} />
               <Route path="/health/products/accessories/restock/history" element={<RestockHistoryPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "cajero"]} posTypes={["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} posTypes={["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]} />}>
               <Route path="/health/products/medications/restock" element={<ProductsPage />} />
               <Route path="/health/products/medications/restock/history" element={<RestockHistoryPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management]} posTypes={["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.gerente]} posTypes={["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]} />}>
               <Route path="/health/products/medications" element={<ProductsPage />} />
               <Route path="/health/products/medications/new" element={<ProductsPage />} />
             </Route>
@@ -98,19 +98,19 @@ export function AppRouter() {
               <Route path="/retail/admin/daily-cut" element={<DailyCutPage />} />
               <Route path="/health/admin/daily-cut" element={<DailyCutPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.clinical]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.clinical, ...ROUTE_ROLES.gerente]} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/retail/admin/summary" element={<DashboardPage />} />
               <Route path="/health/admin/summary" element={<DashboardPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "cajero"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} />}>
               <Route path="/health/products/restock" element={<ProductsPage />} />
               <Route path="/health/products/restock/history" element={<RestockHistoryPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.sales, ...ROUTE_ROLES.management]} />}>
               <Route path="/health/sales" element={<SalesPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "clinico"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.clinical, ...ROUTE_ROLES.gerente]} />}>
               <Route path="/health/products" element={<ProductsPage />} />
               <Route path="/health/products/new" element={<ProductsPage />} />
               <Route path="/health/suppliers" element={<SuppliersPage />} />
@@ -120,7 +120,7 @@ export function AppRouter() {
               <Route path="/retail/admin/approvals" element={<ProductUpdateRequestsPage />} />
               <Route path="/health/admin/approvals" element={<ProductUpdateRequestsPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "clinico"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.clinical, ...ROUTE_ROLES.gerente]} />}>
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/retail/admin/profile" element={<ProfilePage />} />
               <Route path="/health/admin/profile" element={<ProfilePage />} />

@@ -40,6 +40,7 @@ const productUpdateRequestRoutes = require("./routes/productUpdateRequestRoutes"
 const openPayRoutes = require("./routes/openPayRoutes");
 const restaurantRoutes = require("./routes/restaurantRoutes");
 const branchRoutes = require("./routes/branchRoutes");
+const tutorialRoutes = require("./routes/tutorialRoutes");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -102,7 +103,8 @@ const routes = [
   { path: "/medical-prescriptions", router: medicalPrescriptionRoutes, auth: true },
   { path: "/medical-preventive-events", router: medicalPreventiveEventRoutes, auth: true },
   { path: "/restaurant", router: restaurantRoutes, auth: true },
-  { path: "/branches", router: branchRoutes, auth: true }
+  { path: "/branches", router: branchRoutes, auth: true },
+  { path: "/users", router: tutorialRoutes, auth: true }
 ];
 
 routes.forEach((route) => {

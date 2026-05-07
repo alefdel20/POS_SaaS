@@ -5,7 +5,7 @@ const { uploadProfileAsset } = require("../middleware/profileAssetUpload");
 
 const router = express.Router();
 
-router.get("/", requireRole(["superusuario", "superadmin", "admin", "cajero", "cashier", "user"]), controller.getProfile);
+router.get("/", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero", "cashier", "user"]), controller.getProfile);
 router.get("/doctor", requireRole(["superusuario", "superadmin", "admin", "clinico"]), controller.getDoctorProfile);
 router.put("/general", requireRole(["superusuario", "superadmin", "admin"]), controller.generalValidation, controller.updateGeneral);
 router.put("/doctor", requireRole(["superusuario", "superadmin", "admin", "clinico"]), controller.doctorValidation, controller.updateDoctorProfile);

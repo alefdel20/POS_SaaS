@@ -14,6 +14,7 @@ interface AuthContextValue {
   logout: () => void;
   refreshUser: () => Promise<void>;
   setSession: (response: AuthResponse) => void;
+  markTutorialSeen: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -115,8 +116,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     applySession(null, null);
   }
 
+  async function markTutorialSeen() {
+    if (!token) return;
+    await apiRequest("/users/tutorial-seen", { method: "PATCH", token });
+    setUser((current) => current ? { ...current, tutorial_seen: true } : current);
+  }
+
   return (
-    <AuthContext.Provider value={{ token, user, loading, activeBranchId, setActiveBranchId, login, registerBusiness, logout, refreshUser, setSession: (response) => applySession(response.token, normalizeSessionUser(response)) }}>
+    <AuthContext.Provider value={{ token, user, loading, activeBranchId, setActiveBranchId, login, registerBusiness, logout, refreshUser, setSession: (response) => applySession(response.token, normalizeSessionUser(response)), markTutorialSeen }}>
       {children}
     </AuthContext.Provider>
   );

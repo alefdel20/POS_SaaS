@@ -103,13 +103,13 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderPro
             <span aria-hidden="true" className="menu-toggle-icon">☰</span>
             <span>Menú</span>
           </button>
-          <div className="header-brand-block">
+          <div className="header-brand-block" data-tour="user-menu">
             <p className="header-title">{headerTitle}</p>
             <p className="header-subtitle">
               {user?.full_name} | {getRoleLabel(user?.role)}{user?.business_name ? ` | ${user.business_name}` : ""}
             </p>
           </div>
-          {user && <BranchSelector />}
+          {user && <span data-tour="branch-selector"><BranchSelector /></span>}
         </div>
         <button className="button ghost" onClick={logout}>
           Cerrar sesion
