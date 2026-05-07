@@ -349,9 +349,9 @@ export function ProfilePage() {
             <p>Proximo pago del servicio: <strong>{profile.subscription?.next_payment_date || "Sin configurar"}</strong></p>
             <p>Estado de suscripcion: <strong>{profile.subscription?.is_configured ? profile.subscription.subscription_status : "Sin configurar"}</strong></p>
             {profile.stamp_alert_active ? <p className="error-text">El negocio esta en umbral de alerta de timbres.</p> : null}
-            {(() => { console.log('[CANCEL-BTN]', { currentRole, sub: profile.subscription }); return null; })()}
             {currentRole === "admin"
               && profile.subscription?.is_configured === true
+              && profile.subscription?.openpay_subscription_id
               && profile.subscription.subscription_status !== "cancelled" ? (
               <button
                 className="button ghost"
