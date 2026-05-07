@@ -11,6 +11,7 @@ const USER_ROLE_ALIASES: Record<string, typeof USER_ROLES[number]> = {
   superusuario: "superusuario",
   superadmin: "superusuario",
   admin: "admin",
+  administrador: "admin",
   gerente: "gerente",
   clinico: "clinico",
   medico: "clinico",
