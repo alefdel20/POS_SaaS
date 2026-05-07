@@ -80,6 +80,12 @@ export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourPro
     const { user, markTutorialSeen } = useAuth();
     const driverRef = useRef<ReturnType<typeof driver> | null>(null);
 
+    function teardownTour() {
+      markTutorialSeen().catch(() => {});
+      driverRef.current?.destroy();
+      closeSidebar();
+    }
+
     function buildDriver(posType: string, hasBranch: boolean) {
       const steps = getTutorialSteps(posType, hasBranch);
 
@@ -94,15 +100,28 @@ export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourPro
           element: step.element,
           popover: step.popover
         } as DriveStep)),
-        onHighlightStarted: () => {
+        onNextClick: () => {
           const idx = driverRef.current?.getActiveIndex() ?? 0;
-          syncSidebarForStep(idx, steps).catch(() => {});
+          const nextIdx = idx + 1;
+          if (nextIdx >= steps.length) {
+            teardownTour();
+            return;
+          }
+          syncSidebarForStep(nextIdx, steps)
+            .then(() => { driverRef.current?.moveNext(); })
+            .catch(() => { driverRef.current?.moveNext(); });
+        },
+        onPrevClick: () => {
+          const idx = driverRef.current?.getActiveIndex() ?? 0;
+          const prevIdx = idx - 1;
+          if (prevIdx < 0) return;
+          syncSidebarForStep(prevIdx, steps)
+            .then(() => { driverRef.current?.movePrevious(); })
+            .catch(() => { driverRef.current?.movePrevious(); });
         },
         onDestroyStarted: () => {
-          markTutorialSeen().catch(() => {});
-          driverRef.current?.destroy();
-          closeSidebar();
-        }
+          teardownTour();
+        },
       });
     }
 

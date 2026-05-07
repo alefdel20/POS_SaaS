@@ -172,6 +172,7 @@ function mapBusinessSubscription(row, today = getMexicoCityDate()) {
     manual_adjustment_reason: row.manual_adjustment_reason || "",
     last_payment_date: row.last_payment_date || null,
     last_payment_note: row.last_payment_note || "",
+    openpay_subscription_id: row.openpay_subscription_id || null,
     created_at: row.created_at,
     updated_at: row.updated_at,
     ...derived
