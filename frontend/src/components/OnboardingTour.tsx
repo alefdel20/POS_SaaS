@@ -5,12 +5,31 @@ import { useAuth } from "../context/AuthContext";
 import { getTutorialSteps } from "../utils/tutorialSteps";
 
 export type OnboardingTourHandle = {
-  startTour: () => void;
+  startTour: () => Promise<void>;
 };
 
 type OnboardingTourProps = {
   autoStart: boolean;
 };
+
+function openSidebar(): Promise<void> {
+  return new Promise((resolve) => {
+    const sidebar = document.getElementById("app-sidebar");
+    if (sidebar && !sidebar.classList.contains("open")) {
+      const toggle = document.querySelector<HTMLButtonElement>(".menu-toggle");
+      toggle?.click();
+    }
+    setTimeout(resolve, 400);
+  });
+}
+
+function closeSidebar() {
+  const sidebar = document.getElementById("app-sidebar");
+  if (sidebar?.classList.contains("open")) {
+    const toggle = document.querySelector<HTMLButtonElement>(".menu-toggle");
+    toggle?.click();
+  }
+}
 
 export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourProps>(
   function OnboardingTour({ autoStart }, ref) {
@@ -34,14 +53,16 @@ export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourPro
         onDestroyStarted: () => {
           markTutorialSeen().catch(() => {});
           driverRef.current?.destroy();
+          closeSidebar();
         }
       });
     }
 
-    function startTour() {
+    async function startTour() {
       if (driverRef.current) {
         driverRef.current.destroy();
       }
+      await openSidebar();
       const d = buildDriver();
       driverRef.current = d;
       d.drive();
@@ -53,12 +74,13 @@ export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourPro
       if (!autoStart) return;
 
       const timer = setTimeout(() => {
-        startTour();
+        startTour().catch(() => {});
       }, 800);
 
       return () => {
         clearTimeout(timer);
         driverRef.current?.destroy();
+        closeSidebar();
       };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [autoStart]);
