@@ -12,6 +12,10 @@ type OnboardingTourProps = {
   autoStart: boolean;
 };
 
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 function openSidebar(): Promise<void> {
   return new Promise((resolve) => {
     const sidebar = document.getElementById("app-sidebar");
@@ -31,13 +35,25 @@ function closeSidebar() {
   }
 }
 
+async function syncSidebarForStep(stepIndex: number, posType: string) {
+  const steps = getTutorialSteps(posType);
+  const step = steps[stepIndex];
+  if (!step) return;
+  if (step.requiresSidebar) {
+    await openSidebar();
+  } else {
+    closeSidebar();
+    await delay(200);
+  }
+}
+
 export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourProps>(
   function OnboardingTour({ autoStart }, ref) {
     const { user, markTutorialSeen } = useAuth();
     const driverRef = useRef<ReturnType<typeof driver> | null>(null);
 
-    function buildDriver() {
-      const steps = getTutorialSteps(user?.pos_type);
+    function buildDriver(posType: string) {
+      const steps = getTutorialSteps(posType);
 
       return driver({
         showProgress: true,
@@ -50,6 +66,10 @@ export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourPro
           element: step.element,
           popover: step.popover
         } as DriveStep)),
+        onHighlightStarted: () => {
+          const idx = driverRef.current?.getActiveIndex() ?? 0;
+          syncSidebarForStep(idx, posType).catch(() => {});
+        },
         onDestroyStarted: () => {
           markTutorialSeen().catch(() => {});
           driverRef.current?.destroy();
@@ -62,9 +82,10 @@ export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourPro
       if (driverRef.current) {
         driverRef.current.destroy();
       }
-      await openSidebar();
-      const d = buildDriver();
+      const posType = user?.pos_type ?? "";
+      const d = buildDriver(posType);
       driverRef.current = d;
+      await syncSidebarForStep(0, posType);
       d.drive();
     }
 
