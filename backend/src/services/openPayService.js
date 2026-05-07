@@ -88,11 +88,16 @@ async function createCustomer(businessId, name, email) {
     return rows[0].openpay_customer_id;
   }
 
-  const result = await openpayRequest("POST", "/customers", {
-    name: String(name || "").trim(),
-    email: String(email || "").trim(),
-    requires_account: false
-  });
+  // DEBUG TEMP — remove after diagnosis
+  const _debugUrl = getBaseUrl();
+  const _debugAuth = getAuthHeader();
+  const _debugBody = { name: String(name || "").trim(), email: String(email || "").trim(), requires_account: false };
+  console.log("[OPENPAY-DEBUG] createCustomer POST /customers");
+  console.log("[OPENPAY-DEBUG] URL:", _debugUrl + "/customers");
+  console.log("[OPENPAY-DEBUG] Auth (first 20 chars):", _debugAuth.slice(0, 20));
+  console.log("[OPENPAY-DEBUG] Body:", JSON.stringify(_debugBody));
+
+  const result = await openpayRequest("POST", "/customers", _debugBody);
 
   await pool.query(
     `UPDATE business_subscriptions
