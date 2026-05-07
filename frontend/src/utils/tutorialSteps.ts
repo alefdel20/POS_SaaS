@@ -8,23 +8,30 @@ const RETAIL_POS_TYPES = new Set(["Tienda", "Tlapaleria", "Papeleria", "Otro"]);
 const SALUD_POS_TYPES = new Set(["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"]);
 const RESTAURANTE_POS_TYPES = new Set(["Restaurante"]);
 
-const commonSteps: TutorialStep[] = [
-  {
-    element: '[data-tour="sidebar"]',
-    popover: { title: "Navegación principal", description: "Aquí encuentras todos los módulos de tu negocio.", side: "right" },
-    requiresSidebar: false
-  },
-  {
-    element: '[data-tour="user-menu"]',
-    popover: { title: "Tu perfil", description: "Configura tu cuenta, tema visual y preferencias.", side: "bottom" },
-    requiresSidebar: false
-  },
-  {
-    element: '[data-tour="branch-selector"]',
-    popover: { title: "Sucursal activa", description: "Siempre verás en qué sucursal estás operando.", side: "bottom" },
-    requiresSidebar: false
+export function getCommonSteps(hasBranch: boolean): TutorialStep[] {
+  const steps: TutorialStep[] = [
+    {
+      element: '[data-tour="sidebar"]',
+      popover: { title: "Navegación principal", description: "Aquí encuentras todos los módulos de tu negocio.", side: "right" },
+      requiresSidebar: true
+    },
+    {
+      element: '[data-tour="user-menu"]',
+      popover: { title: "Tu perfil", description: "Configura tu cuenta, tema visual y preferencias.", side: "bottom" },
+      requiresSidebar: false
+    }
+  ];
+
+  if (hasBranch) {
+    steps.push({
+      element: '[data-tour="branch-selector"]',
+      popover: { title: "Sucursal activa", description: "Siempre verás en qué sucursal estás operando.", side: "bottom" },
+      requiresSidebar: false
+    });
   }
-];
+
+  return steps;
+}
 
 const retailSteps: TutorialStep[] = [
   {
@@ -98,7 +105,7 @@ const restauranteSteps: TutorialStep[] = [
   }
 ];
 
-export function getTutorialSteps(posType?: string): TutorialStep[] {
+export function getTutorialSteps(posType?: string, hasBranch = false): TutorialStep[] {
   let groupSteps: TutorialStep[];
 
   if (posType && SALUD_POS_TYPES.has(posType)) {
@@ -107,11 +114,9 @@ export function getTutorialSteps(posType?: string): TutorialStep[] {
     groupSteps = restauranteSteps;
   } else if (posType === "Farmacia") {
     groupSteps = farmaciaSteps;
-  } else if (!posType || RETAIL_POS_TYPES.has(posType)) {
-    groupSteps = retailSteps;
   } else {
     groupSteps = retailSteps;
   }
 
-  return [...commonSteps, ...groupSteps];
+  return [...getCommonSteps(hasBranch), ...groupSteps];
 }

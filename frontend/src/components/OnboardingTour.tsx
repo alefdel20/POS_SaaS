@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { driver, type DriveStep } from "driver.js";
 import "driver.js/dist/driver.css";
 import { useAuth } from "../context/AuthContext";
-import { getTutorialSteps } from "../utils/tutorialSteps";
+import { getTutorialSteps, type TutorialStep } from "../utils/tutorialSteps";
 
 export type OnboardingTourHandle = {
   startTour: () => Promise<void>;
@@ -35,8 +35,7 @@ function closeSidebar() {
   }
 }
 
-async function syncSidebarForStep(stepIndex: number, posType: string) {
-  const steps = getTutorialSteps(posType);
+async function syncSidebarForStep(stepIndex: number, steps: TutorialStep[]) {
   const step = steps[stepIndex];
   if (!step) return;
   if (step.requiresSidebar) {
@@ -52,8 +51,8 @@ export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourPro
     const { user, markTutorialSeen } = useAuth();
     const driverRef = useRef<ReturnType<typeof driver> | null>(null);
 
-    function buildDriver(posType: string) {
-      const steps = getTutorialSteps(posType);
+    function buildDriver(posType: string, hasBranch: boolean) {
+      const steps = getTutorialSteps(posType, hasBranch);
 
       return driver({
         showProgress: true,
@@ -68,7 +67,7 @@ export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourPro
         } as DriveStep)),
         onHighlightStarted: () => {
           const idx = driverRef.current?.getActiveIndex() ?? 0;
-          syncSidebarForStep(idx, posType).catch(() => {});
+          syncSidebarForStep(idx, steps).catch(() => {});
         },
         onDestroyStarted: () => {
           markTutorialSeen().catch(() => {});
@@ -83,9 +82,11 @@ export const OnboardingTour = forwardRef<OnboardingTourHandle, OnboardingTourPro
         driverRef.current.destroy();
       }
       const posType = user?.pos_type ?? "";
-      const d = buildDriver(posType);
+      const hasBranch = Boolean(user?.branch_id);
+      const d = buildDriver(posType, hasBranch);
       driverRef.current = d;
-      await syncSidebarForStep(0, posType);
+      const steps = getTutorialSteps(posType, hasBranch);
+      await syncSidebarForStep(0, steps);
       d.drive();
     }
 

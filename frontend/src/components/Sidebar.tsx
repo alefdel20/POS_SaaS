@@ -83,6 +83,18 @@ function getTourId(to?: string): string | undefined {
   return to ? TOUR_ROUTE_MAP[to] : undefined;
 }
 
+const LABEL_OVERRIDES: Record<string, string> = {
+  "/products": "Inventario",
+  "/retail/products": "Inventario",
+  "/health/products": "Inventario",
+  "/health/products/accessories": "Inventario",
+  "/health/products/medications": "Inventario"
+};
+
+function getDisplayLabel(item: SidebarMenuItem): string {
+  return (item.to && LABEL_OVERRIDES[item.to]) || item.label;
+}
+
 function canOpenInNewTab(item: SidebarMenuItem) {
   return item.to ? NEW_TAB_ALLOWED_ROUTES.has(item.to) : false;
 }
@@ -187,7 +199,7 @@ function SidebarBranch({
           end
           onClick={handleLinkClick}
         >
-          <span>{item.label}</span>
+          <span>{getDisplayLabel(item)}</span>
           {badgeValue > 0 ? <span className="status-badge">{badgeValue}</span> : null}
         </NavLink>
         <div className="nav-link-menu-wrap" data-context-menu="true">
@@ -238,7 +250,7 @@ function SidebarBranch({
       end
       onClick={handleLinkClick}
     >
-      <span>{item.label}</span>
+      <span>{getDisplayLabel(item)}</span>
       {badgeValue > 0 ? <span className="status-badge">{badgeValue}</span> : null}
     </NavLink>
   );
