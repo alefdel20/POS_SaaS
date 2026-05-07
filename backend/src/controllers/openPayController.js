@@ -554,7 +554,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   } = req.body;
 
   const businessId = parseInt(req.body.businessId) || null;
-  const amount = parseFloat(req.body.amount) || 0;
+  const amount = 10; // TEMP TEST — regresar a amount original después de prueba: parseFloat(req.body.amount) || 0
 
   // ---------------------------------------------------------------------------
   // SPEI path — generate a bank_account charge and return the CLABE
@@ -678,8 +678,8 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
       [customerId, orderId]
     );
 
-    // 4. Always create a new plan (no existing business_subscriptions to check)
-    const planId = await openPayService.createPlan(normalized, amount);
+    // 4. Use production plan (no existing business_subscriptions to check)
+    const planId = process.env.OPENPAY_PLAN_ID || "p1avqjjaindjotrlfmg8"; // PROD PLAN ID — Basico $10 prueba
 
     // 5. Create OpenPay subscription — card token linked to the recurring plan
     const subscriptionId = await openPayService.createSubscription(customerId, planId, cardToken);
@@ -721,10 +721,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     [Number(businessId)]
   );
 
-  let planId = subRows[0]?.openpay_plan_id || null;
-  if (!planId) {
-    planId = await openPayService.createPlan(normalized, amount);
-  }
+  let planId = subRows[0]?.openpay_plan_id || process.env.OPENPAY_PLAN_ID || "p1avqjjaindjotrlfmg8"; // PROD PLAN ID — Basico $10 prueba
 
   // 3. Create OpenPay subscription — links the card token to the recurring plan
   const subscriptionId = await openPayService.createSubscription(customerId, planId, cardToken);

@@ -451,15 +451,13 @@ export function ProfilePage() {
         <button className="button" disabled={savingSection === "general"} type="submit">
           {savingSection === "general" ? "Guardando..." : "Guardar información general"}
         </button>
-        {currentRole !== "superusuario" ? (
-          <button
-            className="button ghost"
-            onClick={() => tourRef.current?.startTour()}
-            type="button"
-          >
-            🎓 Ver tutorial de nuevo
-          </button>
-        ) : null}
+        <button
+          className="button ghost"
+          onClick={() => tourRef.current?.startTour()}
+          type="button"
+        >
+          🎓 Ver tutorial de nuevo
+        </button>
       </form>
       <OnboardingTour autoStart={false} ref={tourRef} />
       {showCancelModal ? (

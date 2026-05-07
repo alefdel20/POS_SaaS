@@ -26,7 +26,8 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\frontend\\\\src\\\\pages\" -File)",
       "Bash(Select-Object -ExpandProperty Name)",
       "Bash(npm install *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "PowerShell(cmd /c \"dir C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\")"
     ]
   }
 }

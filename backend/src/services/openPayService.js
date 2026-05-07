@@ -8,6 +8,9 @@ const ApiError = require("../utils/ApiError");
 // ---------------------------------------------------------------------------
 
 function getBaseUrl() {
+  console.log("[OPENPAY-ENV] OPENPAY_SANDBOX:", process.env.OPENPAY_SANDBOX);
+  console.log("[OPENPAY-ENV] OPENPAY_MERCHANT_ID:", process.env.OPENPAY_MERCHANT_ID);
+  console.log("[OPENPAY-ENV] OPENPAY_PRIVATE_KEY prefix:", (process.env.OPENPAY_PRIVATE_KEY || "").slice(0, 10));
   const isSandbox = process.env.OPENPAY_SANDBOX === "true";
   const merchantId = process.env.OPENPAY_MERCHANT_ID || "";
   const host = isSandbox
@@ -39,7 +42,8 @@ function openpayRequest(method, path, body) {
         "Content-Type": "application/json",
         "Accept": "application/json",
         ...(bodyData ? { "Content-Length": Buffer.byteLength(bodyData) } : {})
-      }
+      },
+      family: 4
     };
 
     const req = https.request(options, (res) => {
@@ -88,11 +92,16 @@ async function createCustomer(businessId, name, email) {
     return rows[0].openpay_customer_id;
   }
 
-  const result = await openpayRequest("POST", "/customers", {
-    name: String(name || "").trim(),
-    email: String(email || "").trim(),
-    requires_account: false
-  });
+  // DEBUG TEMP — remove after diagnosis
+  const _debugUrl = getBaseUrl();
+  const _debugAuth = getAuthHeader();
+  const _debugBody = { name: String(name || "").trim(), email: String(email || "").trim(), requires_account: false };
+  console.log("[OPENPAY-DEBUG] createCustomer POST /customers");
+  console.log("[OPENPAY-DEBUG] URL:", _debugUrl + "/customers");
+  console.log("[OPENPAY-DEBUG] Auth (first 20 chars):", _debugAuth.slice(0, 20));
+  console.log("[OPENPAY-DEBUG] Body:", JSON.stringify(_debugBody));
+
+  const result = await openpayRequest("POST", "/customers", _debugBody);
 
   await pool.query(
     `UPDATE business_subscriptions
