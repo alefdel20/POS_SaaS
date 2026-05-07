@@ -352,7 +352,6 @@ export function ProfilePage() {
             {(() => { console.log('[CANCEL-BTN]', { currentRole, sub: profile.subscription }); return null; })()}
             {currentRole === "admin"
               && profile.subscription?.is_configured === true
-              && profile.subscription?.openpay_subscription_id
               && profile.subscription.subscription_status !== "cancelled" ? (
               <button
                 className="button ghost"
