@@ -38,17 +38,26 @@ function closeSidebar() {
 function expandProductsMenu(): Promise<void> {
   return new Promise((resolve) => {
     const sidebar = document.getElementById("app-sidebar");
-    if (sidebar) {
-      const explicit = sidebar.querySelector<HTMLButtonElement>('[data-tour-expand="productos"]');
-      if (explicit && explicit.getAttribute("aria-expanded") === "false") {
-        explicit.click();
-      } else if (!explicit) {
-        // Fallback for pos types where the products group has a different label
-        sidebar.querySelectorAll<HTMLButtonElement>('.nav-tree-toggle[aria-expanded="false"]')
-          .forEach((t) => t.click());
+    if (!sidebar) { resolve(); return; }
+
+    const toggle = sidebar.querySelector<HTMLButtonElement>(
+      '[data-tour-expand="productos"]'
+    );
+
+    const target = sidebar.querySelector('[data-tour="nav-products"]');
+    if (target) { resolve(); return; }
+
+    if (toggle) toggle.click();
+
+    let elapsed = 0;
+    const interval = setInterval(() => {
+      elapsed += 50;
+      const el = sidebar.querySelector('[data-tour="nav-products"]');
+      if (el || elapsed >= 1000) {
+        clearInterval(interval);
+        setTimeout(resolve, 100);
       }
-    }
-    setTimeout(resolve, 350);
+    }, 50);
   });
 }
 
