@@ -7,6 +7,7 @@ const { getMexicoCityDate } = require("../utils/timezone");
 
 const DUE_SOON_DAYS = 7;
 const BLOCKED_BUSINESS_MESSAGE = "Tu cuenta está temporalmente bloqueada, contacta al proveedor o realiza el pago para reanudar tu servicio.";
+const CANCELLED_SUBSCRIPTION_MESSAGE = "Tu suscripción fue cancelada. Reactiva tu plan para continuar.";
 
 function parseDateOnly(value) {
   if (!value) return null;
@@ -104,6 +105,16 @@ function isConfigured(row) {
 }
 
 function deriveSubscriptionState(row, today = getMexicoCityDate()) {
+  if (row?.subscription_status === "cancelled") {
+    return {
+      subscription_status: "cancelled",
+      is_configured: Boolean(row?.plan_type),
+      due_in_days: null,
+      overdue_days: null,
+      should_block: false
+    };
+  }
+
   if (!row || !isConfigured(row)) {
     return {
       subscription_status: "active",
@@ -583,6 +594,16 @@ async function assertBusinessAccessAllowed(user, client = pool) {
 
   const businessId = requireActorBusinessId(user);
   const subscription = await getBusinessSubscriptionSummary(businessId, client);
+
+  if (subscription?.subscription_status === "cancelled") {
+    const npd = subscription?.next_payment_date;
+    const today = getMexicoCityDate();
+    if (!npd || today > npd) {
+      throw new ApiError(403, CANCELLED_SUBSCRIPTION_MESSAGE);
+    }
+    return { blocked: false, subscription };
+  }
+
   if (subscription?.should_block) {
     throw new ApiError(403, BLOCKED_BUSINESS_MESSAGE);
   }
@@ -592,6 +613,7 @@ async function assertBusinessAccessAllowed(user, client = pool) {
 
 module.exports = {
   BLOCKED_BUSINESS_MESSAGE,
+  CANCELLED_SUBSCRIPTION_MESSAGE,
   mapBusinessSubscription,
   calculateNextPaymentDate,
   ensureBusinessSubscriptionRow,

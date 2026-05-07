@@ -65,7 +65,7 @@ export interface BusinessSubscription {
   grace_period_days: number;
   enforcement_enabled: boolean;
   manual_adjustment_reason: string;
-  subscription_status: "active" | "due_soon" | "overdue" | "blocked";
+  subscription_status: "active" | "due_soon" | "overdue" | "blocked" | "cancelled";
   is_configured: boolean;
   due_in_days: number | null;
   overdue_days: number | null;

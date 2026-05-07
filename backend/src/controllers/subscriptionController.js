@@ -1,0 +1,94 @@
+const { body } = require("express-validator");
+const asyncHandler = require("../utils/asyncHandler");
+const validateRequest = require("../middleware/validateRequest");
+const ApiError = require("../utils/ApiError");
+const pool = require("../db/pool");
+const { requireActorBusinessId } = require("../utils/tenant");
+const openPayService = require("../services/openPayService");
+const { saveAuditLog } = require("../services/auditLogService");
+
+const cancelValidation = [
+  body("reason").optional({ nullable: true, checkFalsy: false }).trim(),
+  validateRequest
+];
+
+const cancelSubscription = asyncHandler(async (req, res) => {
+  const businessId = requireActorBusinessId(req.user);
+  const reason = String(req.body?.reason || "").trim();
+
+  const { rows } = await pool.query(
+    `SELECT business_id,
+            subscription_status,
+            openpay_customer_id,
+            openpay_subscription_id,
+            next_payment_date
+     FROM business_subscriptions
+     WHERE business_id = $1
+     LIMIT 1`,
+    [Number(businessId)]
+  );
+
+  const sub = rows[0];
+  if (!sub) {
+    throw new ApiError(404, "Suscripción no encontrada");
+  }
+
+  if (sub.subscription_status === "cancelled") {
+    throw new ApiError(409, "La suscripción ya fue cancelada");
+  }
+
+  // Fire-and-forget OpenPay cancellation — a failure must NOT block the DB update.
+  // The tenant must stop being charged regardless of OpenPay's response.
+  if (sub.openpay_customer_id && sub.openpay_subscription_id) {
+    try {
+      await openPayService.cancelSubscription(
+        sub.openpay_customer_id,
+        sub.openpay_subscription_id
+      );
+    } catch (openpayError) {
+      console.error(
+        `[CANCEL-SUB] OpenPay cancelSubscription failed for business ${businessId}:`,
+        openpayError.message
+      );
+    }
+  } else {
+    console.warn(
+      `[CANCEL-SUB] No OpenPay IDs for business ${businessId} — cancelling in DB only`
+    );
+  }
+
+  const { rows: updated } = await pool.query(
+    `UPDATE business_subscriptions
+     SET subscription_status = 'cancelled',
+         cancelled_at        = NOW(),
+         cancellation_reason = $1,
+         enforcement_enabled = FALSE,
+         updated_at          = NOW()
+     WHERE business_id = $2
+     RETURNING next_payment_date`,
+    [reason, Number(businessId)]
+  );
+
+  await saveAuditLog({
+    business_id: Number(businessId),
+    usuario_id: req.user.id,
+    modulo: "business_subscriptions",
+    accion: "cancel_subscription",
+    entidad_tipo: "business_subscription",
+    entidad_id: String(businessId),
+    detalle_anterior: { subscription_status: sub.subscription_status },
+    detalle_nuevo: {
+      subscription_status: "cancelled",
+      cancellation_reason: reason
+    },
+    motivo: reason || "Cancelación solicitada por el tenant",
+    metadata: { openpay_customer_id: sub.openpay_customer_id }
+  });
+
+  return res.json({
+    success: true,
+    access_until: updated[0]?.next_payment_date || null
+  });
+});
+
+module.exports = { cancelValidation, cancelSubscription };

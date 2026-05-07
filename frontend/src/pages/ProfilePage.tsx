@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { OnboardingTour, type OnboardingTourHandle } from "../components/OnboardingTour";
+import { CancelSubscriptionModal } from "../components/CancelSubscriptionModal";
 import { setStoredTheme } from "../services/storage";
 import type { CompanyProfile, DoctorProfile } from "../types";
 import { resolveUploadedAssetUrl } from "../utils/assets";
@@ -113,6 +114,7 @@ export function ProfilePage() {
   });
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [assetLoading, setAssetLoading] = useState<"business_image" | "signature" | "">("");
   const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "stamps" | "">("");
   const currentRole = normalizeRole(user?.role);
@@ -347,6 +349,15 @@ export function ProfilePage() {
             <p>Proximo pago del servicio: <strong>{profile.subscription?.next_payment_date || "Sin configurar"}</strong></p>
             <p>Estado de suscripcion: <strong>{profile.subscription?.is_configured ? profile.subscription.subscription_status : "Sin configurar"}</strong></p>
             {profile.stamp_alert_active ? <p className="error-text">El negocio esta en umbral de alerta de timbres.</p> : null}
+            {currentRole === "admin" && profile.subscription?.subscription_status !== "cancelled" ? (
+              <button
+                className="button ghost"
+                onClick={() => setShowCancelModal(true)}
+                type="button"
+              >
+                Cancelar suscripción
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -451,6 +462,20 @@ export function ProfilePage() {
         ) : null}
       </form>
       <OnboardingTour autoStart={false} ref={tourRef} />
+      {showCancelModal ? (
+        <CancelSubscriptionModal
+          nextPaymentDate={profile?.subscription?.next_payment_date ?? null}
+          onClose={() => setShowCancelModal(false)}
+          onCancelled={() => {
+            setShowCancelModal(false);
+            setProfile((prev) =>
+              prev && prev.subscription
+                ? { ...prev, subscription: { ...prev.subscription, subscription_status: "cancelled" } }
+                : prev
+            );
+          }}
+        />
+      ) : null}
 
       {/* HIDDEN: Transferencias y tarjeta — pending PCI DSS compliance
       <form className="panel grid-form" onSubmit={(event) => saveSection(event, "banking", {

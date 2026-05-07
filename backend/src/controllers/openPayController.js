@@ -221,7 +221,7 @@ const handleWebhook = asyncHandler(async (req, res) => {
       return res.status(200).json({ status: "ok" });
     }
 
-    if (!["charge.succeeded", "charge.failed", "subscription.charge.failed", "spei.received"].includes(eventType)) {
+    if (!["charge.succeeded", "charge.failed", "subscription.charge.failed", "spei.received", "subscription.cancelled"].includes(eventType)) {
       return res.status(200).json({ received: true });
     }
 
@@ -242,6 +242,57 @@ const handleWebhook = asyncHandler(async (req, res) => {
         }).catch(() => {});
       }
       console.info(`[OPENPAY-WEBHOOK] SPEI received, confirmation email queued for ${custEmail}`);
+      return res.status(200).json({ received: true });
+    }
+
+    // OpenPay-initiated cancellation (e.g. manual cancel from OpenPay dashboard).
+    // Subscription object lives at event.subscription, not event.transaction.
+    if (eventType === "subscription.cancelled") {
+      const sub = event.subscription || {};
+      const subscriptionId = sub.id || null;
+      const customerId = sub.customer_id || null;
+      console.info(`[OPENPAY-WEBHOOK] subscription.cancelled: subscription_id=${subscriptionId}, customer_id=${customerId}`);
+      if (subscriptionId) {
+        try {
+          const { rows: subRows } = await pool.query(
+            `SELECT business_id, subscription_status
+             FROM business_subscriptions
+             WHERE openpay_subscription_id = $1
+             LIMIT 1`,
+            [String(subscriptionId)]
+          );
+          const subRow = subRows[0];
+          if (subRow && subRow.subscription_status !== "cancelled") {
+            await pool.query(
+              `UPDATE business_subscriptions
+               SET subscription_status = 'cancelled',
+                   cancelled_at        = NOW(),
+                   cancellation_reason = 'Cancelación procesada por OpenPay',
+                   enforcement_enabled = FALSE,
+                   updated_at          = NOW()
+               WHERE business_id = $1`,
+              [subRow.business_id]
+            );
+            await saveAuditLog({
+              business_id: subRow.business_id,
+              usuario_id: null,
+              modulo: "business_subscriptions",
+              accion: "subscription_cancelled_by_openpay",
+              entidad_tipo: "business_subscription",
+              entidad_id: String(subRow.business_id),
+              detalle_anterior: { subscription_status: subRow.subscription_status },
+              detalle_nuevo: { subscription_status: "cancelled", source: "openpay_webhook" },
+              motivo: "Webhook subscription.cancelled recibido de OpenPay",
+              metadata: { openpay_subscription_id: subscriptionId, openpay_customer_id: customerId }
+            });
+            console.info(`[OPENPAY-WEBHOOK] subscription.cancelled applied to business_id=${subRow.business_id}`);
+          } else if (!subRow) {
+            console.warn(`[OPENPAY-WEBHOOK] subscription.cancelled: no business found for subscription_id=${subscriptionId}`);
+          }
+        } catch (cancelError) {
+          console.error("[OPENPAY-WEBHOOK] subscription.cancelled handler error:", cancelError);
+        }
+      }
       return res.status(200).json({ received: true });
     }
 
