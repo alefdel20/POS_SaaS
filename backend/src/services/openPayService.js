@@ -42,7 +42,8 @@ function openpayRequest(method, path, body) {
         "Content-Type": "application/json",
         "Accept": "application/json",
         ...(bodyData ? { "Content-Length": Buffer.byteLength(bodyData) } : {})
-      }
+      },
+      family: 4
     };
 
     const req = https.request(options, (res) => {
