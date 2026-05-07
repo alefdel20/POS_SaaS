@@ -21,6 +21,7 @@ function signToken(user, options = {}) {
       role: user.role,
       businessId,
       branch_id: user.branch_id ?? null,
+      tutorial_seen: Boolean(user.tutorial_seen),
       supportSessionId: options.supportSessionId || null
     },
     jwtSecret,

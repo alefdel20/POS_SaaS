@@ -143,6 +143,7 @@ function SidebarBranch({
           aria-controls={submenuId}
           aria-expanded={isOpen}
           className={`nav-tree-toggle ${isOpen ? "expanded" : ""} ${hasActiveDescendant ? "has-active-child" : ""}`}
+          data-tour-expand={item.label === "Productos" ? "productos" : undefined}
           onClick={() => onToggle(nodeKey)}
           type="button"
         >

@@ -35,11 +35,31 @@ function closeSidebar() {
   }
 }
 
+function expandProductsMenu(): Promise<void> {
+  return new Promise((resolve) => {
+    const sidebar = document.getElementById("app-sidebar");
+    if (sidebar) {
+      const explicit = sidebar.querySelector<HTMLButtonElement>('[data-tour-expand="productos"]');
+      if (explicit && explicit.getAttribute("aria-expanded") === "false") {
+        explicit.click();
+      } else if (!explicit) {
+        // Fallback for pos types where the products group has a different label
+        sidebar.querySelectorAll<HTMLButtonElement>('.nav-tree-toggle[aria-expanded="false"]')
+          .forEach((t) => t.click());
+      }
+    }
+    setTimeout(resolve, 350);
+  });
+}
+
 async function syncSidebarForStep(stepIndex: number, steps: TutorialStep[]) {
   const step = steps[stepIndex];
   if (!step) return;
   if (step.requiresSidebar) {
     await openSidebar();
+    if (step.element === '[data-tour="nav-products"]') {
+      await expandProductsMenu();
+    }
   } else {
     closeSidebar();
     await delay(200);
