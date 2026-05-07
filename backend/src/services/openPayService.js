@@ -8,6 +8,9 @@ const ApiError = require("../utils/ApiError");
 // ---------------------------------------------------------------------------
 
 function getBaseUrl() {
+  console.log("[OPENPAY-ENV] OPENPAY_SANDBOX:", process.env.OPENPAY_SANDBOX);
+  console.log("[OPENPAY-ENV] OPENPAY_MERCHANT_ID:", process.env.OPENPAY_MERCHANT_ID);
+  console.log("[OPENPAY-ENV] OPENPAY_PRIVATE_KEY prefix:", (process.env.OPENPAY_PRIVATE_KEY || "").slice(0, 10));
   const isSandbox = process.env.OPENPAY_SANDBOX === "true";
   const merchantId = process.env.OPENPAY_MERCHANT_ID || "";
   const host = isSandbox
