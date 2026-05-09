@@ -1296,7 +1296,7 @@ export function ProductsPage() {
 
   async function deleteProduct(product: Product) {
     if (!token) return;
-    if (!window.confirm(`¿Desactivar el producto "${product.name}"?`)) {
+    if (!window.confirm(`¿Eliminar "${product.name}"? Esta acción es permanente y no se puede deshacer.`)) {
       return;
     }
 
@@ -1331,7 +1331,7 @@ export function ProductsPage() {
         await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
       }
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "No fue posible desactivar el producto");
+      setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
     }
   }
 
@@ -1686,10 +1686,14 @@ export function ProductsPage() {
   async function toggleProductStatus(product: Product) {
     if (!token) return;
 
+    const nextStatus = product.status === "inactivo" ? "activo" : "inactivo";
+    if (nextStatus === "inactivo" && !window.confirm(`¿Desactivar "${product.name}"? Dejará de aparecer en el POS.`)) {
+      return;
+    }
+
     try {
       setTogglingId(product.id);
       setError("");
-      const nextStatus = product.status === "inactivo" ? "activo" : "inactivo";
       await apiRequest(`/products/${product.id}/status`, {
         method: "PATCH",
         token,
@@ -2285,12 +2289,17 @@ export function ProductsPage() {
                   <td>
                     <div className="inline-actions">
                       <button className="button ghost" onClick={() => handleEdit(product)} type="button">Editar</button>
-                      {!isCashier ? <button className="button ghost danger" onClick={() => deleteProduct(product)} type="button">Desactivar</button> : null}
+                      {!isCashier ? <button className="button ghost danger" onClick={() => deleteProduct(product)} type="button">Eliminar</button> : null}
                       {!isCashier ? (
                         <button
                           className="button ghost"
                           disabled={togglingId === product.id}
                           onClick={() => toggleProductStatus(product)}
+                          style={
+                            togglingId !== product.id && product.status !== "inactivo"
+                              ? { color: "#b45309", borderColor: "#b45309" }
+                              : undefined
+                          }
                           type="button"
                         >
                           {togglingId === product.id

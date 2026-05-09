@@ -27,7 +27,8 @@
       "Bash(Select-Object -ExpandProperty Name)",
       "Bash(npm install *)",
       "Bash(npx tsc *)",
-      "PowerShell(cmd /c \"dir C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\")"
+      "PowerShell(cmd /c \"dir C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\")",
+      "Bash(Select-Object -First 5)"
     ]
   }
 }
