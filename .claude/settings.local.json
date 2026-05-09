@@ -30,7 +30,8 @@
       "PowerShell(cmd /c \"dir C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\")",
       "Bash(Select-Object -First 5)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\frontend\\\\src\" -File -Recurse)",
-      "Bash(Select-Object -ExpandProperty FullName)"
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(findstr types *)"
     ]
   }
 }

@@ -462,6 +462,8 @@ export function ProductsPage() {
   const [restockModalLotNumber, setRestockModalLotNumber] = useState("");
   const [restockModalExpiresAt, setRestockModalExpiresAt] = useState("");
   const [loadingRestock, setLoadingRestock] = useState(false);
+  const [restockStockFilter, setRestockStockFilter] = useState<"all" | "low" | "normal">("all");
+  const [recentlySaved, setRecentlySaved] = useState<Set<number>>(new Set());
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<ProductImportPreviewResponse | null>(null);
@@ -528,6 +530,14 @@ export function ProductsPage() {
       : products,
     [products, statusFilter]
   );
+  const displayRestockItems = useMemo(() => {
+    const filtered = restockStockFilter === "low"
+      ? restockItems.filter(i => i.is_low_stock)
+      : restockStockFilter === "normal"
+        ? restockItems.filter(i => !i.is_low_stock)
+        : restockItems;
+    return [...filtered].sort((a, b) => (recentlySaved.has(b.id) ? 1 : 0) - (recentlySaved.has(a.id) ? 1 : 0));
+  }, [restockItems, restockStockFilter, recentlySaved]);
   const isAnyRestockSaveRunning = isSavingRestockBatch || Object.values(restockSavingIds).some(Boolean);
 
   function buildFormSnapshot(state: ProductFormState) {
@@ -816,6 +826,8 @@ export function ProductsPage() {
           ...current,
           [item.id]: { status: "success", message: "Solicitud enviada" }
         }));
+        setRecentlySaved((current) => new Set(current).add(item.id));
+        setTimeout(() => setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; }), 5000);
         await loadRequestSummary();
       } else {
         const updatedProduct = await apiRequest<Product>(`/products/${item.id}/restock`, {
@@ -834,6 +846,8 @@ export function ProductsPage() {
           ...current,
           [item.id]: { status: "success", message: "Stock guardado" }
         }));
+        setRecentlySaved((current) => new Set(current).add(item.id));
+        setTimeout(() => setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; }), 5000);
       }
 
       clearRestockDrafts([item.id]);
@@ -2417,6 +2431,18 @@ export function ProductsPage() {
             <option value={15}>15 por página</option>
           </select>
         </div>
+        <div className="inline-actions quick-filter-row">
+          {(["all", "low", "normal"] as const).map((value) => (
+            <button
+              className={`button ghost${restockStockFilter === value ? " active-filter" : ""}`}
+              key={value}
+              onClick={() => { setRestockStockFilter(value); setRestockPage(1); }}
+              type="button"
+            >
+              {value === "all" ? "Todos" : value === "low" ? "Stock bajo" : "Stock normal"}
+            </button>
+          ))}
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -2435,11 +2461,16 @@ export function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {restockItems.map((item) => (
+              {displayRestockItems.map((item) => (
                 <tr key={`restock-${item.id}`}>
                   <td>
                     <div>
-                      <div>{item.name}</div>
+                      <div>
+                        {item.name}
+                        {recentlySaved.has(item.id) ? (
+                          <span className="status-badge appointment-status-completed" style={{ marginLeft: "0.4rem", fontSize: "0.7rem" }}>✓ Recién actualizado</span>
+                        ) : null}
+                      </div>
                       <small className={item.is_low_stock ? "error-text" : "muted"}>
                         {item.is_low_stock
                           ? `Stock bajo · faltante: ${formatRestockQuantity(item.shortage, item.unidad_de_venta)}`
@@ -2502,7 +2533,7 @@ export function ProductsPage() {
 	                  </td>
                 </tr>
               ))}
-              {restockItems.length === 0 ? (
+              {displayRestockItems.length === 0 ? (
                 <tr>
                   <td className="muted" colSpan={11}>{loadingRestock ? "Cargando..." : "No hay productos para este filtro."}</td>
                 </tr>
