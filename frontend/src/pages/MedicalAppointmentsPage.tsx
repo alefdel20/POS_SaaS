@@ -331,7 +331,7 @@ export function MedicalAppointmentsPage() {
             <input placeholder="Filtrar por especialidad" value={specialtyFilter} onChange={(event) => setSpecialtyFilter(event.target.value)} />
           </label>
           <label>
-            Estatus
+            Estado
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
               <option value="">Todos</option>
               <option value="scheduled">Programadas</option>
@@ -478,7 +478,7 @@ export function MedicalAppointmentsPage() {
             <input value={form.specialty} onChange={(event) => setForm({ ...form, specialty: event.target.value })} />
           </label>
           <label>
-            Estatus
+            Estado
             <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as ClinicalAppointment["status"] })}>
               <option value="scheduled">Programada</option>
               <option value="confirmed">Confirmada</option>
@@ -506,7 +506,7 @@ export function MedicalAppointmentsPage() {
             <p><strong>Area:</strong> {detail.area}</p>
             <p><strong>Doctor:</strong> {detail.doctor_name || "-"}</p>
             <p><strong>Especialidad:</strong> {detail.specialty || "-"}</p>
-            <p><strong>Estatus:</strong> {detail.status}</p>
+            <p><strong>Estado:</strong> {detail.status}</p>
             <div className="inline-actions">
               <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver paciente</button>
             </div>
@@ -536,7 +536,7 @@ export function MedicalAppointmentsPage() {
                   <th>Contacto</th>
                   <th>Cedula</th>
                   <th>Carga de hoy</th>
-                  <th>Estatus</th>
+                  <th>Estado</th>
                   <th>Accion</th>
                 </tr>
               </thead>

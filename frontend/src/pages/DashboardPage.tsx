@@ -60,10 +60,10 @@ export function DashboardPage() {
     }
 
     return [
-      { label: "Ventas del día", value: currency(summary?.total_sales_today || 0), accent: "#6cf0c2" },
-      { label: "Productos registrados", value: summary?.total_products || 0, accent: "#7dd3fc" },
-      { label: "Cambios por aprobar", value: adminApprovals?.pending || 0, accent: "#ffb454" },
-      { label: "Citas de hoy", value: adminAppointmentsToday.length, accent: "#8b5cf6" }
+      { label: "Ventas del día", value: summary === null ? "—" : summary.total_sales_today === 0 ? "Sin ventas hoy" : currency(summary.total_sales_today), accent: "#6cf0c2" },
+      { label: "Productos registrados", value: summary === null ? "—" : summary.total_products || 0, accent: "#7dd3fc" },
+      { label: "Cambios por aprobar", value: summary === null ? "—" : adminApprovals?.pending || 0, accent: "#ffb454" },
+      { label: "Citas de hoy", value: summary === null ? "—" : adminAppointmentsToday.length, accent: "#8b5cf6" }
     ];
   }, [adminAppointmentsToday.length, adminApprovals?.pending, doctorSummary?.appointments_today.length, doctorSummary?.next_appointments.length, doctorSummary?.patients_today, doctorSummary?.status, role, summary?.total_products, summary?.total_sales_today]);
 
@@ -88,9 +88,9 @@ export function DashboardPage() {
         </div>
         {role !== "clinico" ? (
           <div className="stats-grid">
-            <StatCard label="Valor de productos de la tienda" value={currency(summary?.inventory_total_value || 0)} accent="#ffd166" />
-            <StatCard label="Stock actual total" value={summary?.total_current_stock || 0} accent="#7dd3fc" />
-            <StatCard label="Valor del stock actual" value={currency(summary?.current_stock_total_value || 0)} accent="#6cf0c2" />
+            <StatCard label="Valor de productos de la tienda" value={summary === null ? "—" : currency(summary.inventory_total_value || 0)} accent="#ffd166" />
+            <StatCard label="Stock actual total" value={summary === null ? "—" : summary.total_current_stock === 0 ? "Sin stock" : summary.total_current_stock} accent="#7dd3fc" />
+            <StatCard label="Valor del stock actual" value={summary === null ? "—" : currency(summary.current_stock_total_value || 0)} accent="#6cf0c2" />
           </div>
         ) : null}
         {shortcuts.length ? (
@@ -102,11 +102,19 @@ export function DashboardPage() {
             ))}
             {isManagement ? (
               <>
-                <Link className="button ghost" to={approvalPath}>
-                  {adminApprovals?.pending ? `Solicitudes pendientes ${adminApprovals.pending}` : "Solicitudes pendientes"}
+                <Link
+                  className="button ghost"
+                  style={adminApprovals?.pending === 0 ? { opacity: 0.5 } : undefined}
+                  to={approvalPath}
+                >
+                  {adminApprovals?.pending != null ? `Solicitudes pendientes (${adminApprovals.pending})` : "Solicitudes pendientes"}
                 </Link>
-                <Link className="button ghost" to={restockPath}>
-                  {summary?.low_stock_products ? `Stock bajo ${summary.low_stock_products}` : "Stock bajo"}
+                <Link
+                  className="button ghost"
+                  style={summary?.low_stock_products === 0 ? { opacity: 0.5 } : undefined}
+                  to={restockPath}
+                >
+                  {summary?.low_stock_products != null ? `Stock bajo (${summary.low_stock_products})` : "Stock bajo"}
                 </Link>
               </>
             ) : null}
@@ -177,19 +185,19 @@ export function DashboardPage() {
             </div>
             <div className="dashboard-note-list">
               <div className="info-card">
-                <p>Ventas de la semana: <strong>{currency(summary?.total_sales_week || 0)}</strong></p>
-                <p>Recordatorios pendientes: <strong>{summary?.pending_reminders || 0}</strong></p>
-                <p>Usuarios activos: <strong>{summary?.active_users || 0}</strong></p>
+                <p>Ventas de la semana: <strong>{summary === null ? "—" : currency(summary.total_sales_week || 0)}</strong></p>
+                <p>Recordatorios pendientes: <strong>{summary === null ? "—" : summary.pending_reminders || 0}</strong></p>
+                <p>Usuarios activos: <strong>{summary === null ? "—" : summary.active_users || 0}</strong></p>
               </div>
               <div className="info-card">
-                <p>Ventas del mes: <strong>{currency(summary?.total_sales_month || 0)}</strong></p>
-                <p>Utilidad estimada: <strong>{currency(summary?.estimated_profit_month || 0)}</strong></p>
-                <p>Saldo por cobrar: <strong>{currency(summary?.pending_credit_balance || 0)}</strong></p>
+                <p>Ventas del mes: <strong>{summary === null ? "—" : currency(summary.total_sales_month || 0)}</strong></p>
+                <p>Utilidad estimada: <strong>{summary === null ? "—" : currency(summary.estimated_profit_month || 0)}</strong></p>
+                <p>Saldo por cobrar: <strong>{summary === null ? "—" : currency(summary.pending_credit_balance || 0)}</strong></p>
               </div>
               {shouldShowFiscalBlock ? (
                 <div className="info-card">
-                  <p>Timbres disponibles: <strong>{summary?.stamps_available ?? profile?.stamps_available ?? 0}</strong></p>
-                  <p>Facturación lista: <strong>{summary?.billing_ready ? "Sí" : "No"}</strong></p>
+                  <p>Timbres disponibles: <strong>{summary === null ? "—" : (summary.stamps_available ?? profile?.stamps_available ?? 0)}</strong></p>
+                  <p>Facturación lista: <strong>{summary === null ? "—" : summary.billing_ready ? "Sí" : "No"}</strong></p>
                   {!profile?.has_fiscal_profile ? <p className="muted">Completa Perfil &gt; Datos fiscales para habilitar facturación.</p> : null}
                 </div>
               ) : null}

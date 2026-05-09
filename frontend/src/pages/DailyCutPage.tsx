@@ -210,20 +210,20 @@ export function DailyCutPage() {
         {error ? <p className="error-text">{error}</p> : null}
         <div className="stats-grid">
           <div className="stat-card"><span className="stat-label">Fecha</span><strong className="stat-value">{today ? shortDate(today.cut_date) : "-"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Total del dia</span><strong className="stat-value">{currency(today?.total_day || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Ingresos reales</span><strong className="stat-value">{currency(todayCashReal)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Efectivo</span><strong className="stat-value">{currency(today?.cash_total || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Tarjeta</span><strong className="stat-value">{currency(today?.card_total || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Credito generado</span><strong className="stat-value">{currency(todayCreditGenerated)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Cobranza</span><strong className="stat-value">{currency(todayCreditCollected)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Inversión en inventario (hoy)</span><strong className="stat-value">{currency(today?.inventory_restock_total || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Transferencia</span><strong className="stat-value">{currency(today?.transfer_total || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Facturas emitidas</span><strong className="stat-value">{today?.invoice_count || 0}</strong></div>
-          <div className="stat-card"><span className="stat-label">Tickets</span><strong className="stat-value">{today?.ticket_count || 0}</strong></div>
-          <div className="stat-card"><span className="stat-label">Timbres usados</span><strong className="stat-value">{today?.timbres_usados || 0}</strong></div>
-          <div className="stat-card"><span className="stat-label">Timbres restantes</span><strong className="stat-value">{today?.timbres_restantes || 0}</strong></div>
-          <div className="stat-card"><span className="stat-label">Ganancia</span><strong className="stat-value">{currency(today?.gross_profit || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Margen</span><strong className="stat-value">{Number(today?.gross_margin || 0).toFixed(2)}%</strong></div>
+          <div className="stat-card"><span className="stat-label">Total del dia</span><strong className="stat-value">{today ? currency(today.total_day) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Ingresos reales</span><strong className="stat-value">{today ? currency(todayCashReal) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Efectivo</span><strong className="stat-value">{today ? currency(today.cash_total) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Tarjeta</span><strong className="stat-value">{today ? currency(today.card_total) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Credito generado</span><strong className="stat-value">{today ? currency(todayCreditGenerated) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Cobranza</span><strong className="stat-value">{today ? currency(todayCreditCollected) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Inversión en inventario (hoy)</span><strong className="stat-value">{today ? currency(today.inventory_restock_total || 0) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Transferencia</span><strong className="stat-value">{today ? currency(today.transfer_total) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Facturas emitidas</span><strong className="stat-value">{today ? today.invoice_count : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Tickets</span><strong className="stat-value">{today ? today.ticket_count : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Timbres usados</span><strong className="stat-value">{today ? (today.timbres_usados || 0) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Timbres restantes</span><strong className="stat-value">{today ? (today.timbres_restantes || 0) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Ganancia</span><strong className="stat-value">{today ? currency(today.gross_profit) : "—"}</strong></div>
+          <div className="stat-card"><span className="stat-label">Margen</span><strong className="stat-value">{today ? `${Number(today.gross_margin || 0).toFixed(2)}%` : "—"}</strong></div>
         </div>
         {previousComparableCut ? (
           <div className="info-card">
@@ -238,8 +238,8 @@ export function DailyCutPage() {
         <div className="info-card">
           <h3>Resumen de Cartera</h3>
           <div className="stats-grid">
-            <div className="stat-card"><span className="stat-label">Generado Hoy</span><strong className="stat-value">{currency(todayCreditGenerated)}</strong></div>
-            <div className="stat-card"><span className="stat-label">Cobrado Hoy</span><strong className="stat-value">{currency(todayCreditCollected)}</strong></div>
+            <div className="stat-card"><span className="stat-label">Generado Hoy</span><strong className="stat-value">{today ? currency(todayCreditGenerated) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Cobrado Hoy</span><strong className="stat-value">{today ? currency(todayCreditCollected) : "—"}</strong></div>
           </div>
         </div>
       </div>

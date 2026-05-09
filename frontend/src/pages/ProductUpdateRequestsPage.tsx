@@ -353,7 +353,7 @@ export function ProductUpdateRequestsPage() {
 
         <div className="inline-actions quick-filter-row">
           <select value={filters.status} onChange={(event) => updateFilters({ status: event.target.value as FiltersState["status"] })}>
-            <option value="">Todos los estatus</option>
+            <option value="">Todos los estados</option>
             <option value="pending">Pendientes</option>
             <option value="approved">Aprobadas</option>
             <option value="rejected">Rechazadas</option>
@@ -383,7 +383,7 @@ export function ProductUpdateRequestsPage() {
                 <th>Tipo de cambio</th>
                 <th>Valor anterior</th>
                 <th>Valor propuesto</th>
-                <th>Estatus</th>
+                <th>Estado</th>
                 <th>Fecha</th>
               </tr>
             </thead>
@@ -430,7 +430,7 @@ export function ProductUpdateRequestsPage() {
             <p><strong>SKU:</strong> {selectedRequest.product_sku || "-"}</p>
             <p><strong>Motivo:</strong> {selectedRequest.reason}</p>
             <p><strong>Solicita:</strong> {selectedRequest.requested_by_name || `Usuario #${selectedRequest.requested_by_user_id}`}</p>
-            <p><strong>Estatus:</strong> {getStatusLabel(selectedRequest.status)}</p>
+            <p><strong>Estado:</strong> {getStatusLabel(selectedRequest.status)}</p>
             {selectedDiffRows.length ? (
               <div className="table-wrap">
                 <table>

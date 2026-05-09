@@ -85,10 +85,10 @@ export function RestockHistoryPage() {
         </div>
         {error ? <p className="error-text">{error}</p> : null}
         <div className="stats-grid">
-          <div className="stat-card"><span className="stat-label">Total gastado</span><strong className="stat-value">{currency(metrics?.total_spent || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Valor antes</span><strong className="stat-value">{currency(metrics?.inventory_value_before || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Valor despues</span><strong className="stat-value">{currency(metrics?.inventory_value_after || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Movimientos</span><strong className="stat-value">{metrics?.total_movements || 0}</strong></div>
+          <div className="stat-card"><span className="stat-label">Total gastado</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : currency(metrics?.total_spent || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Valor antes</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : currency(metrics?.inventory_value_before || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Valor despues</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : currency(metrics?.inventory_value_after || 0)}</strong></div>
+          <div className="stat-card"><span className="stat-label">Movimientos</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : (metrics?.total_movements || 0)}</strong></div>
         </div>
       </div>
 
