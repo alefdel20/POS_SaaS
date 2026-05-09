@@ -442,6 +442,7 @@ export function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<10 | 15>(10);
+  const [statusFilter, setStatusFilter] = useState<"all" | "activo" | "inactivo">("all");
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
   const [restockItems, setRestockItems] = useState<RestockProductItem[]>([]);
@@ -521,6 +522,12 @@ export function ProductsPage() {
   const restockRequestIdRef = useRef(0);
   const validRestockDraftEntries = useMemo(() => getValidRestockDraftEntries(restockItems), [restockDrafts, restockItems]);
   const hasRestockDraftChanges = validRestockDraftEntries.length > 0;
+  const displayProducts = useMemo(
+    () => statusFilter === "inactivo"
+      ? products.filter(p => (p.status ?? (p.is_active ? "activo" : "inactivo")) === "inactivo")
+      : products,
+    [products, statusFilter]
+  );
   const isAnyRestockSaveRunning = isSavingRestockBatch || Object.values(restockSavingIds).some(Boolean);
 
   function buildFormSnapshot(state: ProductFormState) {
@@ -567,7 +574,7 @@ export function ProductsPage() {
     });
   }, [form.category, showIepsField]);
 
-  async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize, nextCategoryFilter = categoryFilter) {
+  async function loadProducts(nextSearch = search, nextPage = page, nextPageSize = pageSize, nextCategoryFilter = categoryFilter, nextStatusFilter = statusFilter) {
     if (!token) return;
     const params = new URLSearchParams({
       page: String(nextPage),
@@ -582,6 +589,9 @@ export function ProductsPage() {
     }
     if (catalogScope) {
       params.set("catalog_scope", catalogScope);
+    }
+    if (nextStatusFilter === "activo") {
+      params.set("activeOnly", "true");
     }
 
     const response = await apiRequest<PaginatedProductsResponse>(`/products?${params.toString()}`, { token });
@@ -1056,7 +1066,7 @@ export function ProductsPage() {
     if (isCashier) {
       loadRequestSummary().catch(console.error);
     }
-  }, [catalogScope, token, page, pageSize, categoryFilter, isCashier, isRestockRoute, restockPage, restockPageSize]);
+  }, [catalogScope, token, page, pageSize, categoryFilter, statusFilter, isCashier, isRestockRoute, restockPage, restockPageSize]);
 
   useEffect(() => {
     if (!searchFromQuery || search === searchFromQuery) {
@@ -1108,7 +1118,7 @@ export function ProductsPage() {
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [catalogScope, search, pageSize, token, categoryFilter]);
+  }, [catalogScope, search, pageSize, token, categoryFilter, statusFilter]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -2213,6 +2223,18 @@ export function ProductsPage() {
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
+        <div className="inline-actions quick-filter-row">
+          {(["all", "activo", "inactivo"] as const).map((value) => (
+            <button
+              className={`button ghost${statusFilter === value ? " active-filter" : ""}`}
+              key={value}
+              onClick={() => { setStatusFilter(value); setPage(1); }}
+              type="button"
+            >
+              {value === "all" ? "Todos" : value === "activo" ? "Activos" : "Inactivos"}
+            </button>
+          ))}
+        </div>
         {isVeterinaryView ? (
           <div className="inline-actions quick-filter-row">
             <button className={`button ghost ${categoryFilter === "" ? "active-filter" : ""}`} onClick={() => { setCategoryFilter(""); setPage(1); }} type="button">
@@ -2246,7 +2268,7 @@ export function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {products.map((product) => (
+              {displayProducts.map((product) => (
                 <tr key={product.id}>
                   <td>
                     <div className="product-name-cell">
@@ -2313,7 +2335,7 @@ export function ProductsPage() {
                   </td>
                 </tr>
               ))}
-              {products.length === 0 ? (
+              {displayProducts.length === 0 ? (
                 <tr>
                   <td className="muted" colSpan={9}>No se encontraron productos.</td>
                 </tr>
