@@ -827,7 +827,17 @@ export function ProductsPage() {
           [item.id]: { status: "success", message: "Solicitud enviada" }
         }));
         setRecentlySaved((current) => new Set(current).add(item.id));
-        setTimeout(() => setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; }), 5000);
+        setTimeout(() => {
+          setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; });
+          setRestockItems((current) => {
+            const found = current.find(i => i.id === item.id);
+            if (!found) return current;
+            const rest = current.filter(i => i.id !== item.id);
+            const insertIdx = found.is_low_stock ? 0 : rest.findIndex(i => !i.is_low_stock);
+            const idx = insertIdx === -1 ? rest.length : insertIdx;
+            return [...rest.slice(0, idx), found, ...rest.slice(idx)];
+          });
+        }, 5000);
         await loadRequestSummary();
       } else {
         const updatedProduct = await apiRequest<Product>(`/products/${item.id}/restock`, {
@@ -847,12 +857,27 @@ export function ProductsPage() {
           [item.id]: { status: "success", message: "Stock guardado" }
         }));
         setRecentlySaved((current) => new Set(current).add(item.id));
-        setTimeout(() => setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; }), 5000);
+        setTimeout(() => {
+          setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; });
+          setRestockItems((current) => {
+            const found = current.find(i => i.id === item.id);
+            if (!found) return current;
+            const rest = current.filter(i => i.id !== item.id);
+            const insertIdx = found.is_low_stock ? 0 : rest.findIndex(i => !i.is_low_stock);
+            const idx = insertIdx === -1 ? rest.length : insertIdx;
+            return [...rest.slice(0, idx), found, ...rest.slice(idx)];
+          });
+        }, 5000);
       }
 
       clearRestockDrafts([item.id]);
       await loadProducts(search, page, pageSize, categoryFilter);
       await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
+      setRestockItems((current) => {
+        const found = current.find(i => i.id === item.id);
+        if (!found) return current;
+        return [found, ...current.filter(i => i.id !== item.id)];
+      });
       return true;
     } catch (restockError) {
       const message = restockError instanceof Error ? restockError.message : isCashier ? "No fue posible enviar la solicitud" : "No fue posible actualizar el stock";
