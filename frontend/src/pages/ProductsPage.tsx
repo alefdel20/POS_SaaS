@@ -2445,7 +2445,7 @@ export function ProductsPage() {
                           ? `Stock bajo · faltante: ${formatRestockQuantity(item.shortage, item.unidad_de_venta)}`
                           : "Stock normal"}
                       </small>
-                      <small className="muted">Cantidad a agregar</small>
+                      <small className="muted"> Cantidad a agregar</small>
                     </div>
                   </td>
                   <td>{item.category || "-"}</td>
