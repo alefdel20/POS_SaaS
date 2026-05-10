@@ -5,10 +5,31 @@ import type { HistoryMovement, Sale, SaleDetail } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel } from "../utils/uiLabels";
 import { getMexicoCityDateInputValue } from "../utils/timezone";
-import { isManagementRole } from "../utils/roles";
+import { hasAnyRole, isManagementRole, ROLE_ADMIN, ROLE_CASHIER, ROLE_MANAGER, ROLE_SUPERUSER } from "../utils/roles";
 
 type RangeFilter = "day" | "week" | "month";
 type MovementFilter = "all" | "sales" | "credit_collections" | "invoice_payments" | "expenses" | "inventory_restock" | "fixed_expenses" | "owner_debt";
+
+interface ReturnItem {
+  sale_item_id: number;
+  product_id: number;
+  quantity_returned: number;
+  unit_price: number;
+  subtotal_returned: number;
+  restock: boolean;
+}
+
+interface SaleReturn {
+  id: number;
+  status: "pending" | "approved" | "rejected";
+  resolution_type: "refund_cash" | "credit_note" | "exchange";
+  return_reason: string;
+  total_returned: number;
+  initiated_by: number;
+  authorized_by: number | null;
+  created_at: string;
+  items: ReturnItem[];
+}
 
 function toDateInputValue(date: Date) {
   return getMexicoCityDateInputValue(date);
@@ -67,6 +88,18 @@ function getMovementPaymentLabel(value?: HistoryMovement["payment_method"] | nul
   return getPaymentMethodLabel(value);
 }
 
+function getResolutionLabel(type: SaleReturn["resolution_type"]) {
+  if (type === "refund_cash") return "Efectivo";
+  if (type === "credit_note") return "Nota de crédito";
+  return "Intercambio";
+}
+
+function getReturnStatusLabel(status: SaleReturn["status"]) {
+  if (status === "approved") return "Aprobada";
+  if (status === "rejected") return "Rechazada";
+  return "Pendiente";
+}
+
 export function SalesHistoryPage() {
   const { token, user } = useAuth();
   const [movements, setMovements] = useState<HistoryMovement[]>([]);
@@ -84,10 +117,19 @@ export function SalesHistoryPage() {
   const [cancelTarget, setCancelTarget] = useState<Sale | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnItems, setReturnItems] = useState<ReturnItem[]>([]);
+  const [returnReason, setReturnReason] = useState("");
+  const [returnResolution, setReturnResolution] = useState<SaleReturn["resolution_type"]>("refund_cash");
+  const [returnNotes, setReturnNotes] = useState("");
+  const [returnLoading, setReturnLoading] = useState(false);
+  const [saleReturns, setSaleReturns] = useState<SaleReturn[]>([]);
 
   const activeRange = useMemo(() => getRangeDates(range, selectedDate), [range, selectedDate]);
   const today = getMexicoCityDateInputValue(new Date());
   const canCancelSales = isManagementRole(user?.role);
+  const canInitiateReturn = hasAnyRole(user?.role, [ROLE_MANAGER, ROLE_ADMIN, ROLE_SUPERUSER, ROLE_CASHIER]);
+  const canAuthorizeReturn = hasAnyRole(user?.role, [ROLE_MANAGER, ROLE_ADMIN, ROLE_SUPERUSER]);
   const selectedMovement = useMemo(
     () => movements.find((movement) => movement.id === selectedMovementId) || null,
     [movements, selectedMovementId]
@@ -135,6 +177,12 @@ export function SalesHistoryPage() {
     }
   }
 
+  async function fetchSaleReturns(saleId: number) {
+    if (!token) return;
+    const response = await apiRequest<SaleReturn[]>(`/sales/${saleId}/returns`, { token });
+    setSaleReturns(response);
+  }
+
   useEffect(() => {
     if (!token) return;
     loadHistory().catch((loadError) => {
@@ -145,11 +193,15 @@ export function SalesHistoryPage() {
   useEffect(() => {
     if (!selectedSaleId) {
       setSaleDetail(null);
+      setSaleReturns([]);
       return;
     }
 
     loadSaleDetail(selectedSaleId).catch((detailError) => {
       setError(detailError instanceof Error ? detailError.message : "No fue posible cargar el detalle de la venta");
+    });
+    fetchSaleReturns(selectedSaleId).catch(() => {
+      // non-critical — returns list stays empty on error
     });
   }, [selectedSaleId, token]);
 
@@ -196,6 +248,101 @@ export function SalesHistoryPage() {
       setError(cancelError instanceof Error ? cancelError.message : "No fue posible anular la venta");
     } finally {
       setCancelLoading(false);
+    }
+  }
+
+  function handleOpenReturnModal() {
+    if (!saleDetail) return;
+    setReturnItems(
+      saleDetail.items.map((item) => ({
+        sale_item_id: item.id,
+        product_id: item.product_id,
+        quantity_returned: 0,
+        unit_price: item.unit_price,
+        subtotal_returned: 0,
+        restock: true
+      }))
+    );
+    setReturnReason("");
+    setReturnResolution("refund_cash");
+    setReturnNotes("");
+    setShowReturnModal(true);
+  }
+
+  function handleReturnQuantityChange(saleItemId: number, qty: number) {
+    setReturnItems((prev) =>
+      prev.map((item) => {
+        if (item.sale_item_id !== saleItemId) return item;
+        const originalItem = saleDetail?.items.find((i) => i.id === saleItemId);
+        const maxQty = originalItem?.quantity ?? 0;
+        const clamped = Math.max(0, Math.min(qty, maxQty));
+        return {
+          ...item,
+          quantity_returned: clamped,
+          subtotal_returned: Math.round(clamped * item.unit_price * 100000) / 100000
+        };
+      })
+    );
+  }
+
+  function handleReturnRestockChange(saleItemId: number, restock: boolean) {
+    setReturnItems((prev) =>
+      prev.map((item) => (item.sale_item_id === saleItemId ? { ...item, restock } : item))
+    );
+  }
+
+  async function handleSubmitReturn() {
+    if (!token || !saleDetail) return;
+    const activeItems = returnItems.filter((i) => i.quantity_returned > 0);
+    if (activeItems.length === 0) {
+      setError("Debes seleccionar al menos un articulo para devolver");
+      return;
+    }
+    if (!returnReason.trim()) {
+      setError("Debes capturar un motivo de devolucion");
+      return;
+    }
+    try {
+      setReturnLoading(true);
+      setError("");
+      await apiRequest<SaleReturn>(`/sales/${saleDetail.id}/returns`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          items: activeItems,
+          resolution_type: returnResolution,
+          return_reason: returnReason.trim(),
+          notes: returnNotes.trim() || null
+        })
+      });
+      setShowReturnModal(false);
+      await fetchSaleReturns(saleDetail.id);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "No fue posible registrar la devolucion");
+    } finally {
+      setReturnLoading(false);
+    }
+  }
+
+  async function handleApproveReturn(returnId: number) {
+    if (!token || !saleDetail) return;
+    try {
+      setError("");
+      await apiRequest<SaleReturn>(`/sales/returns/${returnId}/approve`, { method: "POST", token });
+      await fetchSaleReturns(saleDetail.id);
+    } catch (approveError) {
+      setError(approveError instanceof Error ? approveError.message : "No fue posible aprobar la devolucion");
+    }
+  }
+
+  async function handleRejectReturn(returnId: number) {
+    if (!token || !saleDetail) return;
+    try {
+      setError("");
+      await apiRequest<SaleReturn>(`/sales/returns/${returnId}/reject`, { method: "POST", token });
+      await fetchSaleReturns(saleDetail.id);
+    } catch (rejectError) {
+      setError(rejectError instanceof Error ? rejectError.message : "No fue posible rechazar la devolucion");
     }
   }
 
@@ -329,18 +476,29 @@ export function SalesHistoryPage() {
                                 <p>Estado: {(saleDetail.status || "completed") === "cancelled" ? "Anulada" : "Completada"}</p>
                                 {saleDetail.cancellation_reason ? <p>Motivo de anulacion: {saleDetail.cancellation_reason}</p> : null}
                                 {saleDetail.cancelled_at ? <p>Fecha de anulacion: {shortDateTime(saleDetail.cancelled_at)}</p> : null}
-                                {canCancelSale(saleDetail) ? (
+                                {(canCancelSale(saleDetail) || (canInitiateReturn && (saleDetail.status || "completed") !== "cancelled")) ? (
                                   <div className="inline-actions">
-                                    <button
-                                      className="button ghost danger"
-                                      onClick={() => {
-                                        setCancelTarget(saleDetail);
-                                        setCancelReason("");
-                                      }}
-                                      type="button"
-                                    >
-                                      Anular venta
-                                    </button>
+                                    {canCancelSale(saleDetail) ? (
+                                      <button
+                                        className="button ghost danger"
+                                        onClick={() => {
+                                          setCancelTarget(saleDetail);
+                                          setCancelReason("");
+                                        }}
+                                        type="button"
+                                      >
+                                        Anular venta
+                                      </button>
+                                    ) : null}
+                                    {canInitiateReturn && (saleDetail.status || "completed") !== "cancelled" ? (
+                                      <button
+                                        className="button ghost"
+                                        onClick={handleOpenReturnModal}
+                                        type="button"
+                                      >
+                                        Devolución
+                                      </button>
+                                    ) : null}
                                   </div>
                                 ) : null}
                                 <div className="table-wrap">
@@ -367,6 +525,37 @@ export function SalesHistoryPage() {
                                     </tbody>
                                   </table>
                                 </div>
+                                {saleReturns.length > 0 ? (
+                                  <div className="info-card">
+                                    <h3>Devoluciones registradas</h3>
+                                    {saleReturns.map((sr) => (
+                                      <div key={sr.id} className="info-card">
+                                        <div className="credit-summary">
+                                          <div className="total-box secondary">
+                                            <span>Fecha</span>
+                                            <strong>{shortDate(sr.created_at)}</strong>
+                                          </div>
+                                          <div className="total-box secondary">
+                                            <span>Resolución</span>
+                                            <strong>{getResolutionLabel(sr.resolution_type)}</strong>
+                                          </div>
+                                          <div className="total-box secondary">
+                                            <span>Total devuelto</span>
+                                            <strong>{currency(sr.total_returned)}</strong>
+                                          </div>
+                                        </div>
+                                        <p>Estado: <span className={`status-badge${sr.status === "rejected" ? " cancelled" : ""}`}>{getReturnStatusLabel(sr.status)}</span></p>
+                                        <p>Motivo: {sr.return_reason}</p>
+                                        {sr.status === "pending" && canAuthorizeReturn ? (
+                                          <div className="inline-actions">
+                                            <button className="button ghost" onClick={() => handleApproveReturn(sr.id)} type="button">Aprobar</button>
+                                            <button className="button ghost danger" onClick={() => handleRejectReturn(sr.id)} type="button">Rechazar</button>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
                                 {saleDetail.credit_info ? (
                                   <div className="info-card">
                                     <h3>Datos de credito</h3>
@@ -444,6 +633,101 @@ export function SalesHistoryPage() {
               <button className="button ghost" onClick={() => { setCancelTarget(null); setCancelReason(""); }} type="button">Cancelar</button>
               <button className="button ghost danger" disabled={cancelLoading || !cancelReason.trim()} onClick={handleCancelSale} type="button">
                 {cancelLoading ? "Anulando..." : "Confirmar anulacion"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showReturnModal && saleDetail ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card">
+            <div className="panel-header">
+              <div>
+                <h3>Registrar devolución — venta #{saleDetail.folio}</h3>
+                <p className="muted">Selecciona los articulos y cantidades a devolver.</p>
+              </div>
+              <button className="button ghost" onClick={() => setShowReturnModal(false)} type="button">Cerrar</button>
+            </div>
+            {!canAuthorizeReturn ? (
+              <p className="muted">Esta devolución quedará pendiente de autorización por un gerente o administrador.</p>
+            ) : null}
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Cant. original</th>
+                    <th>Precio unitario</th>
+                    <th>Cant. a devolver</th>
+                    <th>Subtotal</th>
+                    <th>Regresar a stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {saleDetail.items.map((item) => {
+                    const ri = returnItems.find((r) => r.sale_item_id === item.id);
+                    if (!ri) return null;
+                    return (
+                      <tr key={item.id}>
+                        <td>{item.product_name}</td>
+                        <td>{item.quantity}</td>
+                        <td>{currency(item.unit_price)}</td>
+                        <td>
+                          <input
+                            type="number"
+                            min={0}
+                            max={item.quantity}
+                            step="any"
+                            value={ri.quantity_returned}
+                            onChange={(e) => handleReturnQuantityChange(item.id, Number(e.target.value))}
+                          />
+                        </td>
+                        <td>{ri.quantity_returned > 0 ? currency(ri.subtotal_returned) : "-"}</td>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={ri.restock}
+                            onChange={(e) => handleReturnRestockChange(item.id, e.target.checked)}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <label>
+              Tipo de resolución
+              <select
+                value={returnResolution}
+                onChange={(e) => setReturnResolution(e.target.value as SaleReturn["resolution_type"])}
+              >
+                <option value="refund_cash">Efectivo</option>
+                <option value="credit_note">Nota de crédito</option>
+                <option value="exchange">Intercambio</option>
+              </select>
+            </label>
+            <label>
+              Motivo (obligatorio)
+              <textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)} />
+            </label>
+            <label>
+              Notas adicionales (opcional)
+              <textarea value={returnNotes} onChange={(e) => setReturnNotes(e.target.value)} />
+            </label>
+            <p>
+              <strong>Total a devolver: {currency(returnItems.reduce((sum, i) => sum + i.subtotal_returned, 0))}</strong>
+            </p>
+            <div className="inline-actions modal-actions-end">
+              <button className="button ghost" onClick={() => setShowReturnModal(false)} type="button">Cancelar</button>
+              <button
+                className="button ghost"
+                disabled={returnLoading || !returnReason.trim() || returnItems.every((i) => i.quantity_returned === 0)}
+                onClick={handleSubmitReturn}
+                type="button"
+              >
+                {returnLoading ? "Registrando..." : "Registrar devolución"}
               </button>
             </div>
           </div>

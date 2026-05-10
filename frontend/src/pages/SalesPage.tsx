@@ -357,6 +357,10 @@ export function SalesPage() {
   }, [catalogScope, token, user?.role]);
 
   useEffect(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const delay = setTimeout(() => {
       loadProducts(search).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible filtrar el catálogo");
@@ -636,6 +640,7 @@ export function SalesPage() {
       if (!exactProduct) {
         setScannerSelectionId(null);
         setScannerFeedback(`No se encontro un producto para el codigo ${normalizedCode}`);
+        setTimeout(() => setScannerFeedback(""), 2500);
         return;
       }
 
@@ -643,6 +648,7 @@ export function SalesPage() {
       setSearch("");
       await loadProducts("");
       setScannerFeedback(`Producto agregado: ${exactProduct.name}`);
+      setTimeout(() => setScannerFeedback(""), 2500);
     } catch (scannerError) {
       setScannerSelectionId(null);
       setScannerFeedback("");

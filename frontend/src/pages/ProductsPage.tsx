@@ -873,11 +873,6 @@ export function ProductsPage() {
       clearRestockDrafts([item.id]);
       await loadProducts(search, page, pageSize, categoryFilter);
       await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
-      setRestockItems((current) => {
-        const found = current.find(i => i.id === item.id);
-        if (!found) return current;
-        return [found, ...current.filter(i => i.id !== item.id)];
-      });
       return true;
     } catch (restockError) {
       const message = restockError instanceof Error ? restockError.message : isCashier ? "No fue posible enviar la solicitud" : "No fue posible actualizar el stock";

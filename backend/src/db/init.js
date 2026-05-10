@@ -281,6 +281,35 @@ async function ensureSchema(client) {
     "ALTER TABLE sale_items ALTER COLUMN subtotal TYPE NUMERIC(14, 5)",
     "ALTER TABLE sale_items ALTER COLUMN quantity TYPE NUMERIC(12, 3)",
 
+    `CREATE TABLE IF NOT EXISTS returns (
+      id              SERIAL PRIMARY KEY,
+      sale_id         INTEGER NOT NULL REFERENCES sales(id),
+      business_id     INTEGER NOT NULL,
+      return_date     DATE NOT NULL DEFAULT CURRENT_DATE,
+      return_reason   TEXT NOT NULL,
+      resolution_type VARCHAR(20) NOT NULL CHECK (resolution_type IN ('refund_cash', 'credit_note', 'exchange')),
+      total_returned  NUMERIC(14,5) NOT NULL DEFAULT 0,
+      status          VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+      initiated_by    INTEGER NOT NULL REFERENCES users(id),
+      authorized_by   INTEGER REFERENCES users(id),
+      authorized_at   TIMESTAMP,
+      notes           TEXT,
+      created_at      TIMESTAMP DEFAULT NOW()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS return_items (
+      id                SERIAL PRIMARY KEY,
+      return_id         INTEGER NOT NULL REFERENCES returns(id) ON DELETE CASCADE,
+      sale_item_id      INTEGER NOT NULL REFERENCES sale_items(id),
+      product_id        INTEGER NOT NULL REFERENCES products(id),
+      business_id       INTEGER NOT NULL,
+      quantity_returned NUMERIC(12,3) NOT NULL,
+      unit_price        NUMERIC(12,5) NOT NULL,
+      subtotal_returned NUMERIC(14,5) NOT NULL,
+      restock           BOOLEAN NOT NULL DEFAULT true,
+      created_at        TIMESTAMP DEFAULT NOW()
+    )`,
+
     "ALTER TABLE product_suppliers ALTER COLUMN purchase_cost TYPE NUMERIC(12, 5)",
 
     `CREATE TABLE IF NOT EXISTS credit_payments (
