@@ -1361,6 +1361,12 @@ async function listRestockProducts(filters = {}, actor) {
     conditions.push("COALESCE(product_data.stock, 0) <= COALESCE(product_data.stock_minimo, 0)");
   }
 
+  if (filters.stockStatus === "low") {
+    conditions.push("COALESCE(product_data.stock, 0) <= COALESCE(product_data.stock_minimo, 0)");
+  } else if (filters.stockStatus === "normal") {
+    conditions.push("COALESCE(product_data.stock, 0) > COALESCE(product_data.stock_minimo, 0)");
+  }
+
   if (filters.category) {
     values.push(String(filters.category).trim());
     conditions.push(`product_data.category = $${values.length}`);

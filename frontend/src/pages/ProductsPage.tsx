@@ -531,13 +531,9 @@ export function ProductsPage() {
     [products, statusFilter]
   );
   const displayRestockItems = useMemo(() => {
-    const filtered = restockStockFilter === "low"
-      ? restockItems.filter(i => i.is_low_stock)
-      : restockStockFilter === "normal"
-        ? restockItems.filter(i => !i.is_low_stock)
-        : restockItems;
+    const filtered = restockItems;
     return [...filtered].sort((a, b) => (recentlySaved.has(b.id) ? 1 : 0) - (recentlySaved.has(a.id) ? 1 : 0));
-  }, [restockItems, restockStockFilter, recentlySaved]);
+  }, [restockItems, recentlySaved]);
   const isAnyRestockSaveRunning = isSavingRestockBatch || Object.values(restockSavingIds).some(Boolean);
 
   function buildFormSnapshot(state: ProductFormState) {
@@ -638,7 +634,8 @@ export function ProductsPage() {
     nextCategory = restockCategoryFilter,
     nextSupplier = restockSupplierFilter,
     nextPage = restockPage,
-    nextPageSize = restockPageSize
+    nextPageSize = restockPageSize,
+    nextStockFilter: "all" | "low" | "normal" = restockStockFilter
   ) {
     if (!token) return;
     const requestId = restockRequestIdRef.current + 1;
@@ -658,6 +655,9 @@ export function ProductsPage() {
       }
       if (nextSupplier.trim()) {
         params.set("supplier", nextSupplier.trim());
+      }
+      if (nextStockFilter && nextStockFilter !== "all") {
+        params.set("stockStatus", nextStockFilter);
       }
       if (catalogScope) {
         params.set("catalog_scope", catalogScope);
@@ -872,7 +872,8 @@ export function ProductsPage() {
 
       clearRestockDrafts([item.id]);
       await loadProducts(search, page, pageSize, categoryFilter);
-      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
+      setRestockPage(1);
+      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter);
       return true;
     } catch (restockError) {
       const message = restockError instanceof Error ? restockError.message : isCashier ? "No fue posible enviar la solicitud" : "No fue posible actualizar el stock";
@@ -968,7 +969,8 @@ export function ProductsPage() {
       }
 
       await loadProducts(search, page, pageSize, categoryFilter);
-      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
+      setRestockPage(1);
+      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter);
     } catch (restockError) {
       setError(restockError instanceof Error ? restockError.message : "No fue posible guardar el lote de reabastecimiento");
     } finally {
@@ -1077,7 +1079,7 @@ export function ProductsPage() {
         loadProducts(search, page, pageSize, categoryFilter),
         loadCategories(),
         loadSuppliers(),
-        ...(isRestockRoute ? [loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize)] : [])
+        ...(isRestockRoute ? [loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter)] : [])
       ]);
     } catch (confirmError) {
       setError(confirmError instanceof Error ? confirmError.message : "No fue posible importar productos");
@@ -1091,7 +1093,7 @@ export function ProductsPage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
     });
     if (isRestockRoute) {
-      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize).catch((loadError) => {
+      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar productos por reabastecer");
       });
     }
@@ -1160,7 +1162,7 @@ export function ProductsPage() {
         return;
       }
       setRestockPage(1);
-      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize).catch((loadError) => {
+      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
       });
     }, 250);
@@ -1372,7 +1374,7 @@ export function ProductsPage() {
       });
       await loadProducts("", 1, pageSize, categoryFilter);
       if (isRestockRoute) {
-        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
+        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter);
       }
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
@@ -1594,7 +1596,7 @@ export function ProductsPage() {
       await loadSuppliers();
       await loadCategories();
       if (!isCashier && isRestockRoute) {
-        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
+        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter);
       }
       if (isCashier) {
         await loadRequestSummary();
@@ -1748,7 +1750,7 @@ export function ProductsPage() {
       });
       await loadProducts(search, page, pageSize, categoryFilter);
       if (isRestockRoute) {
-        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize);
+        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter);
       }
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : "No fue posible actualizar el producto");

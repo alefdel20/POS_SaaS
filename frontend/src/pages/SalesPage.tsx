@@ -640,7 +640,6 @@ export function SalesPage() {
       if (!exactProduct) {
         setScannerSelectionId(null);
         setScannerFeedback(`No se encontro un producto para el codigo ${normalizedCode}`);
-        setTimeout(() => setScannerFeedback(""), 2500);
         return;
       }
 
@@ -974,7 +973,7 @@ export function SalesPage() {
               <small>Stock: {formatSaleQuantity(Number(product.stock), product.unidad_de_venta)}</small>
             </button>
           ))}
-          {products.length === 0 ? (
+          {products.length === 0 && !scannerFeedback ? (
             <div className="empty-state-card">
               <p className="muted">
                 {search.trim() ? "No se encontraron coincidencias para esta busqueda." : "No hay productos activos para mostrar."}

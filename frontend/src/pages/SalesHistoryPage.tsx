@@ -121,7 +121,6 @@ export function SalesHistoryPage() {
   const [returnItems, setReturnItems] = useState<ReturnItem[]>([]);
   const [returnReason, setReturnReason] = useState("");
   const [returnResolution, setReturnResolution] = useState<SaleReturn["resolution_type"]>("refund_cash");
-  const [returnNotes, setReturnNotes] = useState("");
   const [returnLoading, setReturnLoading] = useState(false);
   const [saleReturns, setSaleReturns] = useState<SaleReturn[]>([]);
 
@@ -265,7 +264,6 @@ export function SalesHistoryPage() {
     );
     setReturnReason("");
     setReturnResolution("refund_cash");
-    setReturnNotes("");
     setShowReturnModal(true);
   }
 
@@ -287,7 +285,13 @@ export function SalesHistoryPage() {
 
   function handleReturnRestockChange(saleItemId: number, restock: boolean) {
     setReturnItems((prev) =>
-      prev.map((item) => (item.sale_item_id === saleItemId ? { ...item, restock } : item))
+      prev.map((item) => {
+        if (item.sale_item_id !== saleItemId) return item;
+        const subtotal = restock
+          ? Math.round(item.quantity_returned * item.unit_price * 100000) / 100000
+          : 0;
+        return { ...item, restock, subtotal_returned: subtotal };
+      })
     );
   }
 
@@ -311,8 +315,7 @@ export function SalesHistoryPage() {
         body: JSON.stringify({
           items: activeItems,
           resolution_type: returnResolution,
-          return_reason: returnReason.trim(),
-          notes: returnNotes.trim() || null
+          return_reason: returnReason.trim()
         })
       });
       setShowReturnModal(false);
@@ -641,7 +644,7 @@ export function SalesHistoryPage() {
 
       {showReturnModal && saleDetail ? (
         <div className="modal-backdrop" role="presentation">
-          <div className="modal-card">
+          <div className="modal-card" style={{ maxWidth: "860px", width: "95vw" }}>
             <div className="panel-header">
               <div>
                 <h3>Registrar devolución — venta #{saleDetail.folio}</h3>
@@ -652,7 +655,7 @@ export function SalesHistoryPage() {
             {!canAuthorizeReturn ? (
               <p className="muted">Esta devolución quedará pendiente de autorización por un gerente o administrador.</p>
             ) : null}
-            <div className="table-wrap">
+            <div className="table-wrap" style={{ overflowX: "auto" }}>
               <table>
                 <thead>
                   <tr>
@@ -711,10 +714,6 @@ export function SalesHistoryPage() {
             <label>
               Motivo (obligatorio)
               <textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)} />
-            </label>
-            <label>
-              Notas adicionales (opcional)
-              <textarea value={returnNotes} onChange={(e) => setReturnNotes(e.target.value)} />
             </label>
             <p>
               <strong>Total a devolver: {currency(returnItems.reduce((sum, i) => sum + i.subtotal_returned, 0))}</strong>

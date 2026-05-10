@@ -27,6 +27,7 @@ const restockValidation = [
   query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
   query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
   query("includeMeta").optional({ values: "falsy" }).isBoolean(),
+  query("stockStatus").optional({ values: "falsy" }).isIn(["all", "low", "normal"]),
   validateRequest
 ];
 const restockHistoryValidation = [
@@ -193,7 +194,8 @@ const listRestockProducts = asyncHandler(async (req, res) => {
     supplier: req.query.supplier,
     page: req.query.page,
     pageSize: req.query.pageSize,
-    includeMeta: req.query.includeMeta === "true"
+    includeMeta: req.query.includeMeta === "true",
+    stockStatus: req.query.stockStatus
   }, req.user);
   res.json(req.query.includeMeta === "true" ? response : response.items);
 });
