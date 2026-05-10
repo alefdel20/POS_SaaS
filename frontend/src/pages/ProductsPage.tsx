@@ -903,6 +903,8 @@ export function ProductsPage() {
     });
 
     try {
+      let successfulIds: number[] = [];
+
       if (isCashier) {
         const response = await apiRequest<ProductUpdateRequestBatchResponse>("/product-update-requests/batch", {
           method: "POST",
@@ -916,18 +918,25 @@ export function ProductsPage() {
           })
         });
 
-        const { successfulIds, feedbackByProductId } = summarizeRestockBatchResults(
+        const batchResult = summarizeRestockBatchResults(
           response.results,
           productIds,
           requestedProductIds,
           "Solicitud enviada",
           "No fue posible enviar"
         );
+        successfulIds = batchResult.successfulIds;
+        const { feedbackByProductId } = batchResult;
         if (Object.keys(feedbackByProductId).length > 0) {
           setRestockRowFeedback((current) => ({ ...current, ...feedbackByProductId }));
         }
         if (successfulIds.length > 0) {
           clearRestockDrafts(successfulIds);
+          setRecentlySaved((current) => {
+            const next = new Set(current);
+            successfulIds.forEach((id) => next.add(id));
+            return next;
+          });
         }
 
         await loadRequestSummary();
@@ -945,18 +954,25 @@ export function ProductsPage() {
           })
         });
 
-        const { successfulIds, feedbackByProductId } = summarizeRestockBatchResults(
+        const batchResult = summarizeRestockBatchResults(
           response.results,
           productIds,
           requestedProductIds,
           "Stock guardado",
           "No fue posible guardar"
         );
+        successfulIds = batchResult.successfulIds;
+        const { feedbackByProductId } = batchResult;
         if (Object.keys(feedbackByProductId).length > 0) {
           setRestockRowFeedback((current) => ({ ...current, ...feedbackByProductId }));
         }
         if (successfulIds.length > 0) {
           clearRestockDrafts(successfulIds);
+          setRecentlySaved((current) => {
+            const next = new Set(current);
+            successfulIds.forEach((id) => next.add(id));
+            return next;
+          });
         }
 
         setInfo(`Guardado masivo completado: ${response.summary.success} exitosos, ${response.summary.failed} con error.`);
@@ -965,6 +981,27 @@ export function ProductsPage() {
       await loadProducts(search, page, pageSize, categoryFilter);
       setRestockPage(1);
       await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter);
+      const savedItems = validDraftEntries
+        .filter((e) => successfulIds.includes(e.item.id))
+        .map((e) => e.item);
+      setRestockItems((current) => {
+        const currentIds = new Set(current.map((i) => i.id));
+        const missing = savedItems.filter((i) => !currentIds.has(i.id));
+        if (missing.length === 0) return current;
+        const injected = missing.map((i) => ({ ...i, is_low_stock: false, _injected: true }));
+        return [...injected, ...current];
+      });
+      if (successfulIds.length > 0) {
+        setTimeout(() => {
+          setRecentlySaved((current) => {
+            const next = new Set(current);
+            successfulIds.forEach((id) => next.delete(id));
+            return next;
+          });
+          setRestockItems((current) => current.filter((i) => !i._injected));
+          loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter).catch(() => undefined);
+        }, 5000);
+      }
     } catch (restockError) {
       setError(restockError instanceof Error ? restockError.message : "No fue posible guardar el lote de reabastecimiento");
     } finally {
