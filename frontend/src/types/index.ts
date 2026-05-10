@@ -447,6 +447,7 @@ export interface RestockProductItem {
   is_low_stock?: boolean;
   shortage: number;
   suggested_restock: number;
+  _injected?: boolean;
 }
 
 export interface RestockProductsResponse {

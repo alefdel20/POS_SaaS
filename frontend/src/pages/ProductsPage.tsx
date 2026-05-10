@@ -829,14 +829,8 @@ export function ProductsPage() {
         setRecentlySaved((current) => new Set(current).add(item.id));
         setTimeout(() => {
           setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; });
-          setRestockItems((current) => {
-            const found = current.find(i => i.id === item.id);
-            if (!found) return current;
-            const rest = current.filter(i => i.id !== item.id);
-            const insertIdx = found.is_low_stock ? 0 : rest.findIndex(i => !i.is_low_stock);
-            const idx = insertIdx === -1 ? rest.length : insertIdx;
-            return [...rest.slice(0, idx), found, ...rest.slice(idx)];
-          });
+          setRestockItems((current) => current.filter((i) => i.id !== item.id || !i._injected));
+          loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter).catch(() => undefined);
         }, 5000);
         await loadRequestSummary();
       } else {
@@ -859,14 +853,8 @@ export function ProductsPage() {
         setRecentlySaved((current) => new Set(current).add(item.id));
         setTimeout(() => {
           setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; });
-          setRestockItems((current) => {
-            const found = current.find(i => i.id === item.id);
-            if (!found) return current;
-            const rest = current.filter(i => i.id !== item.id);
-            const insertIdx = found.is_low_stock ? 0 : rest.findIndex(i => !i.is_low_stock);
-            const idx = insertIdx === -1 ? rest.length : insertIdx;
-            return [...rest.slice(0, idx), found, ...rest.slice(idx)];
-          });
+          setRestockItems((current) => current.filter((i) => i.id !== item.id || !i._injected));
+          loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter).catch(() => undefined);
         }, 5000);
       }
 
@@ -874,6 +862,12 @@ export function ProductsPage() {
       await loadProducts(search, page, pageSize, categoryFilter);
       setRestockPage(1);
       await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter);
+      setRestockItems((current) => {
+        const alreadyPresent = current.some((i) => i.id === item.id);
+        if (alreadyPresent) return current;
+        const injected: RestockProductItem = { ...item, is_low_stock: false, _injected: true };
+        return [injected, ...current];
+      });
       return true;
     } catch (restockError) {
       const message = restockError instanceof Error ? restockError.message : isCashier ? "No fue posible enviar la solicitud" : "No fue posible actualizar el stock";
@@ -1102,7 +1096,7 @@ export function ProductsPage() {
     if (isCashier) {
       loadRequestSummary().catch(console.error);
     }
-  }, [catalogScope, token, page, pageSize, categoryFilter, statusFilter, isCashier, isRestockRoute, restockPage, restockPageSize]);
+  }, [catalogScope, token, page, pageSize, categoryFilter, statusFilter, isCashier, isRestockRoute, restockPage, restockPageSize, restockStockFilter]);
 
   useEffect(() => {
     if (!searchFromQuery || search === searchFromQuery) {
@@ -2458,7 +2452,7 @@ export function ProductsPage() {
             <button
               className={`button ghost${restockStockFilter === value ? " active-filter" : ""}`}
               key={value}
-              onClick={() => { setRestockStockFilter(value); setRestockPage(1); }}
+              onClick={() => { setRestockPage(1); setRestockStockFilter(value); }}
               type="button"
             >
               {value === "all" ? "Todos" : value === "low" ? "Stock bajo" : "Stock normal"}
