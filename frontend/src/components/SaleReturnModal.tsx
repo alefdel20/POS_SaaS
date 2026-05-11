@@ -71,6 +71,8 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
   const [exchangeCart, setExchangeCart] = useState<ExchangeCartItem[]>([]);
   const [exchangeSearching, setExchangeSearching] = useState(false);
   const [exchangeDifferencePaymentMethod, setExchangeDifferencePaymentMethod] = useState<"cash" | "card" | "transfer">("cash");
+  const [actionLoading, setActionLoading] = useState(false);
+  const [returnsLoading, setReturnsLoading] = useState(false);
 
   useEffect(() => {
     fetchSaleReturns(saleDetail.id).catch(() => {
@@ -78,10 +80,24 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
     });
   }, [saleDetail.id, token]);
 
+  useEffect(() => {
+    const delay = setTimeout(() => {
+      searchExchangeProducts(exchangeSearch);
+    }, 250);
+    return () => clearTimeout(delay);
+  }, [exchangeSearch, token]);
+
   async function fetchSaleReturns(saleId: number) {
     if (!token) return;
-    const response = await apiRequest<SaleReturn[]>(`/sales/${saleId}/returns`, { token });
-    setSaleReturns(response);
+    setReturnsLoading(true);
+    try {
+      const response = await apiRequest<SaleReturn[]>(`/sales/${saleId}/returns`, { token });
+      setSaleReturns(response);
+    } catch {
+      // non-critical
+    } finally {
+      setReturnsLoading(false);
+    }
   }
 
   async function searchExchangeProducts(term: string) {
@@ -222,24 +238,30 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
   }
 
   async function handleApproveReturn(returnId: number) {
-    if (!token) return;
+    if (!token || !saleDetail) return;
+    setActionLoading(true);
     try {
       setError("");
       await apiRequest<SaleReturn>(`/sales/returns/${returnId}/approve`, { method: "POST", token });
       await fetchSaleReturns(saleDetail.id);
     } catch (approveError) {
       setError(approveError instanceof Error ? approveError.message : "No fue posible aprobar la devolucion");
+    } finally {
+      setActionLoading(false);
     }
   }
 
   async function handleRejectReturn(returnId: number) {
-    if (!token) return;
+    if (!token || !saleDetail) return;
+    setActionLoading(true);
     try {
       setError("");
       await apiRequest<SaleReturn>(`/sales/returns/${returnId}/reject`, { method: "POST", token });
       await fetchSaleReturns(saleDetail.id);
     } catch (rejectError) {
       setError(rejectError instanceof Error ? rejectError.message : "No fue posible rechazar la devolucion");
+    } finally {
+      setActionLoading(false);
     }
   }
 
@@ -277,6 +299,10 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
         <p className="muted">Devolución completa — todos los productos de esta venta ya fueron devueltos.</p>
       ) : null}
 
+      {returnsLoading ? (
+        <p className="muted">Cargando devoluciones...</p>
+      ) : null}
+
       {saleReturns.length > 0 ? (
         <div className="info-card">
           <h3>Devoluciones registradas</h3>
@@ -312,8 +338,12 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
               ) : null}
               {sr.status === "pending" && canAuthorizeReturn ? (
                 <div className="inline-actions">
-                  <button className="button ghost" onClick={() => handleApproveReturn(sr.id)} type="button">Aprobar</button>
-                  <button className="button ghost danger" onClick={() => handleRejectReturn(sr.id)} type="button">Rechazar</button>
+                  <button className="button ghost" disabled={actionLoading} onClick={() => handleApproveReturn(sr.id)} type="button">
+                    {actionLoading ? "Procesando..." : "Aprobar"}
+                  </button>
+                  <button className="button ghost danger" disabled={actionLoading} onClick={() => handleRejectReturn(sr.id)} type="button">
+                    {actionLoading ? "Procesando..." : "Rechazar"}
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -403,10 +433,7 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
                   <input
                     type="text"
                     value={exchangeSearch}
-                    onChange={(e) => {
-                      setExchangeSearch(e.target.value);
-                      searchExchangeProducts(e.target.value);
-                    }}
+                    onChange={(e) => setExchangeSearch(e.target.value)}
                     placeholder="Nombre, código de barras, categoría..."
                   />
                 </label>
