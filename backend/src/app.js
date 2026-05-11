@@ -22,6 +22,7 @@ const reminderRoutes = require("./routes/reminderRoutes");
 const automationRoutes = require("./routes/automationRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
+const catalogClientRoutes = require("./routes/clientRoutes");
 const financeRoutes = require("./routes/financeRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const businessRoutes = require("./routes/businessRoutes");
@@ -87,6 +88,7 @@ const routes = [
   { path: "/history", router: historyRoutes, auth: true },
   { path: "/daily-cuts", router: dailyCutRoutes, auth: true },
   { path: "/credit-collections", router: creditCollectionRoutes, auth: true },
+  { path: "/catalog-clients", router: catalogClientRoutes, auth: true },
   { path: "/reminders", router: reminderRoutes, auth: true },
   { path: "/dashboard", router: dashboardRoutes, auth: true },
   { path: "/finances", router: financeRoutes, auth: true },

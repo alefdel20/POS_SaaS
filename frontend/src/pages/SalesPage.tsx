@@ -338,11 +338,26 @@ export function SalesPage() {
       return;
     }
     const params = new URLSearchParams({ search: term.trim() });
-    const response = await apiRequest<DebtorSuggestion[]>(`/credit-collections/suggestions?${params.toString()}`, { token });
+    const [debtorResponse, catalogResponse] = await Promise.all([
+      apiRequest<DebtorSuggestion[]>(`/credit-collections/suggestions?${params.toString()}`, { token }),
+      apiRequest<Array<{ id: number; name: string; phone: string | null }>>(`/catalog-clients?${params.toString()}`, { token }).catch(() => [] as Array<{ id: number; name: string; phone: string | null }>)
+    ]);
     if (requestId !== undefined && debtorSuggestionRequestRef.current !== requestId) {
       return;
     }
-    setDebtorSuggestions(response);
+    const existingKeys = new Set(
+      debtorResponse.map((d) => `${String(d.customer_name || "").toLowerCase()}::${String(d.customer_phone || "").replace(/\D/g, "")}`)
+    );
+    const catalogAsSuggestions: DebtorSuggestion[] = catalogResponse
+      .filter((c) => !existingKeys.has(`${c.name.toLowerCase()}::${String(c.phone || "").replace(/\D/g, "")}`))
+      .map((c) => ({
+        customer_name: c.name,
+        customer_phone: c.phone || null,
+        sale_count: 0,
+        pending_balance: 0,
+        selection_label: c.phone ? `${c.name} · ${c.phone}` : c.name
+      }));
+    setDebtorSuggestions([...debtorResponse, ...catalogAsSuggestions]);
   }
 
   function resetSaleForm() {

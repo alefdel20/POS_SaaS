@@ -52,9 +52,11 @@ function buildDebtorGroups(items: Debtor[]) {
   for (const debtor of items) {
     const normalizedName = normalizeDebtorName(debtor.person);
     const normalizedPhone = normalizeDebtorPhone(debtor.phone);
-    const key = normalizedName && normalizedPhone
-      ? `${normalizedName}::${normalizedPhone}`
-      : `sale:${debtor.sale_id}`;
+    const key = debtor.client_id
+      ? `client:${debtor.client_id}`
+      : normalizedName && normalizedPhone
+        ? `${normalizedName}::${normalizedPhone}`
+        : `sale:${debtor.sale_id}`;
 
     const existing = grouped.get(key);
     if (existing) {
@@ -478,14 +480,6 @@ export function CreditCollectionsPage() {
               type="button"
             >
               Liquidar saldo
-            </button>
-            <button
-              className="button ghost"
-              disabled={!selectedDebtor || !selectedDebtorGroup || selectedDebtorGroup.sales.filter((s) => s.balance_due > 0).length <= 1}
-              onClick={handleSettleGroup}
-              type="button"
-            >
-              Liquidar Todo
             </button>
             <button className="button ghost" disabled={!selectedSaleId || sendingReminder} onClick={sendReminder} type="button">
               {sendingReminder ? "Enviando..." : "Enviar recordatorio"}

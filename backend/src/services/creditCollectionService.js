@@ -65,6 +65,7 @@ async function listDebtors(actor, filters = {}) {
         sales.sale_date,
         sales.customer_name AS person,
         sales.customer_phone AS phone,
+        sales.client_id,
         sales.total,
         sales.initial_payment,
         sales.send_reminder,
@@ -86,6 +87,7 @@ async function listDebtors(actor, filters = {}) {
       sale_credit_totals.sale_date,
       sale_credit_totals.person,
       sale_credit_totals.phone,
+      sale_credit_totals.client_id,
       sale_credit_totals.total,
       sale_credit_totals.initial_payment,
       sale_credit_totals.send_reminder,
@@ -122,6 +124,7 @@ async function listDebtors(actor, filters = {}) {
   return rows.map((row) => ({
     ...row,
     sale_date: normalizeBusinessDate(row.sale_date, row.sale_date),
+    client_id: row.client_id ? Number(row.client_id) : null,
     total: Number(row.total || 0),
     initial_payment: Number(row.initial_payment || 0),
     balance_due: Number(row.balance_due || 0),

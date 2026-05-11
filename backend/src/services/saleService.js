@@ -8,6 +8,7 @@ const { createAdministrativeInvoiceFromSale } = require("./adminInvoiceService")
 const { saveAuditLog } = require("./auditLogService");
 const { emitActorAutomationEvent } = require("./automationEventService");
 const { canUseCreditCollections } = require("../utils/business");
+const { findOrCreateClient } = require("./clientService");
 
 const INTEGER_UNITS = new Set(["pieza", "caja"]);
 const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
@@ -465,17 +466,23 @@ async function createSale(payload, user, branchId = null) {
       stampStatus = "consumed";
     }
 
+    let clientId = null;
+    if (payload.payment_method === "credit" && customerName) {
+      const catalogClient = await findOrCreateClient(businessId, { name: customerName, phone: customerPhone }, client).catch(() => null);
+      clientId = catalogClient?.id ?? null;
+    }
+
     const safeSaleTime = getMexicoCityTime();
     const { rows: saleRows } = await client.query(
       `INSERT INTO sales (
         user_id, business_id, payment_method, sale_type, subtotal, total, total_cost, customer_name, customer_phone,
         initial_payment, balance_due, invoice_data, notes, company_profile_id, transfer_snapshot, invoice_status,
         stamp_status, stamp_movement_id, stamp_snapshot, sale_date, sale_time, created_at, requires_administrative_invoice, status,
-        branch_id
+        branch_id, client_id
       )
-      VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed', $22)
+      VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed', $22, $23)
       RETURNING *`,
-      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), safeSaleTime, requiresAdministrativeInvoice, branchId]
+      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), safeSaleTime, requiresAdministrativeInvoice, branchId, clientId]
     );
     const sale = mapSaleRow(saleRows[0]);
 

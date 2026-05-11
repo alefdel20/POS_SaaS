@@ -838,6 +838,7 @@ export interface Debtor {
   sale_date: string;
   person: string;
   phone: string;
+  client_id?: number | null;
   total: number;
   initial_payment: number;
   total_paid: number;
