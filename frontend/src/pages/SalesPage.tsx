@@ -1022,7 +1022,43 @@ export function SalesPage() {
           <h2>Carrito</h2>
           <button className="button ghost" onClick={resetSaleForm} type="button">Limpiar</button>
         </div>
-        <div className="table-wrap">
+        <div className="sales-actions">
+          <div className="total-box">
+            <span>Total</span>
+            <strong>{currency(total)}</strong>
+          </div>
+          <button
+            className="button"
+            disabled={cart.length === 0}
+            onClick={() => setShowCheckoutModal(true)}
+            type="button"
+          >
+            Finalizar venta
+          </button>
+          <label>
+            Metodo de pago
+            <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>
+              <option value="cash">{getPaymentMethodLabel("cash")}</option>
+              <option value="card">{getPaymentMethodLabel("card")}</option>
+              {canUseCredit ? <option value="credit">{getPaymentMethodLabel("credit")}</option> : null}
+              <option value="transfer">{getPaymentMethodLabel("transfer")}</option>
+            </select>
+          </label>
+          <label>
+            Tipo de salida
+            <select value={saleType} onChange={(event) => setSaleType(event.target.value as typeof saleType)}>
+              <option value="ticket">{getSaleTypeLabel("ticket")}</option>
+              {canUseInvoice ? (
+                <option disabled={invoiceBlockedByStamps} value="invoice">{getSaleTypeLabel("invoice")}</option>
+              ) : null}
+            </select>
+          </label>
+          <label className="checkbox-row">
+            <input checked={requiresAdministrativeInvoice} onChange={(event) => setRequiresAdministrativeInvoice(event.target.checked)} type="checkbox" />
+            <span>Requiere factura</span>
+          </label>
+        </div>
+        <div className="table-wrap" style={{ overflowY: "auto", maxHeight: "340px" }}>
           <table>
             <thead>
               <tr>
@@ -1070,44 +1106,6 @@ export function SalesPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        <div className="sales-actions">
-          <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--surface, #1a1a2e)", paddingBottom: "0.5rem" }}>
-            <div className="total-box">
-              <span>Total</span>
-              <strong>{currency(total)}</strong>
-            </div>
-            <button
-              className="button"
-              disabled={cart.length === 0}
-              onClick={() => setShowCheckoutModal(true)}
-              type="button"
-            >
-              Finalizar venta
-            </button>
-          </div>
-          <label>
-            Metodo de pago
-            <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>
-              <option value="cash">{getPaymentMethodLabel("cash")}</option>
-              <option value="card">{getPaymentMethodLabel("card")}</option>
-              {canUseCredit ? <option value="credit">{getPaymentMethodLabel("credit")}</option> : null}
-              <option value="transfer">{getPaymentMethodLabel("transfer")}</option>
-            </select>
-          </label>
-          <label>
-            Tipo de salida
-            <select value={saleType} onChange={(event) => setSaleType(event.target.value as typeof saleType)}>
-              <option value="ticket">{getSaleTypeLabel("ticket")}</option>
-              {canUseInvoice ? (
-                <option disabled={invoiceBlockedByStamps} value="invoice">{getSaleTypeLabel("invoice")}</option>
-              ) : null}
-            </select>
-          </label>
-          <label className="checkbox-row">
-            <input checked={requiresAdministrativeInvoice} onChange={(event) => setRequiresAdministrativeInvoice(event.target.checked)} type="checkbox" />
-            <span>Requiere factura</span>
-          </label>
         </div>
 
         {!canUseCredit ? (
@@ -1456,29 +1454,6 @@ export function SalesPage() {
               <span>Total a cobrar</span>
               <strong>{currency(total)}</strong>
             </div>
-
-            <label>
-              Metodo de pago
-              <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>
-                <option value="cash">{getPaymentMethodLabel("cash")}</option>
-                <option value="card">{getPaymentMethodLabel("card")}</option>
-                {canUseCredit ? <option value="credit">{getPaymentMethodLabel("credit")}</option> : null}
-                <option value="transfer">{getPaymentMethodLabel("transfer")}</option>
-              </select>
-            </label>
-            <label>
-              Tipo de salida
-              <select value={saleType} onChange={(event) => setSaleType(event.target.value as typeof saleType)}>
-                <option value="ticket">{getSaleTypeLabel("ticket")}</option>
-                {canUseInvoice ? (
-                  <option disabled={invoiceBlockedByStamps} value="invoice">{getSaleTypeLabel("invoice")}</option>
-                ) : null}
-              </select>
-            </label>
-            <label className="checkbox-row">
-              <input checked={requiresAdministrativeInvoice} onChange={(event) => setRequiresAdministrativeInvoice(event.target.checked)} type="checkbox" />
-              <span>Requiere factura</span>
-            </label>
 
             {paymentMethod === "cash" ? (
               <div className="form-section-grid">
