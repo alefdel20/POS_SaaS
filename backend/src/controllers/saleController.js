@@ -67,6 +67,15 @@ const cancelSale = asyncHandler(async (req, res) => {
   res.json(await saleService.cancelSale(Number(req.params.id), req.body.reason, req.user));
 });
 
+const getRecentProductsValidation = [validateRequest];
+
+const getRecentProducts = asyncHandler(async (req, res) => {
+  const actor = req.user;
+  const businessId = actor.business_id;
+  const products = await saleService.getRecentProductsByUser(actor.id, businessId, 9);
+  res.json(products);
+});
+
 module.exports = {
   listValidation,
   saleIdValidation,
@@ -78,5 +87,7 @@ module.exports = {
   getSaleDetail,
   getSalesTrends,
   createSale,
-  cancelSale
+  cancelSale,
+  getRecentProductsValidation,
+  getRecentProducts
 };

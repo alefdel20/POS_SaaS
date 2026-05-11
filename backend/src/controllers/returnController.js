@@ -19,6 +19,11 @@ const createReturnValidation = [
   body("items.*.unit_price").isFloat({ min: 0 }),
   body("items.*.subtotal_returned").isFloat({ min: 0 }),
   body("items.*.restock").optional().isBoolean(),
+  body("exchange_items").optional().isArray(),
+  body("exchange_items.*.product_id").optional().isInt({ min: 1 }),
+  body("exchange_items.*.quantity").optional().isFloat({ min: 0.001 }),
+  body("exchange_items.*.unit_price").optional().isFloat({ min: 0 }),
+  body("exchange_items.*.subtotal").optional().isFloat({ min: 0 }),
   validateRequest
 ];
 

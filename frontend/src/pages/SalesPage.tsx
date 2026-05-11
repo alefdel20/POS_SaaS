@@ -170,6 +170,7 @@ export function SalesPage() {
   const salesTitle = catalogScope ? `Ventas · ${getCatalogScopeLabel(catalogScope)}` : "Ventas";
   const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
+  const [recentUserProducts, setRecentUserProducts] = useState<Product[]>([]);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
@@ -271,6 +272,16 @@ export function SalesPage() {
     setRecentSales(response);
   }
 
+  async function loadRecentUserProducts() {
+    if (!token) return;
+    try {
+      const response = await apiRequest<Product[]>("/sales/recent-products", { token });
+      setRecentUserProducts(response);
+    } catch {
+      setRecentUserProducts([]);
+    }
+  }
+
   async function fetchExpandedSaleDetail(saleId: number) {
     if (!token) return;
     setLoadingExpandedDetail(true);
@@ -365,6 +376,7 @@ export function SalesPage() {
     loadRecentSales().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar las ventas recientes");
     });
+    loadRecentUserProducts().catch(() => undefined);
     loadProfile().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil del negocio");
     });
@@ -462,6 +474,7 @@ export function SalesPage() {
   const showLotExpiryInQuickAdd = canUseExpiryDate(user?.pos_type);
   const stampCount = Number(profile?.stamps_available || 0);
   const canAuthorizeReturn = hasAnyRole(user?.role, [ROLE_MANAGER, ROLE_ADMIN, ROLE_SUPERUSER]);
+  const displayProducts = search.trim() ? products : (recentUserProducts.length > 0 ? recentUserProducts : products);
 
   useEffect(() => {
     setInvoiceData((current) => ({
@@ -859,6 +872,7 @@ export function SalesPage() {
       await loadProducts(search);
       await loadRecentSales();
       await loadProfile();
+      loadRecentUserProducts().catch(() => undefined);
       window.setTimeout(() => searchInputRef.current?.focus(), 0);
     } catch (saleError) {
       setError(saleError instanceof Error ? saleError.message : "No fue posible confirmar la venta");
@@ -966,7 +980,7 @@ export function SalesPage() {
         {error ? <p className="error-text">{error}</p> : null}
         {scannerFeedback ? <p className="muted">{scannerFeedback}</p> : null}
         <div className="product-grid">
-          {products.map((product) => (
+          {displayProducts.map((product) => (
             <button
               key={product.id}
               className={`catalog-card ${scannerSelectionId === product.id ? "table-row-active" : ""}`}
@@ -993,7 +1007,7 @@ export function SalesPage() {
               <small>Stock: {formatSaleQuantity(Number(product.stock), product.unidad_de_venta)}</small>
             </button>
           ))}
-          {products.length === 0 && !scannerFeedback ? (
+          {displayProducts.length === 0 && !scannerFeedback ? (
             <div className="empty-state-card">
               <p className="muted">
                 {search.trim() ? "No se encontraron coincidencias para esta busqueda." : "No hay productos activos para mostrar."}
@@ -1468,7 +1482,24 @@ export function SalesPage() {
               <div className="form-section-grid">
                 <label>
                   Dinero recibido *
-                  <input min="0" step="0.01" type="number" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} />
+                  <input
+                    min="0"
+                    step="0.01"
+                    type="number"
+                    value={cashReceived}
+                    onChange={(event) => setCashReceived(event.target.value)}
+                    onKeyDown={async (event) => {
+                      if (event.key !== "Enter") return;
+                      if (confirmSaleLoading || !hasValidCashReceived) return;
+                      setConfirmSaleLoading(true);
+                      try {
+                        await confirmSale();
+                        setShowCheckoutModal(false);
+                      } finally {
+                        setConfirmSaleLoading(false);
+                      }
+                    }}
+                  />
                 </label>
                 {!hasValidCashReceived ? <p className="error-text">Captura un monto igual o mayor al total para finalizar la venta.</p> : null}
                 <div className="total-box secondary">

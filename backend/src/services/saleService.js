@@ -688,4 +688,38 @@ async function cancelSale(saleId, reason, actor) {
   }
 }
 
-module.exports = { listSales, listRecentSales, getSaleDetail, getSalesTrends, createSale, cancelSale, buildValidSaleStatusClause };
+async function getRecentProductsByUser(userId, businessId, limit = 9) {
+  const result = await pool.query(
+    `SELECT DISTINCT ON (p.id)
+       p.id,
+       p.name,
+       p.barcode,
+       p.sku,
+       p.price,
+       p.stock,
+       p.category,
+       p.unidad_de_venta,
+       p.status,
+       p.is_active,
+       p.image_url,
+       MAX(s.created_at) OVER (PARTITION BY p.id) AS last_sold_at
+     FROM sale_items si
+     JOIN sales s ON s.id = si.sale_id
+     JOIN products p ON p.id = si.product_id
+     WHERE s.user_id = $1
+       AND s.business_id = $2
+       AND p.is_active = true
+       AND (p.status IS NULL OR p.status = 'activo')
+     ORDER BY p.id, s.created_at DESC`,
+    [userId, businessId]
+  );
+
+  // Sort by last_sold_at DESC and limit
+  const sorted = result.rows
+    .sort((a, b) => new Date(b.last_sold_at) - new Date(a.last_sold_at))
+    .slice(0, limit);
+
+  return sorted;
+}
+
+module.exports = { listSales, listRecentSales, getSaleDetail, getSalesTrends, createSale, cancelSale, buildValidSaleStatusClause, getRecentProductsByUser };

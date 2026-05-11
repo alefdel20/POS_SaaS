@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
-import type { SaleDetail } from "../types";
+import type { Product, SaleDetail } from "../types";
 import { currency, shortDate } from "../utils/format";
 
 export interface ReturnItem {
@@ -22,6 +22,20 @@ export interface SaleReturn {
   authorized_by: number | null;
   created_at: string;
   items: ReturnItem[];
+  exchange_items?: Array<{
+    id: number;
+    product_id: number;
+    product_name: string;
+    quantity: number;
+    unit_price: number;
+    subtotal: number;
+    unidad_de_venta: string | null;
+  }>;
+}
+
+interface ExchangeCartItem {
+  product: Product;
+  quantity: number;
 }
 
 function getResolutionLabel(type: SaleReturn["resolution_type"]) {
@@ -52,6 +66,10 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
   const [returnLoading, setReturnLoading] = useState(false);
   const [saleReturns, setSaleReturns] = useState<SaleReturn[]>([]);
   const [error, setError] = useState("");
+  const [exchangeSearch, setExchangeSearch] = useState("");
+  const [exchangeResults, setExchangeResults] = useState<Product[]>([]);
+  const [exchangeCart, setExchangeCart] = useState<ExchangeCartItem[]>([]);
+  const [exchangeSearching, setExchangeSearching] = useState(false);
 
   useEffect(() => {
     fetchSaleReturns(saleDetail.id).catch(() => {
@@ -63,6 +81,51 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
     if (!token) return;
     const response = await apiRequest<SaleReturn[]>(`/sales/${saleId}/returns`, { token });
     setSaleReturns(response);
+  }
+
+  async function searchExchangeProducts(term: string) {
+    if (!term.trim()) {
+      setExchangeResults([]);
+      return;
+    }
+    setExchangeSearching(true);
+    try {
+      const params = new URLSearchParams({ activeOnly: "true", search: term });
+      const response = await apiRequest<Product[]>(`/products?${params}`, { token });
+      setExchangeResults(response);
+    } catch {
+      setExchangeResults([]);
+    } finally {
+      setExchangeSearching(false);
+    }
+  }
+
+  function addToExchangeCart(product: Product) {
+    setExchangeCart((prev) => {
+      const existing = prev.find((i) => i.product.id === product.id);
+      if (existing) {
+        return prev.map((i) =>
+          i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
+        );
+      }
+      return [...prev, { product, quantity: 1 }];
+    });
+    setExchangeResults([]);
+    setExchangeSearch("");
+  }
+
+  function updateExchangeQty(productId: number, qty: number) {
+    if (qty <= 0) {
+      setExchangeCart((prev) => prev.filter((i) => i.product.id !== productId));
+      return;
+    }
+    setExchangeCart((prev) =>
+      prev.map((i) => (i.product.id === productId ? { ...i, quantity: qty } : i))
+    );
+  }
+
+  function removeFromExchangeCart(productId: number) {
+    setExchangeCart((prev) => prev.filter((i) => i.product.id !== productId));
   }
 
   function handleOpenReturnModal() {
@@ -78,6 +141,9 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
     );
     setReturnReason("");
     setReturnResolution("refund_cash");
+    setExchangeCart([]);
+    setExchangeSearch("");
+    setExchangeResults([]);
     setShowReturnModal(true);
   }
 
@@ -129,7 +195,15 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
         body: JSON.stringify({
           items: activeItems,
           resolution_type: returnResolution,
-          return_reason: returnReason.trim()
+          return_reason: returnReason.trim(),
+          exchange_items: returnResolution === "exchange"
+            ? exchangeCart.map((i) => ({
+                product_id: i.product.id,
+                quantity: i.quantity,
+                unit_price: Number(i.product.effective_price ?? i.product.price),
+                subtotal: Math.round(i.quantity * Number(i.product.effective_price ?? i.product.price) * 100) / 100
+              }))
+            : []
         })
       });
       setShowReturnModal(false);
@@ -164,9 +238,20 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
     }
   }
 
+  const allItemsFullyReturned =
+    saleDetail.items.length > 0 &&
+    saleDetail.items.every((saleItem) => {
+      const approvedReturnedQty = saleReturns
+        .filter((sr) => sr.status === "approved")
+        .flatMap((sr) => sr.items)
+        .filter((ri) => ri.sale_item_id === saleItem.id)
+        .reduce((sum, ri) => sum + ri.quantity_returned, 0);
+      return approvedReturnedQty >= saleItem.quantity;
+    });
+
   return (
     <>
-      {(saleDetail.status || "completed") !== "cancelled" ? (
+      {(saleDetail.status || "completed") !== "cancelled" && !allItemsFullyReturned ? (
         <button
           className="button ghost"
           onClick={handleOpenReturnModal}
@@ -174,6 +259,10 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
         >
           Devolución
         </button>
+      ) : null}
+
+      {(saleDetail.status || "completed") !== "cancelled" && allItemsFullyReturned ? (
+        <p className="muted">Devolución completa — todos los productos de esta venta ya fueron devueltos.</p>
       ) : null}
 
       {saleReturns.length > 0 ? (
@@ -197,6 +286,18 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
               </div>
               <p>Estado: <span className={`status-badge${sr.status === "rejected" ? " cancelled" : ""}`}>{getReturnStatusLabel(sr.status)}</span></p>
               <p>Motivo: {sr.return_reason}</p>
+              {sr.resolution_type === "exchange" && sr.exchange_items && sr.exchange_items.length > 0 ? (
+                <div>
+                  <p><strong>Productos entregados al cliente:</strong></p>
+                  <ul style={{ margin: "0.25rem 0 0 1rem", padding: 0 }}>
+                    {sr.exchange_items.map((ei) => (
+                      <li key={ei.id}>
+                        {ei.quantity} {ei.unidad_de_venta || "pieza"} — {ei.product_name} ({currency(ei.subtotal)})
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {sr.status === "pending" && canAuthorizeReturn ? (
                 <div className="inline-actions">
                   <button className="button ghost" onClick={() => handleApproveReturn(sr.id)} type="button">Aprobar</button>
@@ -279,6 +380,105 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
                 <option value="exchange">Intercambio</option>
               </select>
             </label>
+
+            {returnResolution === "exchange" ? (
+              <div className="info-card">
+                <h3>Productos de intercambio</h3>
+                <p className="muted">Busca y agrega los productos que recibirá el cliente.</p>
+
+                <label>
+                  Buscar producto
+                  <input
+                    type="text"
+                    value={exchangeSearch}
+                    onChange={(e) => {
+                      setExchangeSearch(e.target.value);
+                      searchExchangeProducts(e.target.value);
+                    }}
+                    placeholder="Nombre, código de barras, categoría..."
+                  />
+                </label>
+
+                {exchangeSearching ? <p className="muted">Buscando...</p> : null}
+
+                {exchangeResults.length > 0 ? (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Producto</th>
+                          <th>Stock</th>
+                          <th>Precio</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {exchangeResults.map((p) => (
+                          <tr key={p.id}>
+                            <td>{p.name}</td>
+                            <td>{p.stock} {p.unidad_de_venta || ""}</td>
+                            <td>{currency(Number(p.effective_price ?? p.price))}</td>
+                            <td>
+                              <button
+                                className="button ghost"
+                                onClick={() => addToExchangeCart(p)}
+                                type="button"
+                              >
+                                Agregar
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+
+                {exchangeCart.length > 0 ? (
+                  <div className="table-wrap" style={{ marginTop: "0.75rem" }}>
+                    <h4>Productos seleccionados</h4>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Producto</th>
+                          <th>Cantidad</th>
+                          <th>Subtotal</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {exchangeCart.map((item) => (
+                          <tr key={item.product.id}>
+                            <td>{item.product.name}</td>
+                            <td>
+                              <input
+                                type="number"
+                                min={1}
+                                step="any"
+                                value={item.quantity}
+                                onChange={(e) => updateExchangeQty(item.product.id, Number(e.target.value))}
+                                style={{ width: "5rem" }}
+                              />
+                            </td>
+                            <td>{currency(Math.round(item.quantity * Number(item.product.effective_price ?? item.product.price) * 100) / 100)}</td>
+                            <td>
+                              <button
+                                className="button ghost danger"
+                                onClick={() => removeFromExchangeCart(item.product.id)}
+                                type="button"
+                              >
+                                Quitar
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             <label>
               Motivo (obligatorio)
               <textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)} />
@@ -290,7 +490,12 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
               <button className="button ghost" onClick={() => setShowReturnModal(false)} type="button">Cancelar</button>
               <button
                 className="button ghost"
-                disabled={returnLoading || !returnReason.trim() || returnItems.every((i) => i.quantity_returned === 0)}
+                disabled={
+                  returnLoading ||
+                  !returnReason.trim() ||
+                  returnItems.every((i) => i.quantity_returned === 0) ||
+                  (returnResolution === "exchange" && exchangeCart.length === 0)
+                }
                 onClick={handleSubmitReturn}
                 type="button"
               >

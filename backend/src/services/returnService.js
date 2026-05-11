@@ -32,7 +32,8 @@ function mapReturnRow(row) {
     authorized_by: row.authorized_by ?? null,
     authorized_at: row.authorized_at ?? null,
     notes: row.notes ?? null,
-    created_at: row.created_at
+    created_at: row.created_at,
+    exchange_items: []
   };
 }
 
@@ -63,12 +64,25 @@ async function fetchReturnWithItems(client, returnId, businessId) {
     [returnId]
   );
 
-  return { ...mapReturnRow(returnRows[0]), items: itemRows.map(mapReturnItemRow) };
+  const exItemsResult = await client.query(
+    `SELECT ei.*, p.name AS product_name, p.unidad_de_venta
+     FROM exchange_items ei
+     JOIN products p ON p.id = ei.product_id
+     WHERE ei.return_id = $1`,
+    [returnId]
+  );
+
+  return {
+    ...mapReturnRow(returnRows[0]),
+    items: itemRows.map(mapReturnItemRow),
+    exchange_items: exItemsResult.rows
+  };
 }
 
 async function createReturn(saleId, body, actor) {
   const businessId = requireActorBusinessId(actor);
   const { items, resolution_type, return_reason, notes } = body;
+  const exchangeItems = Array.isArray(body.exchange_items) ? body.exchange_items : [];
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     throw new ApiError(400, "items must be a non-empty array");
@@ -76,6 +90,9 @@ async function createReturn(saleId, body, actor) {
   if (!resolution_type) throw new ApiError(400, "resolution_type is required");
   if (!return_reason || !String(return_reason).trim()) {
     throw new ApiError(400, "return_reason is required");
+  }
+  if (resolution_type === "exchange" && exchangeItems.length === 0) {
+    throw new ApiError(400, "Se requiere al menos un producto de intercambio cuando la resolucion es intercambio");
   }
 
   const normalizedRole = normalizeRole(actor?.role);
@@ -201,6 +218,21 @@ async function createReturn(saleId, body, actor) {
       }
     }
 
+    for (const ei of exchangeItems) {
+      await client.query(
+        `INSERT INTO exchange_items (return_id, product_id, business_id, quantity, unit_price, subtotal)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [returnRecord.id, ei.product_id, businessId, ei.quantity, ei.unit_price, ei.subtotal]
+      );
+      if (status === "approved") {
+        await client.query(
+          `UPDATE products SET stock = stock - $1, updated_at = NOW()
+           WHERE id = $2 AND business_id = $3`,
+          [ei.quantity, ei.product_id, businessId]
+        );
+      }
+    }
+
     await client.query("COMMIT");
     return fetchReturnWithItems(client, returnRecord.id, businessId);
   } catch (err) {
@@ -251,6 +283,18 @@ async function approveReturn(returnId, actor) {
           [Number(item.quantity_returned), item.product_id, businessId]
         );
       }
+    }
+
+    const exItems = await client.query(
+      `SELECT * FROM exchange_items WHERE return_id = $1`,
+      [returnId]
+    );
+    for (const ei of exItems.rows) {
+      await client.query(
+        `UPDATE products SET stock = stock - $1, updated_at = NOW()
+         WHERE id = $2 AND business_id = $3`,
+        [ei.quantity, ei.product_id, businessId]
+      );
     }
 
     await client.query("COMMIT");

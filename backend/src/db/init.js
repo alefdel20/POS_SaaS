@@ -310,6 +310,17 @@ async function ensureSchema(client) {
       created_at        TIMESTAMP DEFAULT NOW()
     )`,
 
+    `CREATE TABLE IF NOT EXISTS exchange_items (
+      id          SERIAL PRIMARY KEY,
+      return_id   INTEGER NOT NULL REFERENCES returns(id) ON DELETE CASCADE,
+      product_id  INTEGER NOT NULL REFERENCES products(id),
+      business_id INTEGER NOT NULL,
+      quantity    NUMERIC(12,3) NOT NULL,
+      unit_price  NUMERIC(12,5) NOT NULL,
+      subtotal    NUMERIC(14,5) NOT NULL,
+      created_at  TIMESTAMP DEFAULT NOW()
+    )`,
+
     "ALTER TABLE product_suppliers ALTER COLUMN purchase_cost TYPE NUMERIC(12, 5)",
 
     `CREATE TABLE IF NOT EXISTS credit_payments (
