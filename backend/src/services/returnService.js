@@ -373,9 +373,28 @@ async function getReturnsBySale(saleId, actor) {
     itemsByReturnId.set(item.return_id, list);
   }
 
+  const exchangeItemRows = returnIds.length > 0
+    ? (await pool.query(
+        `SELECT ei.*, p.name AS product_name, p.unidad_de_venta
+         FROM exchange_items ei
+         JOIN products p ON p.id = ei.product_id
+         WHERE ei.return_id = ANY($1::int[])`,
+        [returnIds]
+      )).rows
+    : [];
+
+  const exchangeItemsByReturnId = new Map();
+  for (const ei of exchangeItemRows) {
+    if (!exchangeItemsByReturnId.has(ei.return_id)) {
+      exchangeItemsByReturnId.set(ei.return_id, []);
+    }
+    exchangeItemsByReturnId.get(ei.return_id).push(ei);
+  }
+
   return returnRows.map((r) => ({
     ...mapReturnRow(r),
-    items: itemsByReturnId.get(r.id) ?? []
+    items: itemsByReturnId.get(r.id) ?? [],
+    exchange_items: exchangeItemsByReturnId.get(r.id) ?? []
   }));
 }
 

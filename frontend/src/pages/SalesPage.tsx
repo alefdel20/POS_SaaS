@@ -474,7 +474,7 @@ export function SalesPage() {
   const showLotExpiryInQuickAdd = canUseExpiryDate(user?.pos_type);
   const stampCount = Number(profile?.stamps_available || 0);
   const canAuthorizeReturn = hasAnyRole(user?.role, [ROLE_MANAGER, ROLE_ADMIN, ROLE_SUPERUSER]);
-  const displayProducts = search.trim() ? products : (recentUserProducts.length > 0 ? recentUserProducts : products);
+  const displayProducts = search.trim() ? products : (recentUserProducts.length > 0 ? recentUserProducts : products.slice(0, 9));
 
   useEffect(() => {
     setInvoiceData((current) => ({

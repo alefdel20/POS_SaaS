@@ -70,6 +70,7 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
   const [exchangeResults, setExchangeResults] = useState<Product[]>([]);
   const [exchangeCart, setExchangeCart] = useState<ExchangeCartItem[]>([]);
   const [exchangeSearching, setExchangeSearching] = useState(false);
+  const [exchangeDifferencePaymentMethod, setExchangeDifferencePaymentMethod] = useState<"cash" | "card" | "transfer">("cash");
 
   useEffect(() => {
     fetchSaleReturns(saleDetail.id).catch(() => {
@@ -203,7 +204,11 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
                 unit_price: Number(i.product.effective_price ?? i.product.price),
                 subtotal: Math.round(i.quantity * Number(i.product.effective_price ?? i.product.price) * 100) / 100
               }))
-            : []
+            : [],
+          exchange_difference: returnResolution === "exchange" ? exchangeDifference : 0,
+          exchange_difference_payment_method: returnResolution === "exchange" && exchangeDifference > 0
+            ? exchangeDifferencePaymentMethod
+            : null
         })
       });
       setShowReturnModal(false);
@@ -248,6 +253,13 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
         .reduce((sum, ri) => sum + ri.quantity_returned, 0);
       return approvedReturnedQty >= saleItem.quantity;
     });
+
+  const returnTotal = returnItems.reduce((sum, i) => sum + i.subtotal_returned, 0);
+  const exchangeTotal = exchangeCart.reduce(
+    (sum, i) => sum + Math.round(i.quantity * Number(i.product.effective_price ?? i.product.price) * 100) / 100,
+    0
+  );
+  const exchangeDifference = Math.round((exchangeTotal - returnTotal) * 100) / 100;
 
   return (
     <>
@@ -484,8 +496,32 @@ export default function SaleReturnModal({ saleDetail, token, canAuthorizeReturn,
               <textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)} />
             </label>
             <p>
-              <strong>Total a devolver: {currency(returnItems.reduce((sum, i) => sum + i.subtotal_returned, 0))}</strong>
+              <strong>Total a devolver: {currency(returnTotal)}</strong>
             </p>
+            {returnResolution === "exchange" && exchangeCart.length > 0 ? (
+              <div className="info-card">
+                {exchangeDifference > 0 ? (
+                  <>
+                    <p><strong>Diferencia a cobrar al cliente: {currency(exchangeDifference)}</strong></p>
+                    <label>
+                      Método de cobro de diferencia
+                      <select
+                        value={exchangeDifferencePaymentMethod}
+                        onChange={(e) => setExchangeDifferencePaymentMethod(e.target.value as "cash" | "card" | "transfer")}
+                      >
+                        <option value="cash">Efectivo</option>
+                        <option value="card">Tarjeta</option>
+                        <option value="transfer">Transferencia</option>
+                      </select>
+                    </label>
+                  </>
+                ) : exchangeDifference < 0 ? (
+                  <p><strong>Diferencia a regresar al cliente: {currency(Math.abs(exchangeDifference))}</strong></p>
+                ) : (
+                  <p className="muted">Intercambio por valor equivalente — sin diferencia.</p>
+                )}
+              </div>
+            ) : null}
             <div className="inline-actions modal-actions-end">
               <button className="button ghost" onClick={() => setShowReturnModal(false)} type="button">Cancelar</button>
               <button
