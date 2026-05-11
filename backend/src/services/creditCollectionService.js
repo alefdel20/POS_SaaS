@@ -54,6 +54,8 @@ async function listDebtors(actor, filters = {}) {
 
   if (String(filters.status || "") === "overdue") {
     conditions.push("sales.sale_date::date < CURRENT_DATE");
+  } else if (String(filters.status || "") === "pending") {
+    conditions.push("sales.sale_date::date >= CURRENT_DATE");
   }
 
   const query = `

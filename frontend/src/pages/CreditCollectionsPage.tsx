@@ -205,8 +205,7 @@ export function CreditCollectionsPage() {
     });
   }, [selectedSaleId, token, user?.business_id]);
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
+  async function submitPayment(amount: number) {
     if (!token || !selectedSaleId) return;
 
     try {
@@ -215,7 +214,7 @@ export function CreditCollectionsPage() {
         method: "POST",
         token,
         body: JSON.stringify({
-          amount: Number(form.amount),
+          amount,
           payment_method: form.payment_method,
           payment_date: normalizeDateInput(form.payment_date, getMexicoCityDateInputValue()),
           notes: form.notes
@@ -227,9 +226,15 @@ export function CreditCollectionsPage() {
       });
       await loadDebtors(search, statusFilter);
       await loadPayments(selectedSaleId);
+      await loadSaleSummary(selectedSaleId);
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible registrar el abono");
     }
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    await submitPayment(Number(form.amount));
   }
 
   async function updateReminderPreference(saleId: number, sendReminder: boolean) {
@@ -443,7 +448,11 @@ export function CreditCollectionsPage() {
             <button
               className="button ghost"
               disabled={!selectedDebtor}
-              onClick={() => setForm((current) => ({ ...current, amount: selectedDebtor ? String(selectedDebtor.balance_due) : current.amount }))}
+              onClick={() => {
+                if (!selectedDebtor) return;
+                setForm((current) => ({ ...current, amount: String(selectedDebtor.balance_due) }));
+                submitPayment(selectedDebtor.balance_due);
+              }}
               type="button"
             >
               Liquidar saldo
