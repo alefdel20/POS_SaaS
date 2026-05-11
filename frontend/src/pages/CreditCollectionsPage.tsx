@@ -98,6 +98,9 @@ export function CreditCollectionsPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "overdue">("all");
   const [error, setError] = useState("");
   const [sendingReminder, setSendingReminder] = useState(false);
+  const [liquidarModalOpen, setLiquidarModalOpen] = useState(false);
+  const [liquidarMontoRecibido, setLiquidarMontoRecibido] = useState("");
+  const [liquidarSaldoTotal, setLiquidarSaldoTotal] = useState(0);
   const isAvailable = canUseCreditCollections(user?.pos_type);
   const tenantRequestRef = useRef(0);
   const debtorGroups = useMemo(() => buildDebtorGroups(debtors), [debtors]);
@@ -245,7 +248,6 @@ export function CreditCollectionsPage() {
       .filter((s) => s.balance_due > 0)
       .map((s) => s.sale_id);
     if (pendingIds.length === 0) return;
-    if (!window.confirm("¿Liquidar todas las deudas pendientes de este cliente?")) return;
 
     try {
       setError("");
@@ -254,6 +256,8 @@ export function CreditCollectionsPage() {
         token,
         body: JSON.stringify({ saleIds: pendingIds })
       });
+      setLiquidarModalOpen(false);
+      setLiquidarMontoRecibido("");
       setSelectedSaleId(null);
       await loadDebtors(search, statusFilter);
     } catch (settleError) {
@@ -302,6 +306,8 @@ export function CreditCollectionsPage() {
 
   const totalPending = debtorGroups.reduce((sum, group) => sum + group.total_balance_due, 0);
   const overdueCount = debtorGroups.filter((group) => group.has_overdue).length;
+  const liquidarCambio = Math.max(Number(liquidarMontoRecibido || 0) - liquidarSaldoTotal, 0);
+  const liquidarMontoValido = Number(liquidarMontoRecibido || 0) >= liquidarSaldoTotal && liquidarSaldoTotal > 0;
 
   return (
     <section className="page-grid two-columns">
@@ -450,6 +456,12 @@ export function CreditCollectionsPage() {
             Monto *
             <input min="0" step="0.01" required type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
           </label>
+          {selectedDebtor && Number(form.amount) > 0 && Number(form.amount) > selectedDebtor.balance_due ? (
+            <div className="total-box secondary" style={{ background: "#f0fdf4", color: "#15803d" }}>
+              <span>Cambio</span>
+              <strong>{currency(Number(form.amount) - selectedDebtor.balance_due)}</strong>
+            </div>
+          ) : null}
           <label>
             Metodo de pago *
             <select value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value as CreditPayment["payment_method"] })}>
@@ -473,9 +485,11 @@ export function CreditCollectionsPage() {
               className="button ghost"
               disabled={!selectedDebtor}
               onClick={() => {
-                if (!selectedDebtor) return;
-                setForm((current) => ({ ...current, amount: String(selectedDebtor.balance_due) }));
-                submitPayment(selectedDebtor.balance_due);
+                if (!selectedDebtorGroup) return;
+                const saldo = selectedDebtorGroup.total_balance_due;
+                setLiquidarSaldoTotal(saldo);
+                setLiquidarMontoRecibido(String(saldo));
+                setLiquidarModalOpen(true);
               }}
               type="button"
             >
@@ -569,6 +583,68 @@ export function CreditCollectionsPage() {
           </div>
         </div>
       </div>
+      {liquidarModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" style={{ maxWidth: "480px", width: "95vw" }}>
+            <div className="panel-header">
+              <div>
+                <h3>Liquidar saldo</h3>
+                <p className="muted">{selectedDebtorGroup?.person || "Cliente"}</p>
+              </div>
+              <button
+                className="button ghost"
+                onClick={() => { setLiquidarModalOpen(false); setLiquidarMontoRecibido(""); }}
+                type="button"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="total-box">
+              <span>Saldo total a liquidar</span>
+              <strong>{currency(liquidarSaldoTotal)}</strong>
+            </div>
+            <div className="form-section-grid">
+              <label>
+                Monto recibido
+                <input
+                  autoFocus
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  value={liquidarMontoRecibido}
+                  onChange={(event) => setLiquidarMontoRecibido(event.target.value)}
+                />
+              </label>
+              {liquidarMontoRecibido !== "" && !liquidarMontoValido ? (
+                <p className="error-text">El monto recibido no puede ser menor al saldo</p>
+              ) : null}
+              {liquidarCambio > 0 ? (
+                <div className="total-box secondary">
+                  <span>Cambio</span>
+                  <strong>{currency(liquidarCambio)}</strong>
+                </div>
+              ) : null}
+              <div className="inline-actions">
+                <button
+                  className="button"
+                  disabled={!liquidarMontoValido}
+                  onClick={handleSettleGroup}
+                  type="button"
+                >
+                  Confirmar liquidación
+                </button>
+                <button
+                  className="button ghost"
+                  onClick={() => { setLiquidarModalOpen(false); setLiquidarMontoRecibido(""); }}
+                  type="button"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
