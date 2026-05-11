@@ -1072,18 +1072,20 @@ export function SalesPage() {
           </table>
         </div>
         <div className="sales-actions">
-          <div className="total-box">
-            <span>Total</span>
-            <strong>{currency(total)}</strong>
+          <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--surface, #1a1a2e)", paddingBottom: "0.5rem" }}>
+            <div className="total-box">
+              <span>Total</span>
+              <strong>{currency(total)}</strong>
+            </div>
+            <button
+              className="button"
+              disabled={cart.length === 0}
+              onClick={() => setShowCheckoutModal(true)}
+              type="button"
+            >
+              Finalizar venta
+            </button>
           </div>
-          <button
-            className="button"
-            disabled={cart.length === 0}
-            onClick={() => setShowCheckoutModal(true)}
-            type="button"
-          >
-            Finalizar venta
-          </button>
           <label>
             Metodo de pago
             <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>

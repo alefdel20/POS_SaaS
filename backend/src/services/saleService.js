@@ -692,7 +692,7 @@ async function getRecentProductsByUser(userId, businessId, limit = 9) {
   const result = await pool.query(
     `SELECT p.id, p.name, p.barcode, p.sku, p.price, p.stock,
             p.category, p.unidad_de_venta, p.status, p.is_active,
-            p.image_url, latest.last_sold_at
+            p.image_path, latest.last_sold_at
      FROM (
        SELECT si.product_id, MAX(s.created_at) AS last_sold_at
        FROM sale_items si
