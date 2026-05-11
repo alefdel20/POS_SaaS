@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { CreditPayment, CreditSaleSummary, Debtor } from "../types";
+import type { CatalogClient, CreditPayment, CreditSaleSummary, Debtor } from "../types";
 import { currency, normalizeDateInput, shortDate } from "../utils/format";
 import { getPaymentMethodLabel } from "../utils/uiLabels";
 import { getMexicoCityDateInputValue } from "../utils/timezone";
@@ -98,6 +98,15 @@ export function CreditCollectionsPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "overdue">("all");
   const [error, setError] = useState("");
   const [sendingReminder, setSendingReminder] = useState(false);
+  const [activeTab, setActiveTab] = useState<"deudores" | "clientes">("deudores");
+  const [clients, setClients] = useState<CatalogClient[]>([]);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientLoading, setClientLoading] = useState(false);
+  const [clientError, setClientError] = useState("");
+  const [editingClient, setEditingClient] = useState<CatalogClient | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", notes: "" });
+  const [showAddClient, setShowAddClient] = useState(false);
+  const [addForm, setAddForm] = useState({ name: "", phone: "", email: "", notes: "" });
   const [liquidarModalOpen, setLiquidarModalOpen] = useState(false);
   const [liquidarMontoRecibido, setLiquidarMontoRecibido] = useState("");
   const [liquidarSaldoTotal, setLiquidarSaldoTotal] = useState(0);
@@ -210,6 +219,75 @@ export function CreditCollectionsPage() {
     });
   }, [selectedSaleId, token, user?.business_id]);
 
+  async function loadClients() {
+    if (!token) return;
+    setClientLoading(true);
+    setClientError("");
+    try {
+      const params = new URLSearchParams();
+      if (clientSearch.trim()) params.set("search", clientSearch.trim());
+      const response = await apiRequest<CatalogClient[]>(`/catalog-clients?${params.toString()}`, { token });
+      setClients(response);
+    } catch (loadError) {
+      setClientError(loadError instanceof Error ? loadError.message : "No fue posible cargar clientes");
+    } finally {
+      setClientLoading(false);
+    }
+  }
+
+  async function saveClient(clientId: number) {
+    if (!token) return;
+    try {
+      setClientError("");
+      await apiRequest(`/catalog-clients/${clientId}`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify(editForm)
+      });
+      setEditingClient(null);
+      await loadClients();
+    } catch (saveError) {
+      setClientError(saveError instanceof Error ? saveError.message : "No fue posible guardar el cliente");
+    }
+  }
+
+  async function deleteClient(clientId: number, name: string) {
+    if (!token) return;
+    if (!window.confirm(`¿Eliminar a ${name} del catálogo? Esta acción no se puede deshacer.`)) return;
+    try {
+      setClientError("");
+      await apiRequest(`/catalog-clients/${clientId}`, { method: "DELETE", token });
+      await loadClients();
+    } catch (deleteError) {
+      setClientError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el cliente");
+    }
+  }
+
+  async function addClient() {
+    if (!token) return;
+    try {
+      setClientError("");
+      await apiRequest("/catalog-clients", {
+        method: "POST",
+        token,
+        body: JSON.stringify(addForm)
+      });
+      setShowAddClient(false);
+      setAddForm({ name: "", phone: "", email: "", notes: "" });
+      await loadClients();
+    } catch (addError) {
+      setClientError(addError instanceof Error ? addError.message : "No fue posible agregar el cliente");
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab !== "clientes") return;
+    const timeout = setTimeout(() => {
+      loadClients().catch(() => undefined);
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [clientSearch, activeTab, token, user?.business_id]);
+
   async function submitPayment(amount: number) {
     if (!token || !selectedSaleId) return;
 
@@ -310,7 +388,25 @@ export function CreditCollectionsPage() {
   const liquidarMontoValido = Number(liquidarMontoRecibido || 0) >= liquidarSaldoTotal && liquidarSaldoTotal > 0;
 
   return (
-    <section className="page-grid two-columns">
+    <>
+      <div className="inline-actions" style={{ marginBottom: "1rem" }}>
+        <button
+          className={activeTab === "deudores" ? "button" : "button ghost"}
+          onClick={() => setActiveTab("deudores")}
+          type="button"
+        >
+          Deudores
+        </button>
+        <button
+          className={activeTab === "clientes" ? "button" : "button ghost"}
+          onClick={() => { setActiveTab("clientes"); setClientError(""); }}
+          type="button"
+        >
+          Clientes
+        </button>
+      </div>
+      {activeTab === "deudores" ? (
+      <section className="page-grid two-columns">
       <div className="panel">
         <div className="panel-header">
           <div>
@@ -646,5 +742,153 @@ export function CreditCollectionsPage() {
         </div>
       ) : null}
     </section>
+    ) : (
+    <section className="page-grid">
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Catálogo de clientes</h2>
+            <p className="muted">Clientes registrados en el sistema.</p>
+          </div>
+          <button
+            className="button"
+            onClick={() => { setShowAddClient(true); setClientError(""); }}
+            type="button"
+          >
+            Agregar cliente
+          </button>
+        </div>
+        <div className="inline-actions quick-filter-row">
+          <input
+            className="search-input"
+            placeholder="Buscar por nombre o teléfono"
+            value={clientSearch}
+            onChange={(event) => setClientSearch(event.target.value)}
+          />
+        </div>
+        {clientError ? <p className="error-text">{clientError}</p> : null}
+        {showAddClient ? (
+          <div className="info-card">
+            <div className="panel-header" style={{ marginBottom: "0.75rem" }}>
+              <strong>Nuevo cliente</strong>
+              <button className="button ghost" onClick={() => setShowAddClient(false)} type="button">Cancelar</button>
+            </div>
+            <label>
+              Nombre *
+              <input value={addForm.name} onChange={(event) => setAddForm({ ...addForm, name: event.target.value })} />
+            </label>
+            <label>
+              Teléfono
+              <input value={addForm.phone} onChange={(event) => setAddForm({ ...addForm, phone: event.target.value })} />
+            </label>
+            <label>
+              Email
+              <input value={addForm.email} onChange={(event) => setAddForm({ ...addForm, email: event.target.value })} />
+            </label>
+            <label>
+              Notas
+              <textarea value={addForm.notes} onChange={(event) => setAddForm({ ...addForm, notes: event.target.value })} />
+            </label>
+            <div className="inline-actions" style={{ marginTop: "0.5rem" }}>
+              <button className="button" disabled={!addForm.name.trim()} onClick={addClient} type="button">Guardar</button>
+              <button className="button ghost" onClick={() => setShowAddClient(false)} type="button">Cancelar</button>
+            </div>
+          </div>
+        ) : null}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Teléfono</th>
+                <th>Email</th>
+                <th>Notas</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clients.map((client) => (
+                editingClient?.id === client.id ? (
+                  <tr key={client.id}>
+                    <td>
+                      <input
+                        value={editForm.name}
+                        onChange={(event) => setEditForm({ ...editForm, name: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={editForm.phone}
+                        onChange={(event) => setEditForm({ ...editForm, phone: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={editForm.email}
+                        onChange={(event) => setEditForm({ ...editForm, email: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={editForm.notes}
+                        onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <div className="inline-actions">
+                        <button
+                          className="button"
+                          disabled={!editForm.name.trim()}
+                          onClick={() => saveClient(client.id)}
+                          type="button"
+                        >
+                          Guardar
+                        </button>
+                        <button className="button ghost" onClick={() => setEditingClient(null)} type="button">Cancelar</button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={client.id}>
+                    <td><div>{client.name}</div></td>
+                    <td><small className="muted">{client.phone || "-"}</small></td>
+                    <td><small className="muted">{client.email || "-"}</small></td>
+                    <td><small className="muted">{client.notes || "-"}</small></td>
+                    <td>
+                      <div className="inline-actions">
+                        <button
+                          className="button ghost"
+                          onClick={() => {
+                            setEditingClient(client);
+                            setEditForm({ name: client.name, phone: client.phone || "", email: client.email || "", notes: client.notes || "" });
+                          }}
+                          type="button"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          className="button ghost"
+                          onClick={() => deleteClient(client.id, client.name)}
+                          type="button"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              ))}
+              {clients.length === 0 && !clientLoading ? (
+                <tr>
+                  <td className="muted" colSpan={5}>No se encontraron clientes.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    )}
+    </>
   );
 }

@@ -833,6 +833,18 @@ export interface CompanyProfile {
   is_active: boolean;
 }
 
+export interface CatalogClient {
+  id: number;
+  business_id: number;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Debtor {
   sale_id: number;
   sale_date: string;
