@@ -1,11 +1,12 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { CompanyProfile, DebtorSuggestion, MedicalPrescription, Product, Sale, SaleReceipt, Supplier } from "../types";
+import type { CompanyProfile, DebtorSuggestion, MedicalPrescription, Product, Sale, SaleDetail, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
-import { isCashierRole, isManagementRole } from "../utils/roles";
+import { hasAnyRole, isCashierRole, isManagementRole, ROLE_ADMIN, ROLE_MANAGER, ROLE_SUPERUSER } from "../utils/roles";
+import SaleReturnModal from "../components/SaleReturnModal";
 import { resolveProductImageUrl } from "../utils/assets";
 import { canUseCreditCollections, canUseExpiryDate, getDefaultUnitForPosType } from "../utils/pos";
 import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
@@ -189,6 +190,11 @@ export function SalesPage() {
   const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
   const [invoiceData, setInvoiceData] = useState(emptyInvoiceData);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [confirmSaleLoading, setConfirmSaleLoading] = useState(false);
+  const [expandedSaleId, setExpandedSaleId] = useState<number | null>(null);
+  const [expandedSaleDetail, setExpandedSaleDetail] = useState<SaleDetail | null>(null);
+  const [loadingExpandedDetail, setLoadingExpandedDetail] = useState(false);
   const [quickProductForm, setQuickProductForm] = useState<QuickProductFormState>({ ...emptyQuickProduct, unidad_de_venta: defaultSaleUnit, stock: "0" });
   const [quickSupplierOptions, setQuickSupplierOptions] = useState<Supplier[]>([]);
   const [quickSupplierTouched, setQuickSupplierTouched] = useState<QuickSupplierTouchedState>(emptyQuickSupplierTouched);
@@ -263,6 +269,19 @@ export function SalesPage() {
     if (!token) return;
     const response = await apiRequest<Sale[]>("/sales/recent", { token });
     setRecentSales(response);
+  }
+
+  async function fetchExpandedSaleDetail(saleId: number) {
+    if (!token) return;
+    setLoadingExpandedDetail(true);
+    try {
+      const response = await apiRequest<SaleDetail>(`/sales/${saleId}`, { token });
+      setExpandedSaleDetail(response);
+    } catch {
+      setExpandedSaleDetail(null);
+    } finally {
+      setLoadingExpandedDetail(false);
+    }
   }
 
   async function loadProfile() {
@@ -442,6 +461,7 @@ export function SalesPage() {
   const canUseCredit = canUseCreditCollections(user?.pos_type);
   const showLotExpiryInQuickAdd = canUseExpiryDate(user?.pos_type);
   const stampCount = Number(profile?.stamps_available || 0);
+  const canAuthorizeReturn = hasAnyRole(user?.role, [ROLE_MANAGER, ROLE_ADMIN, ROLE_SUPERUSER]);
 
   useEffect(() => {
     setInvoiceData((current) => ({
@@ -1038,6 +1058,18 @@ export function SalesPage() {
           </table>
         </div>
         <div className="sales-actions">
+          <div className="total-box">
+            <span>Total</span>
+            <strong>{currency(total)}</strong>
+          </div>
+          <button
+            className="button"
+            disabled={cart.length === 0}
+            onClick={() => setShowCheckoutModal(true)}
+            type="button"
+          >
+            Finalizar venta
+          </button>
           <label>
             Metodo de pago
             <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>
@@ -1060,22 +1092,6 @@ export function SalesPage() {
             <input checked={requiresAdministrativeInvoice} onChange={(event) => setRequiresAdministrativeInvoice(event.target.checked)} type="checkbox" />
             <span>Requiere factura</span>
           </label>
-          <div className="total-box">
-            <span>Total</span>
-            <strong>{currency(total)}</strong>
-          </div>
-          <div className="total-box secondary">
-            <span>Timbres disponibles</span>
-            <strong>{stampCount}</strong>
-          </div>
-          <button
-            className="button"
-            disabled={(saleType === "invoice" && (!canUseInvoice || (!requiresAdministrativeInvoice && invoiceBlockedByStamps))) || !hasValidCashReceived || cart.length === 0}
-            onClick={confirmSale}
-            type="button"
-          >
-            Finalizar venta
-          </button>
         </div>
 
         {!canUseCredit ? (
@@ -1094,123 +1110,8 @@ export function SalesPage() {
 
         {requiresAdministrativeInvoice ? (
           <div className="warning-box">
-            <p>La venta crearÃ¡ una factura administrativa pendiente.</p>
+            <p>La venta creará una factura administrativa pendiente.</p>
             <p>Este flujo no consume timbres ni intenta timbrar en caja.</p>
-          </div>
-        ) : null}
-
-        {paymentMethod === "cash" ? (
-          <div className="form-section-grid">
-            <div className="total-box secondary">
-              <span>Total a cobrar</span>
-              <strong>{currency(total)}</strong>
-            </div>
-            <label>
-              Dinero recibido *
-              <input min="0" step="0.01" type="number" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} />
-            </label>
-            {!hasValidCashReceived ? <p className="error-text">Captura un monto igual o mayor al total para finalizar la venta.</p> : null}
-            <div className="total-box secondary">
-              <span>Cambio</span>
-              <strong>{currency(cashChange)}</strong>
-            </div>
-          </div>
-        ) : null}
-
-        {paymentMethod === "credit" ? (
-          <div className="form-section-grid">
-            <label>
-              Nombre del comprador *
-              <input
-                list="debtor-suggestions"
-                value={customerNameInput}
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  const matchedSuggestion = findMatchingDebtorSuggestion(nextValue);
-                  if (matchedSuggestion) {
-                    const normalizedSelectedName = String(matchedSuggestion.customer_name || "").trim();
-                    const normalizedSelectedPhone = String(matchedSuggestion.customer_phone || "").trim();
-                    setCustomerNameInput(normalizedSelectedName);
-                    setCustomerName(normalizedSelectedName);
-                    setCustomerPhone(normalizedSelectedPhone);
-                    return;
-                  }
-                  setCustomerNameInput(nextValue);
-                  setCustomerName(nextValue.trim());
-                }}
-                onBlur={() => {
-                  const matchedSuggestion = findMatchingDebtorSuggestion(customerNameInput);
-                  if (matchedSuggestion) {
-                    const normalizedSelectedName = String(matchedSuggestion.customer_name || "").trim();
-                    const normalizedSelectedPhone = String(matchedSuggestion.customer_phone || "").trim();
-                    setCustomerNameInput(normalizedSelectedName);
-                    setCustomerName(normalizedSelectedName);
-                    setCustomerPhone(normalizedSelectedPhone);
-                    return;
-                  }
-                  setCustomerName(customerNameInput.trim());
-                }}
-              />
-            </label>
-            <label>
-              Teléfono
-              <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
-            </label>
-            <label>
-              Pago inicial
-              <input min="0" step="0.01" type="number" value={initialPayment} onChange={(event) => setInitialPayment(event.target.value)} />
-            </label>
-            <div className="total-box secondary">
-              <span>Saldo pendiente</span>
-              <strong>{currency(pendingBalance)}</strong>
-            </div>
-            <datalist id="debtor-suggestions">
-              {debtorSuggestions.map((suggestion) => (
-                <option key={suggestion.match_key || `${suggestion.customer_name}-${suggestion.customer_phone || "sin-telefono"}`} value={getDebtorSelectionLabel(suggestion)}>
-                  {suggestion.customer_phone || "Sin teléfono"} · {suggestion.sale_count} venta(s)
-                </option>
-              ))}
-            </datalist>
-          </div>
-        ) : null}
-
-        {saleType === "invoice" || requiresAdministrativeInvoice ? (
-          <div className="invoice-grid">
-            <div className="info-card">
-              <h3>Datos cliente</h3>
-              <label>
-                RFC
-                <input value={invoiceData.client_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, client_rfc: event.target.value })} />
-              </label>
-              <label>
-                Nombre o razón social
-                <input value={invoiceData.client_name} onChange={(event) => setInvoiceData({ ...invoiceData, client_name: event.target.value })} />
-              </label>
-              <label>
-                Correo electrónico
-                <input value={invoiceData.client_email} onChange={(event) => setInvoiceData({ ...invoiceData, client_email: event.target.value })} />
-              </label>
-              <label>
-                Teléfono
-                <input value={invoiceData.client_phone} onChange={(event) => setInvoiceData({ ...invoiceData, client_phone: event.target.value })} />
-              </label>
-              <label>
-                Uso CFDI
-                <input value={invoiceData.cfdi_use} onChange={(event) => setInvoiceData({ ...invoiceData, cfdi_use: event.target.value })} />
-              </label>
-              <label>
-                Régimen fiscal receptor
-                <input value={invoiceData.client_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, client_tax_regime: event.target.value })} />
-              </label>
-            </div>
-
-            <div className="info-card">
-              <h3>Detalle factura</h3>
-              <p>Subtotal: {currency(total)}</p>
-              <p>IVA: {currency(invoiceTax)}</p>
-              <p>Total: {currency(total + invoiceTax)}</p>
-              <p>Metodo de pago: {getPaymentMethodLabel(paymentMethod)}</p>
-            </div>
           </div>
         ) : null}
 
@@ -1253,20 +1154,85 @@ export function SalesPage() {
           <table>
             <thead>
               <tr>
+                <th>Ticket #</th>
                 <th>Fecha</th>
                 <th>Cajero</th>
                 <th>Pago</th>
+                <th>Productos</th>
                 <th>Total</th>
               </tr>
             </thead>
             <tbody>
               {recentSales.map((sale) => (
-                <tr key={sale.id}>
-                  <td>{shortDate(sale.sale_date)}</td>
-                  <td>{sale.cashier_name}</td>
-                  <td>{getPaymentMethodLabel(sale.payment_method)}</td>
-                  <td>{currency(sale.total)}</td>
-                </tr>
+                <Fragment key={sale.id}>
+                  <tr
+                    className={expandedSaleId === sale.id ? "table-row-active" : ""}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => {
+                      if (expandedSaleId === sale.id) {
+                        setExpandedSaleId(null);
+                        setExpandedSaleDetail(null);
+                      } else {
+                        setExpandedSaleId(sale.id);
+                        fetchExpandedSaleDetail(sale.id);
+                      }
+                    }}
+                  >
+                    <td>#{sale.id}</td>
+                    <td>{shortDate(sale.sale_date)}</td>
+                    <td>{sale.cashier_name}</td>
+                    <td>{getPaymentMethodLabel(sale.payment_method)}</td>
+                    <td>{sale.items_summary || "—"}</td>
+                    <td>{currency(sale.total)}</td>
+                  </tr>
+                  {expandedSaleId === sale.id ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: 0 }}>
+                        {loadingExpandedDetail ? (
+                          <p className="muted" style={{ padding: "1rem" }}>Cargando detalle...</p>
+                        ) : expandedSaleDetail ? (
+                          <div style={{ padding: "1rem" }} className="info-card">
+                            <p><strong>Ticket #{expandedSaleDetail.id}</strong> · {shortDateTime(expandedSaleDetail.created_at)}</p>
+                            <p>Cajero: {expandedSaleDetail.cashier_name || "—"}</p>
+                            <p>Método: {getPaymentMethodLabel(expandedSaleDetail.payment_method)}</p>
+                            <div className="table-wrap">
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>Producto</th>
+                                    <th>Cantidad</th>
+                                    <th>Precio unit.</th>
+                                    <th>Subtotal</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {expandedSaleDetail.items.map((item) => (
+                                    <tr key={item.id}>
+                                      <td>{item.product_name}</td>
+                                      <td>{item.quantity} {item.unidad_de_venta || ""}</td>
+                                      <td>{currency(item.unit_price)}</td>
+                                      <td>{currency(item.subtotal)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <SaleReturnModal
+                              saleDetail={expandedSaleDetail}
+                              token={token ?? ""}
+                              canAuthorizeReturn={canAuthorizeReturn}
+                              onClose={() => {}}
+                              onSuccess={() => {
+                                loadRecentSales().catch(() => undefined);
+                                fetchExpandedSaleDetail(expandedSaleDetail.id);
+                              }}
+                            />
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -1453,6 +1419,199 @@ export function SalesPage() {
               <button className="button ghost" onClick={closeQuickAddModal} type="button">Cancelar</button>
               <button className="button" disabled={quickProductSaving} onClick={handleQuickProductSubmit} type="button">
                 {quickProductSaving ? "Guardando..." : "Guardar y agregar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showCheckoutModal && cart.length > 0 ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" style={{ maxWidth: "520px", width: "95vw" }}>
+            <div className="panel-header">
+              <div>
+                <h3>Finalizar venta</h3>
+                <p className="muted">Revisa los datos antes de confirmar.</p>
+              </div>
+              <button className="button ghost" onClick={() => setShowCheckoutModal(false)} type="button">Cerrar</button>
+            </div>
+
+            <div className="total-box">
+              <span>Total a cobrar</span>
+              <strong>{currency(total)}</strong>
+            </div>
+
+            <label>
+              Metodo de pago
+              <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>
+                <option value="cash">{getPaymentMethodLabel("cash")}</option>
+                <option value="card">{getPaymentMethodLabel("card")}</option>
+                {canUseCredit ? <option value="credit">{getPaymentMethodLabel("credit")}</option> : null}
+                <option value="transfer">{getPaymentMethodLabel("transfer")}</option>
+              </select>
+            </label>
+            <label>
+              Tipo de salida
+              <select value={saleType} onChange={(event) => setSaleType(event.target.value as typeof saleType)}>
+                <option value="ticket">{getSaleTypeLabel("ticket")}</option>
+                {canUseInvoice ? (
+                  <option disabled={invoiceBlockedByStamps} value="invoice">{getSaleTypeLabel("invoice")}</option>
+                ) : null}
+              </select>
+            </label>
+            <label className="checkbox-row">
+              <input checked={requiresAdministrativeInvoice} onChange={(event) => setRequiresAdministrativeInvoice(event.target.checked)} type="checkbox" />
+              <span>Requiere factura</span>
+            </label>
+
+            {paymentMethod === "cash" ? (
+              <div className="form-section-grid">
+                <label>
+                  Dinero recibido *
+                  <input min="0" step="0.01" type="number" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} />
+                </label>
+                {!hasValidCashReceived ? <p className="error-text">Captura un monto igual o mayor al total para finalizar la venta.</p> : null}
+                <div className="total-box secondary">
+                  <span>Cambio</span>
+                  <strong>{currency(cashChange)}</strong>
+                </div>
+              </div>
+            ) : null}
+
+            {paymentMethod === "credit" ? (
+              <div className="form-section-grid">
+                <label>
+                  Nombre del comprador *
+                  <input
+                    list="debtor-suggestions"
+                    value={customerNameInput}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      const matchedSuggestion = findMatchingDebtorSuggestion(nextValue);
+                      if (matchedSuggestion) {
+                        const normalizedSelectedName = String(matchedSuggestion.customer_name || "").trim();
+                        const normalizedSelectedPhone = String(matchedSuggestion.customer_phone || "").trim();
+                        setCustomerNameInput(normalizedSelectedName);
+                        setCustomerName(normalizedSelectedName);
+                        setCustomerPhone(normalizedSelectedPhone);
+                        return;
+                      }
+                      setCustomerNameInput(nextValue);
+                      setCustomerName(nextValue.trim());
+                    }}
+                    onBlur={() => {
+                      const matchedSuggestion = findMatchingDebtorSuggestion(customerNameInput);
+                      if (matchedSuggestion) {
+                        const normalizedSelectedName = String(matchedSuggestion.customer_name || "").trim();
+                        const normalizedSelectedPhone = String(matchedSuggestion.customer_phone || "").trim();
+                        setCustomerNameInput(normalizedSelectedName);
+                        setCustomerName(normalizedSelectedName);
+                        setCustomerPhone(normalizedSelectedPhone);
+                        return;
+                      }
+                      setCustomerName(customerNameInput.trim());
+                    }}
+                  />
+                </label>
+                <label>
+                  Teléfono
+                  <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
+                </label>
+                <label>
+                  Pago inicial
+                  <input min="0" step="0.01" type="number" value={initialPayment} onChange={(event) => setInitialPayment(event.target.value)} />
+                </label>
+                <div className="total-box secondary">
+                  <span>Saldo pendiente</span>
+                  <strong>{currency(pendingBalance)}</strong>
+                </div>
+                <datalist id="debtor-suggestions">
+                  {debtorSuggestions.map((suggestion) => (
+                    <option key={suggestion.match_key || `${suggestion.customer_name}-${suggestion.customer_phone || "sin-telefono"}`} value={getDebtorSelectionLabel(suggestion)}>
+                      {suggestion.customer_phone || "Sin teléfono"} · {suggestion.sale_count} venta(s)
+                    </option>
+                  ))}
+                </datalist>
+              </div>
+            ) : null}
+
+            {saleType === "invoice" || requiresAdministrativeInvoice ? (
+              <div className="invoice-grid">
+                <div className="info-card">
+                  <h3>Datos cliente</h3>
+                  <label>
+                    RFC
+                    <input value={invoiceData.client_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, client_rfc: event.target.value })} />
+                  </label>
+                  <label>
+                    Nombre o razón social
+                    <input value={invoiceData.client_name} onChange={(event) => setInvoiceData({ ...invoiceData, client_name: event.target.value })} />
+                  </label>
+                  <label>
+                    Correo electrónico
+                    <input value={invoiceData.client_email} onChange={(event) => setInvoiceData({ ...invoiceData, client_email: event.target.value })} />
+                  </label>
+                  <label>
+                    Teléfono
+                    <input value={invoiceData.client_phone} onChange={(event) => setInvoiceData({ ...invoiceData, client_phone: event.target.value })} />
+                  </label>
+                  <label>
+                    Uso CFDI
+                    <input value={invoiceData.cfdi_use} onChange={(event) => setInvoiceData({ ...invoiceData, cfdi_use: event.target.value })} />
+                  </label>
+                  <label>
+                    Régimen fiscal receptor
+                    <input value={invoiceData.client_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, client_tax_regime: event.target.value })} />
+                  </label>
+                </div>
+                <div className="info-card">
+                  <h3>Detalle factura</h3>
+                  <p>Subtotal: {currency(total)}</p>
+                  <p>IVA: {currency(invoiceTax)}</p>
+                  <p>Total: {currency(total + invoiceTax)}</p>
+                  <p>Metodo de pago: {getPaymentMethodLabel(paymentMethod)}</p>
+                </div>
+              </div>
+            ) : null}
+
+            {!canUseCredit ? (
+              <div className="warning-box">
+                <p>Credito y Cobranza no esta disponible para el giro Dentista.</p>
+              </div>
+            ) : null}
+
+            {invoiceBlockedByStamps ? (
+              <div className="warning-box">
+                <p>Facturación no disponible (sin timbres).</p>
+                <p>El saldo de timbres está en cero. Recarga timbres en Configuración &gt; Facturación para continuar.</p>
+                <p>Timbres restantes: {profile?.stamps_available || 0}</p>
+              </div>
+            ) : null}
+
+            {requiresAdministrativeInvoice ? (
+              <div className="warning-box">
+                <p>La venta creará una factura administrativa pendiente.</p>
+                <p>Este flujo no consume timbres ni intenta timbrar en caja.</p>
+              </div>
+            ) : null}
+
+            <div className="inline-actions modal-actions-end">
+              <button className="button ghost" onClick={() => setShowCheckoutModal(false)} type="button">Cancelar</button>
+              <button
+                className="button"
+                disabled={confirmSaleLoading || !hasValidCashReceived || (saleType === "invoice" && (!canUseInvoice || (!requiresAdministrativeInvoice && invoiceBlockedByStamps)))}
+                onClick={async () => {
+                  setConfirmSaleLoading(true);
+                  try {
+                    await confirmSale();
+                    setShowCheckoutModal(false);
+                  } finally {
+                    setConfirmSaleLoading(false);
+                  }
+                }}
+                type="button"
+              >
+                {confirmSaleLoading ? "Procesando..." : "Finalizar venta"}
               </button>
             </div>
           </div>
