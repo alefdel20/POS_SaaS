@@ -237,6 +237,28 @@ export function CreditCollectionsPage() {
     await submitPayment(Number(form.amount));
   }
 
+  async function handleSettleGroup() {
+    if (!token || !selectedDebtorGroup) return;
+    const pendingIds = selectedDebtorGroup.sales
+      .filter((s) => s.balance_due > 0)
+      .map((s) => s.sale_id);
+    if (pendingIds.length === 0) return;
+    if (!window.confirm("¿Liquidar todas las deudas pendientes de este cliente?")) return;
+
+    try {
+      setError("");
+      await apiRequest("/credit-collections/settle-group", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ saleIds: pendingIds })
+      });
+      setSelectedSaleId(null);
+      await loadDebtors(search, statusFilter);
+    } catch (settleError) {
+      setError(settleError instanceof Error ? settleError.message : "No fue posible liquidar las deudas");
+    }
+  }
+
   async function updateReminderPreference(saleId: number, sendReminder: boolean) {
     if (!token) return;
 
@@ -456,6 +478,14 @@ export function CreditCollectionsPage() {
               type="button"
             >
               Liquidar saldo
+            </button>
+            <button
+              className="button ghost"
+              disabled={!selectedDebtor || !selectedDebtorGroup || selectedDebtorGroup.sales.filter((s) => s.balance_due > 0).length <= 1}
+              onClick={handleSettleGroup}
+              type="button"
+            >
+              Liquidar Todo
             </button>
             <button className="button ghost" disabled={!selectedSaleId || sendingReminder} onClick={sendReminder} type="button">
               {sendingReminder ? "Enviando..." : "Enviar recordatorio"}

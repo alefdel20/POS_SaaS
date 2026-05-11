@@ -10,5 +10,6 @@ router.get("/:saleId/summary", requireRole(["superadmin", "admin", "gerente"]), 
 router.get("/:saleId/payments", requireRole(["superadmin", "admin", "gerente"]), controller.saleIdValidation, controller.listPaymentsBySale);
 router.post("/:saleId/payments", requireRole(["superadmin", "admin", "gerente"]), controller.createPaymentValidation, controller.createPayment);
 router.patch("/:saleId/reminder", requireRole(["superadmin", "admin", "gerente"]), controller.reminderPreferenceValidation, controller.updateReminderPreference);
+router.post("/settle-group", requireRole(["superadmin", "admin", "gerente"]), controller.settleGroup);
 
 module.exports = router;

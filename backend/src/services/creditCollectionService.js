@@ -477,6 +477,98 @@ async function createPayment(saleId, payload, actor) {
   }
 }
 
+async function settleGroup(saleIds, actor) {
+  ensureCreditCollectionsEnabled(actor);
+  const businessId = requireActorBusinessId(actor);
+
+  if (!Array.isArray(saleIds) || saleIds.length === 0) {
+    throw new ApiError(400, "saleIds must be a non-empty array");
+  }
+
+  const validIds = saleIds.map((id) => {
+    const n = Number(id);
+    if (!Number.isInteger(n) || n <= 0) throw new ApiError(400, `Invalid sale id: ${id}`);
+    return n;
+  });
+
+  const client = await pool.connect();
+  const settledIds = [];
+
+  try {
+    await client.query("BEGIN");
+
+    for (const saleId of validIds) {
+      const { rows: saleRows } = await client.query(
+        `SELECT *
+         FROM sales
+         WHERE id = $1
+           AND business_id = $2
+           AND payment_method = 'credit'
+           AND COALESCE(status, 'completed') <> 'cancelled'
+           AND balance_due > 0
+         FOR UPDATE`,
+        [saleId, businessId]
+      );
+
+      const sale = saleRows[0];
+      if (!sale) continue;
+
+      const { rows: totalsRows } = await client.query(
+        `SELECT COALESCE(SUM(amount), 0) AS paid
+         FROM credit_payments
+         WHERE sale_id = $1 AND business_id = $2`,
+        [saleId, businessId]
+      );
+
+      const totalPaidSoFar = roundMoney(Number(sale.initial_payment || 0) + Number(totalsRows[0]?.paid || 0));
+      const authoritativeBalance = normalizeBalanceDue(roundMoney(Number(sale.total || 0)) - totalPaidSoFar);
+
+      if (authoritativeBalance <= MONEY_EPSILON) continue;
+
+      const paymentDate = getMexicoCityDate();
+
+      const { rows: paymentRows } = await client.query(
+        `INSERT INTO credit_payments (sale_id, business_id, payment_date, amount, payment_method, notes)
+         VALUES ($1, $2, $3, $4, 'cash', '')
+         RETURNING *`,
+        [saleId, businessId, paymentDate, authoritativeBalance]
+      );
+
+      await client.query(
+        `UPDATE sales SET balance_due = 0 WHERE id = $1 AND business_id = $2`,
+        [saleId, businessId]
+      );
+
+      await emitActorAutomationEvent(
+        actor,
+        "credit_payment_received",
+        {
+          sale_id: saleId,
+          payment_id: paymentRows[0].id,
+          amount: authoritativeBalance,
+          payment_method: "cash",
+          payment_date: paymentDate,
+          previous_balance_due: authoritativeBalance,
+          balance_due: 0
+        },
+        { client }
+      );
+
+      settledIds.push(saleId);
+    }
+
+    await client.query("COMMIT");
+    await recomputeDailyCut(getMexicoCityDate(), actor);
+
+    return { settled: settledIds.length, saleIds: settledIds };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   listDebtors,
   listDebtorSuggestions,
@@ -484,5 +576,6 @@ module.exports = {
   getCreditSaleSummary,
   createPayment,
   updateReminderPreference,
-  getReminderContext
+  getReminderContext,
+  settleGroup
 };

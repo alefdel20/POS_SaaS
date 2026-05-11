@@ -54,6 +54,14 @@ const updateReminderPreference = asyncHandler(async (req, res) => {
   res.json(await creditCollectionService.updateReminderPreference(Number(req.params.saleId), req.body.send_reminder, req.user));
 });
 
+const settleGroup = asyncHandler(async (req, res) => {
+  const { saleIds } = req.body;
+  if (!Array.isArray(saleIds) || saleIds.length === 0) {
+    return res.status(400).json({ message: "saleIds must be a non-empty array" });
+  }
+  res.json(await creditCollectionService.settleGroup(saleIds, req.user));
+});
+
 module.exports = {
   listDebtorsValidation,
   suggestionValidation,
@@ -65,5 +73,6 @@ module.exports = {
   listPaymentsBySale,
   getCreditSaleSummary,
   createPayment,
-  updateReminderPreference
+  updateReminderPreference,
+  settleGroup
 };
