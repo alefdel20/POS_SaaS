@@ -100,6 +100,19 @@ async function updateClient(businessId, clientId, { name, phone, email, notes })
 }
 
 async function softDeleteClient(businessId, clientId) {
+  const { rows: debtRows } = await pool.query(
+    `SELECT COUNT(*) AS count FROM sales
+     WHERE client_id = $1
+       AND business_id = $2
+       AND COALESCE(status, 'completed') <> 'cancelled'
+       AND payment_method = 'credit'
+       AND balance_due > 0`,
+    [clientId, businessId]
+  );
+  if (Number(debtRows[0].count) > 0) {
+    throw new ApiError(400, "No se puede eliminar un cliente con deuda activa");
+  }
+
   const { rows } = await pool.query(
     `UPDATE clients SET deleted_at = NOW(), updated_at = NOW()
      WHERE id = $1 AND business_id = $2 AND deleted_at IS NULL
@@ -110,4 +123,59 @@ async function softDeleteClient(businessId, clientId) {
   if (!rows[0]) throw new ApiError(404, "Client not found");
 }
 
-module.exports = { findOrCreateClient, listClients, updateClient, softDeleteClient };
+async function backfillClientsFromSales(businessId) {
+  const { rows: unlinked } = await pool.query(
+    `SELECT DISTINCT customer_name, customer_phone
+     FROM sales
+     WHERE business_id = $1
+       AND payment_method = 'credit'
+       AND COALESCE(status, 'completed') <> 'cancelled'
+       AND customer_name IS NOT NULL
+       AND TRIM(customer_name) <> ''
+       AND client_id IS NULL`,
+    [businessId]
+  );
+
+  let processed = 0;
+  let created = 0;
+
+  for (const row of unlinked) {
+    const nName = normalizeName(row.customer_name);
+    const nPhone = normalizePhone(row.customer_phone) || "";
+
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM clients
+       WHERE business_id = $1
+         AND LOWER(TRIM(name)) = $2
+         AND COALESCE(LOWER(TRIM(phone)), '') = $3
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [businessId, nName, nPhone]
+    );
+
+    const isNew = !existing[0];
+    const client = await findOrCreateClient(businessId, {
+      name: row.customer_name,
+      phone: row.customer_phone
+    });
+
+    if (!client) continue;
+    if (isNew) created++;
+
+    await pool.query(
+      `UPDATE sales
+       SET client_id = $1
+       WHERE business_id = $2
+         AND LOWER(TRIM(customer_name)) = LOWER(TRIM($3))
+         AND LOWER(TRIM(COALESCE(customer_phone, ''))) = LOWER(TRIM(COALESCE($4, '')))
+         AND client_id IS NULL`,
+      [client.id, businessId, row.customer_name, row.customer_phone]
+    );
+
+    processed++;
+  }
+
+  return { processed, created };
+}
+
+module.exports = { findOrCreateClient, listClients, updateClient, softDeleteClient, backfillClientsFromSales };

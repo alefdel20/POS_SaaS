@@ -35,4 +35,10 @@ const softDeleteClient = asyncHandler(async (req, res) => {
   res.json({ deleted: true });
 });
 
-module.exports = { listClients, findOrCreateClient, updateClient, softDeleteClient };
+const backfillClients = asyncHandler(async (req, res) => {
+  const businessId = requireActorBusinessId(req.user);
+  const result = await clientService.backfillClientsFromSales(businessId);
+  res.json(result);
+});
+
+module.exports = { listClients, findOrCreateClient, updateClient, softDeleteClient, backfillClients };

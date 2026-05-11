@@ -110,6 +110,8 @@ export function CreditCollectionsPage() {
   const [liquidarModalOpen, setLiquidarModalOpen] = useState(false);
   const [liquidarMontoRecibido, setLiquidarMontoRecibido] = useState("");
   const [liquidarSaldoTotal, setLiquidarSaldoTotal] = useState(0);
+  const [clientsWithDebt, setClientsWithDebt] = useState<Set<number>>(new Set());
+  const [syncMessage, setSyncMessage] = useState("");
   const isAvailable = canUseCreditCollections(user?.pos_type);
   const tenantRequestRef = useRef(0);
   const debtorGroups = useMemo(() => buildDebtorGroups(debtors), [debtors]);
@@ -226,10 +228,34 @@ export function CreditCollectionsPage() {
     try {
       const params = new URLSearchParams();
       if (clientSearch.trim()) params.set("search", clientSearch.trim());
-      const response = await apiRequest<CatalogClient[]>(`/catalog-clients?${params.toString()}`, { token });
+      const [response, allDebtors] = await Promise.all([
+        apiRequest<CatalogClient[]>(`/catalog-clients?${params.toString()}`, { token }),
+        apiRequest<Debtor[]>("/credit-collections", { token })
+      ]);
       setClients(response);
+      setClientsWithDebt(new Set<number>(
+        allDebtors
+          .filter((d) => d.client_id != null && Number(d.balance_due) > 0)
+          .map((d) => d.client_id as number)
+      ));
     } catch (loadError) {
       setClientError(loadError instanceof Error ? loadError.message : "No fue posible cargar clientes");
+    } finally {
+      setClientLoading(false);
+    }
+  }
+
+  async function syncClients() {
+    if (!token) return;
+    setClientLoading(true);
+    setClientError("");
+    setSyncMessage("");
+    try {
+      await apiRequest("/catalog-clients/backfill", { method: "POST", token });
+      await loadClients();
+      setSyncMessage("Clientes sincronizados correctamente");
+    } catch (syncError) {
+      setClientError(syncError instanceof Error ? syncError.message : "No fue posible sincronizar clientes");
     } finally {
       setClientLoading(false);
     }
@@ -750,13 +776,23 @@ export function CreditCollectionsPage() {
             <h2>Catálogo de clientes</h2>
             <p className="muted">Clientes registrados en el sistema.</p>
           </div>
-          <button
-            className="button"
-            onClick={() => { setShowAddClient(true); setClientError(""); }}
-            type="button"
-          >
-            Agregar cliente
-          </button>
+          <div className="inline-actions">
+            <button
+              className="button ghost"
+              disabled={clientLoading}
+              onClick={syncClients}
+              type="button"
+            >
+              Sincronizar clientes
+            </button>
+            <button
+              className="button"
+              onClick={() => { setShowAddClient(true); setClientError(""); }}
+              type="button"
+            >
+              Agregar cliente
+            </button>
+          </div>
         </div>
         <div className="inline-actions quick-filter-row">
           <input
@@ -767,6 +803,7 @@ export function CreditCollectionsPage() {
           />
         </div>
         {clientError ? <p className="error-text">{clientError}</p> : null}
+        {syncMessage ? <p className="muted">{syncMessage}</p> : null}
         {showAddClient ? (
           <div className="info-card">
             <div className="panel-header" style={{ marginBottom: "0.75rem" }}>
@@ -866,9 +903,14 @@ export function CreditCollectionsPage() {
                         >
                           Editar
                         </button>
+                        {clientsWithDebt.has(client.id) ? (
+                          <span className="muted" title="Tiene deuda activa">Con deuda</span>
+                        ) : null}
                         <button
                           className="button ghost"
+                          disabled={clientsWithDebt.has(client.id)}
                           onClick={() => deleteClient(client.id, client.name)}
+                          title={clientsWithDebt.has(client.id) ? "Tiene deuda activa" : undefined}
                           type="button"
                         >
                           Eliminar
