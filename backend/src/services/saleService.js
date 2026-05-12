@@ -466,6 +466,7 @@ async function createSale(payload, user, branchId = null) {
       stampStatus = "consumed";
     }
 
+    // Links sale to client catalog when payment is credit
     let clientId = null;
     if (payload.payment_method === "credit" && customerName) {
       const catalogClient = await findOrCreateClient(businessId, { name: customerName, phone: customerPhone }, client).catch(() => null);
