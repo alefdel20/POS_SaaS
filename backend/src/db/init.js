@@ -599,6 +599,9 @@ async function ensureSchema(client) {
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS clients_business_name_phone_uq ON clients (business_id, LOWER(TRIM(name)), COALESCE(LOWER(TRIM(phone)), '')) WHERE deleted_at IS NULL",
 
     `CREATE TABLE IF NOT EXISTS patients (
       id SERIAL PRIMARY KEY,
