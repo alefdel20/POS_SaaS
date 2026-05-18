@@ -24,16 +24,18 @@ const requireAiAccess = asyncHandler(async (req, res, next) => {
   const tokensLimit = planType === "yearly" ? LIMIT_YEARLY : LIMIT_MONTHLY;
 
   const today = getMexicoCityDate();
-  const monthStart = today.slice(0, 7) + "-01";
+  const [yearStr, monthStr] = today.split("-");
+  const currentYear = Number(yearStr);
+  const currentMonth = Number(monthStr);
 
   const { rows: usageRows } = await pool.query(
-    `SELECT tokens_used FROM ai_token_usage
-     WHERE business_id = $1 AND user_id = $2 AND month = $3
+    `SELECT total_tokens_used FROM ai_token_usage
+     WHERE business_id = $1 AND month = $2 AND year = $3
      LIMIT 1`,
-    [businessId, Number(actor.id), monthStart]
+    [businessId, currentMonth, currentYear]
   );
 
-  const tokensUsed = usageRows[0] ? Number(usageRows[0].tokens_used) : 0;
+  const tokensUsed = usageRows[0] ? Number(usageRows[0].total_tokens_used) : 0;
 
   if (tokensUsed >= tokensLimit) {
     throw new ApiError(429, "Has alcanzado tu límite mensual de consultas IA.");
