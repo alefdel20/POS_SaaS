@@ -32,7 +32,10 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\frontend\\\\src\" -File -Recurse)",
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(findstr types *)",
-      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\" -Directory)"
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\" -Directory)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\" -Recurse -Directory -ErrorAction SilentlyContinue)",
+      "Bash(grep *)",
+      "Bash(sed 's/ .*//')"
     ]
   }
 }
