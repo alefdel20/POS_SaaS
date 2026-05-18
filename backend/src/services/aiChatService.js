@@ -11,10 +11,10 @@ async function createSession(actor, data) {
     : (process.env.OLLAMA_MODEL || "gemma4");
 
   const { rows } = await pool.query(
-    `INSERT INTO ai_chat_sessions (business_id, user_id, branch_id, title, model, is_active, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, TRUE, NOW(), NOW())
+    `INSERT INTO ai_chat_sessions (business_id, user_id, title, model, status, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, 'active', NOW(), NOW())
      RETURNING *`,
-    [businessId, Number(actor.id), data.branch_id ? Number(data.branch_id) : null, title, model]
+    [businessId, Number(actor.id), title, model]
   );
   return rows[0];
 }
@@ -22,9 +22,9 @@ async function createSession(actor, data) {
 async function getSessions(actor, limit = 20) {
   const businessId = requireActorBusinessId(actor);
   const { rows } = await pool.query(
-    `SELECT id, business_id, user_id, branch_id, title, model, is_active, created_at, updated_at
+    `SELECT id, business_id, user_id, title, model, status, created_at, updated_at
      FROM ai_chat_sessions
-     WHERE business_id = $1 AND user_id = $2 AND is_active = TRUE
+     WHERE business_id = $1 AND user_id = $2 AND status = 'active'
      ORDER BY updated_at DESC
      LIMIT $3`,
     [businessId, Number(actor.id), Number(limit)]
@@ -35,9 +35,9 @@ async function getSessions(actor, limit = 20) {
 async function getSession(actor, sessionId) {
   const businessId = requireActorBusinessId(actor);
   const { rows: sessionRows } = await pool.query(
-    `SELECT id, business_id, user_id, branch_id, title, model, is_active, created_at, updated_at
+    `SELECT id, business_id, user_id, title, model, status, created_at, updated_at
      FROM ai_chat_sessions
-     WHERE id = $1 AND business_id = $2 AND is_active = TRUE
+     WHERE id = $1 AND business_id = $2 AND status = 'active'
      LIMIT 1`,
     [Number(sessionId), businessId]
   );
@@ -45,11 +45,11 @@ async function getSession(actor, sessionId) {
   if (!sessionRows[0]) return null;
 
   const { rows: messageRows } = await pool.query(
-    `SELECT id, business_id, session_id, role, content, model, input_tokens, output_tokens, metadata, created_at
+    `SELECT id, session_id, role, content, tokens_used, created_at
      FROM ai_chat_messages
-     WHERE session_id = $1 AND business_id = $2
+     WHERE session_id = $1
      ORDER BY created_at ASC`,
-    [Number(sessionId), businessId]
+    [Number(sessionId)]
   );
 
   return { ...sessionRows[0], messages: messageRows };
@@ -59,18 +59,14 @@ async function addMessage(actor, sessionId, messageData) {
   const businessId = requireActorBusinessId(actor);
   const { rows } = await pool.query(
     `INSERT INTO ai_chat_messages
-       (business_id, session_id, role, content, model, input_tokens, output_tokens, metadata, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       (session_id, role, content, tokens_used, created_at)
+     VALUES ($1, $2, $3, $4, NOW())
      RETURNING *`,
     [
-      businessId,
       Number(sessionId),
       messageData.role,
       messageData.content,
-      messageData.model || null,
-      messageData.input_tokens || null,
-      messageData.output_tokens || null,
-      JSON.stringify(messageData.metadata || {})
+      messageData.tokens_used || 0
     ]
   );
   return rows[0];
@@ -79,14 +75,16 @@ async function addMessage(actor, sessionId, messageData) {
 async function updateTokenUsage(actor, tokensUsed) {
   const businessId = requireActorBusinessId(actor);
   const today = getMexicoCityDate();
-  const monthStart = today.slice(0, 7) + "-01";
+  const [yearStr, monthStr] = today.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
 
   await pool.query(
-    `INSERT INTO ai_token_usage (business_id, user_id, month, tokens_used, created_at)
+    `INSERT INTO ai_token_usage (business_id, month, year, total_tokens_used, created_at)
      VALUES ($1, $2, $3, $4, NOW())
-     ON CONFLICT (business_id, user_id, month)
-     DO UPDATE SET tokens_used = ai_token_usage.tokens_used + EXCLUDED.tokens_used`,
-    [businessId, Number(actor.id), monthStart, Number(tokensUsed)]
+     ON CONFLICT (business_id, month, year)
+     DO UPDATE SET total_tokens_used = ai_token_usage.total_tokens_used + EXCLUDED.total_tokens_used`,
+    [businessId, month, year, Number(tokensUsed)]
   );
 }
 
@@ -94,7 +92,7 @@ async function deleteSession(actor, sessionId) {
   const businessId = requireActorBusinessId(actor);
   const { rowCount } = await pool.query(
     `UPDATE ai_chat_sessions
-     SET is_active = FALSE, updated_at = NOW()
+     SET status = 'deleted', updated_at = NOW()
      WHERE id = $1 AND business_id = $2`,
     [Number(sessionId), businessId]
   );
@@ -117,29 +115,27 @@ async function saveAssistantTurn(actor, sessionId, assistantMessage, tokensUsed)
 
     const { rows } = await client.query(
       `INSERT INTO ai_chat_messages
-         (business_id, session_id, role, content, model, input_tokens, output_tokens, metadata, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+         (session_id, role, content, tokens_used, created_at)
+       VALUES ($1, $2, $3, $4, NOW())
        RETURNING *`,
       [
-        businessId,
         Number(sessionId),
         assistantMessage.role,
         assistantMessage.content,
-        assistantMessage.model || null,
-        assistantMessage.input_tokens || null,
-        assistantMessage.output_tokens || null,
-        JSON.stringify(assistantMessage.metadata || {})
+        assistantMessage.tokens_used || 0
       ]
     );
 
     const today = getMexicoCityDate();
-    const monthStart = today.slice(0, 7) + "-01";
+    const [yearStr, monthStr] = today.split("-");
+    const year = Number(yearStr);
+    const month = Number(monthStr);
     await client.query(
-      `INSERT INTO ai_token_usage (business_id, user_id, month, tokens_used, created_at)
+      `INSERT INTO ai_token_usage (business_id, month, year, total_tokens_used, created_at)
        VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (business_id, user_id, month)
-       DO UPDATE SET tokens_used = ai_token_usage.tokens_used + EXCLUDED.tokens_used`,
-      [businessId, Number(actor.id), monthStart, Number(tokensUsed)]
+       ON CONFLICT (business_id, month, year)
+       DO UPDATE SET total_tokens_used = ai_token_usage.total_tokens_used + EXCLUDED.total_tokens_used`,
+      [businessId, month, year, Number(tokensUsed)]
     );
 
     await client.query(
