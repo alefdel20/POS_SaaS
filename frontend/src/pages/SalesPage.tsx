@@ -1475,6 +1475,7 @@ export function SalesPage() {
                 <label>
                   Dinero recibido *
                   <input
+                    autoFocus
                     min="0"
                     step="0.01"
                     type="number"
