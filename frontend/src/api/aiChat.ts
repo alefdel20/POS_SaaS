@@ -6,17 +6,17 @@ const API_URL =
   "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api";
 
 export async function apiFetchSessions(token: string): Promise<{ sessions: AiSession[]; quota: AiQuota | null }> {
-  const data = await apiRequest<AiSession[] | { sessions: AiSession[]; quota?: AiQuota }>("/ai/sessions", { token });
+  const data = await apiRequest<AiSession[] | { sessions: AiSession[]; quota?: AiQuota }>("/ai-chat/sessions", { token });
   if (Array.isArray(data)) return { sessions: data, quota: null };
   return { sessions: data.sessions ?? [], quota: data.quota ?? null };
 }
 
 export async function apiFetchSession(token: string, sessionId: number): Promise<AiSessionDetail> {
-  return apiRequest<AiSessionDetail>(`/ai/sessions/${sessionId}`, { token });
+  return apiRequest<AiSessionDetail>(`/ai-chat/sessions/${sessionId}`, { token });
 }
 
 export async function apiCreateSession(token: string, title: string): Promise<AiSession> {
-  return apiRequest<AiSession>("/ai/sessions", {
+  return apiRequest<AiSession>("/ai-chat/sessions", {
     method: "POST",
     token,
     body: JSON.stringify({ title }),
@@ -24,7 +24,7 @@ export async function apiCreateSession(token: string, title: string): Promise<Ai
 }
 
 export async function apiDeleteSession(token: string, sessionId: number): Promise<void> {
-  await apiRequest(`/ai/sessions/${sessionId}`, { method: "DELETE", token });
+  await apiRequest(`/ai-chat/sessions/${sessionId}`, { method: "DELETE", token });
 }
 
 export function apiStreamChat(
@@ -40,7 +40,7 @@ export function apiStreamChat(
     let response: Response;
 
     try {
-      response = await fetch(`${API_URL}/ai/sessions/${sessionId}/chat`, {
+      response = await fetch(`${API_URL}/ai-chat/sessions/${sessionId}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
