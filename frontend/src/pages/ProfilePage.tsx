@@ -346,8 +346,8 @@ export function ProfilePage() {
           <div className="info-card">
             <p>Estado fiscal: <strong>{profile.has_fiscal_profile ? "Completo" : "Incompleto"}</strong></p>
             <p>Facturacion en caja: <strong>{profile.billing_ready ? "Disponible" : "Bloqueada"}</strong></p>
-            <p>Proximo pago del servicio: <strong>{profile.subscription?.next_payment_date || "Sin configurar"}</strong></p>
-            <p>Estado de suscripcion: <strong>{profile.subscription?.is_configured ? profile.subscription.subscription_status : "Sin configurar"}</strong></p>
+            <p>Próximo pago del servicio: <strong>{profile.subscription?.next_payment_date || "Sin configurar"}</strong></p>
+            <p>Estado de suscripción: <strong>{profile.subscription?.is_configured ? { active: "Activa", cancelled: "Cancelada", due_soon: "Por vencer", overdue: "Vencida", blocked: "Bloqueada" }[profile.subscription.subscription_status as string] ?? profile.subscription.subscription_status : "Sin configurar"}</strong></p>
             {profile.stamp_alert_active ? <p className="error-text">El negocio esta en umbral de alerta de timbres.</p> : null}
             {currentRole === "admin"
               && profile.subscription?.is_configured === true
