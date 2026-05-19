@@ -6,6 +6,7 @@ import { getStoredTheme, setStoredTheme } from "./services/storage";
 import type { CompanyProfile, DoctorProfile } from "./types";
 import { normalizeRole } from "./utils/roles";
 import { AppRouter } from "./router/AppRouter";
+import { AiChatBubble } from "./components/AiChatBubble";
 
 function RetailThemeSync() {
   const { user, token } = useAuth();
@@ -63,6 +64,7 @@ export default function App() {
     <AuthProvider>
       <RetailThemeSync />
       <AppRouter />
+      <AiChatBubble />
     </AuthProvider>
   );
 }
