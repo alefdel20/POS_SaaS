@@ -121,6 +121,7 @@ async function* _streamDeepSeek(messages, options) {
     let buffer = "";
     // Keyed by tool call index; accumulates streaming pieces
     const toolCallsMap = {};
+    let accumulatedReasoningContent = "";
 
     try {
       while (true) {
@@ -143,6 +144,11 @@ async function* _streamDeepSeek(messages, options) {
 
           const delta = choice.delta || {};
           const finishReason = choice.finish_reason;
+
+          // Accumulate reasoning_content (DeepSeek thinking mode)
+          if (delta.reasoning_content) {
+            accumulatedReasoningContent += delta.reasoning_content;
+          }
 
           // Accumulate streaming tool call pieces
           if (delta.tool_calls) {
@@ -179,7 +185,11 @@ async function* _streamDeepSeek(messages, options) {
               .map((k) => toolCallsMap[k])
               .filter((tc) => tc.id && tc.function.name);
             if (assembled.length > 0) {
-              yield { type: "tool_call", tool_calls: assembled };
+              yield {
+                type: "tool_call",
+                tool_calls: assembled,
+                reasoning_content: accumulatedReasoningContent || null
+              };
             }
             return;
           }

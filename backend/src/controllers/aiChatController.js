@@ -131,10 +131,12 @@ async function sendMessage(req, res, next) {
   try {
     while (true) {
       let pendingToolCalls = null;
+      let pendingReasoningContent = null;
 
       for await (const chunk of llmService.streamChat(messages, { tokenHolder, tools: TOOLS })) {
         if (chunk && typeof chunk === "object" && chunk.type === "tool_call") {
           pendingToolCalls = chunk.tool_calls;
+          pendingReasoningContent = chunk.reasoning_content || null;
           break;
         }
         fullResponse += chunk;
@@ -144,7 +146,7 @@ async function sendMessage(req, res, next) {
       if (!pendingToolCalls || toolCallCount >= MAX_TOOL_CALLS) break;
 
       // Add the assistant's tool-call turn to the message history
-      messages.push({
+      const assistantMsg = {
         role: "assistant",
         content: null,
         tool_calls: pendingToolCalls.map((tc) => ({
@@ -152,7 +154,9 @@ async function sendMessage(req, res, next) {
           type: tc.type || "function",
           function: { name: tc.function.name, arguments: tc.function.arguments }
         }))
-      });
+      };
+      if (pendingReasoningContent) assistantMsg.reasoning_content = pendingReasoningContent;
+      messages.push(assistantMsg);
 
       // Execute each tool and append its result
       for (const tc of pendingToolCalls) {

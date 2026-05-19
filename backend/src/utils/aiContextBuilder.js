@@ -143,7 +143,7 @@ async function getBusinessContext(businessId, branchId) {
           `SELECT category, SUM(amount) AS total
            FROM expenses
            WHERE business_id = $1
-             AND expense_date >= DATE_TRUNC('month', CURRENT_DATE)
+             AND date >= DATE_TRUNC('month', CURRENT_DATE)
            GROUP BY category
            ORDER BY total DESC
            LIMIT 10`,
