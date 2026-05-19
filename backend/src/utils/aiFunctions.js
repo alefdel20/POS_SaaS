@@ -74,7 +74,7 @@ const TOOLS = [
           title: { type: "string", description: "Título del recordatorio" },
           notes: { type: "string", description: "Notas adicionales" },
           due_date: { type: "string", description: "Fecha de vencimiento YYYY-MM-DD" },
-          category: { type: "string", description: "Categoría (general, compras, pagos, etc.)" }
+          category: { type: "string", description: "Categoría: usa 'administrative' para recordatorios de negocio, 'clinical' para recordatorios médicos" }
         }
       }
     }
@@ -257,7 +257,7 @@ async function createReminder(args, businessId, userId) {
       String(args.notes || "").trim(),
       args.due_date || null,
       Number(businessId),
-      String(args.category || "general").toLowerCase().trim(),
+      String(args.category || "").toLowerCase().includes("clinical") ? "clinical" : "administrative",
       userId || null
     ]
   );
