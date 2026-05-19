@@ -92,8 +92,8 @@ export function apiStreamChat(
               onDone(parsed.tokens_used ?? 0, parsed.quota ?? null);
               return;
             }
-            if (parsed.content) {
-              onChunk(parsed.content);
+            if (parsed.delta) {
+              onChunk(parsed.delta);
             }
           } catch {
             // malformed SSE chunk — skip
