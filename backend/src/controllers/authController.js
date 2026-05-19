@@ -42,7 +42,15 @@ const registerBusiness = asyncHandler(async (req, res) => {
 });
 
 const me = asyncHandler(async (req, res) => {
-  res.json({ user: req.user });
+  const { rows } = await pool.query(
+    `SELECT 1 FROM business_subscriptions
+     WHERE business_id = $1
+       AND LOWER(plan_name) IN ('premium', 'enterprise')
+       AND subscription_status = 'active'
+     LIMIT 1`,
+    [req.user?.business_id]
+  );
+  res.json({ user: { ...req.user, has_ai_access: rows.length > 0 } });
 });
 
 const changePassword = asyncHandler(async (req, res) => {

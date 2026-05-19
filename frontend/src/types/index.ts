@@ -27,6 +27,7 @@ export interface User {
   must_change_password?: boolean;
   support_mode_active?: boolean;
   tutorial_seen?: boolean;
+  has_ai_access?: boolean;
   support_session_id?: number;
   support_context?: {
     session_id: number;

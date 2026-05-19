@@ -1,10 +1,14 @@
 import { useState } from "react";
+import { useAuth } from "../context/AuthContext";
 import { useAiChat } from "../hooks/useAiChat";
 import { AiChatPanel } from "./AiChatPanel";
 
 export function AiChatBubble() {
+  const { token, user } = useAuth();
   const [open, setOpen] = useState(false);
   const chat = useAiChat();
+
+  if (!token || !user?.has_ai_access) return null;
 
   const hasUnread = !open && chat.sessions.length > 0;
 
