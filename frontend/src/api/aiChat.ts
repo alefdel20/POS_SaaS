@@ -40,13 +40,13 @@ export function apiStreamChat(
     let response: Response;
 
     try {
-      response = await fetch(`${API_URL}/ai-chat/sessions/${sessionId}/chat`, {
+      response = await fetch(`${API_URL}/ai-chat/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ message: content }),
         signal,
       });
     } catch (err: unknown) {
