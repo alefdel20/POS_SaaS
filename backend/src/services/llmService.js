@@ -87,6 +87,18 @@ async function* _streamOllama(messages, options) {
 async function* _streamDeepSeek(messages, options) {
   const { controller, timer } = makeAbortController();
   const tokenHolder = options.tokenHolder || {};
+  const tools = options.tools || [];
+
+  const requestBody = {
+    model: DEEPSEEK_MODEL,
+    messages,
+    stream: true,
+    max_tokens: AI_MAX_TOKENS
+  };
+  if (tools.length) {
+    requestBody.tools = tools;
+    requestBody.tool_choice = "auto";
+  }
 
   try {
     const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
@@ -95,12 +107,7 @@ async function* _streamDeepSeek(messages, options) {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${DEEPSEEK_API_KEY}`
       },
-      body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
-        messages,
-        stream: true,
-        max_tokens: AI_MAX_TOKENS
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal
     });
 
@@ -112,6 +119,8 @@ async function* _streamDeepSeek(messages, options) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    // Keyed by tool call index; accumulates streaming pieces
+    const toolCallsMap = {};
 
     try {
       while (true) {
@@ -120,6 +129,7 @@ async function* _streamDeepSeek(messages, options) {
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop();
+
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed || !trimmed.startsWith("data: ")) continue;
@@ -127,11 +137,51 @@ async function* _streamDeepSeek(messages, options) {
           if (data === "[DONE]") continue;
           let parsed;
           try { parsed = JSON.parse(data); } catch { continue; }
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) yield content;
+
+          const choice = parsed.choices?.[0];
+          if (!choice) continue;
+
+          const delta = choice.delta || {};
+          const finishReason = choice.finish_reason;
+
+          // Accumulate streaming tool call pieces
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              if (!toolCallsMap[idx]) {
+                toolCallsMap[idx] = {
+                  id: "",
+                  type: "function",
+                  function: { name: "", arguments: "" }
+                };
+              }
+              if (tc.id) toolCallsMap[idx].id = tc.id;
+              if (tc.type) toolCallsMap[idx].type = tc.type;
+              if (tc.function?.name) toolCallsMap[idx].function.name += tc.function.name;
+              if (tc.function?.arguments) toolCallsMap[idx].function.arguments += tc.function.arguments;
+            }
+          }
+
+          // Regular text content
+          if (delta.content) {
+            yield delta.content;
+          }
+
           if (parsed.usage) {
             tokenHolder.inputTokens = parsed.usage.prompt_tokens || 0;
             tokenHolder.outputTokens = parsed.usage.completion_tokens || 0;
+          }
+
+          // Tool calls complete — yield assembled object and stop streaming
+          if (finishReason === "tool_calls") {
+            const assembled = Object.keys(toolCallsMap)
+              .sort((a, b) => Number(a) - Number(b))
+              .map((k) => toolCallsMap[k])
+              .filter((tc) => tc.id && tc.function.name);
+            if (assembled.length > 0) {
+              yield { type: "tool_call", tool_calls: assembled };
+            }
+            return;
           }
         }
       }
@@ -158,20 +208,27 @@ async function* streamChat(messages, options = {}) {
 
 async function chat(messages, options = {}) {
   const { controller, timer } = makeAbortController();
+  const tools = options.tools || [];
   try {
     if (PROVIDER === "deepseek") {
+      const requestBody = {
+        model: DEEPSEEK_MODEL,
+        messages,
+        stream: false,
+        max_tokens: AI_MAX_TOKENS
+      };
+      if (tools.length) {
+        requestBody.tools = tools;
+        requestBody.tool_choice = "auto";
+      }
+
       const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${DEEPSEEK_API_KEY}`
         },
-        body: JSON.stringify({
-          model: DEEPSEEK_MODEL,
-          messages,
-          stream: false,
-          max_tokens: AI_MAX_TOKENS
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal
       });
       if (!response.ok) {
@@ -179,8 +236,11 @@ async function chat(messages, options = {}) {
         throw new Error(`DeepSeek error ${response.status}: ${errorText.slice(0, 200)}`);
       }
       const data = await response.json();
+      const message = data.choices?.[0]?.message || {};
       return {
-        content: data.choices?.[0]?.message?.content || "",
+        content: message.content || "",
+        tool_calls: message.tool_calls || null,
+        finish_reason: data.choices?.[0]?.finish_reason || null,
         input_tokens: data.usage?.prompt_tokens || 0,
         output_tokens: data.usage?.completion_tokens || 0
       };
@@ -203,6 +263,8 @@ async function chat(messages, options = {}) {
       const data = await response.json();
       return {
         content: data.message?.content || "",
+        tool_calls: null,
+        finish_reason: null,
         input_tokens: data.prompt_eval_count || 0,
         output_tokens: data.eval_count || 0
       };

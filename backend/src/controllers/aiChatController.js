@@ -4,6 +4,7 @@ const ApiError = require("../utils/ApiError");
 const aiChatService = require("../services/aiChatService");
 const llmService = require("../services/llmService");
 const { getBusinessContext, buildSystemPrompt } = require("../utils/aiContextBuilder");
+const { TOOLS, executeTool } = require("../utils/aiFunctions");
 
 const CURRENT_MODEL = process.env.AI_PROVIDER === "deepseek"
   ? (process.env.DEEPSEEK_MODEL || "deepseek-chat")
@@ -123,11 +124,54 @@ async function sendMessage(req, res, next) {
 
   let fullResponse = "";
   const tokenHolder = {};
+  let messages = llmMessages.slice();
+  let toolCallCount = 0;
+  const MAX_TOOL_CALLS = 3;
 
   try {
-    for await (const chunk of llmService.streamChat(llmMessages, { tokenHolder })) {
-      fullResponse += chunk;
-      res.write("data: " + JSON.stringify({ delta: chunk }) + "\n\n");
+    while (true) {
+      let pendingToolCalls = null;
+
+      for await (const chunk of llmService.streamChat(messages, { tokenHolder, tools: TOOLS })) {
+        if (chunk && typeof chunk === "object" && chunk.type === "tool_call") {
+          pendingToolCalls = chunk.tool_calls;
+          break;
+        }
+        fullResponse += chunk;
+        res.write("data: " + JSON.stringify({ delta: chunk }) + "\n\n");
+      }
+
+      if (!pendingToolCalls || toolCallCount >= MAX_TOOL_CALLS) break;
+
+      // Add the assistant's tool-call turn to the message history
+      messages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: pendingToolCalls.map((tc) => ({
+          id: tc.id,
+          type: tc.type || "function",
+          function: { name: tc.function.name, arguments: tc.function.arguments }
+        }))
+      });
+
+      // Execute each tool and append its result
+      for (const tc of pendingToolCalls) {
+        const toolName = tc.function.name;
+        let toolArgs;
+        try { toolArgs = JSON.parse(tc.function.arguments || "{}"); } catch { toolArgs = {}; }
+
+        res.write("data: " + JSON.stringify({ type: "tool_use", tool: toolName }) + "\n\n");
+
+        const result = await executeTool(toolName, toolArgs, actor.business_id, actor.id);
+
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify(result)
+        });
+      }
+
+      toolCallCount++;
     }
 
     const inputTokens = tokenHolder.inputTokens || 0;
