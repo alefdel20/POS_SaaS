@@ -10,6 +10,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { sendPasswordResetEmail } = require("../services/emailService");
 const { frontendUrl } = require("../config/env");
+const { resolvePlanKey, getPlanFeatures } = require("../config/planFeatures");
 
 const loginValidation = [
   body("identifier").trim().notEmpty(),
@@ -43,14 +44,15 @@ const registerBusiness = asyncHandler(async (req, res) => {
 
 const me = asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT 1 FROM business_subscriptions
+    `SELECT plan_name FROM business_subscriptions
      WHERE business_id = $1
-       AND LOWER(plan_name) IN ('premium', 'enterprise')
-       AND subscription_status = 'active'
      LIMIT 1`,
     [req.user?.business_id]
   );
-  res.json({ user: { ...req.user, has_ai_access: rows.length > 0 } });
+  const planName = rows[0]?.plan_name || null;
+  const planKey = resolvePlanKey(planName);
+  const planFeatures = getPlanFeatures(planName);
+  res.json({ user: { ...req.user, has_ai_access: planFeatures.ai_chat, plan_key: planKey, plan_features: planFeatures } });
 });
 
 const changePassword = asyncHandler(async (req, res) => {

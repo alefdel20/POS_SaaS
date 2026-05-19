@@ -28,6 +28,15 @@ export interface User {
   support_mode_active?: boolean;
   tutorial_seen?: boolean;
   has_ai_access?: boolean;
+  plan_key?: string;
+  plan_features?: {
+    ai_chat: boolean;
+    ai_agents: boolean;
+    sales_reports: boolean;
+    stock_alerts: boolean;
+    whatsapp_agent: boolean;
+    max_branches: number;
+  };
   support_session_id?: number;
   support_context?: {
     session_id: number;

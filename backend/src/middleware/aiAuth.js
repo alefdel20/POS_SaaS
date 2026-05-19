@@ -3,6 +3,7 @@ const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
+const { getPlanFeatures } = require("../config/planFeatures");
 
 const LIMIT_MONTHLY = parseInt(process.env.AI_MONTHLY_LIMIT_PLUS) || 4000000;
 const LIMIT_YEARLY = parseInt(process.env.AI_MONTHLY_LIMIT_ENTERPRISE) || 6000000;
@@ -12,11 +13,13 @@ const requireAiAccess = asyncHandler(async (req, res, next) => {
   const businessId = requireActorBusinessId(actor);
 
   const { rows: subRows } = await pool.query(
-    `SELECT plan_type FROM business_subscriptions WHERE business_id = $1 LIMIT 1`,
+    `SELECT plan_type, plan_name FROM business_subscriptions WHERE business_id = $1 LIMIT 1`,
     [businessId]
   );
 
-  if (!subRows[0]) {
+  const features = getPlanFeatures(subRows[0]?.plan_name || null);
+
+  if (!features.ai_chat) {
     throw new ApiError(403, "Tu plan no incluye asistente IA. Actualiza a Plus para acceder.");
   }
 
