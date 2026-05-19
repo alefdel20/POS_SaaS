@@ -45,10 +45,10 @@ function resolveOnboardingClassification(payload) {
   const businessType = classification.business_type;
   const posType = classification.pos_type?.trim();
 
-  if (!businessName) throw new ApiError(400, "Business name is required");
-  if (!businessType) throw new ApiError(400, "Business type is required");
-  if (businessType === "Otro" && !posType) throw new ApiError(400, "POS type is required when business type is Otro");
-  if (!posType) throw new ApiError(400, "Business POS type is required");
+  if (!businessName) throw new ApiError(400, "El nombre del negocio es requerido");
+  if (!businessType) throw new ApiError(400, "El tipo de negocio es requerido");
+  if (businessType === "Otro" && !posType) throw new ApiError(400, "El tipo de POS es requerido cuando el tipo de negocio es Otro");
+  if (!posType) throw new ApiError(400, "El tipo de POS del negocio es requerido");
 
   return { businessName, businessType, posType };
 }
@@ -57,14 +57,14 @@ async function login(identifier, password) {
   const user = await userService.getUserByLogin(identifier);
 
   if (!user || !user.is_active) {
-    throw new ApiError(401, "Invalid credentials");
+    throw new ApiError(401, "Credenciales inválidas");
   }
 
   requireActorBusinessId(user);
 
   const passwordMatches = await bcrypt.compare(password, user.password_hash);
   if (!passwordMatches) {
-    throw new ApiError(401, "Invalid credentials");
+    throw new ApiError(401, "Credenciales inválidas");
   }
 
   await assertBusinessAccessAllowed(user);
@@ -78,7 +78,7 @@ async function login(identifier, password) {
 async function registerBusiness(payload) {
   const normalizedRole = normalizeRole(payload.role);
   if (!["superusuario", "admin"].includes(normalizedRole || "")) {
-    throw new ApiError(400, "Invalid onboarding role");
+    throw new ApiError(400, "Rol de registro inválido");
   }
 
   const { businessName, businessType, posType } = resolveOnboardingClassification(payload);
@@ -88,7 +88,7 @@ async function registerBusiness(payload) {
     userService.getUserByLogin(payload.email)
   ]);
   if (existingUsername || existingEmail) {
-    throw new ApiError(409, "Username or email already exists");
+    throw new ApiError(409, "El usuario o correo ya existe");
   }
 
   const client = await pool.connect();
@@ -100,7 +100,7 @@ async function registerBusiness(payload) {
       [businessName]
     );
     if (existingBusinessRows[0]) {
-      throw new ApiError(409, "Business already exists");
+      throw new ApiError(409, "El negocio ya existe");
     }
 
     let slug = slugBase;

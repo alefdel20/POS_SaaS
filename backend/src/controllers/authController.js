@@ -64,7 +64,7 @@ const forgotPasswordValidation = [
 
 const resetPasswordValidation = [
   body("token").trim().notEmpty(),
-  body("new_password").isLength({ min: 8 }).withMessage("Password must be at least 8 characters"),
+  body("new_password").isLength({ min: 8 }).withMessage("La contraseña debe tener al menos 8 caracteres"),
   validateRequest
 ];
 

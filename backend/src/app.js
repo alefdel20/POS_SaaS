@@ -72,9 +72,10 @@ app.get(["/health", "/api/health"], (req, res) => {
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  keyGenerator: (req) => `${req.ip}-${req.body?.identifier || "unknown"}`,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: "Too many login attempts, please try again later." }
+  message: { message: "Demasiados intentos de inicio de sesión. Por favor intenta más tarde." }
 });
 
 const routes = [

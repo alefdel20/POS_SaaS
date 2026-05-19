@@ -14,13 +14,13 @@ async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization || req.headers.Authorization;
 
   if (!authHeader) {
-    return next(new ApiError(401, "Authentication required"));
+    return next(new ApiError(401, "Autenticación requerida"));
   }
 
   const [scheme, token] = String(authHeader).trim().split(/\s+/);
 
   if (!scheme || !token || scheme.toLowerCase() !== "bearer") {
-    return next(new ApiError(401, "Authentication required"));
+    return next(new ApiError(401, "Autenticación requerida"));
   }
 
   try {
@@ -28,12 +28,12 @@ async function requireAuth(req, res, next) {
     const user = await userService.getUserByAuthId(payload.userId);
 
     if (!user || !user.is_active) {
-      return next(new ApiError(401, "Invalid session"));
+      return next(new ApiError(401, "Sesión inválida"));
     }
 
     const userBusinessId = requireActorBusinessId(user);
     if (Number(payload.businessId) !== userBusinessId) {
-      return next(new ApiError(401, "Session business context is invalid"));
+      return next(new ApiError(401, "El contexto de negocio de la sesión es inválido"));
     }
 
     let effectiveUser = userService.sanitizeUser(user);
@@ -41,12 +41,12 @@ async function requireAuth(req, res, next) {
 
     if (payload.supportSessionId !== null && payload.supportSessionId !== undefined) {
       if (normalizeRole(user.role) !== "superusuario") {
-        return next(new ApiError(403, "Forbidden"));
+        return next(new ApiError(403, "Acceso denegado"));
       }
 
       const supportSession = await userService.getSupportSessionById(Number(payload.supportSessionId), user.id);
       if (!supportSession) {
-        return next(new ApiError(401, "Support session is invalid or expired"));
+        return next(new ApiError(401, "La sesión de soporte es inválida o ha expirado"));
       }
 
       effectiveBusinessId = Number(supportSession.target_business_id);
@@ -85,21 +85,21 @@ async function requireAuth(req, res, next) {
 
     next();
   } catch (error) {
-    next(error.statusCode ? error : new ApiError(401, "Invalid or expired token"));
+    next(error.statusCode ? error : new ApiError(401, "Token inválido o expirado"));
   }
 }
 
 function requireRole(roles) {
   return (req, res, next) => {
     if (!req.user) {
-      return next(new ApiError(401, "Authentication required"));
+      return next(new ApiError(401, "Autenticación requerida"));
     }
 
     const allowedRoles = roles.map(normalizeRole);
     const userRole = normalizeRole(req.user.role);
 
     if (!allowedRoles.includes(userRole)) {
-      return next(new ApiError(403, "Forbidden"));
+      return next(new ApiError(403, "Acceso denegado"));
     }
 
     next();
@@ -108,12 +108,12 @@ function requireRole(roles) {
 
 function requireClinicalAccess(req, res, next) {
   if (!req.user) {
-    return next(new ApiError(401, "Authentication required"));
+    return next(new ApiError(401, "Autenticación requerida"));
   }
 
   const userRole = normalizeRole(req.user.role);
   if (!["superusuario", "admin", "clinico"].includes(userRole || "")) {
-    return next(new ApiError(403, "Forbidden"));
+    return next(new ApiError(403, "Acceso denegado"));
   }
 
   next();
