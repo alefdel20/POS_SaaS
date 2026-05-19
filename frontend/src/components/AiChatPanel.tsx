@@ -111,6 +111,180 @@ function SessionItem({
   );
 }
 
+// ─── Inline Markdown renderer (no external deps) ─────────────────────────────
+
+function renderInline(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4)
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("`") && part.endsWith("`") && part.length > 2)
+      return (
+        <code key={i} style={{ background: "rgba(128,128,128,0.18)", padding: "0.1em 0.35em", borderRadius: "4px", fontSize: "0.83em", fontFamily: "monospace" }}>
+          {part.slice(1, -1)}
+        </code>
+      );
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2)
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    return part;
+  });
+}
+
+function renderMdTable(lines: string[], key: number): React.ReactNode {
+  const parseRow = (line: string) =>
+    line.split("|").slice(1, -1).map((c) => c.trim());
+  const sepIdx = lines.findIndex((l) => /^\|[\s\-:|]+\|/.test(l));
+  const headers = sepIdx > 0 ? parseRow(lines[sepIdx - 1]) : parseRow(lines[0]);
+  const dataStart = sepIdx >= 0 ? sepIdx + 1 : 1;
+  const rows = lines.slice(dataStart).map(parseRow);
+
+  return (
+    <div key={key} style={{ overflowX: "auto", margin: "0.4rem 0" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.82rem" }}>
+        <thead>
+          <tr>
+            {headers.map((h, ci) => (
+              <th key={ci} style={{ border: "1px solid var(--border)", padding: "0.28rem 0.55rem", background: "rgba(128,128,128,0.14)", textAlign: "left", fontWeight: 600 }}>
+                {renderInline(h)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri} style={{ background: ri % 2 === 1 ? "rgba(128,128,128,0.05)" : "transparent" }}>
+              {row.map((cell, ci) => (
+                <td key={ci} style={{ border: "1px solid var(--border)", padding: "0.28rem 0.55rem" }}>
+                  {renderInline(cell)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function renderMarkdown(text: string): React.ReactNode {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block
+    if (line.startsWith("```")) {
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++;
+      elements.push(
+        <pre key={key++} style={{ background: "var(--surface-soft, rgba(0,0,0,0.18))", padding: "0.6rem 0.85rem", borderRadius: "8px", overflowX: "auto", margin: "0.35rem 0", fontSize: "0.82rem", fontFamily: "monospace", whiteSpace: "pre" }}>
+          <code>{codeLines.join("\n")}</code>
+        </pre>
+      );
+      continue;
+    }
+
+    // Table block
+    if (line.trim().startsWith("|")) {
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      elements.push(renderMdTable(tableLines, key++));
+      continue;
+    }
+
+    // Headings
+    const hMatch = line.match(/^(#{1,3})\s+(.+)/);
+    if (hMatch) {
+      const sizes = ["1rem", "0.97rem", "0.92rem"];
+      const lvl = Math.min(hMatch[1].length, 3) - 1;
+      elements.push(
+        <div key={key++} style={{ fontWeight: 700, fontSize: sizes[lvl], marginTop: "0.45rem", marginBottom: "0.05rem" }}>
+          {renderInline(hMatch[2])}
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Bullet list
+    if (/^[-*]\s/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*]\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^[-*]\s+/, ""));
+        i++;
+      }
+      elements.push(
+        <ul key={key++} style={{ margin: "0.2rem 0", paddingLeft: "1.3rem" }}>
+          {items.map((item, ii) => <li key={ii} style={{ marginBottom: "0.08rem" }}>{renderInline(item)}</li>)}
+        </ul>
+      );
+      continue;
+    }
+
+    // Numbered list
+    if (/^\d+\.\s/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s+/, ""));
+        i++;
+      }
+      elements.push(
+        <ol key={key++} style={{ margin: "0.2rem 0", paddingLeft: "1.3rem" }}>
+          {items.map((item, ii) => <li key={ii} style={{ marginBottom: "0.08rem" }}>{renderInline(item)}</li>)}
+        </ol>
+      );
+      continue;
+    }
+
+    // Blank line — paragraph break
+    if (line.trim() === "") {
+      if (elements.length > 0) elements.push(<div key={key++} style={{ height: "0.35rem" }} />);
+      i++;
+      continue;
+    }
+
+    // Regular text — collect until a different block starts
+    const textLines: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !lines[i].startsWith("#") &&
+      !lines[i].startsWith("```") &&
+      !/^[-*]\s/.test(lines[i]) &&
+      !/^\d+\.\s/.test(lines[i]) &&
+      !lines[i].trim().startsWith("|")
+    ) {
+      textLines.push(lines[i]);
+      i++;
+    }
+    if (textLines.length > 0) {
+      elements.push(
+        <span key={key++} style={{ display: "block" }}>
+          {textLines.map((tl, ti) => (
+            <span key={ti}>{renderInline(tl)}{ti < textLines.length - 1 && <br />}</span>
+          ))}
+        </span>
+      );
+    }
+  }
+
+  return <>{elements}</>;
+}
+
+// ─── Message components ───────────────────────────────────────────────────────
+
 function MessageBubble({ msg }: { msg: AiMessage }) {
   const isUser = msg.role === "user";
   return (
@@ -134,11 +308,11 @@ function MessageBubble({ msg }: { msg: AiMessage }) {
           color: isUser ? "var(--accent-contrast)" : "var(--text)",
           fontSize: "0.88rem",
           lineHeight: 1.5,
-          whiteSpace: "pre-wrap",
+          ...(isUser ? { whiteSpace: "pre-wrap" as const } : {}),
           wordBreak: "break-word",
         }}
       >
-        {msg.content}
+        {isUser ? msg.content : renderMarkdown(msg.content)}
       </div>
       <div style={{ fontSize: "0.7rem", color: "var(--muted)", padding: "0 0.3rem" }}>
         {formatTime(msg.created_at)}
@@ -160,11 +334,10 @@ function StreamingBubble({ content }: { content: string }) {
           color: "var(--text)",
           fontSize: "0.88rem",
           lineHeight: 1.5,
-          whiteSpace: "pre-wrap",
           wordBreak: "break-word",
         }}
       >
-        {content || <span style={{ color: "var(--muted)" }}>▌</span>}
+        {content ? renderMarkdown(content) : <span style={{ color: "var(--muted)" }}>▌</span>}
       </div>
     </div>
   );

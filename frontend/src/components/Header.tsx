@@ -107,6 +107,15 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderPro
             <p className="header-title">{headerTitle}</p>
             <p className="header-subtitle">
               {user?.full_name} | {getRoleLabel(user?.role)}{user?.business_name ? ` | ${user.business_name}` : ""}
+              {user?.plan_key === "premium" && (
+                <span style={{ marginLeft: "0.45rem", padding: "0.1rem 0.45rem", borderRadius: "99px", background: "rgba(124,58,237,0.13)", border: "1px solid rgba(124,58,237,0.35)", color: "#a78bfa", fontSize: "0.7rem", fontWeight: 600, verticalAlign: "middle", display: "inline-block" }}>Premium</span>
+              )}
+              {user?.plan_key === "enterprise" && (
+                <span style={{ marginLeft: "0.45rem", padding: "0.1rem 0.45rem", borderRadius: "99px", background: "rgba(22,163,74,0.13)", border: "1px solid rgba(22,163,74,0.35)", color: "#4ade80", fontSize: "0.7rem", fontWeight: 600, verticalAlign: "middle", display: "inline-block" }}>Enterprise</span>
+              )}
+              {user?.plan_key === "basico" && (
+                <span style={{ marginLeft: "0.45rem", padding: "0.1rem 0.45rem", borderRadius: "99px", background: "rgba(107,114,128,0.13)", border: "1px solid rgba(107,114,128,0.35)", color: "#9ca3af", fontSize: "0.7rem", fontWeight: 600, verticalAlign: "middle", display: "inline-block" }}>Básico</span>
+              )}
             </p>
           </div>
           {user && <span data-tour="branch-selector"><BranchSelector /></span>}
