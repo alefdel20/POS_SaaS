@@ -39,6 +39,8 @@ const createValidation = [
   body("items.*.product_id").isInt(),
   body("items.*.quantity").isFloat({ gt: 0 }),
   body("items.*.unit_price").optional().isFloat({ min: 0, maxDecimalPlaces: 5 }),
+  body("cart_discount_type").optional({ values: "falsy" }).isIn(["percentage", "fixed"]),
+  body("cart_discount_value").optional({ values: "falsy" }).isFloat({ min: 0 }),
   validateRequest
 ];
 

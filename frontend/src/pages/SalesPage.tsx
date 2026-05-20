@@ -375,6 +375,8 @@ export function SalesPage() {
     setCashReceived("");
     setRequiresAdministrativeInvoice(false);
     setWarnings([]);
+    setCartDiscountType("");
+    setCartDiscountValue("");
     setInvoiceData({
       ...emptyInvoiceData,
       company_rfc: profile?.fiscal_rfc || "",
@@ -453,10 +455,22 @@ export function SalesPage() {
     });
   }, [prescriptionSeedId, token]);
 
-  const total = useMemo(
+  const [cartDiscountType, setCartDiscountType] = useState<"percentage" | "fixed" | "">("");
+  const [cartDiscountValue, setCartDiscountValue] = useState("");
+
+  const subtotal = useMemo(
     () => cart.reduce((sum, item) => sum + Number(item.product.effective_price ?? item.product.price) * item.quantity, 0),
     [cart]
   );
+
+  const cartDiscountAmount = useMemo(() => {
+    const val = Number(cartDiscountValue || 0);
+    if (cartDiscountType === "percentage" && val > 0) return Math.round((subtotal * val / 100) * 100) / 100;
+    if (cartDiscountType === "fixed" && val > 0) return Math.min(val, subtotal);
+    return 0;
+  }, [cartDiscountType, cartDiscountValue, subtotal]);
+
+  const total = useMemo(() => Math.max(0, subtotal - cartDiscountAmount), [subtotal, cartDiscountAmount]);
   const invoiceTax = Math.round(((total * 0.16) + Number.EPSILON) * 100) / 100;
   const pendingBalance = Math.max(total - Number(initialPayment || 0), 0);
   const cashReceivedAmount = Number(cashReceived || 0);
@@ -866,6 +880,8 @@ export function SalesPage() {
               payment_method: paymentMethod
             }
           } : undefined,
+          cart_discount_type: cartDiscountType || undefined,
+          cart_discount_value: cartDiscountType ? Number(cartDiscountValue || 0) : undefined,
           items: cart.map((item) => ({
             product_id: item.product.id,
             quantity: item.quantity,
@@ -1038,6 +1054,36 @@ export function SalesPage() {
           <button className="button ghost" onClick={resetSaleForm} type="button">Limpiar</button>
         </div>
         <div className="sales-actions">
+          {isManagementRole(user?.role) ? (
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <select
+                value={cartDiscountType}
+                onChange={(e) => { setCartDiscountType(e.target.value as typeof cartDiscountType); setCartDiscountValue(""); }}
+                style={{ minWidth: 130 }}
+              >
+                <option value="">Sin descuento</option>
+                <option value="percentage">% Porcentaje</option>
+                <option value="fixed">$ Monto fijo</option>
+              </select>
+              {cartDiscountType ? (
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder={cartDiscountType === "percentage" ? "0–100" : "0.00"}
+                  value={cartDiscountValue}
+                  onChange={(e) => setCartDiscountValue(e.target.value)}
+                  style={{ width: 90 }}
+                />
+              ) : null}
+            </div>
+          ) : null}
+          {cartDiscountAmount > 0 ? (
+            <div className="total-box secondary">
+              <span>Descuento</span>
+              <strong style={{ color: "var(--ankode-green)" }}>-{currency(cartDiscountAmount)}</strong>
+            </div>
+          ) : null}
           <div className="total-box">
             <span>Total</span>
             <strong>{currency(total)}</strong>

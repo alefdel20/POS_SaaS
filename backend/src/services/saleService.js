@@ -420,14 +420,26 @@ async function createSale(payload, user, branchId = null) {
       normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: unit, productName: product.name });
     }
 
+    const cartDiscountType = payload.cart_discount_type || null;
+    const cartDiscountValue = Number(payload.cart_discount_value || 0);
+    let cartDiscountAmount = 0;
+
+    if (cartDiscountType === "percentage" && cartDiscountValue > 0) {
+      cartDiscountAmount = roundMoney(total * cartDiscountValue / 100);
+    } else if (cartDiscountType === "fixed" && cartDiscountValue > 0) {
+      cartDiscountAmount = roundMoney(Math.min(cartDiscountValue, total));
+    }
+
+    const totalFinal = roundMoney(Math.max(0, total - cartDiscountAmount));
+
     const saleType = payload.sale_type || "ticket";
     const requiresAdministrativeInvoice = Boolean(payload.requires_administrative_invoice);
     const initialPaymentRaw = normalizeMoneyValue(payload.initial_payment || 0, "Initial payment");
     const initialPayment = payload.payment_method === "credit" ? roundMoney(initialPaymentRaw) : initialPaymentRaw;
     const cashReceived = payload.payment_method === "cash" ? normalizeMoneyValue(payload.cash_received, "Cash received") : null;
-    if (payload.payment_method === "cash" && cashReceived < total) throw new ApiError(400, "Cash received must cover the sale total");
+    if (payload.payment_method === "cash" && cashReceived < totalFinal) throw new ApiError(400, "Cash received must cover the sale total");
     const balanceDue = payload.payment_method === "credit"
-      ? normalizeBalanceDue(roundMoney(total) - initialPayment)
+      ? normalizeBalanceDue(totalFinal - initialPayment)
       : 0;
     const customerName = payload.customer?.name?.trim() || null;
     const customerPhone = payload.customer?.phone?.trim() || null;
@@ -479,11 +491,11 @@ async function createSale(payload, user, branchId = null) {
         user_id, business_id, payment_method, sale_type, subtotal, total, total_cost, customer_name, customer_phone,
         initial_payment, balance_due, invoice_data, notes, company_profile_id, transfer_snapshot, invoice_status,
         stamp_status, stamp_movement_id, stamp_snapshot, sale_date, sale_time, created_at, requires_administrative_invoice, status,
-        branch_id, client_id
+        branch_id, client_id, cart_discount_type, cart_discount_value, cart_discount_amount
       )
-      VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed', $22, $23)
+      VALUES ($1, $2, $3, $4, $5, $24, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed', $22, $23, $25, $26, $27)
       RETURNING *`,
-      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), safeSaleTime, requiresAdministrativeInvoice, branchId, clientId]
+      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), safeSaleTime, requiresAdministrativeInvoice, branchId, clientId, totalFinal, cartDiscountType, cartDiscountValue, cartDiscountAmount]
     );
     const sale = mapSaleRow(saleRows[0]);
 
@@ -543,7 +555,7 @@ async function createSale(payload, user, branchId = null) {
       sale_id: sale.id,
       payment_method: sale.payment_method,
       sale_type: sale.sale_type,
-      total: Number(sale.total || total),
+      total: Number(sale.total),
       total_cost: Number(sale.total_cost || totalCost),
       balance_due: Number(sale.balance_due || balanceDue),
       items_count: normalizedItems.length,
