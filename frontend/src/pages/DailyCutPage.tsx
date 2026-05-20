@@ -311,6 +311,7 @@ export function DailyCutPage() {
                 placeholder="Fondo inicial ($0.00)"
                 value={openingInput}
                 onChange={(e) => setOpeningInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleOpenCashRegister(); }}
                 style={{ width: 180 }}
               />
               <button className="button" disabled={openingCash} onClick={handleOpenCashRegister} type="button">
