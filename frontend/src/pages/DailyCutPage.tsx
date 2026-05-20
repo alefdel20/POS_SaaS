@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { DailyCut, ManualCut, User } from "../types";
-import { currency, dateLabel, shortDate, shortDateTime } from "../utils/format";
+import { currency, dateLabel, shortDate } from "../utils/format";
 import { isCashierRole } from "../utils/roles";
 
 type FilterState = {
@@ -14,6 +14,7 @@ type FilterState = {
 };
 
 type Denominations = Record<string, number>;
+type CashCutFilter = "all" | "cash" | "manual";
 
 const BILL_DENOMINATIONS: number[] = [1000, 500, 200, 100, 50, 20];
 const COIN_DENOMINATIONS: number[] = [10, 5, 2, 1, 0.5];
@@ -39,15 +40,20 @@ const emptyFilters: FilterState = {
 
 function buildQuery(filters: FilterState) {
   const params = new URLSearchParams();
-
   if (filters.date) params.set("date", filters.date);
   if (filters.date_from) params.set("date_from", filters.date_from);
   if (filters.date_to) params.set("date_to", filters.date_to);
   if (filters.user_id) params.set("user_id", filters.user_id);
   if (filters.month) params.set("month", filters.month);
-
   const query = params.toString();
   return query ? `?${query}` : "";
+}
+
+function DiffCell({ diff }: { diff: number | null | undefined }) {
+  if (diff == null) return <span>-</span>;
+  if (diff === 0) return <span style={{ color: "var(--ankode-green)" }}>✅ Cuadra</span>;
+  if (diff > 0) return <span style={{ color: "var(--warning)" }}>↑ +{currency(diff)} Sobrante</span>;
+  return <span style={{ color: "var(--danger)" }}>↓ {currency(Math.abs(diff))} Faltante</span>;
 }
 
 export function DailyCutPage() {
@@ -56,8 +62,6 @@ export function DailyCutPage() {
   const [history, setHistory] = useState<DailyCut[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [manualCuts, setManualCuts] = useState<ManualCut[]>([]);
-  const [manualCutDate, setManualCutDate] = useState("");
-  const [manualCutNotes, setManualCutNotes] = useState("");
   const [filters, setFilters] = useState<FilterState>(emptyFilters);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState<"" | "daily" | "monthly">("");
@@ -66,6 +70,7 @@ export function DailyCutPage() {
   const [savingCashCount, setSavingCashCount] = useState(false);
   const [cashCountSuccess, setCashCountSuccess] = useState("");
   const [showCashCount, setShowCashCount] = useState(false);
+  const [cashCutFilter, setCashCutFilter] = useState<CashCutFilter>("all");
 
   async function loadToday() {
     if (!token) return;
@@ -93,7 +98,6 @@ export function DailyCutPage() {
 
   useEffect(() => {
     if (!token) return;
-
     loadToday().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el corte actual");
     });
@@ -117,14 +121,17 @@ export function DailyCutPage() {
   const todayCreditCollected = Number(today?.credit_collected ?? 0);
 
   const shareMessage = today
-    ? `Corte Diario\nFecha: ${shortDate(today.cut_date)}\n\nIngresos reales: ${currency(todayCashReal)}\nCredito generado: ${currency(todayCreditGenerated)}\nCobranza: ${currency(todayCreditCollected)}\nInversión en inventario (hoy): ${currency(today.inventory_restock_total || 0)}\nEfectivo: ${currency(today.cash_total)}\nTarjeta: ${currency(today.card_total)}\nTransferencia: ${currency(today.transfer_total)}\nFacturas: ${today.invoice_count}\nTimbres usados: ${today.timbres_usados || 0}\nTimbres restantes: ${today.timbres_restantes || 0}\n\nGanancia: ${currency(today.gross_profit)}\nTickets: ${today.ticket_count}`
+    ? `Corte Diario\nFecha: ${shortDate(today.cut_date)}\n\nIngresos reales: ${currency(todayCashReal)}\nCredito generado: ${currency(todayCreditGenerated)}\nCobranza: ${currency(todayCreditCollected)}\nInversión en inventario (hoy): ${currency(today.inventory_restock_total || 0)}\nEfectivo: ${currency(today.cash_total)}\nTarjeta: ${currency(today.card_total)}\nTransferencia: ${currency(today.transfer_total)}\nFacturas: ${today.invoice_count}\n\nGanancia: ${currency(today.gross_profit)}\nTickets: ${today.ticket_count}`
     : "";
   const encodedShareMessage = encodeURIComponent(shareMessage);
+
   const activeUserName = useMemo(() => {
     if (!filters.user_id) return "Todos";
-    return users.find((user) => user.id === Number(filters.user_id))?.full_name || `Usuario #${filters.user_id}`;
+    return users.find((u) => u.id === Number(filters.user_id))?.full_name || `Usuario #${filters.user_id}`;
   }, [filters.user_id, users]);
+
   const isCashier = isCashierRole(user?.role);
+
   const previousComparableCut = useMemo(
     () => history.find((cut) => cut.cut_date !== today?.cut_date && !cut.month) || null,
     [history, today?.cut_date]
@@ -135,6 +142,12 @@ export function DailyCutPage() {
   const cashCountedTotal = ALL_DENOMINATIONS.reduce((sum, d) => sum + (denominations[String(d)] || 0) * d, 0);
   const expectedCash = Number(today?.cash_real ?? 0);
   const cashDifference = cashCountedTotal - expectedCash;
+
+  const filteredManualCuts = useMemo(() => {
+    if (cashCutFilter === "cash") return manualCuts.filter((c) => c.cash_counted_total != null);
+    if (cashCutFilter === "manual") return manualCuts.filter((c) => c.cash_counted_total == null);
+    return manualCuts;
+  }, [manualCuts, cashCutFilter]);
 
   function closeCashCount() {
     setShowCashCount(false);
@@ -196,27 +209,21 @@ export function DailyCutPage() {
 
   async function exportExcel(period: "daily" | "monthly") {
     if (!token) return;
-
     try {
       setExporting(period);
       setError("");
       const response = await fetch(`${(import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api"}/daily-cuts/export?period=${period}${buildQuery(filters).replace("?", "&")}`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
-
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ message: "Request failed" }));
         throw new Error(errorBody.message || "Request failed");
       }
-
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       const disposition = response.headers.get("Content-Disposition");
       const filenameMatch = disposition?.match(/filename="(.+)"/);
-
       link.href = url;
       link.download = filenameMatch?.[1] || `corte-${period}.xlsx`;
       document.body.appendChild(link);
@@ -230,40 +237,24 @@ export function DailyCutPage() {
     }
   }
 
-  async function createManualCut() {
-    if (!token) return;
-    try {
-      setSavingManualCut(true);
-      setError("");
-      await apiRequest<ManualCut>("/daily-cuts/manual", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          cut_date: manualCutDate || undefined,
-          notes: manualCutNotes || undefined
-        })
-      });
-      setManualCutDate("");
-      setManualCutNotes("");
-      await loadToday();
-      await loadHistory(filters);
-      if (!isCashier) {
-        await loadManualCuts();
-      }
-    } catch (manualError) {
-      setError(manualError instanceof Error ? manualError.message : "No fue posible registrar el corte manual");
-    } finally {
-      setSavingManualCut(false);
-    }
-  }
+  // kept per constraint — may be triggered externally or re-added later
+  void savingManualCut;
+  void setSavingManualCut;
 
   return (
     <>
     <section className="page-grid">
+
+      {/* ── Panel 1: Corte diario ── */}
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Corte diario</h2>
+            <h2>
+              Corte diario
+              <span style={{ fontSize: "1rem", fontWeight: 400, color: "var(--muted)", marginLeft: "0.75rem" }}>
+                {today ? shortDate(today.cut_date) : ""}
+              </span>
+            </h2>
             <p className="muted">{today ? dateLabel(today.cut_date) : "-"}</p>
           </div>
           <div className="share-actions">
@@ -274,23 +265,20 @@ export function DailyCutPage() {
         </div>
         {error ? <p className="error-text">{error}</p> : null}
         <div style={{ overflowX: "hidden", width: "100%" }}>
-        <div className="stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.75rem" }}>
-          <div className="stat-card"><span className="stat-label">Fecha</span><strong className="stat-value">{today ? shortDate(today.cut_date) : "-"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Total del dia</span><strong className="stat-value">{today ? currency(today.total_day) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Ingresos reales</span><strong className="stat-value">{today ? currency(todayCashReal) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Efectivo</span><strong className="stat-value">{today ? currency(today.cash_total) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Tarjeta</span><strong className="stat-value">{today ? currency(today.card_total) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Credito generado</span><strong className="stat-value">{today ? currency(todayCreditGenerated) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Cobranza</span><strong className="stat-value">{today ? currency(todayCreditCollected) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Inversión en inventario (hoy)</span><strong className="stat-value">{today ? currency(today.inventory_restock_total || 0) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Transferencia</span><strong className="stat-value">{today ? currency(today.transfer_total) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Facturas emitidas</span><strong className="stat-value">{today ? today.invoice_count : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Tickets</span><strong className="stat-value">{today ? today.ticket_count : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Timbres usados</span><strong className="stat-value">{today ? (today.timbres_usados || 0) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Timbres restantes</span><strong className="stat-value">{today ? (today.timbres_restantes || 0) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Ganancia</span><strong className="stat-value">{today ? currency(today.gross_profit) : "—"}</strong></div>
-          <div className="stat-card"><span className="stat-label">Margen</span><strong className="stat-value">{today ? `${Number(today.gross_margin || 0).toFixed(2)}%` : "—"}</strong></div>
-        </div>
+          <div className="stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0.75rem" }}>
+            <div className="stat-card"><span className="stat-label">Total del dia</span><strong className="stat-value">{today ? currency(today.total_day) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Ingresos reales</span><strong className="stat-value">{today ? currency(todayCashReal) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Efectivo</span><strong className="stat-value">{today ? currency(today.cash_total) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Tarjeta</span><strong className="stat-value">{today ? currency(today.card_total) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Transferencia</span><strong className="stat-value">{today ? currency(today.transfer_total) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Credito generado</span><strong className="stat-value">{today ? currency(todayCreditGenerated) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Cobranza</span><strong className="stat-value">{today ? currency(todayCreditCollected) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Inversión en inventario (hoy)</span><strong className="stat-value">{today ? currency(today.inventory_restock_total || 0) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Facturas emitidas</span><strong className="stat-value">{today ? today.invoice_count : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Tickets</span><strong className="stat-value">{today ? today.ticket_count : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Ganancia</span><strong className="stat-value">{today ? currency(today.gross_profit) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Margen</span><strong className="stat-value">{today ? `${Number(today.gross_margin || 0).toFixed(2)}%` : "—"}</strong></div>
+          </div>
         </div>
         {previousComparableCut ? (
           <div className="info-card">
@@ -311,6 +299,7 @@ export function DailyCutPage() {
         </div>
       </div>
 
+      {/* ── Panel 2: Histórico de cortes ── */}
       <div className="panel">
         <div className="panel-header">
           <div>
@@ -329,35 +318,35 @@ export function DailyCutPage() {
           ) : null}
         </div>
 
-        <div className="grid-form">
-          <label>
-            Fecha
-            <input type="date" value={filters.date} onChange={(event) => setFilters({ ...filters, date: event.target.value })} />
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
+          <label style={{ display: "flex", flexDirection: "column", minWidth: 140, flex: 1 }}>
+            <span className="muted" style={{ fontSize: "0.92rem", marginBottom: "0.35rem" }}>Fecha</span>
+            <input type="date" value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} />
           </label>
-          <label>
-            Desde
-            <input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} />
+          <label style={{ display: "flex", flexDirection: "column", minWidth: 140, flex: 1 }}>
+            <span className="muted" style={{ fontSize: "0.92rem", marginBottom: "0.35rem" }}>Desde</span>
+            <input type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} />
           </label>
-          <label>
-            Hasta
-            <input type="date" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} />
+          <label style={{ display: "flex", flexDirection: "column", minWidth: 140, flex: 1 }}>
+            <span className="muted" style={{ fontSize: "0.92rem", marginBottom: "0.35rem" }}>Hasta</span>
+            <input type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} />
           </label>
           {!isCashier ? (
-            <label>
-              Usuario
-              <select value={filters.user_id} onChange={(event) => setFilters({ ...filters, user_id: event.target.value })}>
+            <label style={{ display: "flex", flexDirection: "column", minWidth: 140, flex: 1 }}>
+              <span className="muted" style={{ fontSize: "0.92rem", marginBottom: "0.35rem" }}>Usuario</span>
+              <select value={filters.user_id} onChange={(e) => setFilters({ ...filters, user_id: e.target.value })}>
                 <option value="">Todos</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>{user.full_name}</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.full_name}</option>
                 ))}
               </select>
             </label>
           ) : null}
-          <label>
-            Mes
-            <input type="month" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} />
+          <label style={{ display: "flex", flexDirection: "column", minWidth: 140, flex: 1 }}>
+            <span className="muted" style={{ fontSize: "0.92rem", marginBottom: "0.35rem" }}>Mes</span>
+            <input type="month" value={filters.month} onChange={(e) => setFilters({ ...filters, month: e.target.value })} />
           </label>
-          <div className="inline-actions">
+          <div className="inline-actions" style={{ alignSelf: "flex-end" }}>
             <button className="button" onClick={applyFilters} type="button">Aplicar filtros</button>
             <button className="button ghost" onClick={resetFilters} type="button">Limpiar</button>
           </div>
@@ -375,10 +364,8 @@ export function DailyCutPage() {
                 <th>Credito generado</th>
                 <th>Cobranza</th>
                 <th>Transferencia</th>
-                <th>Inversión en inventario (hoy)</th>
+                <th>Inversión en inventario</th>
                 <th>Facturas</th>
-                <th>Timbres usados</th>
-                <th>Timbres restantes</th>
                 <th>Ganancia</th>
               </tr>
             </thead>
@@ -395,14 +382,12 @@ export function DailyCutPage() {
                   <td>{currency(cut.transfer_total)}</td>
                   <td>{currency(cut.inventory_restock_total || 0)}</td>
                   <td>{cut.invoice_count}</td>
-                  <td>{cut.timbres_usados || 0}</td>
-                  <td>{cut.timbres_restantes || 0}</td>
                   <td>{currency(cut.gross_profit)}</td>
                 </tr>
               ))}
               {history.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={13}>No hay cortes para los filtros seleccionados.</td>
+                  <td className="muted" colSpan={11}>No hay cortes para los filtros seleccionados.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -410,64 +395,63 @@ export function DailyCutPage() {
         </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Corte Manual</h2>
-            <p className="muted">
-              {isCashier
-                ? "Registra tu corte manual. El admin podra consultarlo despues con tu nombre y fecha."
-                : "Registra cortes manuales y consulta el historial con trazabilidad por usuario."}
-            </p>
+      {/* ── Panel 3: Historial de Cortes de Caja ── */}
+      {!isCashier ? (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Historial de Cortes de Caja</h2>
+              <p className="muted">Registro de conteos de caja y cortes manuales con trazabilidad por usuario.</p>
+            </div>
           </div>
-        </div>
-        <div className="grid-form">
-          <label>
-            Fecha
-            <input type="date" value={manualCutDate} onChange={(event) => setManualCutDate(event.target.value)} />
-          </label>
-          <label className="form-span-2">
-            Notas
-            <textarea value={manualCutNotes} onChange={(event) => setManualCutNotes(event.target.value)} />
-          </label>
-          <div className="inline-actions">
-            <button className="button" disabled={savingManualCut} onClick={createManualCut} type="button">
-              {savingManualCut ? "Registrando..." : "Registrar corte manual"}
-            </button>
+          <div style={{ marginBottom: "1rem" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span className="muted" style={{ fontSize: "0.92rem", whiteSpace: "nowrap" }}>Tipo:</span>
+              <select
+                value={cashCutFilter}
+                onChange={(e) => setCashCutFilter(e.target.value as CashCutFilter)}
+                style={{ maxWidth: 200 }}
+              >
+                <option value="all">Todos</option>
+                <option value="cash">Corte de caja</option>
+                <option value="manual">Corte manual</option>
+              </select>
+            </label>
           </div>
-        </div>
-        {!isCashier ? (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Fecha</th>
                   <th>Tipo</th>
+                  <th>Efectivo contado</th>
+                  <th>Diferencia</th>
                   <th>Registrado por</th>
-                  <th>Registrado en</th>
                   <th>Notas</th>
                 </tr>
               </thead>
               <tbody>
-                {manualCuts.map((cut) => (
+                {filteredManualCuts.map((cut) => (
                   <tr key={cut.id}>
                     <td>{shortDate(cut.cut_date)}</td>
-                    <td>{cut.cut_type}</td>
+                    <td>{cut.cash_counted_total != null ? "Corte de caja" : "Corte manual"}</td>
+                    <td>{cut.cash_counted_total != null ? currency(cut.cash_counted_total) : "-"}</td>
+                    <td><DiffCell diff={cut.cash_difference} /></td>
                     <td>{cut.performed_by_name_snapshot}</td>
-                    <td>{shortDateTime(cut.created_at)}</td>
-                    <td>{cut.notes || "-"}</td>
+                    <td>{cut.notes && cut.notes.length > 60 ? `${cut.notes.slice(0, 60)}…` : (cut.notes || "-")}</td>
                   </tr>
                 ))}
-                {!manualCuts.length ? (
+                {filteredManualCuts.length === 0 ? (
                   <tr>
-                    <td className="muted" colSpan={5}>No hay cortes manuales registrados.</td>
+                    <td className="muted" colSpan={6}>No hay registros para el filtro seleccionado.</td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
+
     </section>
 
     {showCashCount ? (
