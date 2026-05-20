@@ -273,7 +273,8 @@ export function DailyCutPage() {
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
-        <div className="stats-grid">
+        <div style={{ overflowX: "hidden", width: "100%" }}>
+        <div className="stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.75rem" }}>
           <div className="stat-card"><span className="stat-label">Fecha</span><strong className="stat-value">{today ? shortDate(today.cut_date) : "-"}</strong></div>
           <div className="stat-card"><span className="stat-label">Total del dia</span><strong className="stat-value">{today ? currency(today.total_day) : "—"}</strong></div>
           <div className="stat-card"><span className="stat-label">Ingresos reales</span><strong className="stat-value">{today ? currency(todayCashReal) : "—"}</strong></div>
@@ -289,6 +290,7 @@ export function DailyCutPage() {
           <div className="stat-card"><span className="stat-label">Timbres restantes</span><strong className="stat-value">{today ? (today.timbres_restantes || 0) : "—"}</strong></div>
           <div className="stat-card"><span className="stat-label">Ganancia</span><strong className="stat-value">{today ? currency(today.gross_profit) : "—"}</strong></div>
           <div className="stat-card"><span className="stat-label">Margen</span><strong className="stat-value">{today ? `${Number(today.gross_margin || 0).toFixed(2)}%` : "—"}</strong></div>
+        </div>
         </div>
         {previousComparableCut ? (
           <div className="info-card">

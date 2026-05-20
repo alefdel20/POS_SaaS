@@ -502,11 +502,15 @@ td {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .stat-card {
   display: grid;
   gap: 0.55rem;
+  min-width: 0;
+  word-break: break-word;
 }
 
 .stat-label {
@@ -1343,6 +1347,18 @@ td {
 
   .profile-asset-preview {
     width: 100%;
+  }
+
+  .page-grid {
+    padding: 0.5rem;
+  }
+
+  .panel {
+    padding: 1rem;
+  }
+
+  .stat-value {
+    font-size: 1.2rem;
   }
 }
 
