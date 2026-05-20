@@ -6,6 +6,7 @@ const pool = require("../db/pool");
 const { requireActorBusinessId } = require("../utils/tenant");
 const openPayService = require("../services/openPayService");
 const { saveAuditLog } = require("../services/auditLogService");
+const { sendCancellationEmail } = require("../services/emailService");
 
 const cancelValidation = [
   body("reason").optional({ nullable: true, checkFalsy: false }).trim(),
@@ -85,9 +86,32 @@ const cancelSubscription = asyncHandler(async (req, res) => {
     metadata: { openpay_customer_id: sub.openpay_customer_id }
   });
 
+  const accessUntil = updated[0]?.next_payment_date || null;
+
+  // Fire-and-forget — email failure must never affect the cancellation response
+  pool.query(
+    `SELECT u.email, u.full_name, b.name AS business_name
+     FROM users u
+     JOIN businesses b ON b.id = u.business_id
+     WHERE u.business_id = $1 AND u.role IN ('admin', 'superadmin', 'superusuario')
+     ORDER BY u.id LIMIT 1`,
+    [Number(businessId)]
+  ).then(({ rows }) => {
+    const owner = rows[0];
+    if (owner?.email) {
+      sendCancellationEmail(owner.email, {
+        businessName: owner.business_name || "",
+        ownerName: owner.full_name || "",
+        accessUntil
+      }).catch(() => {});
+    }
+  }).catch((err) => {
+    console.error("[CANCEL-SUB] Failed to fetch owner for cancellation email:", err.message);
+  });
+
   return res.json({
     success: true,
-    access_until: updated[0]?.next_payment_date || null
+    access_until: accessUntil
   });
 });
 

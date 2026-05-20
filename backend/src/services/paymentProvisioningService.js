@@ -19,7 +19,7 @@ const ApiError = require("../utils/ApiError");
 const { resolveBusinessClassification } = require("../utils/business");
 const { initializeBusinessSubscriptionForNewBusiness } = require("./businessSubscriptionService");
 const { saveAuditLog } = require("./auditLogService");
-const { sendPaymentFailedEmail } = require("./emailService");
+const { sendPaymentFailedEmail, sendReactivationEmail } = require("./emailService");
 
 // ---------------------------------------------------------------------------
 // Internal helpers (same logic as authService / businessService)
@@ -198,6 +198,68 @@ async function provisionBusinessFromOnboarding(orderId) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    // If the email already exists in a cancelled business, reactivate it instead of creating a new one
+    const { rows: cancelledEmailRows } = await client.query(
+      `SELECT u.id AS user_id, u.business_id, u.full_name
+       FROM users u
+       JOIN business_subscriptions bs ON bs.business_id = u.business_id
+       WHERE LOWER(u.email) = LOWER($1)
+         AND bs.subscription_status = 'cancelled'
+       LIMIT 1`,
+      [String(email).trim().toLowerCase()]
+    );
+    const cancelledUser = cancelledEmailRows[0];
+    if (cancelledUser) {
+      const nextPaymentDate = new Date();
+      nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
+      const nextPaymentDateStr = nextPaymentDate.toISOString().slice(0, 10);
+
+      await client.query(
+        `UPDATE business_subscriptions
+         SET subscription_status  = 'active',
+             cancelled_at         = NULL,
+             cancellation_reason  = '',
+             enforcement_enabled  = TRUE,
+             next_payment_date    = $1,
+             last_payment_date    = CURRENT_DATE,
+             updated_at           = NOW()
+         WHERE business_id = $2`,
+        [nextPaymentDateStr, cancelledUser.business_id]
+      );
+      await client.query(
+        `UPDATE users SET is_active = TRUE, updated_at = NOW() WHERE business_id = $1`,
+        [cancelledUser.business_id]
+      );
+      await client.query("COMMIT");
+
+      await pool.query(
+        `UPDATE pending_onboardings
+         SET status = 'provisioned',
+             provisioned_business_id = $1,
+             provisioned_user_id = $2,
+             updated_at = NOW()
+         WHERE order_id = $3`,
+        [cancelledUser.business_id, cancelledUser.user_id, orderId]
+      );
+
+      console.info(
+        `[PROVISIONING] Reactivated cancelled business_id=${cancelledUser.business_id} for email=${email}, order_id=${orderId}`
+      );
+
+      sendReactivationEmail(String(email).trim().toLowerCase(), {
+        businessName: String(business_name).trim(),
+        ownerName: String(owner_name).trim(),
+        nextPaymentDate: nextPaymentDateStr
+      }).catch(() => {});
+
+      return {
+        business: { id: cancelledUser.business_id },
+        user: { id: cancelledUser.user_id },
+        reactivated: true,
+        alreadyProvisioned: false
+      };
+    }
 
     // Guard: business name must be unique (case-insensitive), same as registerBusiness
     const { rows: existingBusiness } = await client.query(

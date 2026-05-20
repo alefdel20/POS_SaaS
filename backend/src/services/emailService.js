@@ -408,10 +408,185 @@ async function sendPasswordResetEmail(to, resetLink) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// sendCancellationEmail
+// Sent after a subscription is cancelled (user-initiated or via webhook).
+// data: { businessName, ownerName, accessUntil }
+// Never throws.
+// ---------------------------------------------------------------------------
+
+async function sendCancellationEmail(to, data = {}) {
+  const { businessName = "", ownerName = "", accessUntil = null } = data;
+  const EMAIL_FROM = getEmailFrom();
+  const frontendUrl = getFrontendUrl();
+  const accessText = accessUntil
+    ? new Date(accessUntil).toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric", timeZone: "America/Mexico_City" })
+    : null;
+
+  const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tu suscripción de Ankode ha sido cancelada</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
+    .container { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 8px; overflow: hidden; }
+    .header { background: #64748b; padding: 32px 40px; }
+    .header h1 { color: #fff; margin: 0; font-size: 22px; }
+    .body { padding: 32px 40px; color: #333; font-size: 15px; line-height: 1.6; }
+    .info { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px 20px; margin: 20px 0; }
+    .info p { margin: 6px 0; }
+    .btn { display: inline-block; margin: 24px 0 0; padding: 12px 28px; background: #0d9488; color: #fff !important; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: bold; }
+    .footer { padding: 20px 40px; font-size: 12px; color: #888; border-top: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Tu suscripción ha sido cancelada</h1>
+    </div>
+    <div class="body">
+      <p>Hola <strong>${ownerName || to}</strong>,</p>
+      <p>Tu suscripción de Ankode para el negocio <strong>${businessName || "tu cuenta"}</strong> ha sido cancelada.</p>
+      ${accessText ? `
+      <div class="info">
+        <p>Tu acceso al sistema continuará activo hasta el <strong>${accessText}</strong>.</p>
+        <p>Después de esa fecha, el acceso será suspendido.</p>
+      </div>` : ""}
+      <p>Si deseas reactivar tu suscripción, puedes hacerlo en cualquier momento desde nuestro sitio.</p>
+      <a class="btn" href="${frontendUrl}">Reactivar mi cuenta</a>
+      <p style="margin-top:24px; font-size:13px; color:#555;">
+        ¿Necesitas ayuda? Contáctanos en <a href="mailto:soporte@ankode.mx">soporte@ankode.mx</a>
+      </p>
+    </div>
+    <div class="footer">
+      Este correo fue generado automáticamente. Gracias por haber confiado en Ankode.
+    </div>
+  </div>
+</body>
+</html>`.trim();
+
+  const text = [
+    `Tu suscripción de Ankode ha sido cancelada`,
+    ``,
+    `Hola ${ownerName || to},`,
+    `Tu suscripción para el negocio "${businessName}" ha sido cancelada.`,
+    accessText ? `Tu acceso continuará hasta el ${accessText}.` : "",
+    ``,
+    `Para reactivar tu cuenta visita: ${frontendUrl}`,
+    `¿Dudas? soporte@ankode.mx`
+  ].filter(Boolean).join("\n");
+
+  try {
+    const transporter = createTransporter();
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to,
+      subject: "Tu suscripción de Ankode ha sido cancelada",
+      html,
+      text
+    });
+    console.info(`[EMAIL] Cancellation email sent to ${to}`);
+  } catch (error) {
+    console.error(`[EMAIL] Failed to send cancellation email to ${to}:`, error.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendReactivationEmail
+// Sent after a cancelled subscription is reactivated via a new payment.
+// data: { businessName, ownerName, nextPaymentDate }
+// Never throws.
+// ---------------------------------------------------------------------------
+
+async function sendReactivationEmail(to, data = {}) {
+  const { businessName = "", ownerName = "", nextPaymentDate = null } = data;
+  const EMAIL_FROM = getEmailFrom();
+  const loginUrl = `${getFrontendUrl()}/login`;
+  const nextPaymentText = nextPaymentDate
+    ? new Date(nextPaymentDate).toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric", timeZone: "America/Mexico_City" })
+    : null;
+
+  const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>¡Tu cuenta de Ankode ha sido reactivada!</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
+    .container { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 8px; overflow: hidden; }
+    .header { background: #0d9488; padding: 32px 40px; }
+    .header h1 { color: #fff; margin: 0; font-size: 22px; }
+    .body { padding: 32px 40px; color: #333; font-size: 15px; line-height: 1.6; }
+    .detail { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 16px 20px; margin: 20px 0; }
+    .detail p { margin: 6px 0; }
+    .detail strong { color: #0d9488; }
+    .btn { display: inline-block; margin: 24px 0 0; padding: 12px 28px; background: #0d9488; color: #fff !important; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: bold; }
+    .footer { padding: 20px 40px; font-size: 12px; color: #888; border-top: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>¡Tu cuenta de Ankode está activa nuevamente!</h1>
+    </div>
+    <div class="body">
+      <p>Hola <strong>${ownerName || to}</strong>,</p>
+      <p>Tu suscripción de Ankode para el negocio <strong>${businessName || "tu cuenta"}</strong> ha sido reactivada exitosamente.</p>
+      <div class="detail">
+        <p><strong>Estado:</strong> Activa</p>
+        ${nextPaymentText ? `<p><strong>Próximo pago:</strong> ${nextPaymentText}</p>` : ""}
+      </div>
+      <p>Ya puedes iniciar sesión y continuar usando Ankode POS normalmente.</p>
+      <a class="btn" href="${loginUrl}">Acceder a Ankode</a>
+      <p style="margin-top:24px; font-size:13px; color:#555;">
+        Si el botón no funciona, copia este enlace:<br />
+        <a href="${loginUrl}">${loginUrl}</a>
+      </p>
+    </div>
+    <div class="footer">
+      ¿Dudas? Escríbenos a soporte@ankode.mx
+    </div>
+  </div>
+</body>
+</html>`.trim();
+
+  const text = [
+    `¡Tu cuenta de Ankode ha sido reactivada!`,
+    ``,
+    `Hola ${ownerName || to},`,
+    `Tu suscripción para el negocio "${businessName}" ha sido reactivada.`,
+    nextPaymentText ? `Próximo pago: ${nextPaymentText}` : "",
+    ``,
+    `Accede en: ${loginUrl}`,
+    `¿Dudas? soporte@ankode.mx`
+  ].filter(Boolean).join("\n");
+
+  try {
+    const transporter = createTransporter();
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to,
+      subject: "¡Tu cuenta de Ankode ha sido reactivada!",
+      html,
+      text
+    });
+    console.info(`[EMAIL] Reactivation email sent to ${to}`);
+  } catch (error) {
+    console.error(`[EMAIL] Failed to send reactivation email to ${to}:`, error.message);
+  }
+}
+
 module.exports = {
   sendWelcomeEmail,
   sendPaymentFailedEmail,
   sendPaymentConfirmationEmail,
   sendSpeiInstructionsEmail,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  sendCancellationEmail,
+  sendReactivationEmail
 };

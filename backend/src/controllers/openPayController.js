@@ -15,7 +15,7 @@ const {
   markOnboardingFailed,
   getPendingOnboarding
 } = require("../services/paymentProvisioningService");
-const { sendPaymentConfirmationEmail, sendSpeiInstructionsEmail } = require("../services/emailService");
+const { sendPaymentConfirmationEmail, sendSpeiInstructionsEmail, sendCancellationEmail, sendReactivationEmail } = require("../services/emailService");
 
 // URL for the n8n workflow that sends the welcome email after a business is provisioned.
 // Override per environment via N8N_WELCOME_EMAIL_URL.
@@ -286,6 +286,28 @@ const handleWebhook = asyncHandler(async (req, res) => {
               metadata: { openpay_subscription_id: subscriptionId, openpay_customer_id: customerId }
             });
             console.info(`[OPENPAY-WEBHOOK] subscription.cancelled applied to business_id=${subRow.business_id}`);
+
+            // Fire-and-forget cancellation email
+            pool.query(
+              `SELECT u.email, u.full_name, b.name AS business_name, bs.next_payment_date
+               FROM users u
+               JOIN businesses b ON b.id = u.business_id
+               LEFT JOIN business_subscriptions bs ON bs.business_id = u.business_id
+               WHERE u.business_id = $1 AND u.role IN ('admin', 'superadmin', 'superusuario')
+               ORDER BY u.id LIMIT 1`,
+              [subRow.business_id]
+            ).then(({ rows: ownerRows }) => {
+              const owner = ownerRows[0];
+              if (owner?.email) {
+                sendCancellationEmail(owner.email, {
+                  businessName: owner.business_name || "",
+                  ownerName: owner.full_name || "",
+                  accessUntil: owner.next_payment_date || null
+                }).catch(() => {});
+              }
+            }).catch((emailErr) => {
+              console.error("[OPENPAY-WEBHOOK] Failed to fetch owner for cancellation email:", emailErr.message);
+            });
           } else if (!subRow) {
             console.warn(`[OPENPAY-WEBHOOK] subscription.cancelled: no business found for subscription_id=${subscriptionId}`);
           }
@@ -368,6 +390,18 @@ const handleWebhook = asyncHandler(async (req, res) => {
         }
 
         // Step 2: advance subscription dates — manages its own transaction
+        // Check pre-payment status so we can send a reactivation email if the business was cancelled
+        let wasCancel = false;
+        try {
+          const { rows: preSubRows } = await pool.query(
+            `SELECT subscription_status FROM business_subscriptions WHERE business_id = $1 LIMIT 1`,
+            [businessId]
+          );
+          wasCancel = preSubRows[0]?.subscription_status === "cancelled";
+        } catch (preSubErr) {
+          console.error("[OPENPAY-WEBHOOK] Failed to read pre-payment subscription status:", preSubErr.message);
+        }
+
         try {
           const paidAtDate = creationDate
             ? getMexicoCityDate(new Date(creationDate))
@@ -385,6 +419,30 @@ const handleWebhook = asyncHandler(async (req, res) => {
           console.info(
             `[OPENPAY-WEBHOOK] Subscription advanced for business ${businessId}, txn ${transactionId}`
           );
+
+          // Send reactivation email if the business had been cancelled before this payment
+          if (wasCancel) {
+            pool.query(
+              `SELECT u.email, u.full_name, b.name AS business_name, bs.next_payment_date
+               FROM users u
+               JOIN businesses b ON b.id = u.business_id
+               LEFT JOIN business_subscriptions bs ON bs.business_id = u.business_id
+               WHERE u.business_id = $1 AND u.role IN ('admin', 'superadmin', 'superusuario')
+               ORDER BY u.id LIMIT 1`,
+              [businessId]
+            ).then(({ rows: ownerRows }) => {
+              const owner = ownerRows[0];
+              if (owner?.email) {
+                sendReactivationEmail(owner.email, {
+                  businessName: owner.business_name || "",
+                  ownerName: owner.full_name || "",
+                  nextPaymentDate: owner.next_payment_date || null
+                }).catch(() => {});
+              }
+            }).catch((reaErr) => {
+              console.error("[OPENPAY-WEBHOOK] Failed to fetch owner for reactivation email:", reaErr.message);
+            });
+          }
         } catch (subError) {
           // History is already committed — payment is recorded. Log for manual follow-up.
           console.error(
