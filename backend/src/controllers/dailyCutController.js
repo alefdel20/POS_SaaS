@@ -55,6 +55,23 @@ const createManualCut = asyncHandler(async (req, res) => {
   res.status(201).json(await dailyCutService.createManualCut(req.body, req.user));
 });
 
+const openCashRegisterValidation = [
+  body("opening_amount").isFloat({ min: 0 }).withMessage("opening_amount debe ser >= 0"),
+  body("branch_id").optional({ values: "falsy" }).isInt({ min: 1 }),
+  body("notes").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
+
+const openCashRegister = asyncHandler(async (req, res) => {
+  const result = await dailyCutService.openCashRegister(req.body, req.user);
+  res.status(201).json(result);
+});
+
+const getCurrentSession = asyncHandler(async (req, res) => {
+  const result = await dailyCutService.getCurrentSession(req.user);
+  res.json(result);
+});
+
 module.exports = {
   listValidation,
   exportValidation,
@@ -63,5 +80,8 @@ module.exports = {
   getTodayDailyCut,
   exportDailyCuts,
   listManualCuts,
-  createManualCut
+  createManualCut,
+  openCashRegisterValidation,
+  openCashRegister,
+  getCurrentSession
 };

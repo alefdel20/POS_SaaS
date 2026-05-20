@@ -71,6 +71,26 @@ export function DailyCutPage() {
   const [cashCountSuccess, setCashCountSuccess] = useState("");
   const [showCashCount, setShowCashCount] = useState(false);
   const [cashCutFilter, setCashCutFilter] = useState<CashCutFilter>("all");
+  const [cashSession, setCashSession] = useState<{
+    session_id: number;
+    opening_amount: number;
+    opened_at: string;
+    opened_by_name: string;
+  } | null>(null);
+  const [openingInput, setOpeningInput] = useState("");
+  const [openingCash, setOpeningCash] = useState(false);
+  const [sessionError, setSessionError] = useState("");
+
+  async function loadCashSession() {
+    if (!token) return;
+    const response = await apiRequest<{
+      session_id: number;
+      opening_amount: number;
+      opened_at: string;
+      opened_by_name: string;
+    } | null>("/daily-cuts/cash-register/current", { token });
+    setCashSession(response);
+  }
 
   async function loadToday() {
     if (!token) return;
@@ -98,6 +118,7 @@ export function DailyCutPage() {
 
   useEffect(() => {
     if (!token) return;
+    loadCashSession().catch(() => {});
     loadToday().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el corte actual");
     });
@@ -188,6 +209,30 @@ export function DailyCutPage() {
     }
   }
 
+  async function handleOpenCashRegister() {
+    if (!token) return;
+    const amount = parseFloat(openingInput);
+    if (isNaN(amount) || amount < 0) {
+      setSessionError("Ingresa un monto válido (>= 0)");
+      return;
+    }
+    try {
+      setOpeningCash(true);
+      setSessionError("");
+      await apiRequest("/daily-cuts/cash-register/open", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ opening_amount: amount })
+      });
+      setOpeningInput("");
+      await loadCashSession();
+    } catch (err) {
+      setSessionError(err instanceof Error ? err.message : "No fue posible abrir la caja");
+    } finally {
+      setOpeningCash(false);
+    }
+  }
+
   async function applyFilters() {
     try {
       setError("");
@@ -247,6 +292,34 @@ export function DailyCutPage() {
 
       {/* ── Panel 1: Corte diario ── */}
       <div className="panel">
+        {/* ── Sesión de caja ── */}
+        <div className="info-card" style={{ marginBottom: "1rem" }}>
+          {cashSession ? (
+            <p style={{ margin: 0 }}>
+              <strong>Caja abierta</strong> — Fondo:{" "}
+              <strong>{currency(cashSession.opening_amount)}</strong>
+              {" | "}Abierta por: {cashSession.opened_by_name || "—"} a las{" "}
+              {new Date(cashSession.opened_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+            </p>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.75rem" }}>
+              <span className="muted">Caja no abierta</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="Fondo inicial ($0.00)"
+                value={openingInput}
+                onChange={(e) => setOpeningInput(e.target.value)}
+                style={{ width: 180 }}
+              />
+              <button className="button" disabled={openingCash} onClick={handleOpenCashRegister} type="button">
+                {openingCash ? "Abriendo..." : "Abrir caja"}
+              </button>
+            </div>
+          )}
+          {sessionError ? <p className="error-text" style={{ margin: "0.5rem 0 0" }}>{sessionError}</p> : null}
+        </div>
         <div className="panel-header">
           <div>
             <h2>

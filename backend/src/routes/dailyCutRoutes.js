@@ -10,4 +10,7 @@ router.get("/today", requireRole(["superadmin", "superusuario", "admin", "gerent
 router.get("/manual", requireRole(["superadmin", "superusuario", "admin", "gerente"]), controller.listValidation, controller.listManualCuts);
 router.post("/manual", requireRole(["superadmin", "superusuario", "admin", "gerente", "cajero", "cashier"]), controller.manualCutValidation, controller.createManualCut);
 
+router.post("/cash-register/open", requireRole(["superadmin", "superusuario", "admin", "gerente", "cajero", "cashier"]), controller.openCashRegisterValidation, controller.openCashRegister);
+router.get("/cash-register/current", requireRole(["superadmin", "superusuario", "admin", "gerente", "cajero", "cashier"]), controller.getCurrentSession);
+
 module.exports = router;

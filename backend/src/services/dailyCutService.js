@@ -553,4 +553,77 @@ async function createManualCut(payload = {}, actor) {
   }
 }
 
-module.exports = { recomputeDailyCut, listDailyCuts, getTodayDailyCut, exportDailyCutsExcel, listManualCuts, createManualCut };
+async function openCashRegister(payload = {}, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const openingAmount = Number(payload.opening_amount ?? 0);
+  const branchId = payload.branch_id ? Number(payload.branch_id) : null;
+  const notes = String(payload.notes || "").trim() || null;
+
+  const { rows: existing } = branchId
+    ? await pool.query(
+        `SELECT id FROM cash_register_sessions
+         WHERE business_id = $1 AND branch_id = $2 AND status = 'open'
+         LIMIT 1`,
+        [businessId, branchId]
+      )
+    : await pool.query(
+        `SELECT id FROM cash_register_sessions
+         WHERE business_id = $1 AND branch_id IS NULL AND status = 'open'
+         LIMIT 1`,
+        [businessId]
+      );
+
+  if (existing.length > 0) {
+    throw new ApiError(409, "Ya existe una sesión de caja abierta para este negocio");
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO cash_register_sessions
+       (business_id, branch_id, opened_by, opening_amount, notes, status)
+     VALUES ($1, $2, $3, $4, $5, 'open')
+     RETURNING id, opening_amount, opened_at`,
+    [businessId, branchId, actor.id, openingAmount, notes]
+  );
+
+  return {
+    session_id: Number(rows[0].id),
+    opening_amount: Number(rows[0].opening_amount),
+    opened_at: rows[0].opened_at
+  };
+}
+
+async function getCurrentSession(actor) {
+  const businessId = requireActorBusinessId(actor);
+  const branchId = actor.branch_id ? Number(actor.branch_id) : null;
+
+  const { rows } = branchId
+    ? await pool.query(
+        `SELECT crs.id, crs.opening_amount, crs.opened_at, u.full_name AS opened_by_name
+         FROM cash_register_sessions crs
+         INNER JOIN users u ON u.id = crs.opened_by
+         WHERE crs.business_id = $1 AND crs.branch_id = $2 AND crs.status = 'open'
+         ORDER BY crs.opened_at DESC
+         LIMIT 1`,
+        [businessId, branchId]
+      )
+    : await pool.query(
+        `SELECT crs.id, crs.opening_amount, crs.opened_at, u.full_name AS opened_by_name
+         FROM cash_register_sessions crs
+         INNER JOIN users u ON u.id = crs.opened_by
+         WHERE crs.business_id = $1 AND crs.branch_id IS NULL AND crs.status = 'open'
+         ORDER BY crs.opened_at DESC
+         LIMIT 1`,
+        [businessId]
+      );
+
+  if (!rows[0]) return null;
+
+  return {
+    session_id: Number(rows[0].id),
+    opening_amount: Number(rows[0].opening_amount),
+    opened_at: rows[0].opened_at,
+    opened_by_name: rows[0].opened_by_name || ""
+  };
+}
+
+module.exports = { recomputeDailyCut, listDailyCuts, getTodayDailyCut, exportDailyCutsExcel, listManualCuts, createManualCut, openCashRegister, getCurrentSession };
