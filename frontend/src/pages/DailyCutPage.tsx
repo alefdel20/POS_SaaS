@@ -13,6 +13,22 @@ type FilterState = {
   month: string;
 };
 
+type Denominations = Record<string, number>;
+
+const BILL_DENOMINATIONS: number[] = [1000, 500, 200, 100, 50, 20];
+const COIN_DENOMINATIONS: number[] = [10, 5, 2, 1, 0.5];
+const ALL_DENOMINATIONS: number[] = [...BILL_DENOMINATIONS, ...COIN_DENOMINATIONS];
+
+function initialDenominations(): Denominations {
+  const obj: Denominations = {};
+  for (const d of ALL_DENOMINATIONS) obj[String(d)] = 0;
+  return obj;
+}
+
+function formatDenomination(d: number): string {
+  return d < 1 ? `$${d}` : `$${d.toLocaleString("es-MX")}`;
+}
+
 const emptyFilters: FilterState = {
   date: "",
   date_from: "",
@@ -46,6 +62,9 @@ export function DailyCutPage() {
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState<"" | "daily" | "monthly">("");
   const [savingManualCut, setSavingManualCut] = useState(false);
+  const [denominations, setDenominations] = useState<Denominations>(initialDenominations);
+  const [savingCashCount, setSavingCashCount] = useState(false);
+  const [cashCountSuccess, setCashCountSuccess] = useState("");
 
   async function loadToday() {
     if (!token) return;
@@ -111,6 +130,44 @@ export function DailyCutPage() {
   );
   const totalComparison = today && previousComparableCut ? today.total_day - previousComparableCut.total_day : null;
   const profitComparison = today && previousComparableCut ? today.gross_profit - previousComparableCut.gross_profit : null;
+
+  const cashCountedTotal = ALL_DENOMINATIONS.reduce((sum, d) => sum + (denominations[String(d)] || 0) * d, 0);
+  const expectedCash = Number(today?.cash_real ?? 0);
+  const cashDifference = cashCountedTotal - expectedCash;
+
+  async function saveCashCount() {
+    if (!token) return;
+    const diffLabel =
+      cashDifference === 0
+        ? "Cuadra"
+        : cashDifference > 0
+          ? `Sobrante $${cashDifference.toFixed(2)}`
+          : `Faltante $${Math.abs(cashDifference).toFixed(2)}`;
+    const autoNotes = `Conteo de caja: $${cashCountedTotal.toFixed(2)} contado vs $${expectedCash.toFixed(2)} esperado. Diferencia: ${cashDifference >= 0 ? "+" : ""}$${cashDifference.toFixed(2)} (${diffLabel})`;
+    try {
+      setSavingCashCount(true);
+      setCashCountSuccess("");
+      setError("");
+      await apiRequest<ManualCut>("/daily-cuts/manual", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          cut_date: today?.cut_date || undefined,
+          notes: autoNotes,
+          cash_count: denominations,
+          cash_counted_total: cashCountedTotal,
+          cash_difference: cashDifference
+        })
+      });
+      setCashCountSuccess("Conteo guardado correctamente.");
+      setDenominations(initialDenominations());
+      if (!isCashier) await loadManualCuts();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el conteo");
+    } finally {
+      setSavingCashCount(false);
+    }
+  }
 
   async function applyFilters() {
     try {
@@ -242,6 +299,98 @@ export function DailyCutPage() {
             <div className="stat-card"><span className="stat-label">Cobrado Hoy</span><strong className="stat-value">{today ? currency(todayCreditCollected) : "—"}</strong></div>
           </div>
         </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>🪙 Conteo de Caja</h2>
+            <p className="muted">Cuenta el dinero físico en caja y compara con lo registrado en el POS</p>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
+          <div>
+            <p style={{ fontWeight: 600, marginBottom: "var(--space-2)" }}>Billetes</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+              {BILL_DENOMINATIONS.map((d) => {
+                const qty = denominations[String(d)] || 0;
+                const subtotal = qty * d;
+                return (
+                  <div key={d} style={{ display: "grid", gridTemplateColumns: "70px 1fr auto", alignItems: "center", gap: "var(--space-2)" }}>
+                    <span style={{ fontWeight: 500 }}>{formatDenomination(d)}</span>
+                    <input
+                      min={0}
+                      style={{ width: "100%" }}
+                      type="number"
+                      value={qty}
+                      onChange={(e) => setDenominations({ ...denominations, [String(d)]: Math.max(0, Number(e.target.value)) })}
+                    />
+                    <span className="muted" style={{ minWidth: 80, textAlign: "right" }}>{currency(subtotal)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <p style={{ fontWeight: 600, marginBottom: "var(--space-2)" }}>Monedas</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+              {COIN_DENOMINATIONS.map((d) => {
+                const qty = denominations[String(d)] || 0;
+                const subtotal = qty * d;
+                return (
+                  <div key={d} style={{ display: "grid", gridTemplateColumns: "70px 1fr auto", alignItems: "center", gap: "var(--space-2)" }}>
+                    <span style={{ fontWeight: 500 }}>{formatDenomination(d)}</span>
+                    <input
+                      min={0}
+                      style={{ width: "100%" }}
+                      type="number"
+                      value={qty}
+                      onChange={(e) => setDenominations({ ...denominations, [String(d)]: Math.max(0, Number(e.target.value)) })}
+                    />
+                    <span className="muted" style={{ minWidth: 80, textAlign: "right" }}>{currency(subtotal)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        <div className="info-card" style={{ marginTop: "var(--space-4)" }}>
+          <div className="stats-grid">
+            <div className="stat-card">
+              <span className="stat-label">Total contado</span>
+              <strong className="stat-value">{currency(cashCountedTotal)}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Efectivo esperado (POS)</span>
+              <strong className="stat-value">{currency(expectedCash)}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Diferencia</span>
+              <strong
+                className="stat-value"
+                style={{
+                  color: cashDifference === 0
+                    ? "var(--color-success, #16a34a)"
+                    : cashDifference > 0
+                      ? "var(--color-warning, #d97706)"
+                      : "var(--color-danger, #dc2626)"
+                }}
+              >
+                {cashDifference === 0
+                  ? `${currency(0)} ✅ Cuadra`
+                  : cashDifference > 0
+                    ? `+${currency(cashDifference)} ⚠️ Sobrante`
+                    : `${currency(cashDifference)} ❌ Faltante`}
+              </strong>
+            </div>
+          </div>
+        </div>
+        <div className="inline-actions" style={{ marginTop: "var(--space-3)" }}>
+          <button className="button" disabled={savingCashCount} onClick={saveCashCount} type="button">
+            {savingCashCount ? "Guardando..." : "💾 Guardar conteo"}
+          </button>
+        </div>
+        {cashCountSuccess ? <p style={{ color: "var(--color-success, #16a34a)", marginTop: "var(--space-2)" }}>{cashCountSuccess}</p> : null}
       </div>
 
       <div className="panel">

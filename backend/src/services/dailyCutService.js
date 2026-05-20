@@ -487,6 +487,9 @@ async function createManualCut(payload = {}, actor) {
   const cutDate = normalizeBusinessDate(payload.cut_date, getLocalIsoDate());
   const notes = String(payload.notes || "").trim();
   const performedByNameSnapshot = String(actor.full_name || "").trim() || `Usuario #${actor.id}`;
+  const cashCount = payload.cash_count != null ? payload.cash_count : null;
+  const cashCountedTotal = payload.cash_counted_total != null ? Number(payload.cash_counted_total) : null;
+  const cashDifference = payload.cash_difference != null ? Number(payload.cash_difference) : null;
   console.info("[MANUAL-CUT] Creating manual cut", { businessId, actorId: actor.id, cutDate });
 
   const client = await pool.connect();
@@ -494,11 +497,13 @@ async function createManualCut(payload = {}, actor) {
     await client.query("BEGIN");
     const { rows } = await client.query(
       `INSERT INTO manual_cuts (
-        business_id, cut_date, cut_type, notes, performed_by_user_id, performed_by_name_snapshot
+        business_id, cut_date, cut_type, notes, performed_by_user_id, performed_by_name_snapshot,
+        cash_count, cash_counted_total, cash_difference
        )
-       VALUES ($1, $2, 'manual', $3, $4, $5)
-       RETURNING id, business_id, cut_date, cut_type, notes, performed_by_user_id, performed_by_name_snapshot, created_at, updated_at`,
-      [businessId, cutDate, notes, actor.id, performedByNameSnapshot]
+       VALUES ($1, $2, 'manual', $3, $4, $5, $6, $7, $8)
+       RETURNING id, business_id, cut_date, cut_type, notes, performed_by_user_id, performed_by_name_snapshot,
+                 cash_count, cash_counted_total, cash_difference, created_at, updated_at`,
+      [businessId, cutDate, notes, actor.id, performedByNameSnapshot, cashCount, cashCountedTotal, cashDifference]
     );
 
     await saveAuditLog({
@@ -514,7 +519,9 @@ async function createManualCut(payload = {}, actor) {
         cut_type: rows[0].cut_type,
         notes: rows[0].notes,
         performed_by_user_id: rows[0].performed_by_user_id,
-        performed_by_name_snapshot: rows[0].performed_by_name_snapshot
+        performed_by_name_snapshot: rows[0].performed_by_name_snapshot,
+        cash_counted_total: rows[0].cash_counted_total,
+        cash_difference: rows[0].cash_difference
       },
       motivo: notes,
       metadata: {
@@ -529,7 +536,10 @@ async function createManualCut(payload = {}, actor) {
       id: Number(rows[0].id),
       business_id: Number(rows[0].business_id),
       cut_date: normalizeBusinessDate(rows[0].cut_date, rows[0].cut_date),
-      performed_by_user_id: rows[0].performed_by_user_id ? Number(rows[0].performed_by_user_id) : null
+      performed_by_user_id: rows[0].performed_by_user_id ? Number(rows[0].performed_by_user_id) : null,
+      cash_count: rows[0].cash_count ?? null,
+      cash_counted_total: rows[0].cash_counted_total != null ? Number(rows[0].cash_counted_total) : null,
+      cash_difference: rows[0].cash_difference != null ? Number(rows[0].cash_difference) : null
     };
   } catch (error) {
     await client.query("ROLLBACK");

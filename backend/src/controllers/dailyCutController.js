@@ -25,6 +25,9 @@ const exportValidation = [
 const manualCutValidation = [
   body("cut_date").optional({ values: "falsy" }).isISO8601(),
   body("notes").optional({ values: "falsy" }).trim(),
+  body("cash_count").optional({ values: "falsy" }).isObject(),
+  body("cash_counted_total").optional({ values: "falsy" }).isNumeric(),
+  body("cash_difference").optional({ values: "falsy" }).isNumeric(),
   validateRequest
 ];
 

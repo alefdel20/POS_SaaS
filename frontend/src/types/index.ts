@@ -1073,6 +1073,9 @@ export interface ManualCut {
   notes: string;
   performed_by_user_id?: number | null;
   performed_by_name_snapshot: string;
+  cash_count?: Record<string, number> | null;
+  cash_counted_total?: number | null;
+  cash_difference?: number | null;
   created_at: string;
   updated_at: string;
 }
