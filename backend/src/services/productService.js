@@ -1745,6 +1745,33 @@ async function restockProduct(id, payload = {}, actor) {
       ]
     );
 
+    try {
+      const supplierName = restockContext?.supplier_name || "No especificado";
+      const reminderTitle = `Reabastecimiento: ${current.name || `Producto #${id}`} (+${normalizedQuantity} unidades)`;
+      const reminderNotes = `Se compraron ${normalizedQuantity} unidades de ${current.name || `Producto #${id}`} por $${financeAmount} MXN. Stock anterior: ${previousStock} → Stock nuevo: ${finalStock}. Proveedor: ${supplierName}.`;
+      await client.query(
+        `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
+         VALUES ($1, $2, 'pending', CURRENT_DATE, $3, NULL, $4, FALSE, $5, 'general', 'administrative', NULL, $6)`,
+        [
+          reminderTitle,
+          reminderNotes,
+          `auto:restock:${id}:${Date.now()}`,
+          actor.id,
+          current.business_id,
+          JSON.stringify({
+            product_id: Number(id),
+            quantity: normalizedQuantity,
+            cost_price: unitCost,
+            previous_stock: previousStock,
+            new_stock: finalStock,
+            supplier_name: supplierName
+          })
+        ]
+      );
+    } catch (reminderErr) {
+      console.error("[restockProduct] Failed to create restock reminder:", reminderErr?.message || reminderErr);
+    }
+
     await syncLowStockReminderForBusiness(current.business_id, client);
 
     await saveAuditLog({
@@ -1827,6 +1854,42 @@ async function restockProductsBatch(payload = {}, actor) {
         status: "error",
         message: error instanceof Error ? error.message : "Failed to update stock"
       });
+    }
+  }
+
+  if (success > 0) {
+    try {
+      const businessId = requireActorBusinessId(actor);
+      const successfulResults = results.filter(r => r.status === "success");
+      const productList = successfulResults.map(r => {
+        const matchedItem = items.find(i => Number(i?.product_id) === r.product_id);
+        const qty = matchedItem?.stock ?? "?";
+        const name = r.product?.name || `Producto #${r.product_id}`;
+        return `${name} (+${qty})`;
+      }).join(", ");
+      await pool.query(
+        `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
+         VALUES ($1, $2, 'pending', CURRENT_DATE, $3, NULL, $4, FALSE, $5, 'general', 'administrative', NULL, $6)`,
+        [
+          `Reabastecimiento lote: ${success} producto${success !== 1 ? "s" : ""} reabastecido${success !== 1 ? "s" : ""}`,
+          `Lote de reabastecimiento: ${productList}.`,
+          `auto:restock-batch:${businessId}:${Date.now()}`,
+          actor.id,
+          businessId,
+          JSON.stringify({
+            products: successfulResults.map(r => {
+              const matchedItem = items.find(i => Number(i?.product_id) === r.product_id);
+              return {
+                product_id: r.product_id,
+                name: r.product?.name || "",
+                quantity: matchedItem?.stock ?? 0
+              };
+            })
+          })
+        ]
+      );
+    } catch (reminderErr) {
+      console.error("[restockProductsBatch] Failed to create batch restock reminder:", reminderErr?.message || reminderErr);
     }
   }
 
