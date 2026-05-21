@@ -108,6 +108,7 @@ export function CreditCollectionsPage() {
   const [showAddClient, setShowAddClient] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", phone: "", email: "", notes: "" });
   const [liquidarModalOpen, setLiquidarModalOpen] = useState(false);
+  const [abonoModalOpen, setAbonoModalOpen] = useState(false);
   const [liquidarMontoRecibido, setLiquidarMontoRecibido] = useState("");
   const [liquidarSaldoTotal, setLiquidarSaldoTotal] = useState(0);
   const [clientsWithDebt, setClientsWithDebt] = useState<Set<number>>(new Set());
@@ -547,7 +548,29 @@ export function CreditCollectionsPage() {
       </div>
 
       <div className="page-grid">
-        <form className="panel grid-form" onSubmit={handleSubmit}>
+        {selectedDebtor ? (
+          <div className="panel" style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+              <div className="total-box secondary" style={{ flex: 1 }}>
+                <span>Saldo pendiente</span>
+                <strong>{currency(selectedDebtor.balance_due)}</strong>
+              </div>
+              <div className="total-box secondary" style={{ flex: 1 }}>
+                <span>Días de atraso</span>
+                <strong style={{
+                  color: selectedDebtor.days_overdue > 0
+                    ? "var(--color-text-danger)"
+                    : "var(--color-text-success)"
+                }}>
+                  {selectedDebtor.days_overdue > 0
+                    ? `${selectedDebtor.days_overdue} día(s)`
+                    : "Al corriente"}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <form className="panel grid-form">
           <div className="panel-header">
             <div>
               <h2>Registrar abono</h2>
@@ -575,16 +598,6 @@ export function CreditCollectionsPage() {
             </label>
           ) : null}
           <label>
-            Monto *
-            <input min="0" step="0.01" required type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
-          </label>
-          {selectedDebtor && Number(form.amount) > 0 && Number(form.amount) > selectedDebtor.balance_due ? (
-            <div className="total-box secondary" style={{ background: "#f0fdf4", color: "#15803d" }}>
-              <span>Cambio</span>
-              <strong>{currency(Number(form.amount) - selectedDebtor.balance_due)}</strong>
-            </div>
-          ) : null}
-          <label>
             Metodo de pago *
             <select value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value as CreditPayment["payment_method"] })}>
               <option value="cash">Efectivo</option>
@@ -602,7 +615,7 @@ export function CreditCollectionsPage() {
             <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </label>
           <div className="inline-actions">
-            <button className="button" disabled={!selectedSaleId} type="submit">Registrar abono</button>
+            <button className="button" disabled={!selectedSaleId} type="button" onClick={() => setAbonoModalOpen(true)}>Registrar abono</button>
             <button
               className="button ghost"
               disabled={!selectedDebtor}
@@ -760,6 +773,87 @@ export function CreditCollectionsPage() {
                   onClick={() => { setLiquidarModalOpen(false); setLiquidarMontoRecibido(""); }}
                   type="button"
                 >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {abonoModalOpen && selectedDebtor ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" style={{ maxWidth: "480px", width: "95vw" }}>
+            <div className="panel-header">
+              <div>
+                <h3>Registrar abono</h3>
+                <p className="muted">{selectedDebtor.person} | venta #{selectedDebtor.sale_id}</p>
+              </div>
+              <button className="button ghost" onClick={() => setAbonoModalOpen(false)} type="button">
+                Cerrar
+              </button>
+            </div>
+            <div className="total-box" style={{ marginBottom: "1rem" }}>
+              <span>Saldo pendiente</span>
+              <strong>{currency(selectedDebtor.balance_due)}</strong>
+            </div>
+            <div className="form-section-grid">
+              <label>
+                Monto *
+                <input
+                  autoFocus
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  value={form.amount}
+                  onChange={(event) => setForm({ ...form, amount: event.target.value })}
+                />
+              </label>
+              {selectedDebtor && Number(form.amount) > 0 && Number(form.amount) > selectedDebtor.balance_due ? (
+                <div className="total-box secondary" style={{ background: "var(--color-background-success)", color: "var(--color-text-success)" }}>
+                  <span>Cambio</span>
+                  <strong>{currency(Number(form.amount) - selectedDebtor.balance_due)}</strong>
+                </div>
+              ) : null}
+              <label>
+                Método de pago *
+                <select
+                  value={form.payment_method}
+                  onChange={(event) => setForm({ ...form, payment_method: event.target.value as CreditPayment["payment_method"] })}
+                >
+                  <option value="cash">Efectivo</option>
+                  <option value="card">Tarjeta</option>
+                  <option value="transfer">Transferencia</option>
+                  <option value="credit">Crédito</option>
+                </select>
+              </label>
+              <label>
+                Fecha *
+                <input
+                  type="date"
+                  value={form.payment_date}
+                  onChange={(event) => setForm({ ...form, payment_date: event.target.value })}
+                />
+              </label>
+              <label>
+                Notas
+                <textarea
+                  value={form.notes}
+                  onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                />
+              </label>
+              <div className="inline-actions">
+                <button
+                  className="button"
+                  disabled={!form.amount || Number(form.amount) <= 0}
+                  onClick={async () => {
+                    await submitPayment(Number(form.amount));
+                    setAbonoModalOpen(false);
+                  }}
+                  type="button"
+                >
+                  Confirmar abono
+                </button>
+                <button className="button ghost" onClick={() => setAbonoModalOpen(false)} type="button">
                   Cancelar
                 </button>
               </div>
