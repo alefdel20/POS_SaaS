@@ -834,13 +834,6 @@ export function CreditCollectionsPage() {
                   onChange={(event) => setForm({ ...form, payment_date: event.target.value })}
                 />
               </label>
-              <label>
-                Notas
-                <textarea
-                  value={form.notes}
-                  onChange={(event) => setForm({ ...form, notes: event.target.value })}
-                />
-              </label>
               <div className="inline-actions">
                 <button
                   className="button"
