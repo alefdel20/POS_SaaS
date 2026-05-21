@@ -826,14 +826,6 @@ export function CreditCollectionsPage() {
                   <option value="credit">Crédito</option>
                 </select>
               </label>
-              <label>
-                Fecha *
-                <input
-                  type="date"
-                  value={form.payment_date}
-                  onChange={(event) => setForm({ ...form, payment_date: event.target.value })}
-                />
-              </label>
               <div className="inline-actions">
                 <button
                   className="button"
