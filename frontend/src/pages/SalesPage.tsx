@@ -1654,6 +1654,12 @@ export function SalesPage() {
                 <div className="total-box secondary">
                   <span>Saldo pendiente</span>
                   <strong>{currency(pendingBalance)}</strong>
+                  {clientBalance !== null && clientBalance.deuda_total > 0 ? (
+                    <span style={{ fontSize: "0.78rem", color: "var(--color-text-warning)",
+                      fontWeight: 500, marginTop: "2px", display: "block" }}>
+                      Deuda actual del cliente: {currency(clientBalance.deuda_total)}
+                    </span>
+                  ) : null}
                 </div>
                 <datalist id="debtor-suggestions">
                   {debtorSuggestions.map((suggestion) => (
