@@ -53,9 +53,9 @@ async function listDebtors(actor, filters = {}) {
   }
 
   if (String(filters.status || "") === "overdue") {
-    conditions.push("sales.sale_date::date < CURRENT_DATE");
+    conditions.push("COALESCE(sales.due_date, sales.sale_date + INTERVAL '30 days')::date < CURRENT_DATE");
   } else if (String(filters.status || "") === "pending") {
-    conditions.push("sales.sale_date::date >= CURRENT_DATE");
+    conditions.push("COALESCE(sales.due_date, sales.sale_date + INTERVAL '30 days')::date >= CURRENT_DATE");
   }
 
   const query = `
@@ -63,6 +63,7 @@ async function listDebtors(actor, filters = {}) {
       SELECT
         sales.id AS sale_id,
         sales.sale_date,
+        sales.due_date,
         sales.customer_name AS person,
         sales.customer_phone AS phone,
         sales.client_id,
@@ -97,7 +98,7 @@ async function listDebtors(actor, filters = {}) {
         WHEN sale_credit_totals.raw_balance_due < 0 THEN 0
         ELSE ROUND(sale_credit_totals.raw_balance_due::numeric, 2)
       END AS balance_due,
-      GREATEST(CURRENT_DATE - sale_credit_totals.sale_date::date, 0) AS days_overdue,
+      GREATEST(CURRENT_DATE - COALESCE(sale_credit_totals.due_date, sale_credit_totals.sale_date + INTERVAL '30 days')::date, 0) AS days_overdue,
       CASE
         WHEN (
           CASE
@@ -106,7 +107,7 @@ async function listDebtors(actor, filters = {}) {
             ELSE ROUND(sale_credit_totals.raw_balance_due::numeric, 2)
           END
         ) <= 0 THEN 'settled'
-        WHEN sale_credit_totals.sale_date::date < CURRENT_DATE THEN 'overdue'
+        WHEN COALESCE(sale_credit_totals.due_date, sale_credit_totals.sale_date + INTERVAL '30 days')::date < CURRENT_DATE THEN 'overdue'
         ELSE 'pending'
       END AS status
     FROM sale_credit_totals
@@ -124,6 +125,7 @@ async function listDebtors(actor, filters = {}) {
   return rows.map((row) => ({
     ...row,
     sale_date: normalizeBusinessDate(row.sale_date, row.sale_date),
+    due_date: row.due_date ? normalizeBusinessDate(row.due_date, row.due_date) : null,
     client_id: row.client_id ? Number(row.client_id) : null,
     total: Number(row.total || 0),
     initial_payment: Number(row.initial_payment || 0),

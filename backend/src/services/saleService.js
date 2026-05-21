@@ -485,11 +485,13 @@ async function createSale(payload, user, branchId = null) {
       clientId = catalogClient?.id ?? null;
     }
 
+    let creditRows = [];
     if (payload.payment_method === "credit" && clientId !== null) {
-      const { rows: creditRows } = await client.query(
-        `SELECT credit_limit FROM clients WHERE id = $1 AND business_id = $2`,
+      const { rows: fetchedCreditRows } = await client.query(
+        `SELECT credit_limit, credit_days FROM clients WHERE id = $1 AND business_id = $2`,
         [clientId, businessId]
       );
+      creditRows = fetchedCreditRows;
       const creditLimit = creditRows[0]?.credit_limit ?? null;
       if (creditLimit !== null) {
         const { rows: debtRows } = await client.query(
@@ -509,17 +511,25 @@ async function createSale(payload, user, branchId = null) {
       }
     }
 
+    let dueDateStr = null;
+    if (payload.payment_method === "credit") {
+      const creditDays = Number(creditRows[0]?.credit_days || 0) || 30;
+      const base = new Date(getMexicoCityDate());
+      base.setDate(base.getDate() + creditDays);
+      dueDateStr = base.toISOString().slice(0, 10);
+    }
+
     const safeSaleTime = getMexicoCityTime();
     const { rows: saleRows } = await client.query(
       `INSERT INTO sales (
         user_id, business_id, payment_method, sale_type, subtotal, total, total_cost, customer_name, customer_phone,
         initial_payment, balance_due, invoice_data, notes, company_profile_id, transfer_snapshot, invoice_status,
         stamp_status, stamp_movement_id, stamp_snapshot, sale_date, sale_time, created_at, requires_administrative_invoice, status,
-        branch_id, client_id, cart_discount_type, cart_discount_value, cart_discount_amount
+        branch_id, client_id, cart_discount_type, cart_discount_value, cart_discount_amount, due_date
       )
-      VALUES ($1, $2, $3, $4, $5, $24, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed', $22, $23, $25, $26, $27)
+      VALUES ($1, $2, $3, $4, $5, $24, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, $21, 'completed', $22, $23, $25, $26, $27, $28)
       RETURNING *`,
-      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), safeSaleTime, requiresAdministrativeInvoice, branchId, clientId, totalFinal, cartDiscountType, cartDiscountValue, cartDiscountAmount]
+      [user.id, businessId, payload.payment_method || "cash", saleType, total, totalCost, customerName, customerPhone, initialPayment, balanceDue, JSON.stringify(invoiceData), payload.notes || "", companyProfile?.id || null, JSON.stringify(transferSnapshot), invoiceStatus, stampStatus, stampMovement?.id || null, JSON.stringify(stampSnapshot), getMexicoCityDate(), safeSaleTime, requiresAdministrativeInvoice, branchId, clientId, totalFinal, cartDiscountType, cartDiscountValue, cartDiscountAmount, dueDateStr]
     );
     const sale = mapSaleRow(saleRows[0]);
 

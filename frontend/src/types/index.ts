@@ -858,6 +858,7 @@ export interface CatalogClient {
 export interface Debtor {
   sale_id: number;
   sale_date: string;
+  due_date?: string | null;
   person: string;
   phone: string;
   client_id?: number | null;

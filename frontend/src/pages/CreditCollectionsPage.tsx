@@ -46,6 +46,17 @@ function normalizeDebtorPhone(value: string | null | undefined) {
   return digits;
 }
 
+function getDueDateStatus(dueDateStr: string | null | undefined): "overdue" | "soon" | "ok" | "none" {
+  if (!dueDateStr) return "none";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDateStr + "T00:00:00");
+  const diffDays = Math.floor((due.getTime() - today.getTime()) / 86400000);
+  if (diffDays < 0) return "overdue";
+  if (diffDays <= 3) return "soon";
+  return "ok";
+}
+
 function buildDebtorGroups(items: Debtor[]) {
   const grouped = new Map<string, DebtorGroup>();
 
@@ -475,6 +486,7 @@ export function CreditCollectionsPage() {
               <tr>
                 <th>Cliente</th>
                 <th>Venta</th>
+                <th>Vence</th>
                 <th>Saldo pendiente</th>
                 <th>Estado</th>
                 <th className="credit-reminder-header">Recordatorio</th>
@@ -513,6 +525,21 @@ export function CreditCollectionsPage() {
                       </div>
                     )}
                   </td>
+                  <td>
+                    {(() => {
+                      const ds = getDueDateStatus(groupSale.due_date);
+                      const color = ds === "overdue"
+                        ? "var(--color-text-danger)"
+                        : ds === "soon"
+                          ? "var(--color-text-warning)"
+                          : undefined;
+                      return (
+                        <span style={color ? { color } : undefined}>
+                          {groupSale.due_date ? shortDate(groupSale.due_date) : "-"}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td>{currency(group.total_balance_due)}</td>
                   <td>
                     <div>{group.has_overdue ? "Atrasado" : "Pendiente"}</div>
@@ -539,7 +566,7 @@ export function CreditCollectionsPage() {
               })}
               {debtors.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={5}>No hay ventas pendientes.</td>
+                  <td className="muted" colSpan={6}>No hay ventas pendientes.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -660,6 +687,25 @@ export function CreditCollectionsPage() {
                 <p>Cliente: {selectedDebtor.person || "-"}</p>
                 <p>Telefono: {selectedDebtor.phone || "-"}</p>
                 <p>Fecha venta: {shortDate(selectedDebtor.sale_date)}</p>
+                <p>
+                  {"Fecha vencimiento: "}
+                  {selectedDebtor.due_date ? (
+                    <>
+                      {shortDate(selectedDebtor.due_date)}
+                      {" "}
+                      {getDueDateStatus(selectedDebtor.due_date) === "overdue" && (
+                        <span style={{ background: "var(--color-background-danger)", color: "var(--color-text-danger)", borderRadius: "4px", padding: "1px 6px", fontSize: "0.75rem", fontWeight: 600 }}>
+                          Vencido
+                        </span>
+                      )}
+                      {getDueDateStatus(selectedDebtor.due_date) === "soon" && (
+                        <span style={{ background: "var(--color-background-warning)", color: "var(--color-text-warning)", borderRadius: "4px", padding: "1px 6px", fontSize: "0.75rem", fontWeight: 600 }}>
+                          Vence pronto
+                        </span>
+                      )}
+                    </>
+                  ) : "-"}
+                </p>
                 <p>Estado: {selectedDebtor.status === "overdue" ? "Atrasado" : "Pendiente"}</p>
                 <p>Dias de atraso: {selectedDebtor.days_overdue || 0}</p>
               </div>
