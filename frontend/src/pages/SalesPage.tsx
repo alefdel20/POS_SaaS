@@ -183,6 +183,12 @@ export function SalesPage() {
   const [customerName, setCustomerName] = useState("");
   const [customerNameInput, setCustomerNameInput] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [clientBalance, setClientBalance] = useState<{
+    credit_limit: number | null;
+    credit_days: number;
+    deuda_total: number;
+    ventas_pendientes: number;
+  } | null>(null);
   const [debtorSuggestions, setDebtorSuggestions] = useState<DebtorSuggestion[]>([]);
   const [initialPayment, setInitialPayment] = useState("0");
   const [cashReceived, setCashReceived] = useState("");
@@ -345,9 +351,16 @@ export function SalesPage() {
     if (requestId !== undefined && debtorSuggestionRequestRef.current !== requestId) {
       return;
     }
+    const catalogIdMap = new Map(
+      catalogResponse.map((c) => [`${c.name.toLowerCase()}::${String(c.phone || "").replace(/\D/g, "")}`, c.id])
+    );
     const existingKeys = new Set(
       debtorResponse.map((d) => `${String(d.customer_name || "").toLowerCase()}::${String(d.customer_phone || "").replace(/\D/g, "")}`)
     );
+    const enrichedDebtorResponse = debtorResponse.map((d) => {
+      const key = `${String(d.customer_name || "").toLowerCase()}::${String(d.customer_phone || "").replace(/\D/g, "")}`;
+      return { ...d, catalog_id: catalogIdMap.get(key) };
+    });
     const catalogAsSuggestions: DebtorSuggestion[] = catalogResponse
       .filter((c) => !existingKeys.has(`${c.name.toLowerCase()}::${String(c.phone || "").replace(/\D/g, "")}`))
       .map((c) => ({
@@ -355,9 +368,25 @@ export function SalesPage() {
         customer_phone: c.phone || null,
         sale_count: 0,
         pending_balance: 0,
-        selection_label: c.phone ? `${c.name} · ${c.phone}` : c.name
+        selection_label: c.phone ? `${c.name} · ${c.phone}` : c.name,
+        catalog_id: c.id
       }));
-    setDebtorSuggestions([...debtorResponse, ...catalogAsSuggestions]);
+    setDebtorSuggestions([...enrichedDebtorResponse, ...catalogAsSuggestions]);
+  }
+
+  async function loadClientBalance(catalogId: number) {
+    if (!token) return;
+    try {
+      const balance = await apiRequest<{
+        credit_limit: number | null;
+        credit_days: number;
+        deuda_total: number;
+        ventas_pendientes: number;
+      }>(`/catalog-clients/${catalogId}/balance`, { token });
+      setClientBalance(balance);
+    } catch {
+      setClientBalance(null);
+    }
   }
 
   function resetSaleForm() {
@@ -371,6 +400,7 @@ export function SalesPage() {
     setCustomerNameInput("");
     setCustomerPhone("");
     setDebtorSuggestions([]);
+    setClientBalance(null);
     setInitialPayment("0");
     setCashReceived("");
     setRequiresAdministrativeInvoice(false);
@@ -443,7 +473,12 @@ export function SalesPage() {
     setCustomerName("");
     setCustomerNameInput("");
     setCustomerPhone("");
+    setClientBalance(null);
   }, [token, user?.business_id]);
+
+  useEffect(() => {
+    if (paymentMethod !== "credit") setClientBalance(null);
+  }, [paymentMethod]);
 
   useEffect(() => {
     if (!prescriptionSeedId) {
@@ -1564,8 +1599,14 @@ export function SalesPage() {
                         setCustomerNameInput(normalizedSelectedName);
                         setCustomerName(normalizedSelectedName);
                         setCustomerPhone(normalizedSelectedPhone);
+                        if (matchedSuggestion.catalog_id) {
+                          loadClientBalance(matchedSuggestion.catalog_id);
+                        } else {
+                          setClientBalance(null);
+                        }
                         return;
                       }
+                      setClientBalance(null);
                       setCustomerNameInput(nextValue);
                       setCustomerName(nextValue.trim());
                     }}
@@ -1577,8 +1618,14 @@ export function SalesPage() {
                         setCustomerNameInput(normalizedSelectedName);
                         setCustomerName(normalizedSelectedName);
                         setCustomerPhone(normalizedSelectedPhone);
+                        if (matchedSuggestion.catalog_id) {
+                          loadClientBalance(matchedSuggestion.catalog_id);
+                        } else {
+                          setClientBalance(null);
+                        }
                         return;
                       }
+                      setClientBalance(null);
                       setCustomerName(customerNameInput.trim());
                     }}
                   />
@@ -1587,6 +1634,19 @@ export function SalesPage() {
                   Teléfono
                   <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
                 </label>
+                {clientBalance !== null && clientBalance.deuda_total > 0 ? (
+                  <div style={{ fontSize: "0.85rem" }}>
+                    {clientBalance.credit_limit !== null && clientBalance.deuda_total / clientBalance.credit_limit > 0.8 ? (
+                      <span style={{ color: "var(--color-text-danger)", fontWeight: 600 }}>
+                        Límite: {currency(clientBalance.deuda_total)} / {currency(clientBalance.credit_limit)}
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--color-text-warning)", fontWeight: 600 }}>
+                        Debe: {currency(clientBalance.deuda_total)}
+                      </span>
+                    )}
+                  </div>
+                ) : null}
                 <label>
                   Pago inicial
                   <input min="0" step="0.01" type="number" value={initialPayment} onChange={(event) => setInitialPayment(event.target.value)} />

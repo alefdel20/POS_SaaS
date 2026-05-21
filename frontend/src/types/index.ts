@@ -878,6 +878,7 @@ export interface DebtorSuggestion {
   pending_balance: number;
   last_sale_date?: string | null;
   selection_label?: string;
+  catalog_id?: number;
 }
 
 export interface CreditPayment {

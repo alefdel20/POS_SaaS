@@ -485,6 +485,30 @@ async function createSale(payload, user, branchId = null) {
       clientId = catalogClient?.id ?? null;
     }
 
+    if (payload.payment_method === "credit" && clientId !== null) {
+      const { rows: creditRows } = await client.query(
+        `SELECT credit_limit FROM clients WHERE id = $1 AND business_id = $2`,
+        [clientId, businessId]
+      );
+      const creditLimit = creditRows[0]?.credit_limit ?? null;
+      if (creditLimit !== null) {
+        const { rows: debtRows } = await client.query(
+          `SELECT COALESCE(SUM(balance_due), 0) AS deuda_actual
+           FROM sales
+           WHERE client_id = $1
+             AND business_id = $2
+             AND status = 'completed'
+             AND payment_method = 'credit'
+             AND balance_due > 0`,
+          [clientId, businessId]
+        );
+        const deudaActual = Number(debtRows[0]?.deuda_actual || 0);
+        if (deudaActual + totalFinal > Number(creditLimit)) {
+          throw new ApiError(400, "El cliente ha alcanzado su límite de crédito");
+        }
+      }
+    }
+
     const safeSaleTime = getMexicoCityTime();
     const { rows: saleRows } = await client.query(
       `INSERT INTO sales (
