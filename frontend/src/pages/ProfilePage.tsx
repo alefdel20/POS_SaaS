@@ -119,6 +119,7 @@ export function ProfilePage() {
   const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "stamps" | "">("");
   const [reportHour, setReportHour] = useState<number | null>(null);
   const [savingReportHour, setSavingReportHour] = useState(false);
+  const [reportHourSaved, setReportHourSaved] = useState(false);
   const currentRole = normalizeRole(user?.role);
   const canEditStamps = currentRole === "superusuario";
   const isPremiumPlan = ["Premium", "Enterprise", "All-Inclusive"].includes(
@@ -325,7 +326,8 @@ export function ProfilePage() {
         body: JSON.stringify({ report_hour: hourValue })
       });
       setReportHour(hourValue);
-      setInfo("Hora de reporte actualizada correctamente");
+      setReportHourSaved(true);
+      setTimeout(() => setReportHourSaved(false), 3000);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar la hora de reporte");
     } finally {
@@ -623,7 +625,11 @@ export function ProfilePage() {
               <option value="22">10:00 PM</option>
             </select>
           </label>
-          {savingReportHour ? <p className="muted">Guardando...</p> : null}
+          {savingReportHour
+            ? <p className="muted">Guardando...</p>
+            : reportHourSaved
+              ? <p className="success-text">Hora de reporte actualizada correctamente</p>
+              : null}
         </div>
       ) : null}
 
