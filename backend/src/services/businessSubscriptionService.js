@@ -165,6 +165,7 @@ function mapBusinessSubscription(row, today = getMexicoCityDate()) {
   return {
     business_id: Number(row.business_id),
     plan_type: row.plan_type || null,
+    plan_name: row.plan_name || null,
     billing_anchor_date: row.billing_anchor_date || null,
     next_payment_date: row.next_payment_date || null,
     grace_period_days: Number(row.grace_period_days || 0),

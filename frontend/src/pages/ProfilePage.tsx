@@ -121,7 +121,10 @@ export function ProfilePage() {
   const [savingReportHour, setSavingReportHour] = useState(false);
   const currentRole = normalizeRole(user?.role);
   const canEditStamps = currentRole === "superusuario";
-  const canEditReportHour = currentRole === "admin" || currentRole === "superusuario";
+  const isPremiumPlan = ["Premium", "Enterprise", "All-Inclusive"].includes(
+    profile?.subscription?.plan_name || ""
+  );
+  const canEditReportHour = isPremiumPlan && (currentRole === "admin" || currentRole === "superusuario");
 
   async function loadProfile() {
     if (!token) return;

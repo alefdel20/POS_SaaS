@@ -68,6 +68,7 @@ export interface Business {
 export interface BusinessSubscription {
   business_id: number;
   plan_type: "monthly" | "yearly" | null;
+  plan_name?: string | null;
   billing_anchor_date: string | null;
   next_payment_date: string | null;
   last_payment_date?: string | null;
