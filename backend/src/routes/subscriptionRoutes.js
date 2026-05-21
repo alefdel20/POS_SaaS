@@ -12,4 +12,11 @@ router.post(
   controller.cancelSubscription
 );
 
+router.put(
+  "/report-hour",
+  requireRole(["admin", "superusuario"]),
+  controller.reportHourValidation,
+  controller.updateReportHour
+);
+
 module.exports = router;

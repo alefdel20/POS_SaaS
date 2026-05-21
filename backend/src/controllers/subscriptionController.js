@@ -115,4 +115,34 @@ const cancelSubscription = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { cancelValidation, cancelSubscription };
+const reportHourValidation = [
+  body("report_hour")
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null || value === undefined || value === "") return true;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 0 || n > 23) {
+        throw new Error("report_hour debe ser un entero entre 0 y 23, o null");
+      }
+      return true;
+    }),
+  validateRequest
+];
+
+const updateReportHour = asyncHandler(async (req, res) => {
+  const businessId = requireActorBusinessId(req.user);
+  const rawValue = req.body.report_hour;
+  const reportHour =
+    rawValue === null || rawValue === undefined || rawValue === ""
+      ? null
+      : Number(rawValue);
+
+  await pool.query(
+    `UPDATE business_subscriptions SET report_hour = $1, updated_at = NOW() WHERE business_id = $2`,
+    [reportHour, Number(businessId)]
+  );
+
+  return res.json({ success: true, report_hour: reportHour });
+});
+
+module.exports = { cancelValidation, cancelSubscription, reportHourValidation, updateReportHour };

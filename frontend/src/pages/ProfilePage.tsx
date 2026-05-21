@@ -117,8 +117,11 @@ export function ProfilePage() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [assetLoading, setAssetLoading] = useState<"business_image" | "signature" | "">("");
   const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "stamps" | "">("");
+  const [reportHour, setReportHour] = useState<number | null>(null);
+  const [savingReportHour, setSavingReportHour] = useState(false);
   const currentRole = normalizeRole(user?.role);
   const canEditStamps = currentRole === "superusuario";
+  const canEditReportHour = currentRole === "admin" || currentRole === "superusuario";
 
   async function loadProfile() {
     if (!token) return;
@@ -131,6 +134,7 @@ export function ProfilePage() {
     const response = await apiRequest<CompanyProfile>("/profile", { token });
     setProfile(response);
     setFormData(profileToForm(response));
+    setReportHour(response.subscription?.report_hour ?? null);
   }
 
   useEffect(() => {
@@ -302,6 +306,27 @@ export function ProfilePage() {
       setError(uploadError instanceof Error ? uploadError.message : "No fue posible subir la imagen");
     } finally {
       setAssetLoading("");
+    }
+  }
+
+  async function saveReportHour(value: string) {
+    if (!token) return;
+    const hourValue = value === "" ? null : Number(value);
+    try {
+      setSavingReportHour(true);
+      setError("");
+      setInfo("");
+      await apiRequest("/subscription/report-hour", {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ report_hour: hourValue })
+      });
+      setReportHour(hourValue);
+      setInfo("Hora de reporte actualizada correctamente");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "No fue posible guardar la hora de reporte");
+    } finally {
+      setSavingReportHour(false);
     }
   }
 
@@ -560,6 +585,44 @@ export function ProfilePage() {
           {savingSection === "fiscal" ? "Guardando..." : "Guardar datos fiscales"}
         </button>
       </form>
+
+      {canEditReportHour ? (
+        <div className="panel grid-form">
+          <div className="panel-header">
+            <div>
+              <h2>Automatización de reportes</h2>
+              <p className="muted">Configura el envío automático del reporte diario por WhatsApp y correo.</p>
+            </div>
+          </div>
+          <label>
+            Hora de reporte diario (WhatsApp + Email)
+            <select
+              disabled={savingReportHour}
+              value={reportHour === null ? "" : String(reportHour)}
+              onChange={(event) => saveReportHour(event.target.value)}
+            >
+              <option value="">Sin reporte automático</option>
+              <option value="7">7:00 AM</option>
+              <option value="8">8:00 AM</option>
+              <option value="9">9:00 AM</option>
+              <option value="10">10:00 AM</option>
+              <option value="11">11:00 AM</option>
+              <option value="12">12:00 PM</option>
+              <option value="13">1:00 PM</option>
+              <option value="14">2:00 PM</option>
+              <option value="15">3:00 PM</option>
+              <option value="16">4:00 PM</option>
+              <option value="17">5:00 PM</option>
+              <option value="18">6:00 PM</option>
+              <option value="19">7:00 PM</option>
+              <option value="20">8:00 PM</option>
+              <option value="21">9:00 PM</option>
+              <option value="22">10:00 PM</option>
+            </select>
+          </label>
+          {savingReportHour ? <p className="muted">Guardando...</p> : null}
+        </div>
+      ) : null}
 
       {/* HIDDEN: Configuración > Facturación — pending PAC CFDI contract
       <form className="panel grid-form" onSubmit={(event) => saveSection(event, "stamps", {

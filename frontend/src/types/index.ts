@@ -83,6 +83,7 @@ export interface BusinessSubscription {
   openpay_subscription_id?: string | null;
   created_at?: string;
   updated_at?: string;
+  report_hour?: number | null;
 }
 
 export interface Supplier {
