@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { Header } from "../components/Header";
 import { Sidebar } from "../components/Sidebar";
 import { OnboardingTour, type OnboardingTourHandle } from "../components/OnboardingTour";
+import { WhatsNewModal } from "../components/WhatsNewModal";
 import { useAuth } from "../context/AuthContext";
 
 export function AppLayout() {
@@ -94,6 +95,7 @@ export function AppLayout() {
         </main>
       </div>
       {user ? <OnboardingTour autoStart={shouldAutoStart} ref={tourRef} /> : null}
+      <WhatsNewModal />
     </div>
   );
 }
