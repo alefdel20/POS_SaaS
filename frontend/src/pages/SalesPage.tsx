@@ -1053,37 +1053,37 @@ export function SalesPage() {
           <h2>Carrito</h2>
           <button className="button ghost" onClick={resetSaleForm} type="button">Limpiar</button>
         </div>
+        {isManagementRole(user?.role) ? (
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
+            <select
+              value={cartDiscountType}
+              onChange={(e) => { setCartDiscountType(e.target.value as typeof cartDiscountType); setCartDiscountValue(""); }}
+              style={{ minWidth: 130 }}
+            >
+              <option value="">Sin descuento</option>
+              <option value="percentage">% Porcentaje</option>
+              <option value="fixed">$ Monto fijo</option>
+            </select>
+            {cartDiscountType ? (
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder={cartDiscountType === "percentage" ? "0–100" : "0.00"}
+                value={cartDiscountValue}
+                onChange={(e) => setCartDiscountValue(e.target.value)}
+                style={{ width: 90 }}
+              />
+            ) : null}
+          </div>
+        ) : null}
+        {cartDiscountAmount > 0 ? (
+          <div className="total-box secondary" style={{ marginBottom: "0.5rem" }}>
+            <span>Descuento</span>
+            <strong style={{ color: "var(--ankode-green)" }}>-{currency(cartDiscountAmount)}</strong>
+          </div>
+        ) : null}
         <div className="sales-actions">
-          {isManagementRole(user?.role) ? (
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <select
-                value={cartDiscountType}
-                onChange={(e) => { setCartDiscountType(e.target.value as typeof cartDiscountType); setCartDiscountValue(""); }}
-                style={{ minWidth: 130 }}
-              >
-                <option value="">Sin descuento</option>
-                <option value="percentage">% Porcentaje</option>
-                <option value="fixed">$ Monto fijo</option>
-              </select>
-              {cartDiscountType ? (
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  placeholder={cartDiscountType === "percentage" ? "0–100" : "0.00"}
-                  value={cartDiscountValue}
-                  onChange={(e) => setCartDiscountValue(e.target.value)}
-                  style={{ width: 90 }}
-                />
-              ) : null}
-            </div>
-          ) : null}
-          {cartDiscountAmount > 0 ? (
-            <div className="total-box secondary">
-              <span>Descuento</span>
-              <strong style={{ color: "var(--ankode-green)" }}>-{currency(cartDiscountAmount)}</strong>
-            </div>
-          ) : null}
           <div className="total-box">
             <span>Total</span>
             <strong>{currency(total)}</strong>
