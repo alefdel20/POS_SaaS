@@ -85,6 +85,9 @@ export interface BusinessSubscription {
   created_at?: string;
   updated_at?: string;
   report_hour?: number | null;
+  stock_alert_hour_morning?: number | null;
+  stock_alert_hour_evening?: number | null;
+  inventory_alert_hour?: number | null;
 }
 
 export interface Supplier {

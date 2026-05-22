@@ -176,6 +176,10 @@ function mapBusinessSubscription(row, today = getMexicoCityDate()) {
     openpay_subscription_id: row.openpay_subscription_id || null,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    report_hour: row.report_hour ?? null,
+    stock_alert_hour_morning: row.stock_alert_hour_morning ?? null,
+    stock_alert_hour_evening: row.stock_alert_hour_evening ?? null,
+    inventory_alert_hour: row.inventory_alert_hour ?? null,
     ...derived
   };
 }

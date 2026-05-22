@@ -19,4 +19,11 @@ router.put(
   controller.updateReportHour
 );
 
+router.put(
+  "/alert-hours",
+  requireRole(["admin", "superusuario"]),
+  controller.alertHoursValidation,
+  controller.updateAlertHours
+);
+
 module.exports = router;

@@ -145,4 +145,60 @@ const updateReportHour = asyncHandler(async (req, res) => {
   return res.json({ success: true, report_hour: reportHour });
 });
 
-module.exports = { cancelValidation, cancelSubscription, reportHourValidation, updateReportHour };
+const alertHoursValidation = [
+  body("stock_alert_hour_morning")
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null || value === undefined || value === "") return true;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 0 || n > 23)
+        throw new Error("stock_alert_hour_morning debe ser un entero entre 0 y 23, o null");
+      return true;
+    }),
+  body("stock_alert_hour_evening")
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null || value === undefined || value === "") return true;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 0 || n > 23)
+        throw new Error("stock_alert_hour_evening debe ser un entero entre 0 y 23, o null");
+      return true;
+    }),
+  body("inventory_alert_hour")
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null || value === undefined || value === "") return true;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 0 || n > 23)
+        throw new Error("inventory_alert_hour debe ser un entero entre 0 y 23, o null");
+      return true;
+    }),
+  validateRequest
+];
+
+const updateAlertHours = asyncHandler(async (req, res) => {
+  const businessId = requireActorBusinessId(req.user);
+  const norm = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
+  const stockMorning = norm(req.body.stock_alert_hour_morning);
+  const stockEvening = norm(req.body.stock_alert_hour_evening);
+  const inventoryHour = norm(req.body.inventory_alert_hour);
+
+  await pool.query(
+    `UPDATE business_subscriptions
+     SET stock_alert_hour_morning = $1,
+         stock_alert_hour_evening = $2,
+         inventory_alert_hour     = $3,
+         updated_at               = NOW()
+     WHERE business_id = $4`,
+    [stockMorning, stockEvening, inventoryHour, Number(businessId)]
+  );
+
+  return res.json({
+    success: true,
+    stock_alert_hour_morning: stockMorning,
+    stock_alert_hour_evening: stockEvening,
+    inventory_alert_hour: inventoryHour
+  });
+});
+
+module.exports = { cancelValidation, cancelSubscription, reportHourValidation, updateReportHour, alertHoursValidation, updateAlertHours };

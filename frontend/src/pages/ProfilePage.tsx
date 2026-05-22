@@ -120,6 +120,11 @@ export function ProfilePage() {
   const [reportHour, setReportHour] = useState<number | null>(null);
   const [savingReportHour, setSavingReportHour] = useState(false);
   const [reportHourSaved, setReportHourSaved] = useState(false);
+  const [stockAlertMorning, setStockAlertMorning] = useState<number | null>(8);
+  const [stockAlertEvening, setStockAlertEvening] = useState<number | null>(21);
+  const [inventoryAlertHour, setInventoryAlertHour] = useState<number | null>(9);
+  const [savingAlertHours, setSavingAlertHours] = useState(false);
+  const [alertHoursSaved, setAlertHoursSaved] = useState(false);
   const currentRole = normalizeRole(user?.role);
   const canEditStamps = currentRole === "superusuario";
   const isPremiumPlan = ["Premium", "Enterprise", "All-Inclusive"].includes(
@@ -139,6 +144,9 @@ export function ProfilePage() {
     setProfile(response);
     setFormData(profileToForm(response));
     setReportHour(response.subscription?.report_hour ?? null);
+    setStockAlertMorning(response.subscription?.stock_alert_hour_morning ?? 8);
+    setStockAlertEvening(response.subscription?.stock_alert_hour_evening ?? 21);
+    setInventoryAlertHour(response.subscription?.inventory_alert_hour ?? 9);
   }
 
   useEffect(() => {
@@ -332,6 +340,30 @@ export function ProfilePage() {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar la hora de reporte");
     } finally {
       setSavingReportHour(false);
+    }
+  }
+
+  async function saveAlertHours() {
+    if (!token) return;
+    try {
+      setSavingAlertHours(true);
+      setError("");
+      setInfo("");
+      await apiRequest("/subscription/alert-hours", {
+        method: "PUT",
+        token,
+        body: JSON.stringify({
+          stock_alert_hour_morning: stockAlertMorning,
+          stock_alert_hour_evening: stockAlertEvening,
+          inventory_alert_hour: inventoryAlertHour
+        })
+      });
+      setAlertHoursSaved(true);
+      setTimeout(() => setAlertHoursSaved(false), 3000);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "No fue posible guardar las horas de alerta");
+    } finally {
+      setSavingAlertHours(false);
     }
   }
 
@@ -630,6 +662,67 @@ export function ProfilePage() {
             : reportHourSaved
               ? <p className="success-text">Hora de reporte actualizada correctamente</p>
               : null}
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "1rem", marginTop: "1rem" }}>
+            <p style={{ fontWeight: 600, marginBottom: "0.75rem" }}>Alertas de stock bajo</p>
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+              <label style={{ flex: 1 }}>
+                Hora mañana
+                <select
+                  disabled={savingAlertHours}
+                  value={stockAlertMorning === null ? "" : String(stockAlertMorning)}
+                  onChange={(event) => setStockAlertMorning(event.target.value === "" ? null : Number(event.target.value))}
+                >
+                  <option value="">Sin alerta</option>
+                  <option value="6">6:00 AM</option>
+                  <option value="7">7:00 AM</option>
+                  <option value="8">8:00 AM</option>
+                  <option value="9">9:00 AM</option>
+                  <option value="10">10:00 AM</option>
+                  <option value="11">11:00 AM</option>
+                  <option value="12">12:00 PM</option>
+                </select>
+              </label>
+              <label style={{ flex: 1 }}>
+                Hora noche
+                <select
+                  disabled={savingAlertHours}
+                  value={stockAlertEvening === null ? "" : String(stockAlertEvening)}
+                  onChange={(event) => setStockAlertEvening(event.target.value === "" ? null : Number(event.target.value))}
+                >
+                  <option value="">Sin alerta</option>
+                  <option value="18">6:00 PM</option>
+                  <option value="19">7:00 PM</option>
+                  <option value="20">8:00 PM</option>
+                  <option value="21">9:00 PM</option>
+                  <option value="22">10:00 PM</option>
+                  <option value="23">11:00 PM</option>
+                </select>
+              </label>
+            </div>
+            <p style={{ fontWeight: 600, margin: "0.75rem 0" }}>Inventario estancado</p>
+            <label>
+              Hora diaria
+              <select
+                disabled={savingAlertHours}
+                value={inventoryAlertHour === null ? "" : String(inventoryAlertHour)}
+                onChange={(event) => setInventoryAlertHour(event.target.value === "" ? null : Number(event.target.value))}
+              >
+                <option value="">Sin alerta</option>
+                <option value="7">7:00 AM</option>
+                <option value="8">8:00 AM</option>
+                <option value="9">9:00 AM</option>
+                <option value="10">10:00 AM</option>
+                <option value="11">11:00 AM</option>
+                <option value="12">12:00 PM</option>
+              </select>
+            </label>
+            <div style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}>
+              <button className="button" disabled={savingAlertHours} onClick={saveAlertHours} type="button">
+                {savingAlertHours ? "Guardando..." : "Guardar alertas"}
+              </button>
+            </div>
+            {alertHoursSaved ? <p className="success-text">Alertas actualizadas correctamente</p> : null}
+          </div>
         </div>
       ) : null}
 
