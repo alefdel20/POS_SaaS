@@ -25,9 +25,9 @@ interface UseAiChatReturn {
   loadingMessages: boolean;
   error: string;
   selectSession: (id: number) => Promise<void>;
-  startNewSession: (title?: string) => Promise<void>;
+  startNewSession: (title?: string) => Promise<number | null>;
   sendMessage: (content: string) => void;
-  analyzeImage: (file: File) => void;
+  analyzeImage: (file: File) => Promise<void>;
   confirmTicketRestock: (items: RestockItem[]) => Promise<void>;
   dismissTicketModal: () => void;
   removeSession: (id: number) => Promise<void>;
@@ -51,6 +51,7 @@ export function useAiChat(): UseAiChatReturn {
   const [error, setError] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
+  const activeSessionIdRef = useRef<number | null>(null);
   const nextTempId = useRef(-1);
 
   const loadSessions = useCallback(async () => {
@@ -75,6 +76,7 @@ export function useAiChat(): UseAiChatReturn {
     async (id: number) => {
       if (!token) return;
       setActiveSessionId(id);
+      activeSessionIdRef.current = id;
       setMessages([]);
       setStreamingContent("");
       setLoadingMessages(true);
@@ -92,17 +94,20 @@ export function useAiChat(): UseAiChatReturn {
   );
 
   const startNewSession = useCallback(
-    async (title = "Nueva conversación") => {
-      if (!token) return;
+    async (title = "Nueva conversación"): Promise<number | null> => {
+      if (!token) return null;
       try {
         const session = await apiCreateSession(token, title);
         setSessions((prev) => [session, ...prev]);
         setActiveSessionId(session.id);
+        activeSessionIdRef.current = session.id;
         setActiveSession({ ...session, messages: [] });
         setMessages([]);
         setStreamingContent("");
+        return session.id;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al crear conversación.");
+        return null;
       }
     },
     [token]
@@ -181,14 +186,22 @@ export function useAiChat(): UseAiChatReturn {
   );
 
   const analyzeImage = useCallback(
-    (file: File) => {
-      if (!token || !activeSessionId || isAnalyzingImage) return;
+    async (file: File): Promise<void> => {
+      if (!token || isAnalyzingImage) return;
+
+      let sessionId = activeSessionIdRef.current;
+      if (!sessionId) {
+        const newId = await startNewSession("Análisis de ticket de proveedor");
+        if (!newId) return;
+        sessionId = newId;
+      }
+
       setIsAnalyzingImage(true);
       setError("");
 
       const userMsg: AiMessage = {
         id: nextTempId.current--,
-        session_id: activeSessionId,
+        session_id: sessionId,
         role: "user",
         content: "[Imagen de ticket adjunta]",
         tokens_used: 0,
@@ -196,29 +209,27 @@ export function useAiChat(): UseAiChatReturn {
       };
       setMessages((prev) => [...prev, userMsg]);
 
-      apiAnalyzeTicketImage(token, activeSessionId, file)
-        .then((extracted: ExtractedProduct[]) => {
-          const rows: TicketProductRow[] = extracted.map((p) => ({ ...p, product_id: null }));
-          setTicketProducts(rows);
+      try {
+        const extracted: ExtractedProduct[] = await apiAnalyzeTicketImage(token, sessionId, file);
+        const rows: TicketProductRow[] = extracted.map((p) => ({ ...p, product_id: null }));
+        setTicketProducts(rows);
 
-          const assistantMsg: AiMessage = {
-            id: nextTempId.current--,
-            session_id: activeSessionId,
-            role: "assistant",
-            content: `Se extrajeron ${rows.length} producto(s) del ticket. Revisa y confirma el restock.`,
-            tokens_used: 0,
-            created_at: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, assistantMsg]);
-        })
-        .catch((err: Error) => {
-          setError(err.message || "Error al analizar la imagen.");
-        })
-        .finally(() => {
-          setIsAnalyzingImage(false);
-        });
+        const assistantMsg: AiMessage = {
+          id: nextTempId.current--,
+          session_id: sessionId,
+          role: "assistant",
+          content: `Se extrajeron ${rows.length} producto(s) del ticket. Revisa y confirma el restock.`,
+          tokens_used: 0,
+          created_at: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Error al analizar la imagen.");
+      } finally {
+        setIsAnalyzingImage(false);
+      }
     },
-    [token, activeSessionId, isAnalyzingImage]
+    [token, isAnalyzingImage, startNewSession]
   );
 
   const confirmTicketRestock = useCallback(
@@ -245,6 +256,7 @@ export function useAiChat(): UseAiChatReturn {
         setSessions((prev) => prev.filter((s) => s.id !== id));
         if (activeSessionId === id) {
           setActiveSessionId(null);
+          activeSessionIdRef.current = null;
           setActiveSession(null);
           setMessages([]);
           setStreamingContent("");
