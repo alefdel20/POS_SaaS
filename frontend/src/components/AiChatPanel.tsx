@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { AiMessage, AiQuota, AiSession } from "../types/aiChat";
+import type { AiMessage, AiQuota, AiSession, TicketProductRow, RestockItem } from "../types/aiChat";
+import { TicketConfirmationModal } from "./TicketConfirmationModal";
 
 interface Props {
   sessions: AiSession[];
@@ -7,6 +8,8 @@ interface Props {
   messages: AiMessage[];
   streamingContent: string;
   isStreaming: boolean;
+  isAnalyzingImage: boolean;
+  ticketProducts: TicketProductRow[] | null;
   quota: AiQuota | null;
   loadingSessions: boolean;
   loadingMessages: boolean;
@@ -14,6 +17,9 @@ interface Props {
   selectSession: (id: number) => Promise<void>;
   startNewSession: (title?: string) => Promise<void>;
   sendMessage: (content: string) => void;
+  analyzeImage: (file: File) => void;
+  onConfirmTicket: (items: RestockItem[]) => Promise<void>;
+  onDismissTicket: () => void;
   removeSession: (id: number) => Promise<void>;
   clearError: () => void;
   onClose: () => void;
@@ -371,6 +377,8 @@ export function AiChatPanel({
   messages,
   streamingContent,
   isStreaming,
+  isAnalyzingImage,
+  ticketProducts,
   quota,
   loadingSessions,
   loadingMessages,
@@ -378,22 +386,58 @@ export function AiChatPanel({
   selectSession,
   startNewSession,
   sendMessage,
+  analyzeImage,
+  onConfirmTicket,
+  onDismissTicket,
   removeSession,
   clearError,
   onClose,
 }: Props) {
   const [input, setInput] = useState("");
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent]);
 
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setSelectedImage(file);
+    setImagePreviewUrl(URL.createObjectURL(file));
+    e.target.value = "";
+  }
+
+  function clearSelectedImage() {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setSelectedImage(null);
+    setImagePreviewUrl(null);
+  }
+
   function handleSend() {
+    if (isStreaming || isAnalyzingImage) return;
+
+    if (selectedImage) {
+      const file = selectedImage;
+      clearSelectedImage();
+      if (!activeSessionId) {
+        startNewSession("Análisis de ticket de proveedor").then(() => {
+          analyzeImage(file);
+        });
+      } else {
+        analyzeImage(file);
+      }
+      return;
+    }
+
     const text = input.trim();
-    if (!text || isStreaming) return;
+    if (!text) return;
     if (!activeSessionId) {
       startNewSession(text.slice(0, 60)).then(() => {
         sendMessage(text);
@@ -631,59 +675,153 @@ export function AiChatPanel({
               padding: "0.75rem 1rem",
               borderTop: "1px solid var(--border)",
               display: "flex",
-              gap: "0.6rem",
-              alignItems: "flex-end",
+              flexDirection: "column",
+              gap: "0.5rem",
               flexShrink: 0,
             }}
           >
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Escribe tu pregunta… (Enter para enviar, Shift+Enter nueva línea)"
-              disabled={isStreaming}
-              rows={1}
-              style={{
-                flex: 1,
-                resize: "none",
-                minHeight: "40px",
-                maxHeight: "120px",
-                padding: "0.55rem 0.85rem",
-                borderRadius: "12px",
-                border: "1px solid var(--border)",
-                background: "var(--field-bg)",
-                color: "var(--text)",
-                fontSize: "0.88rem",
-                lineHeight: 1.4,
-                overflow: "auto",
-                opacity: isStreaming ? 0.6 : 1,
-              }}
-            />
-            <button
-              onClick={handleSend}
-              disabled={isStreaming || !input.trim()}
-              style={{
-                padding: "0.55rem 1rem",
-                borderRadius: "12px",
-                border: "none",
-                background: isStreaming || !input.trim()
-                  ? "var(--surface-soft)"
-                  : "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 42%, #2f82ff))",
-                color: isStreaming || !input.trim() ? "var(--muted)" : "var(--accent-contrast)",
-                fontWeight: 700,
-                fontSize: "0.85rem",
-                cursor: isStreaming || !input.trim() ? "not-allowed" : "pointer",
-                whiteSpace: "nowrap",
-                transition: "background 0.2s",
-                flexShrink: 0,
-              }}
-            >
-              {isStreaming ? "..." : "Enviar"}
-            </button>
+            {/* Image preview */}
+            {imagePreviewUrl && (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <div style={{ position: "relative", display: "inline-flex" }}>
+                  <img
+                    src={imagePreviewUrl}
+                    alt="Ticket seleccionado"
+                    style={{
+                      height: "56px",
+                      width: "56px",
+                      objectFit: "cover",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border)",
+                    }}
+                  />
+                  <button
+                    onClick={clearSelectedImage}
+                    style={{
+                      position: "absolute",
+                      top: "-6px",
+                      right: "-6px",
+                      width: "18px",
+                      height: "18px",
+                      borderRadius: "50%",
+                      border: "none",
+                      background: "var(--danger, #e05260)",
+                      color: "#fff",
+                      fontSize: "0.6rem",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 0,
+                    }}
+                    title="Quitar imagen"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <span style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
+                  {selectedImage?.name}
+                </span>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "0.6rem", alignItems: "flex-end" }}>
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: "none" }}
+                onChange={handleImageSelect}
+              />
+
+              {/* Clip button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isStreaming || isAnalyzingImage}
+                title="Adjuntar imagen de ticket"
+                style={{
+                  ...smallGhostBtn,
+                  width: "40px",
+                  height: "40px",
+                  fontSize: "1rem",
+                  flexShrink: 0,
+                  opacity: isStreaming || isAnalyzingImage ? 0.4 : 1,
+                  border: selectedImage ? "1px solid rgba(var(--accent-rgb), 0.5)" : "1px solid var(--border)",
+                  background: selectedImage ? "rgba(var(--accent-rgb), 0.08)" : "var(--button-ghost-bg)",
+                }}
+              >
+                📎
+              </button>
+
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  selectedImage
+                    ? "Imagen lista — presiona Enviar para analizar el ticket"
+                    : "Escribe tu pregunta… (Enter para enviar, Shift+Enter nueva línea)"
+                }
+                disabled={isStreaming || isAnalyzingImage || !!selectedImage}
+                rows={1}
+                style={{
+                  flex: 1,
+                  resize: "none",
+                  minHeight: "40px",
+                  maxHeight: "120px",
+                  padding: "0.55rem 0.85rem",
+                  borderRadius: "12px",
+                  border: "1px solid var(--border)",
+                  background: "var(--field-bg)",
+                  color: "var(--text)",
+                  fontSize: "0.88rem",
+                  lineHeight: 1.4,
+                  overflow: "auto",
+                  opacity: isStreaming || isAnalyzingImage ? 0.6 : 1,
+                }}
+              />
+              <button
+                onClick={handleSend}
+                disabled={isStreaming || isAnalyzingImage || (!input.trim() && !selectedImage)}
+                style={{
+                  padding: "0.55rem 1rem",
+                  borderRadius: "12px",
+                  border: "none",
+                  background:
+                    isStreaming || isAnalyzingImage || (!input.trim() && !selectedImage)
+                      ? "var(--surface-soft)"
+                      : "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 42%, #2f82ff))",
+                  color:
+                    isStreaming || isAnalyzingImage || (!input.trim() && !selectedImage)
+                      ? "var(--muted)"
+                      : "var(--accent-contrast)",
+                  fontWeight: 700,
+                  fontSize: "0.85rem",
+                  cursor:
+                    isStreaming || isAnalyzingImage || (!input.trim() && !selectedImage)
+                      ? "not-allowed"
+                      : "pointer",
+                  whiteSpace: "nowrap",
+                  transition: "background 0.2s",
+                  flexShrink: 0,
+                }}
+              >
+                {isAnalyzingImage ? "Analizando..." : isStreaming ? "..." : "Enviar"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {ticketProducts && (
+        <TicketConfirmationModal
+          products={ticketProducts}
+          onConfirm={onConfirmTicket}
+          onCancel={onDismissTicket}
+        />
+      )}
     </div>
   );
 }

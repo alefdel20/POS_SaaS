@@ -276,6 +276,87 @@ const getQuota = asyncHandler(async (req, res) => {
   res.status(200).json(req.aiQuota);
 });
 
+// ─── Vision: analyze supplier ticket image ────────────────────────────────────
+
+async function analyzeTicketImage(req, res, next) {
+  if (!req.file) {
+    return res.status(400).json({ message: "Se requiere una imagen en el campo 'image'." });
+  }
+
+  const sessionId = Number(req.params.sessionId);
+  if (!Number.isInteger(sessionId) || sessionId <= 0) {
+    return res.status(400).json({ message: "ID de sesión inválido." });
+  }
+
+  const actor = req.user;
+
+  let session;
+  try {
+    session = await aiChatService.getSession(actor, sessionId);
+  } catch (err) {
+    return next(err);
+  }
+  if (!session) {
+    return res.status(404).json({ message: "Sesión no encontrada." });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  try {
+    const base64 = req.file.buffer.toString("base64");
+    const { products, input_tokens, output_tokens } = await llmService.analyzeImageWithVision(
+      base64,
+      req.file.mimetype
+    );
+
+    const totalTokens = input_tokens + output_tokens;
+
+    await aiChatService.addMessage(actor, sessionId, {
+      role: "user",
+      content: "[Imagen de ticket adjunta]",
+      tokens_used: 0
+    });
+
+    await aiChatService.saveAssistantTurn(
+      actor,
+      sessionId,
+      {
+        role: "assistant",
+        content: JSON.stringify(products),
+        model: process.env.AI_VISION_MODEL || CURRENT_MODEL,
+        input_tokens,
+        output_tokens
+      },
+      totalTokens
+    ).catch((err) => console.error("[AI Vision] saveAssistantTurn error:", err.message));
+
+    res.write(
+      "data: " +
+        JSON.stringify({
+          type: "ticket_analysis",
+          products,
+          done: true,
+          tokens: { input: input_tokens, output: output_tokens }
+        }) +
+        "\n\n"
+    );
+    res.end();
+  } catch (err) {
+    console.error("[AI Vision] analyzeTicketImage error:", err.message);
+    if (!res.headersSent) {
+      return next(err);
+    }
+    try {
+      res.write(
+        "data: " + JSON.stringify({ error: err.message || "Error al analizar la imagen." }) + "\n\n"
+      );
+      res.end();
+    } catch { /* already closed */ }
+  }
+}
+
 module.exports = {
   createSessionValidation,
   createSession,
@@ -286,5 +367,6 @@ module.exports = {
   sendMessage,
   chatQuickValidation,
   chatQuick,
-  getQuota
+  getQuota,
+  analyzeTicketImage
 };

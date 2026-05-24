@@ -21,6 +21,8 @@ export function AiChatBubble() {
           messages={chat.messages}
           streamingContent={chat.streamingContent}
           isStreaming={chat.isStreaming}
+          isAnalyzingImage={chat.isAnalyzingImage}
+          ticketProducts={chat.ticketProducts}
           quota={chat.quota}
           loadingSessions={chat.loadingSessions}
           loadingMessages={chat.loadingMessages}
@@ -28,6 +30,9 @@ export function AiChatBubble() {
           selectSession={chat.selectSession}
           startNewSession={chat.startNewSession}
           sendMessage={chat.sendMessage}
+          analyzeImage={chat.analyzeImage}
+          onConfirmTicket={chat.confirmTicketRestock}
+          onDismissTicket={chat.dismissTicketModal}
           removeSession={chat.removeSession}
           clearError={chat.clearError}
           onClose={() => setOpen(false)}

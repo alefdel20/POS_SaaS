@@ -289,4 +289,85 @@ async function chat(messages, options = {}) {
   }
 }
 
-module.exports = { streamChat, chat };
+// ─── Vision: ticket extraction ────────────────────────────────────────────────
+
+const AI_VISION_MODEL = process.env.AI_VISION_MODEL || DEEPSEEK_MODEL;
+
+const TICKET_EXTRACTION_PROMPT =
+  "Eres un asistente de inventario. Analiza este ticket de proveedor y extrae TODOS los productos. " +
+  "Responde ÚNICAMENTE con un JSON array con este formato exacto, sin texto adicional:\n" +
+  '[{ "name": "nombre del producto", "quantity": número, "unit_price": número }]\n' +
+  "Si no puedes leer algún campo, usa null. Si no hay productos visibles, devuelve [].";
+
+async function analyzeImageWithVision(base64Image, mimeType) {
+  if (PROVIDER !== "deepseek") {
+    throw new Error("El análisis de imágenes requiere AI_PROVIDER=deepseek.");
+  }
+
+  const { controller, timer } = makeAbortController();
+
+  const messages = [
+    {
+      role: "user",
+      content: [
+        {
+          type: "image_url",
+          image_url: { url: `data:${mimeType};base64,${base64Image}` }
+        },
+        { type: "text", text: TICKET_EXTRACTION_PROMPT }
+      ]
+    }
+  ];
+
+  try {
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${DEEPSEEK_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: AI_VISION_MODEL,
+        messages,
+        stream: false,
+        max_tokens: AI_MAX_TOKENS
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(`DeepSeek Vision error ${response.status}: ${errorText.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+    const rawContent = data.choices?.[0]?.message?.content || "[]";
+
+    let products;
+    try {
+      const cleaned = rawContent
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "")
+        .trim();
+      products = JSON.parse(cleaned);
+      if (!Array.isArray(products)) products = [];
+    } catch {
+      products = [];
+    }
+
+    return {
+      products,
+      input_tokens: data.usage?.prompt_tokens || 0,
+      output_tokens: data.usage?.completion_tokens || 0
+    };
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("La solicitud al modelo de visión excedió el tiempo límite.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { streamChat, chat, analyzeImageWithVision };

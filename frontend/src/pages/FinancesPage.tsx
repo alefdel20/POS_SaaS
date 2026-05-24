@@ -12,7 +12,7 @@ const emptyExpense = {
   amount: "",
   date: getMexicoCityDateInputValue(),
   notes: "",
-  payment_method: "cash" as const,
+  payment_method: "cash" as Expense["payment_method"],
   fixed_expense_id: ""
 };
 
@@ -27,8 +27,8 @@ const emptyFixedExpense = {
   name: "",
   category: "",
   default_amount: "",
-  frequency: "monthly" as const,
-  payment_method: "cash" as const,
+  frequency: "monthly" as FixedExpense["frequency"],
+  payment_method: "cash" as FixedExpense["payment_method"],
   due_day: "",
   base_date: getMexicoCityDateInputValue(),
   notes: ""

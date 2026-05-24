@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import type { DailyCut, ManualCut, User } from "../types";
 import { currency, dateLabel, shortDate } from "../utils/format";
 import { isCashierRole } from "../utils/roles";
+import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 type FilterState = {
   date: string;
@@ -58,6 +59,7 @@ function DiffCell({ diff }: { diff: number | null | undefined }) {
 
 export function DailyCutPage() {
   const { token, user } = useAuth();
+  const hasSalesReports = user?.plan_features?.sales_reports === true;
   const [today, setToday] = useState<DailyCut | null>(null);
   const [history, setHistory] = useState<DailyCut[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -286,6 +288,8 @@ export function DailyCutPage() {
   void savingManualCut;
   void setSavingManualCut;
 
+  const sortedHistory = [...history].sort((a, b) => a.cut_date.localeCompare(b.cut_date));
+
   return (
     <>
     <section className="page-grid">
@@ -354,6 +358,100 @@ export function DailyCutPage() {
             <div className="stat-card"><span className="stat-label">Margen</span><strong className="stat-value">{today ? `${Number(today.gross_margin || 0).toFixed(2)}%` : "—"}</strong></div>
           </div>
         </div>
+
+        {/* ── Gráficas de rendimiento ── */}
+        {!hasSalesReports ? (
+          <div className="info-card" style={{ textAlign: "center", padding: "2rem 1rem", marginTop: "1rem" }}>
+            <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📊</div>
+            <p style={{ fontWeight: 700, fontSize: "1rem", margin: "0 0 0.35rem" }}>Gráficas de rendimiento</p>
+            <p className="muted" style={{ margin: "0 0 1rem" }}>Disponible en planes Premium y Enterprise.</p>
+            <a href="/perfil" className="button">Actualizar plan</a>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem", marginTop: "1rem" }}>
+            {/* Donut — Distribución de ingresos */}
+            <div className="panel" style={{ flex: "1 1 260px", minWidth: 0 }}>
+              <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Distribución de ingresos hoy</h3>
+              {!today ? (
+                <p className="muted" style={{ textAlign: "center", paddingTop: "2rem", paddingBottom: "2rem" }}>Sin datos hoy</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: "Efectivo", value: today.cash_total || 0 },
+                        { name: "Tarjeta", value: today.card_total || 0 },
+                        { name: "Transferencia", value: today.transfer_total || 0 },
+                        { name: "Crédito", value: today.credit_generated || 0 },
+                      ]}
+                      cx="50%" cy="45%" innerRadius={52} outerRadius={80} dataKey="value"
+                    >
+                      {["#6366f1", "#22c55e", "#f59e0b", "#ec4899"].map((color, i) => (
+                        <Cell key={i} fill={color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v) => currency(Number(v))} />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+            {/* Right column */}
+            <div style={{ flex: "2 1 340px", minWidth: 0, display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {/* Area — Tendencia */}
+              <div className="panel" style={{ flex: 1 }}>
+                <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Tendencia de ventas (últimos 14 días)</h3>
+                {history.length === 0 ? (
+                  <p className="muted" style={{ textAlign: "center", paddingTop: "2rem", paddingBottom: "2rem" }}>Sin historial</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={sortedHistory.slice(-14)}>
+                      <defs>
+                        <linearGradient id="gradSales" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="gradProfit" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
+                      <XAxis dataKey="cut_date" tickFormatter={(l) => shortDate(String(l))} tick={{ fontSize: 11, fill: "#9ca3af" }} />
+                      <YAxis tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: "#9ca3af" }} width={42} />
+                      <Tooltip formatter={(v) => currency(Number(v))} labelFormatter={(l) => shortDate(String(l))} />
+                      <Legend />
+                      <Area type="monotone" dataKey="total_day" name="Ventas" stroke="#6366f1" fill="url(#gradSales)" strokeWidth={2} dot={false} />
+                      <Area type="monotone" dataKey="gross_profit" name="Ganancia" stroke="#22c55e" fill="url(#gradProfit)" strokeWidth={2} dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              {/* Bar — Margen */}
+              <div className="panel" style={{ flex: 1 }}>
+                <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Margen bruto por corte (%)</h3>
+                {history.length === 0 ? (
+                  <p className="muted" style={{ textAlign: "center", paddingTop: "2rem", paddingBottom: "2rem" }}>Sin historial</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={sortedHistory.slice(-10)}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
+                      <XAxis dataKey="cut_date" tickFormatter={(l) => shortDate(String(l))} tick={{ fontSize: 11, fill: "#9ca3af" }} />
+                      <YAxis unit="%" tick={{ fontSize: 11, fill: "#9ca3af" }} width={40} />
+                      <Tooltip formatter={(v) => `${Number(v).toFixed(2)}%`} labelFormatter={(l) => shortDate(String(l))} />
+                      <Bar dataKey="gross_margin" name="Margen" radius={[4, 4, 0, 0]}>
+                        {sortedHistory.slice(-10).map((entry, i) => (
+                          <Cell key={i} fill={Number(entry.gross_margin) >= 30 ? "#22c55e" : Number(entry.gross_margin) >= 15 ? "#f59e0b" : "#ef4444"} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {previousComparableCut ? (
           <div className="info-card">
             <p>Comparado con {shortDate(previousComparableCut.cut_date)}: <strong>{totalComparison && totalComparison >= 0 ? "+" : ""}{currency(totalComparison || 0)}</strong> en total del dia.</p>

@@ -29,14 +29,33 @@ export interface AiQuota {
 }
 
 export interface AiStreamChunk {
+  delta?: string;
   content?: string;
   done?: boolean;
   tokens_used?: number;
   quota?: AiQuota;
   error?: string;
+  type?: string;
+  products?: ExtractedProduct[];
 }
 
 export interface AiSessionsResponse {
   sessions?: AiSession[];
   quota?: AiQuota;
+}
+
+export interface ExtractedProduct {
+  name: string;
+  quantity: number | null;
+  unit_price: number | null;
+}
+
+export interface TicketProductRow extends ExtractedProduct {
+  product_id: number | null;
+}
+
+export interface RestockItem {
+  product_id: number;
+  stock: number;
+  reason?: string;
 }

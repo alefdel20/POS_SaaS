@@ -115,7 +115,7 @@ export function UsersPage() {
   }, [token]);
 
   useEffect(() => {
-    if (roleOptions.length && !roleOptions.includes(form.role as typeof roleOptions[number])) {
+    if (roleOptions.length && !(roleOptions as readonly string[]).includes(form.role)) {
       setForm((current) => ({ ...current, role: roleOptions[0] }));
     }
   }, [roleOptions]);

@@ -6,8 +6,10 @@ import {
   apiCreateSession,
   apiDeleteSession,
   apiStreamChat,
+  apiAnalyzeTicketImage,
+  apiConfirmTicketRestock,
 } from "../api/aiChat";
-import type { AiMessage, AiQuota, AiSession, AiSessionDetail } from "../types/aiChat";
+import type { AiMessage, AiQuota, AiSession, AiSessionDetail, ExtractedProduct, TicketProductRow, RestockItem } from "../types/aiChat";
 
 interface UseAiChatReturn {
   sessions: AiSession[];
@@ -16,6 +18,8 @@ interface UseAiChatReturn {
   messages: AiMessage[];
   streamingContent: string;
   isStreaming: boolean;
+  isAnalyzingImage: boolean;
+  ticketProducts: TicketProductRow[] | null;
   quota: AiQuota | null;
   loadingSessions: boolean;
   loadingMessages: boolean;
@@ -23,6 +27,9 @@ interface UseAiChatReturn {
   selectSession: (id: number) => Promise<void>;
   startNewSession: (title?: string) => Promise<void>;
   sendMessage: (content: string) => void;
+  analyzeImage: (file: File) => void;
+  confirmTicketRestock: (items: RestockItem[]) => Promise<void>;
+  dismissTicketModal: () => void;
   removeSession: (id: number) => Promise<void>;
   clearError: () => void;
 }
@@ -36,6 +43,8 @@ export function useAiChat(): UseAiChatReturn {
   const [messages, setMessages] = useState<AiMessage[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+  const [ticketProducts, setTicketProducts] = useState<TicketProductRow[] | null>(null);
   const [quota, setQuota] = useState<AiQuota | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -171,6 +180,63 @@ export function useAiChat(): UseAiChatReturn {
     [token, activeSessionId, isStreaming, quota]
   );
 
+  const analyzeImage = useCallback(
+    (file: File) => {
+      if (!token || !activeSessionId || isAnalyzingImage) return;
+      setIsAnalyzingImage(true);
+      setError("");
+
+      const userMsg: AiMessage = {
+        id: nextTempId.current--,
+        session_id: activeSessionId,
+        role: "user",
+        content: "[Imagen de ticket adjunta]",
+        tokens_used: 0,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+
+      apiAnalyzeTicketImage(token, activeSessionId, file)
+        .then((extracted: ExtractedProduct[]) => {
+          const rows: TicketProductRow[] = extracted.map((p) => ({ ...p, product_id: null }));
+          setTicketProducts(rows);
+
+          const assistantMsg: AiMessage = {
+            id: nextTempId.current--,
+            session_id: activeSessionId,
+            role: "assistant",
+            content: `Se extrajeron ${rows.length} producto(s) del ticket. Revisa y confirma el restock.`,
+            tokens_used: 0,
+            created_at: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+        })
+        .catch((err: Error) => {
+          setError(err.message || "Error al analizar la imagen.");
+        })
+        .finally(() => {
+          setIsAnalyzingImage(false);
+        });
+    },
+    [token, activeSessionId, isAnalyzingImage]
+  );
+
+  const confirmTicketRestock = useCallback(
+    async (items: RestockItem[]) => {
+      if (!token) return;
+      try {
+        await apiConfirmTicketRestock(token, items);
+        setTicketProducts(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Error al registrar el restock.");
+        throw err;
+      }
+    },
+    [token]
+  );
+
+  const dismissTicketModal = useCallback(() => setTicketProducts(null), []);
+
   const removeSession = useCallback(
     async (id: number) => {
       if (!token) return;
@@ -199,6 +265,8 @@ export function useAiChat(): UseAiChatReturn {
     messages,
     streamingContent,
     isStreaming,
+    isAnalyzingImage,
+    ticketProducts,
     quota,
     loadingSessions,
     loadingMessages,
@@ -206,6 +274,9 @@ export function useAiChat(): UseAiChatReturn {
     selectSession,
     startNewSession,
     sendMessage,
+    analyzeImage,
+    confirmTicketRestock,
+    dismissTicketModal,
     removeSession,
     clearError,
   };

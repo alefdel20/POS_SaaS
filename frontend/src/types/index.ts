@@ -575,6 +575,10 @@ export interface ClinicalPatientSummary {
   appointment_count: number;
   created_at: string;
   updated_at: string;
+  client_id?: number | null;
+  client_name?: string | null;
+  client_phone?: string | null;
+  client_email?: string | null;
 }
 
 export interface ClinicalConsultation {

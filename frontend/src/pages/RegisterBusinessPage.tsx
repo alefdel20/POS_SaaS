@@ -2,7 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { AnkodeLogo } from "../components/AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
-import type { BusinessType } from "../types";
+import type { BusinessType, RegisterBusinessPayload } from "../types";
 import { getDefaultRouteForRole } from "../utils/roles";
 import { POS_TYPE_OPTIONS, getPosTypeLabel } from "../utils/pos";
 import { apiRequest } from "../api/client";
@@ -18,7 +18,7 @@ const initialForm = {
   username: "",
   email: "",
   password: "",
-  role: "admin" as const,
+  role: "admin" as RegisterBusinessPayload["role"],
   business_type: "Tienda" as BusinessType,
   pos_type: "Tienda" as BusinessType
 };
