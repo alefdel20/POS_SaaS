@@ -27,7 +27,7 @@ interface UseAiChatReturn {
   selectSession: (id: number) => Promise<void>;
   startNewSession: (title?: string) => Promise<number | null>;
   sendMessage: (content: string) => void;
-  analyzeImage: (file: File) => Promise<void>;
+  analyzeImage: (file: File, userText?: string) => Promise<void>;
   confirmTicketRestock: (items: RestockItem[]) => Promise<void>;
   dismissTicketModal: () => void;
   removeSession: (id: number) => Promise<void>;
@@ -186,7 +186,7 @@ export function useAiChat(): UseAiChatReturn {
   );
 
   const analyzeImage = useCallback(
-    async (file: File): Promise<void> => {
+    async (file: File, userText?: string): Promise<void> => {
       if (!token || isAnalyzingImage) return;
 
       let sessionId = activeSessionIdRef.current;
@@ -203,14 +203,14 @@ export function useAiChat(): UseAiChatReturn {
         id: nextTempId.current--,
         session_id: sessionId,
         role: "user",
-        content: "[Imagen de ticket adjunta]",
+        content: userText ? `${userText}\n[Imagen adjunta]` : "[Imagen de ticket adjunta]",
         tokens_used: 0,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, userMsg]);
 
       try {
-        const extracted: ExtractedProduct[] = await apiAnalyzeTicketImage(token, sessionId, file);
+        const extracted: ExtractedProduct[] = await apiAnalyzeTicketImage(token, sessionId, file, userText);
         const rows: TicketProductRow[] = extracted.map((p) => ({ ...p, product_id: null }));
         setTicketProducts(rows);
 

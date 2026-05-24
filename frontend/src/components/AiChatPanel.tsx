@@ -17,7 +17,7 @@ interface Props {
   selectSession: (id: number) => Promise<void>;
   startNewSession: (title?: string) => Promise<number | null>;
   sendMessage: (content: string) => void;
-  analyzeImage: (file: File) => Promise<void>;
+  analyzeImage: (file: File, userText?: string) => Promise<void>;
   onConfirmTicket: (items: RestockItem[]) => Promise<void>;
   onDismissTicket: () => void;
   removeSession: (id: number) => Promise<void>;
@@ -435,10 +435,12 @@ export function AiChatPanel({
 
     if (selectedImages.length > 0) {
       const imagesToProcess = [...selectedImages];
+      const context = input.trim() || undefined;
       clearAllImages();
+      setInput("");
       (async () => {
         for (const { file } of imagesToProcess) {
-          await analyzeImage(file);
+          await analyzeImage(file, context);
         }
       })();
       return;
@@ -774,10 +776,10 @@ export function AiChatPanel({
                 onKeyDown={handleKeyDown}
                 placeholder={
                   selectedImages.length > 0
-                    ? `${selectedImages.length} imagen(es) lista(s) — presiona Enviar para analizar`
+                    ? `${selectedImages.length} imagen(es) lista(s) — escribe contexto o presiona Enviar`
                     : "Escribe tu pregunta… (Enter para enviar, Shift+Enter nueva línea)"
                 }
-                disabled={isStreaming || isAnalyzingImage || selectedImages.length > 0}
+                disabled={isStreaming || isAnalyzingImage}
                 rows={1}
                 style={{
                   flex: 1,

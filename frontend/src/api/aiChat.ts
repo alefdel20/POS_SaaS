@@ -30,10 +30,12 @@ export async function apiDeleteSession(token: string, sessionId: number): Promis
 export async function apiAnalyzeTicketImage(
   token: string,
   sessionId: number,
-  file: File
+  file: File,
+  userContext?: string
 ): Promise<ExtractedProduct[]> {
   const formData = new FormData();
   formData.append("image", file);
+  if (userContext) formData.append("userContext", userContext);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60000);
