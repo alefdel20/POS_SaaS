@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { AiSession, AiSessionDetail, AiQuota, AiStreamChunk, ExtractedProduct, RestockItem } from "../types/aiChat";
+import type { AiSession, AiSessionDetail, AiQuota, AiStreamChunk } from "../types/aiChat";
 
 const API_URL =
   (import.meta as any).env.VITE_API_BASE_URL ||
@@ -25,90 +25,6 @@ export async function apiCreateSession(token: string, title: string): Promise<Ai
 
 export async function apiDeleteSession(token: string, sessionId: number): Promise<void> {
   await apiRequest(`/ai-chat/sessions/${sessionId}`, { method: "DELETE", token });
-}
-
-export async function apiAnalyzeTicketImage(
-  token: string,
-  sessionId: number,
-  file: File,
-  userContext?: string
-): Promise<ExtractedProduct[]> {
-  const formData = new FormData();
-  formData.append("image", file);
-  if (userContext) formData.append("userContext", userContext);
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-  try {
-    let response: Response;
-    try {
-      response = await fetch(`${API_URL}/ai-chat/sessions/${sessionId}/analyze-image`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-        signal: controller.signal,
-      });
-    } catch (err: unknown) {
-      if ((err as any)?.name === "AbortError") {
-        throw new Error("Tiempo de espera agotado. Intenta de nuevo.");
-      }
-      throw new Error("Error de conexión con el servidor.");
-    }
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ message: "Error al analizar la imagen." }));
-      throw new Error(body.message || "Error al analizar la imagen.");
-    }
-
-    const reader = response.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      let done: boolean;
-      let value: Uint8Array | undefined;
-      try {
-        ({ done, value } = await reader.read());
-      } catch (err: unknown) {
-        if ((err as any)?.name === "AbortError") {
-          throw new Error("Tiempo de espera agotado. Intenta de nuevo.");
-        }
-        throw err;
-      }
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const raw = line.slice(6).trim();
-        try {
-          const parsed: AiStreamChunk = JSON.parse(raw);
-          if (parsed.error) throw new Error(parsed.error);
-          if (parsed.done && parsed.type === "ticket_analysis") {
-            return parsed.products ?? [];
-          }
-        } catch (e) {
-          if (e instanceof Error && e.message !== "Unexpected token") throw e;
-        }
-      }
-    }
-    return [];
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-export async function apiConfirmTicketRestock(
-  token: string,
-  items: RestockItem[]
-): Promise<void> {
-  await apiRequest("/products/restock/batch", {
-    method: "POST",
-    token,
-    body: JSON.stringify({ items }),
-  });
 }
 
 export function apiStreamChat(

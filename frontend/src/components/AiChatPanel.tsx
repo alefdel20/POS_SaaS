@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AiMessage, AiQuota, AiSession, TicketProductRow, RestockItem } from "../types/aiChat";
-import { TicketConfirmationModal } from "./TicketConfirmationModal";
+import type { AiMessage, AiQuota, AiSession } from "../types/aiChat";
 
 interface Props {
   sessions: AiSession[];
@@ -8,18 +7,13 @@ interface Props {
   messages: AiMessage[];
   streamingContent: string;
   isStreaming: boolean;
-  isAnalyzingImage: boolean;
-  ticketProducts: TicketProductRow[] | null;
   quota: AiQuota | null;
   loadingSessions: boolean;
   loadingMessages: boolean;
   error: string;
   selectSession: (id: number) => Promise<void>;
-  startNewSession: (title?: string) => Promise<number | null>;
+  startNewSession: (title?: string) => Promise<void>;
   sendMessage: (content: string) => void;
-  analyzeImage: (file: File, userText?: string) => Promise<void>;
-  onConfirmTicket: (items: RestockItem[]) => Promise<void>;
-  onDismissTicket: () => void;
   removeSession: (id: number) => Promise<void>;
   clearError: () => void;
   onClose: () => void;
@@ -377,8 +371,6 @@ export function AiChatPanel({
   messages,
   streamingContent,
   isStreaming,
-  isAnalyzingImage,
-  ticketProducts,
   quota,
   loadingSessions,
   loadingMessages,
@@ -386,65 +378,21 @@ export function AiChatPanel({
   selectSession,
   startNewSession,
   sendMessage,
-  analyzeImage,
-  onConfirmTicket,
-  onDismissTicket,
   removeSession,
   clearError,
   onClose,
 }: Props) {
   const [input, setInput] = useState("");
-  const [selectedImages, setSelectedImages] = useState<{ file: File; previewUrl: string }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent]);
 
-  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
-    if (!files.length) return;
-    setSelectedImages((prev) => {
-      const remaining = 10 - prev.length;
-      if (remaining <= 0) return prev;
-      const toAdd = files.slice(0, remaining);
-      return [...prev, ...toAdd.map((file) => ({ file, previewUrl: URL.createObjectURL(file) }))];
-    });
-  }
-
-  function clearSelectedImage(index: number) {
-    setSelectedImages((prev) => {
-      URL.revokeObjectURL(prev[index].previewUrl);
-      return prev.filter((_, i) => i !== index);
-    });
-  }
-
-  function clearAllImages() {
-    setSelectedImages((prev) => {
-      prev.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
-      return [];
-    });
-  }
-
   function handleSend() {
-    if (isStreaming || isAnalyzingImage) return;
-
-    if (selectedImages.length > 0) {
-      const imagesToProcess = [...selectedImages];
-      const context = input.trim() || undefined;
-      clearAllImages();
-      setInput("");
-      (async () => {
-        for (const { file } of imagesToProcess) {
-          await analyzeImage(file, context);
-        }
-      })();
-      return;
-    }
+    if (isStreaming) return;
 
     const text = input.trim();
     if (!text) return;
@@ -690,96 +638,14 @@ export function AiChatPanel({
               flexShrink: 0,
             }}
           >
-            {/* Image previews */}
-            {selectedImages.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
-                {selectedImages.map(({ previewUrl, file }, index) => (
-                  <div key={index} style={{ position: "relative", display: "inline-flex" }}>
-                    <img
-                      src={previewUrl}
-                      alt={`Ticket ${index + 1}`}
-                      style={{
-                        height: "56px",
-                        width: "56px",
-                        objectFit: "cover",
-                        borderRadius: "8px",
-                        border: "1px solid var(--border)",
-                      }}
-                    />
-                    <button
-                      onClick={() => clearSelectedImage(index)}
-                      style={{
-                        position: "absolute",
-                        top: "-6px",
-                        right: "-6px",
-                        width: "18px",
-                        height: "18px",
-                        borderRadius: "50%",
-                        border: "none",
-                        background: "var(--danger, #e05260)",
-                        color: "#fff",
-                        fontSize: "0.6rem",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: 0,
-                      }}
-                      title={`Quitar ${file.name}`}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-                {selectedImages.length > 1 && (
-                  <button onClick={clearAllImages} style={{ ...smallGhostBtn, fontSize: "0.72rem", width: "auto", padding: "0 0.5rem" }}>
-                    Quitar todas
-                  </button>
-                )}
-              </div>
-            )}
-
             <div style={{ display: "flex", gap: "0.6rem", alignItems: "flex-end" }}>
-              {/* Hidden file input */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                style={{ display: "none" }}
-                onChange={handleImageSelect}
-              />
-
-              {/* Clip button */}
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isStreaming || isAnalyzingImage || selectedImages.length >= 10}
-                title={selectedImages.length >= 10 ? "Máximo 10 imágenes" : "Adjuntar imagen(es) de ticket"}
-                style={{
-                  ...smallGhostBtn,
-                  width: "40px",
-                  height: "40px",
-                  fontSize: "1rem",
-                  flexShrink: 0,
-                  opacity: isStreaming || isAnalyzingImage || selectedImages.length >= 10 ? 0.4 : 1,
-                  border: selectedImages.length > 0 ? "1px solid rgba(var(--accent-rgb), 0.5)" : "1px solid var(--border)",
-                  background: selectedImages.length > 0 ? "rgba(var(--accent-rgb), 0.08)" : "var(--button-ghost-bg)",
-                }}
-              >
-                📎
-              </button>
-
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={
-                  selectedImages.length > 0
-                    ? `${selectedImages.length} imagen(es) lista(s) — escribe contexto o presiona Enviar`
-                    : "Escribe tu pregunta… (Enter para enviar, Shift+Enter nueva línea)"
-                }
-                disabled={isStreaming || isAnalyzingImage}
+                placeholder="Escribe tu pregunta… (Enter para enviar, Shift+Enter nueva línea)"
+                disabled={isStreaming}
                 rows={1}
                 style={{
                   flex: 1,
@@ -794,28 +660,28 @@ export function AiChatPanel({
                   fontSize: "0.88rem",
                   lineHeight: 1.4,
                   overflow: "auto",
-                  opacity: isStreaming || isAnalyzingImage ? 0.6 : 1,
+                  opacity: isStreaming ? 0.6 : 1,
                 }}
               />
               <button
                 onClick={handleSend}
-                disabled={isStreaming || isAnalyzingImage || (selectedImages.length === 0 && !input.trim())}
+                disabled={isStreaming || !input.trim()}
                 style={{
                   padding: "0.55rem 1rem",
                   borderRadius: "12px",
                   border: "none",
                   background:
-                    isStreaming || isAnalyzingImage || (selectedImages.length === 0 && !input.trim())
+                    isStreaming || !input.trim()
                       ? "var(--surface-soft)"
                       : "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 42%, #2f82ff))",
                   color:
-                    isStreaming || isAnalyzingImage || (selectedImages.length === 0 && !input.trim())
+                    isStreaming || !input.trim()
                       ? "var(--muted)"
                       : "var(--accent-contrast)",
                   fontWeight: 700,
                   fontSize: "0.85rem",
                   cursor:
-                    isStreaming || isAnalyzingImage || (selectedImages.length === 0 && !input.trim())
+                    isStreaming || !input.trim()
                       ? "not-allowed"
                       : "pointer",
                   whiteSpace: "nowrap",
@@ -823,20 +689,13 @@ export function AiChatPanel({
                   flexShrink: 0,
                 }}
               >
-                {isAnalyzingImage ? "Analizando..." : isStreaming ? "..." : "Enviar"}
+                {isStreaming ? "..." : "Enviar"}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {ticketProducts && (
-        <TicketConfirmationModal
-          products={ticketProducts}
-          onConfirm={onConfirmTicket}
-          onCancel={onDismissTicket}
-        />
-      )}
     </div>
   );
 }

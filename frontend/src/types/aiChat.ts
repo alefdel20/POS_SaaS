@@ -35,8 +35,6 @@ export interface AiStreamChunk {
   tokens_used?: number;
   quota?: AiQuota;
   error?: string;
-  type?: string;
-  products?: ExtractedProduct[];
 }
 
 export interface AiSessionsResponse {
