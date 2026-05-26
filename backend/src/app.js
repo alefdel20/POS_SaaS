@@ -39,6 +39,7 @@ const medicalPrescriptionRoutes = require("./routes/medicalPrescriptionRoutes");
 const medicalPreventiveEventRoutes = require("./routes/medicalPreventiveEventRoutes");
 const productUpdateRequestRoutes = require("./routes/productUpdateRequestRoutes");
 const openPayRoutes = require("./routes/openPayRoutes");
+const webServicesRoutes = require("./routes/webServices");
 const subscriptionRoutes = require("./routes/subscriptionRoutes");
 const restaurantRoutes = require("./routes/restaurantRoutes");
 const branchRoutes = require("./routes/branchRoutes");
@@ -82,6 +83,7 @@ const routes = [
   { path: "/auth", router: authRoutes, auth: false, limiter: loginLimiter },
   { path: "/automation", router: automationRoutes, auth: false },
   { path: "/openpay", router: openPayRoutes, auth: false },
+  { path: "/web-services", router: webServicesRoutes, auth: false },
   { path: "/users", router: userRoutes, auth: true },
   { path: "/products", router: productRoutes, auth: true },
   { path: "/product-update-requests", router: productUpdateRequestRoutes, auth: true },

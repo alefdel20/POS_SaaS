@@ -22,6 +22,48 @@ const { sendPaymentConfirmationEmail, sendSpeiInstructionsEmail, sendCancellatio
 const N8N_WELCOME_EMAIL_URL =
   process.env.N8N_WELCOME_EMAIL_URL || "https://chatbotsn8n.com/webhook/ankode-welcome-email";
 
+const N8N_WEB_ORDER_URL = "https://chatbotsn8n.com/webhook/ankode-web-order";
+
+// Fire-and-forget POST a n8n cuando una orden de web services es pagada.
+// Never throws — un fallo en n8n nunca debe bloquear la respuesta del webhook.
+function notifyN8nWebOrder(orderData) {
+  return new Promise((resolve) => {
+    try {
+      const body = JSON.stringify(orderData);
+      const url = new URL(N8N_WEB_ORDER_URL);
+      const options = {
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body)
+        }
+      };
+      const req = https.request(options, (res) => {
+        res.resume();
+        console.info(`[N8N] Web order webhook responded: ${res.statusCode}`);
+        resolve({ status: res.statusCode });
+      });
+      req.on("error", (err) => {
+        console.error("[N8N] Web order webhook request error:", err.message);
+        resolve(null);
+      });
+      req.setTimeout(8000, () => {
+        req.destroy();
+        console.error("[N8N] Web order webhook timed out after 8 s");
+        resolve(null);
+      });
+      req.write(body);
+      req.end();
+    } catch (setupError) {
+      console.error("[N8N] Web order webhook setup error:", setupError.message);
+      resolve(null);
+    }
+  });
+}
+
 // Fire-and-forget POST to n8n. Resolves with the HTTP status (or null on error/timeout).
 // Never throws — a failed n8n call must never block the webhook response.
 function notifyN8nWelcomeEmail(data) {
@@ -341,6 +383,39 @@ const handleWebhook = asyncHandler(async (req, res) => {
       );
       pendingOnboarding = pobRows[0] || null;
     }
+
+    // --- Web Services Orders: interceptar antes del guard de negocio no resuelto ---
+    // Un cargo de web services no tiene customer en business_subscriptions ni pending_onboardings.
+    // Si el charge_id coincide en web_service_orders, lo procesamos aquí y retornamos 200.
+    // Si no coincide, el flujo existente continúa sin cambios.
+    if (eventType === "charge.succeeded" && transaction.id) {
+      try {
+        const { rows: wsRows } = await pool.query(
+          `SELECT * FROM web_service_orders WHERE openpay_charge_id = $1 LIMIT 1`,
+          [String(transaction.id)]
+        );
+        if (wsRows[0]) {
+          const wsOrder = wsRows[0];
+          if (wsOrder.status === "pending_payment") {
+            await pool.query(
+              `UPDATE web_service_orders
+               SET status = 'paid', paid_at = NOW(), updated_at = NOW()
+               WHERE id = $1`,
+              [wsOrder.id]
+            );
+            console.info(`[OPENPAY-WEBHOOK] Web service order ${wsOrder.id} marked as paid (charge ${transaction.id})`);
+            notifyN8nWebOrder({ ...wsOrder, paid_at: new Date().toISOString() }).catch(() => {});
+          } else {
+            console.info(`[OPENPAY-WEBHOOK] Web service order ${wsOrder.id} already processed (${wsOrder.status})`);
+          }
+          return res.status(200).json({ received: true });
+        }
+      } catch (wsError) {
+        // Si la tabla no existe aún (migración pendiente), continúa sin romper el flujo del POS
+        console.error("[OPENPAY-WEBHOOK] Web service order check error:", wsError.message);
+      }
+    }
+    // --- Fin Web Services Orders ---
 
     if (!businessId && !pendingOnboarding) {
       console.warn(`[OPENPAY-WEBHOOK] Could not resolve business_id or pending onboarding for event ${eventType}`, {
