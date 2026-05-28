@@ -41,9 +41,9 @@ const novedades: Novedad[] = [
   },
   {
     id: "upd-005",
-    icon: "💳",
-    title: "Pagos con tarjeta y SPEI",
-    description: "Acepta pagos con tarjeta de crédito, débito y transferencias SPEI directamente desde la plataforma."
+    icon: "📋",
+    title: "Historial de créditos mejorado",
+    description: "Consulta el historial completo de abonos y vencimientos por cliente desde el panel de deudores."
   },
   {
     id: "upd-006",
