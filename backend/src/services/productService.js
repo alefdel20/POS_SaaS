@@ -2354,6 +2354,7 @@ async function exportProductsPdf(filters, actor) {
     doc.moveDown(0.3);
     doc.moveTo(36, doc.y).lineTo(559, doc.y).stroke("#ccc");
     doc.moveDown(0.3);
+    doc.y = doc.y + 4;
   };
 
   doc.fontSize(16).font("Helvetica-Bold").fillColor("#000").text("Catálogo de productos", { align: "center" });
@@ -2366,7 +2367,7 @@ async function exportProductsPdf(filters, actor) {
   const ROW_HEIGHT = 18;
 
   rows.forEach((product, index) => {
-    if (doc.y > 740) {
+    if (doc.y > 740 && index < rows.length - 1) {
       doc.fontSize(8).font("Helvetica").fillColor("#999")
         .text(`Página ${pageCount}`, 36, 820, { width: 523, align: "right", lineBreak: false });
       pageCount++;
