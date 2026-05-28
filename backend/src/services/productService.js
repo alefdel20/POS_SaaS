@@ -2354,8 +2354,9 @@ async function exportProductsPdf(filters, actor) {
     doc.text("Unidad",   480,  y, { lineBreak: false, width: 45 });
     doc.text("Estado",   530,  y, { lineBreak: false });
     doc.y = y + HEADER_HEIGHT;
-    doc.moveTo(36, doc.y).lineTo(559, doc.y).stroke("#ccc");
-    doc.y = doc.y + 6;
+    const lineY = doc.y;
+    doc.moveTo(36, lineY).lineTo(559, lineY).stroke("#ccc");
+    doc.y = lineY + 6;
   };
 
   doc.fontSize(16).font("Helvetica-Bold").fillColor("#000").text("Catálogo de productos", { align: "center" });
