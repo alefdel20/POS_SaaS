@@ -2373,7 +2373,7 @@ async function exportProductsPdf(filters, actor) {
     }
     const y = doc.y;
     if (index % 2 === 0) {
-      doc.rect(36, y - 2, 523, 13).fill("#f9f9f9");
+      doc.rect(36, y - 2, 523, 16).fill("#f9f9f9");
     }
     const nombre = product.name.length > 30 ? `${product.name.substring(0, 30)}…` : product.name;
     const precio = `$${Number(product.price).toLocaleString("es-MX", { minimumFractionDigits: 2 })}`;
@@ -2385,11 +2385,13 @@ async function exportProductsPdf(filters, actor) {
     doc.text(String(product.stock ?? 0), 430, y, { lineBreak: false, width: 45 });
     doc.text(String(product.unidad_de_venta || "pieza"), 480, y, { lineBreak: false, width: 45 });
     doc.text(product.is_active ? "Activo" : "Inactivo", 530, y, { lineBreak: false });
-    doc.moveDown(0.5);
+    doc.moveDown(0.8);
   });
 
-  doc.fontSize(8).font("Helvetica").fillColor("#999")
-    .text(`Página ${pageCount}`, 36, 810, { width: 523, align: "right", lineBreak: false });
+  if (doc.y < 750) {
+    doc.fontSize(8).font("Helvetica").fillColor("#999")
+      .text(`Página ${pageCount}`, 36, 810, { width: 523, align: "right", lineBreak: false });
+  }
 
   doc.end();
   await new Promise((r) => doc.on("end", r));
