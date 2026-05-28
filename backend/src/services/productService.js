@@ -2394,7 +2394,6 @@ async function exportProductsPdf(filters, actor) {
     doc.text(String(product.unidad_de_venta || "pieza"), 480, rowY, { lineBreak: false, width: 45 });
     doc.text(product.is_active ? "Activo" : "Inactivo", 530, rowY, { lineBreak: false });
 
-    doc.moveTo(36, rowY + ROW_HEIGHT - 1).lineTo(559, rowY + ROW_HEIGHT - 1).stroke("#eeeeee");
     doc.y = rowY + ROW_HEIGHT;
   });
 
