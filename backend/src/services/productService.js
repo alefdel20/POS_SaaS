@@ -2341,20 +2341,21 @@ async function exportProductsPdf(filters, actor) {
 
   let pageCount = 1;
 
+  const HEADER_HEIGHT = 20;
+
   const drawColumnHeaders = () => {
     const y = doc.y;
     doc.fontSize(9).font("Helvetica-Bold").fillColor("#000");
-    doc.text("Nombre", 36, y, { lineBreak: false, width: 180 });
-    doc.text("SKU", 220, y, { lineBreak: false, width: 65 });
-    doc.text("Categoría", 290, y, { lineBreak: false, width: 75 });
-    doc.text("Precio", 370, y, { lineBreak: false, width: 55 });
-    doc.text("Stock", 430, y, { lineBreak: false, width: 45 });
-    doc.text("Unidad", 480, y, { lineBreak: false, width: 45 });
-    doc.text("Estado", 530, y, { lineBreak: false });
-    doc.moveDown(0.3);
+    doc.text("Nombre",    36,  y, { lineBreak: false, width: 180 });
+    doc.text("SKU",      220,  y, { lineBreak: false, width: 65 });
+    doc.text("Categoría",290,  y, { lineBreak: false, width: 75 });
+    doc.text("Precio",   370,  y, { lineBreak: false, width: 55 });
+    doc.text("Stock",    430,  y, { lineBreak: false, width: 45 });
+    doc.text("Unidad",   480,  y, { lineBreak: false, width: 45 });
+    doc.text("Estado",   530,  y, { lineBreak: false });
+    doc.y = y + HEADER_HEIGHT;
     doc.moveTo(36, doc.y).lineTo(559, doc.y).stroke("#ccc");
-    doc.moveDown(0.3);
-    doc.y = doc.y + 4;
+    doc.y = doc.y + 6;
   };
 
   doc.fontSize(16).font("Helvetica-Bold").fillColor("#000").text("Catálogo de productos", { align: "center" });
