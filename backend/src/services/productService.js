@@ -2370,8 +2370,9 @@ async function exportProductsPdf(filters, actor) {
 
   rows.forEach((product, index) => {
     if (doc.y > 740 && index < rows.length - 1) {
+      const footerY1 = doc.page.height - doc.page.margins.bottom - 10;
       doc.fontSize(8).font("Helvetica").fillColor("#999")
-        .text(`Página ${pageCount}`, 36, 820, { width: 523, align: "right", lineBreak: false });
+        .text(`Página ${pageCount}`, 36, footerY1, { width: 523, align: "right", lineBreak: false });
       pageCount++;
       doc.addPage();
       drawColumnHeaders();
@@ -2398,10 +2399,9 @@ async function exportProductsPdf(filters, actor) {
     doc.y = rowY + ROW_HEIGHT;
   });
 
-  if (doc.y < 740) {
-    doc.fontSize(8).font("Helvetica").fillColor("#999")
-      .text(`Página ${pageCount}`, 36, 820, { width: 523, align: "right", lineBreak: false });
-  }
+  const footerY2 = doc.page.height - doc.page.margins.bottom - 10;
+  doc.fontSize(8).font("Helvetica").fillColor("#999")
+    .text(`Página ${pageCount}`, 36, footerY2, { width: 523, align: "right", lineBreak: false });
 
   doc.end();
   await new Promise((r) => doc.on("end", r));
