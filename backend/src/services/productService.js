@@ -2363,34 +2363,42 @@ async function exportProductsPdf(filters, actor) {
   doc.moveDown(0.5);
   drawColumnHeaders();
 
+  const ROW_HEIGHT = 18;
+
   rows.forEach((product, index) => {
-    if (doc.y > 750) {
+    if (doc.y > 740) {
       doc.fontSize(8).font("Helvetica").fillColor("#999")
-        .text(`Página ${pageCount}`, 36, 810, { width: 523, align: "right", lineBreak: false });
+        .text(`Página ${pageCount}`, 36, 820, { width: 523, align: "right", lineBreak: false });
       pageCount++;
       doc.addPage();
       drawColumnHeaders();
     }
-    const y = doc.y;
+
+    const rowY = doc.y;
+
     if (index % 2 === 0) {
-      doc.rect(36, y - 2, 523, 16).fill("#f9f9f9");
+      doc.rect(36, rowY - 1, 523, ROW_HEIGHT).fill("#f9f9f9");
     }
+
     const nombre = product.name.length > 30 ? `${product.name.substring(0, 30)}…` : product.name;
     const precio = `$${Number(product.price).toLocaleString("es-MX", { minimumFractionDigits: 2 })}`;
+
     doc.fontSize(8).font("Helvetica").fillColor("#000");
-    doc.text(nombre, 36, y, { lineBreak: false, width: 180 });
-    doc.text(String(product.sku || ""), 220, y, { lineBreak: false, width: 65 });
-    doc.text(String(product.category || ""), 290, y, { lineBreak: false, width: 75 });
-    doc.text(precio, 370, y, { lineBreak: false, width: 55 });
-    doc.text(String(product.stock ?? 0), 430, y, { lineBreak: false, width: 45 });
-    doc.text(String(product.unidad_de_venta || "pieza"), 480, y, { lineBreak: false, width: 45 });
-    doc.text(product.is_active ? "Activo" : "Inactivo", 530, y, { lineBreak: false });
-    doc.moveDown(0.8);
+    doc.text(nombre,                              36,  rowY, { lineBreak: false, width: 180 });
+    doc.text(String(product.sku || ""),          220,  rowY, { lineBreak: false, width: 65 });
+    doc.text(String(product.category || ""),     290,  rowY, { lineBreak: false, width: 75 });
+    doc.text(precio,                             370,  rowY, { lineBreak: false, width: 55 });
+    doc.text(String(product.stock ?? 0),         430,  rowY, { lineBreak: false, width: 45 });
+    doc.text(String(product.unidad_de_venta || "pieza"), 480, rowY, { lineBreak: false, width: 45 });
+    doc.text(product.is_active ? "Activo" : "Inactivo", 530, rowY, { lineBreak: false });
+
+    doc.moveTo(36, rowY + ROW_HEIGHT - 1).lineTo(559, rowY + ROW_HEIGHT - 1).stroke("#eeeeee");
+    doc.y = rowY + ROW_HEIGHT;
   });
 
-  if (doc.y < 750) {
+  if (doc.y < 740) {
     doc.fontSize(8).font("Helvetica").fillColor("#999")
-      .text(`Página ${pageCount}`, 36, 810, { width: 523, align: "right", lineBreak: false });
+      .text(`Página ${pageCount}`, 36, 820, { width: 523, align: "right", lineBreak: false });
   }
 
   doc.end();
