@@ -233,5 +233,6 @@ async function seedInitialCatalogsForExistingBusinesses() {
 }
 
 module.exports = {
+  seedInitialCatalogForBusiness,
   seedInitialCatalogsForExistingBusinesses
 };

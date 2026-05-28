@@ -11,6 +11,7 @@ const {
   registerBusinessSubscriptionPayment
 } = require("./businessSubscriptionService");
 const { loadStampsForBusiness, listStampMovementsForBusiness } = require("./stampService");
+const { seedInitialCatalogForBusiness } = require("./initialCatalogSeedService");
 
 function slugify(value) {
   return String(value || "")
@@ -199,6 +200,9 @@ async function createBusiness(payload, actor) {
       ) VALUES ($1, $2, $3, $4, 'soporte', $5, $6, TRUE, TRUE, NOW())`,
       [`soporte_${business.slug}`, `soporte+${business.slug}@ankode.local`, `Soporte ${business.name}`, crypto.randomBytes(16).toString("hex"), business.pos_type, business.id]
     );
+    await seedInitialCatalogForBusiness(client, business).catch((seedError) => {
+      console.error("[INITIAL-CATALOG-SEED] Failed to seed new business", business.id, seedError);
+    });
     await client.query("COMMIT");
     return {
       ...business,

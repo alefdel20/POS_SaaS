@@ -2285,6 +2285,119 @@ async function applyBulkDiscount(productIds, payload, actor) {
   return rows.map(mapProductRow);
 }
 
+async function exportProductsExcel(filters, actor) {
+  const allRows = await listProducts(filters.search || "", {
+    category: filters.category,
+    activeOnly: Boolean(filters.activeOnly),
+    page: null
+  }, actor);
+  const rows = Array.isArray(filters.ids) && filters.ids.length > 0
+    ? allRows.filter((r) => filters.ids.includes(r.id))
+    : allRows;
+
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Productos");
+  worksheet.columns = [
+    { header: "Nombre", key: "name", width: 32 },
+    { header: "SKU", key: "sku", width: 16 },
+    { header: "Categoría", key: "category", width: 20 },
+    { header: "Precio público", key: "price", width: 16 },
+    { header: "Stock", key: "stock", width: 10 },
+    { header: "Unidad", key: "unidad_de_venta", width: 14 },
+    { header: "Estado", key: "status_label", width: 12 }
+  ];
+  rows.forEach((product) => {
+    worksheet.addRow({
+      name: product.name,
+      sku: product.sku,
+      category: product.category || "",
+      price: Number(product.price),
+      stock: product.stock,
+      unidad_de_venta: product.unidad_de_venta || "pieza",
+      status_label: product.is_active ? "Activo" : "Inactivo"
+    });
+  });
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+  const buffer = await workbook.xlsx.writeBuffer();
+  const today = new Date().toISOString().slice(0, 10);
+  return { buffer, filename: `productos-${today}.xlsx` };
+}
+
+async function exportProductsPdf(filters, actor) {
+  const PDFDocument = require("pdfkit");
+  const allRows = await listProducts(filters.search || "", {
+    category: filters.category,
+    activeOnly: Boolean(filters.activeOnly),
+    page: null
+  }, actor);
+  const rows = Array.isArray(filters.ids) && filters.ids.length > 0
+    ? allRows.filter((r) => filters.ids.includes(r.id))
+    : allRows;
+
+  const doc = new PDFDocument({ margin: 36, size: "A4" });
+  const chunks = [];
+  doc.on("data", (c) => chunks.push(c));
+
+  let pageCount = 1;
+
+  const drawColumnHeaders = () => {
+    const y = doc.y;
+    doc.fontSize(9).font("Helvetica-Bold").fillColor("#000");
+    doc.text("Nombre", 36, y, { lineBreak: false, width: 180 });
+    doc.text("SKU", 220, y, { lineBreak: false, width: 65 });
+    doc.text("Categoría", 290, y, { lineBreak: false, width: 75 });
+    doc.text("Precio", 370, y, { lineBreak: false, width: 55 });
+    doc.text("Stock", 430, y, { lineBreak: false, width: 45 });
+    doc.text("Unidad", 480, y, { lineBreak: false, width: 45 });
+    doc.text("Estado", 530, y, { lineBreak: false });
+    doc.moveDown(0.3);
+    doc.moveTo(36, doc.y).lineTo(559, doc.y).stroke("#ccc");
+    doc.moveDown(0.3);
+  };
+
+  doc.fontSize(16).font("Helvetica-Bold").fillColor("#000").text("Catálogo de productos", { align: "center" });
+  doc.fontSize(10).font("Helvetica").fillColor("#666").text(`Generado: ${new Date().toLocaleDateString("es-MX")} — ${rows.length} productos`, { align: "center" });
+  doc.moveDown(0.5);
+  doc.moveTo(36, doc.y).lineTo(559, doc.y).stroke("#ccc");
+  doc.moveDown(0.5);
+  drawColumnHeaders();
+
+  rows.forEach((product, index) => {
+    if (doc.y > 750) {
+      doc.fontSize(8).font("Helvetica").fillColor("#999")
+        .text(`Página ${pageCount}`, 36, 810, { width: 523, align: "right", lineBreak: false });
+      pageCount++;
+      doc.addPage();
+      drawColumnHeaders();
+    }
+    const y = doc.y;
+    if (index % 2 === 0) {
+      doc.rect(36, y - 2, 523, 13).fill("#f9f9f9");
+    }
+    const nombre = product.name.length > 30 ? `${product.name.substring(0, 30)}…` : product.name;
+    const precio = `$${Number(product.price).toLocaleString("es-MX", { minimumFractionDigits: 2 })}`;
+    doc.fontSize(8).font("Helvetica").fillColor("#000");
+    doc.text(nombre, 36, y, { lineBreak: false, width: 180 });
+    doc.text(String(product.sku || ""), 220, y, { lineBreak: false, width: 65 });
+    doc.text(String(product.category || ""), 290, y, { lineBreak: false, width: 75 });
+    doc.text(precio, 370, y, { lineBreak: false, width: 55 });
+    doc.text(String(product.stock ?? 0), 430, y, { lineBreak: false, width: 45 });
+    doc.text(String(product.unidad_de_venta || "pieza"), 480, y, { lineBreak: false, width: 45 });
+    doc.text(product.is_active ? "Activo" : "Inactivo", 530, y, { lineBreak: false });
+    doc.moveDown(0.5);
+  });
+
+  doc.fontSize(8).font("Helvetica").fillColor("#999")
+    .text(`Página ${pageCount}`, 36, 810, { width: 523, align: "right", lineBreak: false });
+
+  doc.end();
+  await new Promise((r) => doc.on("end", r));
+  const buffer = Buffer.concat(chunks);
+  const today = new Date().toISOString().slice(0, 10);
+  return { buffer, filename: `productos-${today}.pdf` };
+}
+
 module.exports = {
   listProducts,
   getProductDetail,
@@ -2303,5 +2416,7 @@ module.exports = {
   removeProductImage,
   updateProductStatus,
   deleteProduct,
-  applyBulkDiscount
+  applyBulkDiscount,
+  exportProductsExcel,
+  exportProductsPdf
 };

@@ -1,6 +1,6 @@
 import { type KeyboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { apiRequest } from "../api/client";
+import { apiRequest, apiDownload } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type {
   PaginatedProductsResponse,
@@ -465,6 +465,7 @@ export function ProductsPage() {
   const [restockStockFilter, setRestockStockFilter] = useState<"all" | "low" | "normal">("all");
   const [recentlySaved, setRecentlySaved] = useState<Set<number>>(new Set());
   const [showImportModal, setShowImportModal] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<ProductImportPreviewResponse | null>(null);
   const [importLoading, setImportLoading] = useState(false);
@@ -1179,6 +1180,7 @@ export function ProductsPage() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       setPage(1);
+      setSelectedProductIds([]);
       loadProducts(search, 1, pageSize, categoryFilter).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible buscar productos");
       });
@@ -1714,12 +1716,16 @@ export function ProductsPage() {
     setError("");
   }
 
-  async function printBarcodeLabel() {
-    if (!editingId || !form.barcode || !token) {
+  async function printBarcodeLabel(productId?: number, productName?: string, productBarcode?: string) {
+    const resolvedId = productId ?? editingId;
+    const resolvedName = productName ?? form.name;
+    const resolvedBarcode = productBarcode ?? form.barcode;
+
+    if (!resolvedId || !resolvedBarcode || !token) {
       return;
     }
 
-    const response = await fetch(`${apiBaseUrl}/products/${editingId}/barcode.svg`, {
+    const response = await fetch(`${apiBaseUrl}/products/${resolvedId}/barcode.svg`, {
       headers: {
         Authorization: `Bearer ${token}`
       }
@@ -1736,28 +1742,75 @@ export function ProductsPage() {
       return;
     }
 
+    const esc = (v: string) =>
+      v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const escapedName = esc(resolvedName);
+    const escapedBarcode = esc(resolvedBarcode);
+    const escapedBusiness = esc(user?.business_name || "");
+
     printWindow.document.write(`
       <html>
         <head>
-          <title>Código ${form.barcode}</title>
+          <meta charset="utf-8" />
+          <title>Etiqueta ${escapedBarcode}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 24px; text-align: center; }
-            h1 { font-size: 18px; margin-bottom: 12px; }
-            img { max-width: 100%; height: auto; }
-            p { margin: 6px 0 0; font-size: 14px; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { background: #f5f5f5; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: Arial, sans-serif; }
+            .label { width: 62mm; height: 38mm; background: #fff; border: 1px solid #ccc; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 2mm 3mm 1.5mm; position: relative; overflow: hidden; }
+            .business { position: absolute; top: 1.5mm; right: 2mm; font-size: 8px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38mm; text-align: right; }
+            .product-name { font-size: 11px; font-weight: bold; text-align: center; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; width: 100%; margin-top: 3.5mm; }
+            .barcode-img { width: 90%; height: auto; display: block; }
+            .barcode-num { font-family: "Courier New", monospace; font-size: 10px; text-align: center; letter-spacing: 1px; }
+            .no-print { margin-top: 14px; padding: 5px 20px; font-size: 13px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+            @media print {
+              body { background: white; display: block; min-height: unset; }
+              .label { border: none; width: 62mm; height: 38mm; }
+              .no-print { display: none; }
+              @page { size: 62mm 38mm; margin: 0; }
+            }
           </style>
         </head>
         <body>
-          <h1>${form.name}</h1>
-          <img alt="${form.barcode}" src="${svgUrl}" />
-          <p>${form.barcode}</p>
+          <div class="label">
+            <span class="business">${escapedBusiness}</span>
+            <p class="product-name">${escapedName}</p>
+            <img class="barcode-img" alt="${escapedBarcode}" src="${svgUrl}" />
+            <p class="barcode-num">${escapedBarcode}</p>
+          </div>
+          <button class="no-print" onclick="window.close()">Cerrar</button>
         </body>
       </html>
     `);
     printWindow.document.close();
     printWindow.focus();
-    printWindow.print();
-    setTimeout(() => window.URL.revokeObjectURL(svgUrl), 1000);
+    setTimeout(() => {
+      printWindow.print();
+      setTimeout(() => window.URL.revokeObjectURL(svgUrl), 1000);
+    }, 300);
+  }
+
+  async function exportProducts(format: "excel" | "pdf") {
+    if (!token) return;
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (categoryFilter) params.set("category", categoryFilter);
+      if (statusFilter === "activo") params.set("activeOnly", "true");
+      if (selectedProductIds.length > 0) params.set("ids", selectedProductIds.join(","));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const blob = await apiDownload(`/products/export/${format}${qs}`, { token });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const date = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `productos-${date}.${format === "excel" ? "xlsx" : "pdf"}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "No fue posible exportar productos");
+    }
   }
 
   async function toggleProductStatus(product: Product) {
@@ -2277,6 +2330,8 @@ export function ProductsPage() {
           <div className="inline-actions">
             {!isCashier ? <button className="button" onClick={resetProductEditor} type="button">Nuevo registro</button> : null}
             {!isCashier ? <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button> : null}
+            {!isCashier ? <button className="button ghost" onClick={() => exportProducts("excel").catch(() => {})} type="button">Exportar Excel{selectedProductIds.length > 0 ? ` (${selectedProductIds.length})` : ""}</button> : null}
+            {!isCashier ? <button className="button ghost" onClick={() => exportProducts("pdf").catch(() => {})} type="button">Exportar PDF{selectedProductIds.length > 0 ? ` (${selectedProductIds.length})` : ""}</button> : null}
             <input
               className="search-input"
               placeholder="Buscar por nombre, SKU, categoría o proveedor"
@@ -2323,6 +2378,14 @@ export function ProductsPage() {
           <table>
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={displayProducts.length > 0 && displayProducts.every((p) => selectedProductIds.includes(p.id))}
+                    onChange={(e) => setSelectedProductIds(e.target.checked ? displayProducts.map((p) => p.id) : [])}
+                    title="Seleccionar todos"
+                  />
+                </th>
                 <th>Nombre</th>
                 <th>Proveedores</th>
                 <th>SKU</th>
@@ -2337,6 +2400,13 @@ export function ProductsPage() {
             <tbody>
               {displayProducts.map((product) => (
                 <tr key={product.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedProductIds.includes(product.id)}
+                      onChange={(e) => setSelectedProductIds(e.target.checked ? [...selectedProductIds, product.id] : selectedProductIds.filter((id) => id !== product.id))}
+                    />
+                  </td>
                   <td>
                     <div className="product-name-cell">
                       {product.image_path ? (
@@ -2378,6 +2448,15 @@ export function ProductsPage() {
                   <td>
                     <div className="inline-actions">
                       <button className="button ghost" onClick={() => handleEdit(product)} type="button">Editar</button>
+                      {product.barcode ? (
+                        <button
+                          className="button ghost"
+                          onClick={() => printBarcodeLabel(product.id, product.name, product.barcode).catch((printError) => setError(printError instanceof Error ? printError.message : "No fue posible imprimir el código de barras"))}
+                          type="button"
+                        >
+                          Código
+                        </button>
+                      ) : null}
                       {!isCashier ? <button className="button ghost danger" onClick={() => deleteProduct(product)} type="button">Eliminar</button> : null}
                       {!isCashier ? (
                         <button

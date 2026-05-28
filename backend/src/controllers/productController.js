@@ -262,6 +262,32 @@ const applyBulkDiscount = asyncHandler(async (req, res) => {
   res.json(await productService.applyBulkDiscount(req.body.product_ids, req.body, req.user));
 });
 
+const exportProductsExcel = asyncHandler(async (req, res) => {
+  const filters = {
+    search: req.query.search || undefined,
+    category: req.query.category || undefined,
+    activeOnly: req.query.activeOnly === "true" ? true : undefined,
+    ids: req.query.ids ? req.query.ids.split(",").map(Number).filter(Boolean) : undefined
+  };
+  const { buffer, filename } = await productService.exportProductsExcel(filters, req.user);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(Buffer.from(buffer));
+});
+
+const exportProductsPdf = asyncHandler(async (req, res) => {
+  const filters = {
+    search: req.query.search || undefined,
+    category: req.query.category || undefined,
+    activeOnly: req.query.activeOnly === "true" ? true : undefined,
+    ids: req.query.ids ? req.query.ids.split(",").map(Number).filter(Boolean) : undefined
+  };
+  const { buffer, filename } = await productService.exportProductsPdf(filters, req.user);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(buffer);
+});
+
 module.exports = {
   listValidation,
   categoryListValidation,
@@ -295,5 +321,7 @@ module.exports = {
   removeProductImage,
   updateProductStatus,
   deleteProduct,
-  applyBulkDiscount
+  applyBulkDiscount,
+  exportProductsExcel,
+  exportProductsPdf
 };
