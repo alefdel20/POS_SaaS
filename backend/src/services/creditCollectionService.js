@@ -708,11 +708,17 @@ async function exportDebtorsPdf(actor, filters = {}) {
   const totalVenta = rows.reduce((sum, r) => sum + Number(r.total), 0);
   const totalAbonado = rows.reduce((sum, r) => sum + Number(r.total_paid), 0);
   doc.fontSize(9).font("Helvetica-Bold").fillColor("#000");
-  doc.text(`Total cartera: ${fmt(totalVenta)}   Cobrado: ${fmt(totalAbonado)}   Saldo pendiente: ${fmt(totalBalance)}`, { align: "right" });
+  doc.text(
+    `Total cartera: ${fmt(totalVenta)}   Cobrado: ${fmt(totalAbonado)}   Saldo pendiente: ${fmt(totalBalance)}`,
+    36, doc.y, { width: 523, align: "right", lineBreak: false }
+  );
+  doc.y = doc.y + 16;
 
   const footerY2 = doc.page.height - doc.page.margins.bottom - 10;
-  doc.fontSize(8).font("Helvetica").fillColor("#999")
-    .text(`Página ${pageCount}`, 36, footerY2, { width: 523, align: "right", lineBreak: false });
+  if (doc.y < footerY2) {
+    doc.fontSize(8).font("Helvetica").fillColor("#999")
+      .text(`Página ${pageCount}`, 36, footerY2, { width: 523, align: "right", lineBreak: false });
+  }
 
   doc.end();
   await new Promise((r) => doc.on("end", r));
