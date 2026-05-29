@@ -45,6 +45,7 @@ const restaurantRoutes = require("./routes/restaurantRoutes");
 const branchRoutes = require("./routes/branchRoutes");
 const tutorialRoutes = require("./routes/tutorialRoutes");
 const aiChatRoutes = require("./routes/aiChatRoutes");
+const grossProfitRoutes = require("./routes/grossProfitRoutes");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -113,7 +114,8 @@ const routes = [
   { path: "/branches", router: branchRoutes, auth: true },
   { path: "/subscription", router: subscriptionRoutes, auth: true },
   { path: "/users", router: tutorialRoutes, auth: true },
-  { path: "/ai-chat", router: aiChatRoutes, auth: true }
+  { path: "/ai-chat", router: aiChatRoutes, auth: true },
+  { path: "/reports/gross-profit", router: grossProfitRoutes, auth: true }
 ];
 
 routes.forEach((route) => {
