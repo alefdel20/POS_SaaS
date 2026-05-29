@@ -37,7 +37,8 @@
       "Bash(grep *)",
       "Bash(sed 's/ .*//')",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\src\" -Directory)",
-      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\" -Recurse -Directory)"
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\" -Recurse -Directory)",
+      "Bash(Get-ChildItem *)"
     ]
   }
 }

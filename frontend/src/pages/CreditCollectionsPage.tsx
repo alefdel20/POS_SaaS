@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { apiRequest } from "../api/client";
+import { apiRequest, apiDownload } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { CatalogClient, CreditPayment, CreditSaleSummary, Debtor } from "../types";
 import { currency, normalizeDateInput, shortDate } from "../utils/format";
@@ -420,6 +420,28 @@ export function CreditCollectionsPage() {
     }
   }
 
+  async function exportDebtors(format: "excel" | "pdf") {
+    if (!token) return;
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const blob = await apiDownload(`/credit-collections/export/${format}${qs}`, { token });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const today = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `cartera-vencida-${today}.${format === "excel" ? "xlsx" : "pdf"}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al exportar cartera");
+    }
+  }
+
   const totalPending = debtorGroups.reduce((sum, group) => sum + group.total_balance_due, 0);
   const overdueCount = debtorGroups.filter((group) => group.has_overdue).length;
   const liquidarCambio = Math.max(Number(liquidarMontoRecibido || 0) - liquidarSaldoTotal, 0);
@@ -478,6 +500,22 @@ export function CreditCollectionsPage() {
             <option value="pending">Pendientes</option>
             <option value="overdue">Vencidos</option>
           </select>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => exportDebtors("excel")}
+            title="Exportar cartera a Excel"
+          >
+            Exportar Excel
+          </button>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => exportDebtors("pdf")}
+            title="Exportar cartera a PDF"
+          >
+            Exportar PDF
+          </button>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
         <div className="table-wrap">

@@ -574,6 +574,153 @@ async function settleGroup(saleIds, actor) {
   }
 }
 
+async function exportDebtorsExcel(actor, filters = {}) {
+  const rows = await listDebtors(actor, filters);
+
+  const ExcelJS = require("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Cartera vencida");
+
+  worksheet.columns = [
+    { header: "# Venta", key: "sale_id", width: 10 },
+    { header: "Fecha", key: "sale_date", width: 14 },
+    { header: "Cliente", key: "person", width: 28 },
+    { header: "Teléfono", key: "phone", width: 16 },
+    { header: "Total venta", key: "total", width: 14 },
+    { header: "Abonado", key: "total_paid", width: 14 },
+    { header: "Saldo pendiente", key: "balance_due", width: 16 },
+    { header: "Días vencido", key: "days_overdue", width: 14 },
+    { header: "Estado", key: "status_label", width: 12 }
+  ];
+
+  const statusMap = { settled: "Liquidado", overdue: "Vencido", pending: "Pendiente" };
+
+  rows.forEach((row) => {
+    worksheet.addRow({
+      sale_id: row.sale_id,
+      sale_date: row.sale_date,
+      person: row.person || "",
+      phone: row.phone || "",
+      total: Number(row.total),
+      total_paid: Number(row.total_paid),
+      balance_due: Number(row.balance_due),
+      days_overdue: Number(row.days_overdue),
+      status_label: statusMap[row.status] || row.status
+    });
+  });
+
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+
+  const totalBalance = rows.reduce((sum, r) => sum + Number(r.balance_due), 0);
+  const summaryRow = worksheet.addRow({
+    sale_id: "",
+    sale_date: "",
+    person: "TOTAL",
+    phone: "",
+    total: rows.reduce((sum, r) => sum + Number(r.total), 0),
+    total_paid: rows.reduce((sum, r) => sum + Number(r.total_paid), 0),
+    balance_due: totalBalance,
+    days_overdue: "",
+    status_label: `${rows.length} registros`
+  });
+  summaryRow.font = { bold: true };
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const today = new Date().toISOString().slice(0, 10);
+  return { buffer, filename: `cartera-vencida-${today}.xlsx` };
+}
+
+async function exportDebtorsPdf(actor, filters = {}) {
+  const rows = await listDebtors(actor, filters);
+  const PDFDocument = require("pdfkit");
+
+  const doc = new PDFDocument({ margin: 36, size: "A4" });
+  const chunks = [];
+  doc.on("data", (c) => chunks.push(c));
+
+  let pageCount = 1;
+  const HEADER_HEIGHT = 20;
+  const ROW_HEIGHT = 18;
+
+  const drawColumnHeaders = () => {
+    const y = doc.y;
+    doc.fontSize(8).font("Helvetica-Bold").fillColor("#000");
+    doc.text("#",            36,  y, { lineBreak: false, width: 30 });
+    doc.text("Fecha",        70,  y, { lineBreak: false, width: 60 });
+    doc.text("Cliente",     134,  y, { lineBreak: false, width: 140 });
+    doc.text("Total",       278,  y, { lineBreak: false, width: 65 });
+    doc.text("Abonado",     347,  y, { lineBreak: false, width: 65 });
+    doc.text("Saldo",       416,  y, { lineBreak: false, width: 65 });
+    doc.text("Días",        485,  y, { lineBreak: false, width: 35 });
+    doc.text("Estado",      524,  y, { lineBreak: false });
+    doc.y = y + HEADER_HEIGHT;
+    const lineY = doc.y;
+    doc.moveTo(36, lineY).lineTo(559, lineY).stroke("#ccc");
+    doc.y = lineY + 6;
+  };
+
+  const fmt = (n) => `$${Number(n).toLocaleString("es-MX", { minimumFractionDigits: 2 })}`;
+  const statusMap = { settled: "Liquidado", overdue: "Vencido", pending: "Pendiente" };
+
+  doc.fontSize(16).font("Helvetica-Bold").fillColor("#000").text("Cartera vencida", { align: "center" });
+  doc.fontSize(10).font("Helvetica").fillColor("#666").text(
+    `Generado: ${new Date().toLocaleDateString("es-MX")} — ${rows.length} registros`,
+    { align: "center" }
+  );
+  doc.moveDown(0.5);
+  doc.moveTo(36, doc.y).lineTo(559, doc.y).stroke("#ccc");
+  doc.moveDown(0.5);
+  drawColumnHeaders();
+
+  rows.forEach((row, index) => {
+    if (doc.y > 740 && index < rows.length - 1) {
+      const footerY = doc.page.height - doc.page.margins.bottom - 10;
+      doc.fontSize(8).font("Helvetica").fillColor("#999")
+        .text(`Página ${pageCount}`, 36, footerY, { width: 523, align: "right", lineBreak: false });
+      pageCount++;
+      doc.addPage();
+      drawColumnHeaders();
+    }
+
+    const rowY = doc.y;
+    if (index % 2 === 0) {
+      doc.rect(36, rowY - 1, 523, ROW_HEIGHT).fill("#f9f9f9");
+    }
+
+    const statusColor = row.status === "overdue" ? "#ef4444" : row.status === "pending" ? "#f59e0b" : "#22c55e";
+    const nombre = (row.person || "—").length > 22 ? (row.person || "—").substring(0, 22) + "…" : (row.person || "—");
+
+    doc.fontSize(8).font("Helvetica").fillColor("#000");
+    doc.text(String(row.sale_id),           36,  rowY, { lineBreak: false, width: 30 });
+    doc.text(String(row.sale_date || ""),   70,  rowY, { lineBreak: false, width: 60 });
+    doc.text(nombre,                       134,  rowY, { lineBreak: false, width: 140 });
+    doc.text(fmt(row.total),               278,  rowY, { lineBreak: false, width: 65 });
+    doc.text(fmt(row.total_paid),          347,  rowY, { lineBreak: false, width: 65 });
+    doc.text(fmt(row.balance_due),         416,  rowY, { lineBreak: false, width: 65 });
+    doc.text(String(row.days_overdue || 0), 485, rowY, { lineBreak: false, width: 35 });
+    doc.fillColor(statusColor).text(statusMap[row.status] || row.status, 524, rowY, { lineBreak: false });
+    doc.y = rowY + ROW_HEIGHT;
+  });
+
+  doc.moveDown(0.5);
+  const totalBalance = rows.reduce((sum, r) => sum + Number(r.balance_due), 0);
+  const totalVenta = rows.reduce((sum, r) => sum + Number(r.total), 0);
+  const totalAbonado = rows.reduce((sum, r) => sum + Number(r.total_paid), 0);
+  doc.fontSize(9).font("Helvetica-Bold").fillColor("#000");
+  doc.text(`Total cartera: ${fmt(totalVenta)}   Cobrado: ${fmt(totalAbonado)}   Saldo pendiente: ${fmt(totalBalance)}`, { align: "right" });
+
+  const footerY2 = doc.page.height - doc.page.margins.bottom - 10;
+  doc.fontSize(8).font("Helvetica").fillColor("#999")
+    .text(`Página ${pageCount}`, 36, footerY2, { width: 523, align: "right", lineBreak: false });
+
+  doc.end();
+  await new Promise((r) => doc.on("end", r));
+  const buffer = Buffer.concat(chunks);
+  const today = new Date().toISOString().slice(0, 10);
+  return { buffer, filename: `cartera-vencida-${today}.pdf` };
+}
+
 module.exports = {
   listDebtors,
   listDebtorSuggestions,
@@ -582,5 +729,7 @@ module.exports = {
   createPayment,
   updateReminderPreference,
   getReminderContext,
-  settleGroup
+  settleGroup,
+  exportDebtorsExcel,
+  exportDebtorsPdf
 };

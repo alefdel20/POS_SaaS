@@ -62,6 +62,28 @@ const settleGroup = asyncHandler(async (req, res) => {
   res.json(await creditCollectionService.settleGroup(saleIds, req.user));
 });
 
+const exportDebtorsExcel = asyncHandler(async (req, res) => {
+  const filters = {
+    search: req.query.search || undefined,
+    status: req.query.status || undefined
+  };
+  const { buffer, filename } = await creditCollectionService.exportDebtorsExcel(req.user, filters);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(Buffer.from(buffer));
+});
+
+const exportDebtorsPdf = asyncHandler(async (req, res) => {
+  const filters = {
+    search: req.query.search || undefined,
+    status: req.query.status || undefined
+  };
+  const { buffer, filename } = await creditCollectionService.exportDebtorsPdf(req.user, filters);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(buffer);
+});
+
 module.exports = {
   listDebtorsValidation,
   suggestionValidation,
@@ -74,5 +96,7 @@ module.exports = {
   getCreditSaleSummary,
   createPayment,
   updateReminderPreference,
-  settleGroup
+  settleGroup,
+  exportDebtorsExcel,
+  exportDebtorsPdf
 };
