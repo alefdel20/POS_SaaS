@@ -727,6 +727,47 @@ async function exportDebtorsPdf(actor, filters = {}) {
   return { buffer, filename: `cartera-vencida-${today}.pdf` };
 }
 
+async function updateDebtorContact(saleId, businessId, { customer_name, customer_phone }) {
+  if (!customer_name?.trim()) throw new ApiError(400, "El nombre del cliente es requerido");
+  const { rows } = await pool.query(
+    `UPDATE sales
+     SET customer_name = $1, customer_phone = $2
+     WHERE id = $3 AND business_id = $4 AND payment_method = 'credit'
+       AND COALESCE(status, 'completed') <> 'cancelled'
+     RETURNING id`,
+    [customer_name.trim(), customer_phone?.trim() ?? "", saleId, businessId]
+  );
+  if (!rows.length) throw new ApiError(404, "Deudor no encontrado");
+  return rows[0];
+}
+
+async function cancelDebt(saleId, businessId, cancelledBy) {
+  const { rows } = await pool.query(
+    `UPDATE sales
+     SET status = 'cancelled', cancelled_by = $1, cancelled_at = NOW(),
+         cancellation_reason = 'Eliminado manualmente desde panel de deudores'
+     WHERE id = $2 AND business_id = $3 AND payment_method = 'credit'
+       AND COALESCE(status, 'completed') <> 'cancelled'
+     RETURNING id`,
+    [cancelledBy, saleId, businessId]
+  );
+  if (!rows.length) throw new ApiError(404, "Deudor no encontrado o ya cancelado");
+  return rows[0];
+}
+
+async function writeOffDebt(saleId, businessId) {
+  const { rows } = await pool.query(
+    `UPDATE sales
+     SET is_write_off = TRUE
+     WHERE id = $1 AND business_id = $2 AND payment_method = 'credit'
+       AND COALESCE(status, 'completed') <> 'cancelled'
+     RETURNING id`,
+    [saleId, businessId]
+  );
+  if (!rows.length) throw new ApiError(404, "Deudor no encontrado");
+  return rows[0];
+}
+
 module.exports = {
   listDebtors,
   listDebtorSuggestions,
@@ -737,5 +778,8 @@ module.exports = {
   getReminderContext,
   settleGroup,
   exportDebtorsExcel,
-  exportDebtorsPdf
+  exportDebtorsPdf,
+  updateDebtorContact,
+  cancelDebt,
+  writeOffDebt
 };

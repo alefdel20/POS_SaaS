@@ -86,6 +86,33 @@ const exportDebtorsPdf = asyncHandler(async (req, res) => {
   res.send(buffer);
 });
 
+const updateDebtorContact = asyncHandler(async (req, res) => {
+  const saleId = parseInt(req.params.saleId);
+  const actor = req.user;
+  const result = await creditCollectionService.updateDebtorContact(
+    saleId, actor.business_id, req.body
+  );
+  res.json({ success: true, data: result });
+});
+
+const cancelDebt = asyncHandler(async (req, res) => {
+  const saleId = parseInt(req.params.saleId);
+  const actor = req.user;
+  const result = await creditCollectionService.cancelDebt(
+    saleId, actor.business_id, actor.id
+  );
+  res.json({ success: true, data: result });
+});
+
+const writeOffDebt = asyncHandler(async (req, res) => {
+  const saleId = parseInt(req.params.saleId);
+  const actor = req.user;
+  const result = await creditCollectionService.writeOffDebt(
+    saleId, actor.business_id
+  );
+  res.json({ success: true, data: result });
+});
+
 module.exports = {
   listDebtorsValidation,
   suggestionValidation,
@@ -100,5 +127,8 @@ module.exports = {
   updateReminderPreference,
   settleGroup,
   exportDebtorsExcel,
-  exportDebtorsPdf
+  exportDebtorsPdf,
+  updateDebtorContact,
+  cancelDebt,
+  writeOffDebt
 };

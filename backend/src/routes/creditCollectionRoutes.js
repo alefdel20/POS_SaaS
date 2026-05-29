@@ -13,5 +13,8 @@ router.get("/:saleId/payments", requireRole(["superadmin", "admin", "gerente"]),
 router.post("/:saleId/payments", requireRole(["superadmin", "admin", "gerente"]), controller.createPaymentValidation, controller.createPayment);
 router.patch("/:saleId/reminder", requireRole(["superadmin", "admin", "gerente"]), controller.reminderPreferenceValidation, controller.updateReminderPreference);
 router.post("/settle-group", requireRole(["superadmin", "admin", "gerente"]), controller.settleGroup);
+router.patch("/:saleId/contact", requireRole(["superadmin", "admin", "gerente"]), controller.updateDebtorContact);
+router.delete("/:saleId", requireRole(["superadmin", "admin", "gerente"]), controller.cancelDebt);
+router.patch("/:saleId/write-off", requireRole(["superadmin", "admin", "gerente"]), controller.writeOffDebt);
 
 module.exports = router;

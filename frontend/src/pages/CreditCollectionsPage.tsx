@@ -125,6 +125,18 @@ export function CreditCollectionsPage() {
   const [liquidarSaldoTotal, setLiquidarSaldoTotal] = useState(0);
   const [clientsWithDebt, setClientsWithDebt] = useState<Set<number>>(new Set());
   const [syncMessage, setSyncMessage] = useState("");
+
+  const [editContactModal, setEditContactModal] = useState(false);
+  const [editContactData, setEditContactData] = useState({ customer_name: "", customer_phone: "" });
+  const [editContactSaleId, setEditContactSaleId] = useState<number | null>(null);
+  const [editContactLoading, setEditContactLoading] = useState(false);
+
+  const [confirmCancelId, setConfirmCancelId] = useState<number | null>(null);
+  const [confirmCancelLoading, setConfirmCancelLoading] = useState(false);
+
+  const [confirmWriteOffId, setConfirmWriteOffId] = useState<number | null>(null);
+  const [confirmWriteOffLoading, setConfirmWriteOffLoading] = useState(false);
+
   const isAvailable = canUseCreditCollections(user?.pos_type);
   const tenantRequestRef = useRef(0);
   const debtorGroups = useMemo(() => buildDebtorGroups(debtors), [debtors]);
@@ -444,6 +456,67 @@ export function CreditCollectionsPage() {
     }
   }
 
+  async function handleOpenEditContact(sale: typeof selectedDebtor) {
+    if (!sale) return;
+    setEditContactSaleId(sale.sale_id);
+    setEditContactData({ customer_name: sale.person ?? "", customer_phone: sale.phone ?? "" });
+    setEditContactModal(true);
+  }
+
+  async function handleSaveContact() {
+    if (!editContactData.customer_name?.trim() || !editContactSaleId) return;
+    setEditContactLoading(true);
+    try {
+      await apiRequest(`/credit-collections/${editContactSaleId}/contact`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(editContactData)
+      });
+      setEditContactModal(false);
+      await loadDebtors(search, statusFilter);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No fue posible actualizar el contacto");
+    } finally {
+      setEditContactLoading(false);
+    }
+  }
+
+  async function handleCancelDebt() {
+    if (!confirmCancelId) return;
+    setConfirmCancelLoading(true);
+    try {
+      await apiRequest(`/credit-collections/${confirmCancelId}`, {
+        method: "DELETE",
+        token
+      });
+      setConfirmCancelId(null);
+      setSelectedSaleId(null);
+      await loadDebtors(search, statusFilter);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No fue posible eliminar la deuda");
+    } finally {
+      setConfirmCancelLoading(false);
+    }
+  }
+
+  async function handleWriteOff() {
+    if (!confirmWriteOffId) return;
+    setConfirmWriteOffLoading(true);
+    try {
+      await apiRequest(`/credit-collections/${confirmWriteOffId}/write-off`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({})
+      });
+      setConfirmWriteOffId(null);
+      await loadDebtors(search, statusFilter);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No fue posible marcar como incobrable");
+    } finally {
+      setConfirmWriteOffLoading(false);
+    }
+  }
+
   const totalPending = debtorGroups.reduce((sum, group) => sum + group.total_balance_due, 0);
   const overdueCount = debtorGroups.filter((group) => group.has_overdue).length;
   const liquidarCambio = Math.max(Number(liquidarMontoRecibido || 0) - liquidarSaldoTotal, 0);
@@ -708,6 +781,33 @@ export function CreditCollectionsPage() {
             <button className="button ghost" disabled={!selectedSaleId || sendingReminder} onClick={sendReminder} type="button">
               {sendingReminder ? "Enviando..." : "Enviar recordatorio"}
             </button>
+            <button
+              className="button ghost"
+              disabled={!selectedDebtor}
+              onClick={() => handleOpenEditContact(selectedDebtor)}
+              style={{ fontSize: 13 }}
+              type="button"
+            >
+              Editar contacto
+            </button>
+            <button
+              className="button ghost"
+              disabled={!selectedDebtor}
+              onClick={() => selectedDebtor && setConfirmWriteOffId(selectedDebtor.sale_id)}
+              style={{ fontSize: 13, color: "#f59e0b" }}
+              type="button"
+            >
+              Marcar incobrable
+            </button>
+            <button
+              className="button ghost"
+              disabled={!selectedDebtor}
+              onClick={() => selectedDebtor && setConfirmCancelId(selectedDebtor.sale_id)}
+              style={{ fontSize: 13, color: "#ef4444" }}
+              type="button"
+            >
+              Eliminar deuda
+            </button>
           </div>
         </form>
 
@@ -934,6 +1034,109 @@ export function CreditCollectionsPage() {
                 </button>
                 <button className="button ghost" onClick={() => setAbonoModalOpen(false)} type="button">
                   Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {editContactModal ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" style={{ maxWidth: "420px", width: "95vw" }}>
+            <div className="panel-header">
+              <div>
+                <h3>Editar contacto</h3>
+              </div>
+              <button className="button ghost" onClick={() => setEditContactModal(false)} type="button">
+                Cerrar
+              </button>
+            </div>
+            <div className="form-section-grid">
+              <label>
+                Nombre del cliente
+                <input
+                  value={editContactData.customer_name}
+                  onChange={(e) => setEditContactData((p) => ({ ...p, customer_name: e.target.value }))}
+                />
+              </label>
+              <label>
+                Teléfono
+                <input
+                  value={editContactData.customer_phone}
+                  onChange={(e) => setEditContactData((p) => ({ ...p, customer_phone: e.target.value }))}
+                />
+              </label>
+              <div className="inline-actions">
+                <button className="button ghost" onClick={() => setEditContactModal(false)} type="button">Cancelar</button>
+                <button
+                  className="button"
+                  disabled={!editContactData.customer_name.trim() || editContactLoading}
+                  onClick={handleSaveContact}
+                  type="button"
+                >
+                  {editContactLoading ? "Guardando..." : "Guardar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {confirmCancelId ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" style={{ maxWidth: "380px", width: "95vw" }}>
+            <div className="panel-header">
+              <div>
+                <h3>Eliminar deuda</h3>
+              </div>
+              <button className="button ghost" onClick={() => setConfirmCancelId(null)} type="button">
+                Cerrar
+              </button>
+            </div>
+            <div className="form-section-grid">
+              <p className="muted" style={{ fontSize: 14 }}>
+                La deuda se cancelará y dejará de aparecer en el panel. Esta acción es reversible desde la base de datos.
+              </p>
+              <div className="inline-actions">
+                <button className="button ghost" onClick={() => setConfirmCancelId(null)} type="button">Cancelar</button>
+                <button
+                  className="button"
+                  disabled={confirmCancelLoading}
+                  onClick={handleCancelDebt}
+                  style={{ background: "#ef4444", color: "#fff", borderColor: "#ef4444" }}
+                  type="button"
+                >
+                  {confirmCancelLoading ? "Eliminando..." : "Sí, eliminar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {confirmWriteOffId ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" style={{ maxWidth: "380px", width: "95vw" }}>
+            <div className="panel-header">
+              <div>
+                <h3>Marcar como incobrable</h3>
+              </div>
+              <button className="button ghost" onClick={() => setConfirmWriteOffId(null)} type="button">
+                Cerrar
+              </button>
+            </div>
+            <div className="form-section-grid">
+              <p className="muted" style={{ fontSize: 14 }}>
+                La deuda se marcará como incobrable. Seguirá visible en el panel con indicador de incobrable.
+              </p>
+              <div className="inline-actions">
+                <button className="button ghost" onClick={() => setConfirmWriteOffId(null)} type="button">Cancelar</button>
+                <button
+                  className="button"
+                  disabled={confirmWriteOffLoading}
+                  onClick={handleWriteOff}
+                  style={{ background: "#f59e0b", color: "#fff", borderColor: "#f59e0b" }}
+                  type="button"
+                >
+                  {confirmWriteOffLoading ? "Guardando..." : "Sí, marcar incobrable"}
                 </button>
               </div>
             </div>
