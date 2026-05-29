@@ -25,6 +25,7 @@ const HEALTHCARE_POS_TYPES = new Set<PosType>(["Veterinaria", "Dentista", "Farma
 const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Aprobaciones", to: "/product-update-requests", roles: "management", activeMatch: ["/product-update-requests", "/retail/admin/approvals", "/health/admin/approvals"] },
   { label: "Credito y Cobranza", to: "/credit-collections", roles: "gerente", activeMatch: ["/credit-collections"] },
+  { label: "Utilidad Bruta", to: "/gross-profit", roles: "gerente", activeMatch: ["/gross-profit", "/retail/admin/gross-profit", "/health/admin/gross-profit"] },
   { label: "Corte Diario", to: "/daily-cut", roles: "dailyCut", activeMatch: ["/daily-cut"] },
   { label: "Finanzas", to: "/finances", roles: "gerente", activeMatch: ["/finances"] },
   { label: "Facturas", to: "/invoices", roles: "invoices", activeMatch: ["/invoices"] },
@@ -325,7 +326,9 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
                           ? "/health/admin/finances"
                           : item.label === "Corte Diario"
                             ? "/health/admin/daily-cut"
-                            : "/health/admin/credit-collections",
+                            : item.label === "Utilidad Bruta"
+                              ? "/health/admin/gross-profit"
+                              : "/health/admin/credit-collections",
               activeMatch: item.activeMatch
             })).filter((item) => !(normalizeRole(role) === "clinico" && item.label === "Perfil"))
           ]
@@ -372,7 +375,9 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
                       ? "/retail/admin/users"
                       : item.to === "/profile"
                         ? "/retail/admin/profile"
-                        : item.to
+                        : item.to === "/gross-profit"
+                          ? "/retail/admin/gross-profit"
+                          : item.to
       }))
     }
   ];

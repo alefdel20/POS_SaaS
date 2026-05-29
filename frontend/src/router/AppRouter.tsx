@@ -5,6 +5,7 @@ import { AppLayout } from "../layouts/AppLayout";
 import { DashboardPage } from "../pages/DashboardPage";
 import { ClientsPage } from "../pages/ClientsPage";
 import { CreditCollectionsPage } from "../pages/CreditCollectionsPage";
+import { GrossProfitReportPage } from "../pages/GrossProfitReportPage";
 import { DailyCutPage } from "../pages/DailyCutPage";
 import { FinancesPage } from "../pages/FinancesPage";
 import { LoginPage } from "../pages/LoginPage";
@@ -141,6 +142,9 @@ export function AppRouter() {
               <Route path="/credit-collections" element={<CreditCollectionsPage />} />
               <Route path="/retail/admin/credit-collections" element={<CreditCollectionsPage />} />
               <Route path="/health/admin/credit-collections" element={<CreditCollectionsPage />} />
+              <Route path="/gross-profit" element={<GrossProfitReportPage />} />
+              <Route path="/retail/admin/gross-profit" element={<GrossProfitReportPage />} />
+              <Route path="/health/admin/gross-profit" element={<GrossProfitReportPage />} />
               <Route path="/finances" element={<FinancesPage />} />
               <Route path="/retail/admin/finances" element={<FinancesPage />} />
               <Route path="/health/admin/finances" element={<FinancesPage />} />
