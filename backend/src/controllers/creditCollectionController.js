@@ -65,7 +65,8 @@ const settleGroup = asyncHandler(async (req, res) => {
 const exportDebtorsExcel = asyncHandler(async (req, res) => {
   const filters = {
     search: req.query.search || undefined,
-    status: req.query.status || undefined
+    status: req.query.status || undefined,
+    includeSettled: req.query.includeSettled === "true"
   };
   const { buffer, filename } = await creditCollectionService.exportDebtorsExcel(req.user, filters);
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -76,7 +77,8 @@ const exportDebtorsExcel = asyncHandler(async (req, res) => {
 const exportDebtorsPdf = asyncHandler(async (req, res) => {
   const filters = {
     search: req.query.search || undefined,
-    status: req.query.status || undefined
+    status: req.query.status || undefined,
+    includeSettled: req.query.includeSettled === "true"
   };
   const { buffer, filename } = await creditCollectionService.exportDebtorsPdf(req.user, filters);
   res.setHeader("Content-Type", "application/pdf");

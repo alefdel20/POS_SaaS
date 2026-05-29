@@ -107,6 +107,7 @@ export function CreditCollectionsPage() {
   const [form, setForm] = useState(emptyPayment);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "overdue">("all");
+  const [includeSettled, setIncludeSettled] = useState(false);
   const [error, setError] = useState("");
   const [sendingReminder, setSendingReminder] = useState(false);
   const [activeTab, setActiveTab] = useState<"deudores" | "clientes">("deudores");
@@ -426,6 +427,7 @@ export function CreditCollectionsPage() {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (includeSettled) params.set("includeSettled", "true");
       const qs = params.toString() ? `?${params.toString()}` : "";
       const blob = await apiDownload(`/credit-collections/export/${format}${qs}`, { token });
       const url = window.URL.createObjectURL(blob);
@@ -500,6 +502,14 @@ export function CreditCollectionsPage() {
             <option value="pending">Pendientes</option>
             <option value="overdue">Vencidos</option>
           </select>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", whiteSpace: "nowrap" }}>
+            <input
+              type="checkbox"
+              checked={includeSettled}
+              onChange={(e) => setIncludeSettled(e.target.checked)}
+            />
+            Incluir liquidados
+          </label>
           <button
             className="button ghost"
             type="button"

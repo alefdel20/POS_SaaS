@@ -111,13 +111,13 @@ async function listDebtors(actor, filters = {}) {
         ELSE 'pending'
       END AS status
     FROM sale_credit_totals
-    WHERE (
+    ${filters.includeSettled ? "" : `WHERE (
       CASE
         WHEN ABS(sale_credit_totals.raw_balance_due) < 0.005 THEN 0
         WHEN sale_credit_totals.raw_balance_due < 0 THEN 0
         ELSE ROUND(sale_credit_totals.raw_balance_due::numeric, 2)
       END
-    ) > 0
+    ) > 0`}
     ORDER BY sale_credit_totals.sale_date DESC, sale_credit_totals.sale_id DESC
   `;
 
