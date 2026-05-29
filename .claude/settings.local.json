@@ -40,7 +40,9 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\" -Recurse -Directory)",
       "Bash(Get-ChildItem *)",
       "Bash(cd C:\\\\\\\\Users\\\\\\\\tatue\\\\\\\\Documents\\\\\\\\POS_SaaS\\\\\\\\pos-app)",
-      "Bash(xargs basename -a)"
+      "Bash(xargs basename -a)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(xargs -I {} basename {})"
     ]
   }
 }
