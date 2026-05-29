@@ -59,6 +59,7 @@ function DiffCell({ diff }: { diff: number | null | undefined }) {
 
 export function DailyCutPage() {
   const { token, user } = useAuth();
+  const hasSalesReports = user?.plan_features?.sales_reports === true;
   const [today, setToday] = useState<DailyCut | null>(null);
   const [history, setHistory] = useState<DailyCut[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -358,7 +359,16 @@ export function DailyCutPage() {
           </div>
         </div>
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem", marginTop: "1rem" }}>
+        {/* ── Gráficas de rendimiento ── */}
+        {!hasSalesReports ? (
+          <div className="info-card" style={{ textAlign: "center", padding: "2rem 1rem", marginTop: "1rem" }}>
+            <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📊</div>
+            <p style={{ fontWeight: 700, fontSize: "1rem", margin: "0 0 0.35rem" }}>Gráficas de rendimiento</p>
+            <p className="muted" style={{ margin: "0 0 1rem" }}>Disponible en planes Premium y Enterprise.</p>
+            <a href="/profile" className="button">Actualizar plan</a>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem", marginTop: "1rem" }}>
           {/* Donut — Distribución de ingresos */}
           <div className="panel" style={{ flex: "1 1 260px", minWidth: 0 }}>
             <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Distribución de ingresos hoy</h3>
@@ -440,6 +450,7 @@ export function DailyCutPage() {
             </div>
           </div>
         </div>
+        )}
 
         {previousComparableCut ? (
           <div className="info-card">
