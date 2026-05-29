@@ -53,7 +53,7 @@ async function getGrossProfitReport(actor, from, to) {
      LEFT JOIN products p ON p.id = si.product_id
      JOIN sales s ON s.id = si.sale_id
      WHERE si.business_id = $1
-       AND COALESCE(s.status, 'completed') <> 'cancelled'
+       AND COALESCE(s.status, 'completed') NOT IN ('cancelled', 'returned', 'refunded')
        AND (si.created_at AT TIME ZONE 'America/Mexico_City')::date BETWEEN $2 AND $3
      GROUP BY si.product_id, COALESCE(si.product_name_snapshot, p.name, 'Producto eliminado')
      ORDER BY revenue DESC`,
@@ -107,18 +107,32 @@ async function exportGrossProfitExcel(actor, from, to) {
     B: { type: "pattern", pattern: "solid", fgColor: { argb: "FFfff8e1" } }
   };
 
-  const fmtMoney = (n) => Number(n).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const MONEY_FMT = '"$"#,##0.00';
+  const PCT_FMT = '0.00"%"';
+
+  function applyMoneyCell(row, colNumber, value) {
+    const cell = row.getCell(colNumber);
+    cell.value = Number(value);
+    cell.numFmt = MONEY_FMT;
+  }
 
   data.forEach((row) => {
     const addedRow = ws.addRow({
       product_name: row.product_name,
       units_sold: row.units_sold,
-      revenue: fmtMoney(row.revenue),
-      total_cost: fmtMoney(row.total_cost),
-      gross_profit: fmtMoney(row.gross_profit),
-      margin_pct: row.no_cost ? "Sin costo" : `${(row.margin_pct ?? 0).toFixed(2)}%`,
+      revenue: Number(row.revenue),
+      total_cost: Number(row.total_cost),
+      gross_profit: Number(row.gross_profit),
+      margin_pct: row.no_cost ? "Sin costo" : Number((row.margin_pct ?? 0).toFixed(2)),
       abc_class: row.abc_class
     });
+    // col 3=revenue, 4=total_cost, 5=gross_profit
+    applyMoneyCell(addedRow, 3, row.revenue);
+    applyMoneyCell(addedRow, 4, row.total_cost);
+    applyMoneyCell(addedRow, 5, row.gross_profit);
+    if (!row.no_cost) {
+      addedRow.getCell(6).numFmt = PCT_FMT;
+    }
     if (classFill[row.abc_class]) {
       addedRow.fill = classFill[row.abc_class];
     }
@@ -132,12 +146,16 @@ async function exportGrossProfitExcel(actor, from, to) {
   const totalsRow = ws.addRow({
     product_name: "TOTAL",
     units_sold: "",
-    revenue: fmtMoney(totalRevenue),
-    total_cost: fmtMoney(totalCost),
-    gross_profit: fmtMoney(totalProfit),
-    margin_pct: `${avgMargin.toFixed(2)}%`,
+    revenue: Number(totalRevenue),
+    total_cost: Number(totalCost),
+    gross_profit: Number(totalProfit),
+    margin_pct: Number(avgMargin.toFixed(2)),
     abc_class: `${data.length} prods.`
   });
+  applyMoneyCell(totalsRow, 3, totalRevenue);
+  applyMoneyCell(totalsRow, 4, totalCost);
+  applyMoneyCell(totalsRow, 5, totalProfit);
+  totalsRow.getCell(6).numFmt = PCT_FMT;
   totalsRow.font = { bold: true };
 
   ws.views = [{ state: "frozen", ySplit: 1 }];

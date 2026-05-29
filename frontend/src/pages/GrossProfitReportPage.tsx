@@ -248,7 +248,7 @@ export function GrossProfitReportPage() {
                       {row.no_cost ? (
                         <span style={{ color: "#9ca3af", fontSize: 12 }}>Sin costo</span>
                       ) : (
-                        `${(row.margin_pct ?? 0).toFixed(1)}%`
+                        `${(row.margin_pct ?? 0).toFixed(2)}%`
                       )}
                     </td>
                     <td style={{ textAlign: "center" }}>
