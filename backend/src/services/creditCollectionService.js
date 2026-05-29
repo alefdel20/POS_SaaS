@@ -745,7 +745,8 @@ async function cancelDebt(saleId, businessId, cancelledBy) {
   const { rows } = await pool.query(
     `UPDATE sales
      SET status = 'cancelled', cancelled_by = $1, cancelled_at = NOW(),
-         cancellation_reason = 'Eliminado manualmente desde panel de deudores'
+         cancellation_reason = 'Eliminado manualmente desde panel de deudores',
+         is_write_off = TRUE
      WHERE id = $2 AND business_id = $3 AND payment_method = 'credit'
        AND COALESCE(status, 'completed') <> 'cancelled'
      RETURNING id`,
