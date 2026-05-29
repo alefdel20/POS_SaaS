@@ -4,6 +4,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalClientDetail, ClinicalClientSummary } from "../types";
 import { getClinicalClientLabel, getClinicalPatientLabel } from "../utils/pos";
+import { currency, shortDate } from "../utils/format";
 
 type ClientFormState = {
   name: string;
@@ -48,6 +49,11 @@ export function ClientsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const [detailTab, setDetailTab] = useState<"info" | "historial">("info");
+  const [purchaseHistory, setPurchaseHistory] = useState<any[]>([]);
+  const [purchasePage, setPurchasePage] = useState(1);
+  const [purchaseTotalPages, setPurchaseTotalPages] = useState(1);
+  const [purchaseLoading, setPurchaseLoading] = useState(false);
 
   const clientLabel = getClinicalClientLabel(user?.pos_type);
   const patientLabel = getClinicalPatientLabel(user?.pos_type);
@@ -77,6 +83,21 @@ export function ClientsPage() {
     }
   }
 
+  async function loadPurchaseHistory(clientId: number, page = 1) {
+    if (!token) return;
+    setPurchaseLoading(true);
+    try {
+      const data = await apiRequest<{ items: any[]; pagination: { totalPages: number } }>(`/clients/${clientId}/sales?page=${page}`, { token });
+      setPurchaseHistory(data.items || []);
+      setPurchaseTotalPages(data.pagination?.totalPages || 1);
+      setPurchasePage(page);
+    } catch {
+      setPurchaseHistory([]);
+    } finally {
+      setPurchaseLoading(false);
+    }
+  }
+
   useEffect(() => {
     const timeout = setTimeout(() => {
       loadClients(search).catch((loadError) => {
@@ -92,6 +113,7 @@ export function ClientsPage() {
       return;
     }
 
+    setDetailTab("info");
     setSearchParams((current) => {
       current.set("client", String(selectedId));
       return current;
@@ -101,6 +123,12 @@ export function ClientsPage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el detalle");
     });
   }, [selectedId, token]);
+
+  useEffect(() => {
+    if (selectedId && detailTab === "historial") {
+      loadPurchaseHistory(selectedId, 1);
+    }
+  }, [selectedId, detailTab]);
 
   function resetFeedback() {
     setError("");
@@ -261,49 +289,135 @@ export function ClientsPage() {
 
         {detail ? (
           <>
-            <div className="info-card">
-              <p><strong>Cliente:</strong> {detail.name}</p>
-              <p><strong>Telefono:</strong> {detail.phone || "-"}</p>
-              <p><strong>Email:</strong> {detail.email || "-"}</p>
-              <p><strong>Direccion:</strong> {detail.address || "-"}</p>
-              <p><strong>Estado:</strong> {detail.is_active ? "Activo" : "Inactivo"}</p>
+            <div className="inline-actions" style={{ marginBottom: "12px" }}>
+              <button
+                className={detailTab === "info" ? "button" : "button ghost"}
+                type="button"
+                onClick={() => setDetailTab("info")}
+              >
+                Información
+              </button>
+              <button
+                className={detailTab === "historial" ? "button" : "button ghost"}
+                type="button"
+                onClick={() => setDetailTab("historial")}
+              >
+                Historial de compras
+              </button>
             </div>
 
-            <div className="panel-header clinical-subheader">
+            {detailTab === "info" && (
               <div>
-                <h3>{patientLabel} relacionados</h3>
-                <p className="muted">Desde aqui navegas directo a la ficha del paciente.</p>
+                <div className="info-card">
+                  <p><strong>Cliente:</strong> {detail.name}</p>
+                  <p><strong>Telefono:</strong> {detail.phone || "-"}</p>
+                  <p><strong>Email:</strong> {detail.email || "-"}</p>
+                  <p><strong>Direccion:</strong> {detail.address || "-"}</p>
+                  <p><strong>Estado:</strong> {detail.is_active ? "Activo" : "Inactivo"}</p>
+                </div>
+
+                <div className="panel-header clinical-subheader">
+                  <div>
+                    <h3>{patientLabel} relacionados</h3>
+                    <p className="muted">Desde aqui navegas directo a la ficha del paciente.</p>
+                  </div>
+                </div>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>{patientLabel}</th>
+                        <th>Consultas</th>
+                        <th>Citas</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.patients.map((patient) => (
+                        <tr key={patient.id}>
+                          <td>{patient.name}</td>
+                          <td>{patient.consultation_count}</td>
+                          <td>{patient.appointment_count}</td>
+                          <td>
+                            <button className="button ghost" onClick={() => navigate(`/patients?patient=${patient.id}`)} type="button">Ver paciente</button>
+                          </td>
+                        </tr>
+                      ))}
+                      {!detail.patients.length ? (
+                        <tr>
+                          <td className="muted" colSpan={4}>Este cliente todavia no tiene {patientLabel.toLowerCase()} vinculados.</td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>{patientLabel}</th>
-                    <th>Consultas</th>
-                    <th>Citas</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.patients.map((patient) => (
-                    <tr key={patient.id}>
-                      <td>{patient.name}</td>
-                      <td>{patient.consultation_count}</td>
-                      <td>{patient.appointment_count}</td>
-                      <td>
-                        <button className="button ghost" onClick={() => navigate(`/patients?patient=${patient.id}`)} type="button">Ver paciente</button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!detail.patients.length ? (
-                    <tr>
-                      <td className="muted" colSpan={4}>Este cliente todavia no tiene {patientLabel.toLowerCase()} vinculados.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            )}
+
+            {detailTab === "historial" && (
+              <div>
+                {purchaseLoading ? (
+                  <p style={{ opacity: 0.6, fontSize: "13px" }}>Cargando historial...</p>
+                ) : purchaseHistory.length === 0 ? (
+                  <p style={{ opacity: 0.6, fontSize: "13px" }}>Este cliente no tiene compras registradas.</p>
+                ) : (
+                  <>
+                    <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "1px solid var(--color-border, #333)" }}>
+                          <th style={{ textAlign: "left", padding: "4px 8px" }}>#</th>
+                          <th style={{ textAlign: "left", padding: "4px 8px" }}>Fecha</th>
+                          <th style={{ textAlign: "left", padding: "4px 8px" }}>Productos</th>
+                          <th style={{ textAlign: "right", padding: "4px 8px" }}>Total</th>
+                          <th style={{ textAlign: "left", padding: "4px 8px" }}>Pago</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {purchaseHistory.map((sale) => (
+                          <tr key={sale.id} style={{ borderBottom: "1px solid var(--color-border, #222)" }}>
+                            <td style={{ padding: "6px 8px", opacity: 0.6 }}>{sale.id}</td>
+                            <td style={{ padding: "6px 8px" }}>{shortDate(sale.sale_date)}</td>
+                            <td style={{ padding: "6px 8px" }}>
+                              {sale.items?.slice(0, 2).map((item: any, i: number) => (
+                                <div key={i} style={{ fontSize: "12px" }}>
+                                  {item.quantity} × {item.product_name}
+                                </div>
+                              ))}
+                              {sale.items?.length > 2 && (
+                                <div style={{ fontSize: "11px", opacity: 0.5 }}>+{sale.items.length - 2} más</div>
+                              )}
+                            </td>
+                            <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>
+                              {currency(sale.total)}
+                            </td>
+                            <td style={{ padding: "6px 8px", opacity: 0.7 }}>{sale.payment_method}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {purchaseTotalPages > 1 && (
+                      <div className="inline-actions" style={{ marginTop: "12px", justifyContent: "center" }}>
+                        <button
+                          className="button ghost"
+                          type="button"
+                          disabled={purchasePage <= 1}
+                          onClick={() => loadPurchaseHistory(selectedId!, purchasePage - 1)}
+                        >Anterior</button>
+                        <span style={{ fontSize: "12px", opacity: 0.6, alignSelf: "center" }}>
+                          {purchasePage} / {purchaseTotalPages}
+                        </span>
+                        <button
+                          className="button ghost"
+                          type="button"
+                          disabled={purchasePage >= purchaseTotalPages}
+                          onClick={() => loadPurchaseHistory(selectedId!, purchasePage + 1)}
+                        >Siguiente</button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </>
         ) : (
           <div className="empty-state-card">

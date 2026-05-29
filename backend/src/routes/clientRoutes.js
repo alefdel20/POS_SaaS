@@ -11,6 +11,7 @@ router.get("/", requireRole(WITH_CASHIERS), controller.listClients);
 router.post("/backfill", requireRole(["superadmin", "admin"]), controller.backfillClients);
 router.post("/", requireRole(WITH_CASHIERS), controller.findOrCreateClient);
 router.get("/:id/balance", requireRole(WITH_CASHIERS), controller.getClientBalance);
+router.get("/:id/sales", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.getClientPurchaseHistory);
 router.put("/:clientId", requireRole(MANAGERS), controller.updateClient);
 router.delete("/:clientId", requireRole(MANAGERS), controller.softDeleteClient);
 

@@ -2,6 +2,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const { requireActorBusinessId } = require("../utils/tenant");
 const clientService = require("../services/clientService");
 const pool = require("../db/pool");
+const ApiError = require("../utils/ApiError");
 
 const listClients = asyncHandler(async (req, res) => {
   const businessId = requireActorBusinessId(req.user);
@@ -72,4 +73,16 @@ const getClientBalance = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { listClients, findOrCreateClient, updateClient, softDeleteClient, backfillClients, getClientBalance };
+const getClientPurchaseHistory = asyncHandler(async (req, res) => {
+  const businessId = requireActorBusinessId(req.user);
+  const clientId = Number(req.params.id);
+  if (!clientId || isNaN(clientId)) {
+    throw new ApiError(400, "ID de cliente inválido");
+  }
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = 10;
+  const data = await clientService.getClientPurchaseHistory(clientId, businessId, { page, pageSize });
+  res.json(data);
+});
+
+module.exports = { listClients, findOrCreateClient, updateClient, softDeleteClient, backfillClients, getClientBalance, getClientPurchaseHistory };

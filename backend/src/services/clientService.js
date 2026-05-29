@@ -178,4 +178,58 @@ async function backfillClientsFromSales(businessId) {
   return { processed, created };
 }
 
-module.exports = { findOrCreateClient, listClients, updateClient, softDeleteClient, backfillClientsFromSales };
+async function getClientPurchaseHistory(clientId, businessId, { page = 1, pageSize = 10 } = {}) {
+  const offset = (page - 1) * pageSize;
+
+  const { rows: countRows } = await pool.query(
+    `SELECT COUNT(*)::int AS total
+     FROM sales
+     WHERE client_id = $1 AND business_id = $2 AND status != 'cancelled'`,
+    [clientId, businessId]
+  );
+  const total = countRows[0]?.total || 0;
+
+  const { rows } = await pool.query(
+    `SELECT
+       s.id,
+       s.sale_date,
+       s.sale_time,
+       s.total,
+       s.subtotal,
+       s.payment_method,
+       s.sale_type,
+       s.status,
+       s.cart_discount_amount,
+       COALESCE(
+         json_agg(
+           json_build_object(
+             'product_name', si.product_name_snapshot,
+             'quantity', si.quantity,
+             'unit_price', si.unit_price,
+             'subtotal', si.subtotal,
+             'unidad_de_venta', si.unidad_de_venta
+           ) ORDER BY si.id
+         ) FILTER (WHERE si.id IS NOT NULL),
+         '[]'
+       ) AS items
+     FROM sales s
+     LEFT JOIN sale_items si ON si.sale_id = s.id AND si.business_id = s.business_id
+     WHERE s.client_id = $1 AND s.business_id = $2 AND s.status != 'cancelled'
+     GROUP BY s.id
+     ORDER BY s.sale_date DESC, s.sale_time DESC
+     LIMIT $3 OFFSET $4`,
+    [clientId, businessId, pageSize, offset]
+  );
+
+  return {
+    items: rows,
+    pagination: {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize)
+    }
+  };
+}
+
+module.exports = { findOrCreateClient, listClients, updateClient, softDeleteClient, backfillClientsFromSales, getClientPurchaseHistory };
