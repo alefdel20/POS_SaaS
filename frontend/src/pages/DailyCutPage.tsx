@@ -4,6 +4,8 @@ import { useAuth } from "../context/AuthContext";
 import type { DailyCut, ManualCut, User } from "../types";
 import { currency, dateLabel, shortDate } from "../utils/format";
 import { isCashierRole } from "../utils/roles";
+import { getMexicoCityDateInputValue } from "../utils/timezone";
+import { resolveBusinessVertical } from "../utils/navigation";
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 type FilterState = {
@@ -31,10 +33,18 @@ function formatDenomination(d: number): string {
   return d < 1 ? `$${d}` : `$${d.toLocaleString("es-MX")}`;
 }
 
+function getDefaultDateRange(): { date_from: string; date_to: string } {
+  const today = getMexicoCityDateInputValue();
+  const d = new Date(today + "T12:00:00");
+  d.setDate(d.getDate() - 9);
+  return { date_from: d.toISOString().slice(0, 10), date_to: today };
+}
+
+const defaultRange = getDefaultDateRange();
 const emptyFilters: FilterState = {
   date: "",
-  date_from: "",
-  date_to: "",
+  date_from: defaultRange.date_from,
+  date_to: defaultRange.date_to,
   user_id: "",
   month: ""
 };
@@ -290,6 +300,12 @@ export function DailyCutPage() {
 
   const sortedHistory = [...history].sort((a, b) => a.cut_date.localeCompare(b.cut_date));
 
+  const vertical = resolveBusinessVertical(user?.pos_type);
+  const grossProfitPath =
+    vertical === "healthcare" ? "/health/admin/gross-profit"
+    : vertical === "retail"   ? "/retail/admin/gross-profit"
+    : "/gross-profit";
+
   return (
     <>
     <section className="page-grid">
@@ -475,11 +491,14 @@ export function DailyCutPage() {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Historico de cortes</h2>
+            <h2>Histórico de cortes</h2>
             <p className="muted">Filtro actual por usuario: {activeUserName}</p>
           </div>
           {!isCashier ? (
             <div className="inline-actions">
+              <a href={grossProfitPath} className="button ghost" style={{ textDecoration: "none" }}>
+                Ver Utilidad Bruta →
+              </a>
               <button className="button ghost" disabled={exporting !== ""} onClick={() => exportExcel("daily")} type="button">
                 {exporting === "daily" ? "Exportando..." : "Exportar corte diario"}
               </button>
