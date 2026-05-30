@@ -95,6 +95,12 @@ const sectionFields = {
   stamps: ["pac_provider", "pac_mode", "stamps_available", "stamp_alert_threshold"]
 } as const satisfies Record<string, readonly (keyof ProfileFormState)[]>;
 
+const PLANES = [
+  { key: 'basico',     label: 'Básico',     price: '$349/mes', branches: '1 sucursal',   features: ['POS completo', 'Inventario', 'Reportes básicos'] },
+  { key: 'premium',    label: 'Premium',    price: '$699/mes', branches: '3 sucursales', features: ['Todo Básico', 'Reportes avanzados', 'Exportar Excel/PDF', 'Agente IA'] },
+  { key: 'enterprise', label: 'Enterprise', price: '$999/mes', branches: '5 sucursales', features: ['Todo Premium', 'Alertas de stock', 'Soporte prioritario'] },
+];
+
 export function ProfilePage() {
   const { token, user, refreshUser } = useAuth();
   const isDoctor = normalizeRole(user?.role) === "clinico";
@@ -115,6 +121,11 @@ export function ProfilePage() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [changePlanModal, setChangePlanModal] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<string>('');
+  const [changePlanLoading, setChangePlanLoading] = useState(false);
+  const [changePlanError, setChangePlanError] = useState('');
+  const [changePlanSuccess, setChangePlanSuccess] = useState('');
   const [assetLoading, setAssetLoading] = useState<"business_image" | "signature" | "">("");
   const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "stamps" | "">("");
   const [reportHour, setReportHour] = useState<number | null>(null);
@@ -367,6 +378,27 @@ export function ProfilePage() {
     }
   }
 
+  async function handleChangePlan() {
+    if (!selectedPlan) return;
+    setChangePlanLoading(true);
+    setChangePlanError('');
+    setChangePlanSuccess('');
+    try {
+      await apiRequest('/subscription/plan', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ plan: selectedPlan }),
+      });
+      setChangePlanSuccess('Plan actualizado correctamente. Los cambios aplican en tu próximo ciclo de facturación.');
+      setChangePlanModal(false);
+      window.location.reload();
+    } catch (e: unknown) {
+      setChangePlanError(e instanceof Error ? e.message : 'No fue posible cambiar el plan');
+    } finally {
+      setChangePlanLoading(false);
+    }
+  }
+
   async function handleAssetDelete(assetType: "business_image" | "signature") {
     if (!token) return;
 
@@ -423,6 +455,21 @@ export function ProfilePage() {
                 Cancelar suscripción
               </button>
             ) : null}
+            {(currentRole === 'admin' || currentRole === 'superadmin') && (
+              <button
+                className="button ghost"
+                onClick={() => {
+                  setSelectedPlan('');
+                  setChangePlanError('');
+                  setChangePlanSuccess('');
+                  setChangePlanModal(true);
+                }}
+                style={{ fontSize: 13, marginTop: 8 }}
+                type="button"
+              >
+                Cambiar plan
+              </button>
+            )}
           </div>
         ) : null}
       </div>
@@ -725,6 +772,64 @@ export function ProfilePage() {
           </div>
         </div>
       ) : null}
+
+      {changePlanModal && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" style={{ maxWidth: 640, width: '95vw' }}>
+            <div className="panel-header">
+              <div><h3>Cambiar plan</h3></div>
+              <button className="button ghost" onClick={() => setChangePlanModal(false)} type="button">Cerrar</button>
+            </div>
+            <div style={{ padding: '16px 0' }}>
+              <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>
+                Plan actual: <strong>{profile?.subscription?.plan_name ?? '—'}</strong>
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+                {PLANES.map((p) => (
+                  <div
+                    key={p.key}
+                    onClick={() => setSelectedPlan(p.key)}
+                    style={{
+                      border: `2px solid ${selectedPlan === p.key ? 'var(--color-primary)' : 'var(--border)'}`,
+                      borderRadius: 10,
+                      padding: 14,
+                      cursor: 'pointer',
+                      background: selectedPlan === p.key ? 'var(--color-primary-soft, rgba(99,102,241,0.08))' : 'transparent',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{p.label}</div>
+                    <div style={{ color: 'var(--color-primary)', fontWeight: 600, marginBottom: 6 }}>{p.price}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>{p.branches}</div>
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                      {p.features.map((f) => (
+                        <li key={f} style={{ fontSize: 12, marginBottom: 2 }}>✓ {f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+              {changePlanError && (
+                <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{changePlanError}</p>
+              )}
+              {changePlanSuccess && (
+                <p style={{ color: '#22c55e', fontSize: 13, marginBottom: 12 }}>{changePlanSuccess}</p>
+              )}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="button ghost" onClick={() => setChangePlanModal(false)} type="button">Cancelar</button>
+                <button
+                  className="button"
+                  disabled={!selectedPlan || changePlanLoading}
+                  onClick={handleChangePlan}
+                  type="button"
+                >
+                  {changePlanLoading ? 'Cambiando...' : 'Confirmar cambio'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* HIDDEN: Configuración > Facturación — pending PAC CFDI contract
       <form className="panel grid-form" onSubmit={(event) => saveSection(event, "stamps", {

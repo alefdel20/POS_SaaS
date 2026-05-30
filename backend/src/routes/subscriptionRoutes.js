@@ -26,4 +26,6 @@ router.put(
   controller.updateAlertHours
 );
 
+router.patch("/plan", requireRole(["superadmin", "admin"]), controller.changePlan);
+
 module.exports = router;

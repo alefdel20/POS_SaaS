@@ -617,6 +617,56 @@ async function assertBusinessAccessAllowed(user, client = pool) {
   return { blocked: false, subscription };
 }
 
+const PLAN_CATALOG = {
+  basico:     { plan_name: 'Básico',     subscription_amount: 349.00, max_branches: 1 },
+  premium:    { plan_name: 'Premium',    subscription_amount: 699.00, max_branches: 3 },
+  enterprise: { plan_name: 'Enterprise', subscription_amount: 999.00, max_branches: 5 },
+};
+
+async function changePlan(businessId, targetPlanKey) {
+  const plan = PLAN_CATALOG[targetPlanKey];
+  if (!plan) throw new ApiError(400, 'Plan no válido. Planes disponibles: basico, premium, enterprise');
+
+  const { rows: subRows } = await pool.query(
+    `SELECT plan_name, extra_branches_count
+     FROM business_subscriptions
+     WHERE business_id = $1`,
+    [businessId]
+  );
+  if (!subRows.length) throw new ApiError(404, 'Suscripción no encontrada');
+
+  const current = subRows[0];
+  const extraBranches = Number(current.extra_branches_count ?? 0);
+  const effectiveLimit = plan.max_branches + extraBranches;
+
+  const { rows: branchRows } = await pool.query(
+    `SELECT COUNT(*) AS count FROM branches
+     WHERE business_id = $1 AND is_active = TRUE`,
+    [businessId]
+  );
+  const activeBranches = Number(branchRows[0].count);
+
+  if (activeBranches > effectiveLimit) {
+    throw new ApiError(400,
+      `No puedes cambiar a ${plan.plan_name}: tienes ${activeBranches} sucursales activas ` +
+      `y este plan permite ${effectiveLimit}. Desactiva ${activeBranches - effectiveLimit} sucursal(es) primero.`
+    );
+  }
+
+  await pool.query(
+    `UPDATE business_subscriptions
+     SET plan_name = $1, subscription_amount = $2
+     WHERE business_id = $3`,
+    [plan.plan_name, plan.subscription_amount, businessId]
+  );
+
+  return {
+    plan_name: plan.plan_name,
+    subscription_amount: plan.subscription_amount,
+    max_branches: effectiveLimit,
+  };
+}
+
 module.exports = {
   BLOCKED_BUSINESS_MESSAGE,
   CANCELLED_SUBSCRIPTION_MESSAGE,
@@ -629,5 +679,7 @@ module.exports = {
   registerBusinessSubscriptionPayment,
   listSubscriptionCalendarEvents,
   syncBusinessPaymentReminder,
-  assertBusinessAccessAllowed
+  assertBusinessAccessAllowed,
+  PLAN_CATALOG,
+  changePlan
 };

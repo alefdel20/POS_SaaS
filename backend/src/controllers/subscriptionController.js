@@ -7,6 +7,7 @@ const { requireActorBusinessId } = require("../utils/tenant");
 const openPayService = require("../services/openPayService");
 const { saveAuditLog } = require("../services/auditLogService");
 const { sendCancellationEmail } = require("../services/emailService");
+const subscriptionService = require("../services/businessSubscriptionService");
 
 const cancelValidation = [
   body("reason").optional({ nullable: true, checkFalsy: false }).trim(),
@@ -201,4 +202,12 @@ const updateAlertHours = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { cancelValidation, cancelSubscription, reportHourValidation, updateReportHour, alertHoursValidation, updateAlertHours };
+const changePlan = asyncHandler(async (req, res) => {
+  const actor = req.user;
+  const { plan } = req.body;
+  if (!plan) throw new ApiError(400, 'El campo plan es requerido (basico, premium, enterprise)');
+  const result = await subscriptionService.changePlan(actor.business_id, plan);
+  res.json({ success: true, data: result });
+});
+
+module.exports = { cancelValidation, cancelSubscription, reportHourValidation, updateReportHour, alertHoursValidation, updateAlertHours, changePlan };
