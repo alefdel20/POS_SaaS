@@ -455,23 +455,23 @@ export function ProfilePage() {
                 Cancelar suscripción
               </button>
             ) : null}
-            {(currentRole === 'admin' || currentRole === 'superadmin') && (
-              <button
-                className="button ghost"
-                onClick={() => {
-                  setSelectedPlan('');
-                  setChangePlanError('');
-                  setChangePlanSuccess('');
-                  setChangePlanModal(true);
-                }}
-                style={{ fontSize: 13, marginTop: 8 }}
-                type="button"
-              >
-                Cambiar plan
-              </button>
-            )}
           </div>
         ) : null}
+        {(currentRole === 'admin' || currentRole === 'superadmin') && (
+          <button
+            className="button ghost"
+            onClick={() => {
+              setSelectedPlan('');
+              setChangePlanError('');
+              setChangePlanSuccess('');
+              setChangePlanModal(true);
+            }}
+            style={{ fontSize: 13, marginTop: 8 }}
+            type="button"
+          >
+            Cambiar plan
+          </button>
+        )}
       </div>
 
       <form className="panel grid-form" onSubmit={(event) => saveSection(event, "general", {
