@@ -878,6 +878,7 @@ export interface Debtor {
   days_overdue?: number;
   status?: "pending" | "overdue" | "settled";
   send_reminder?: boolean;
+  is_write_off?: boolean;
 }
 
 export interface DebtorSuggestion {

@@ -124,6 +124,7 @@ export function CreditCollectionsPage() {
   const [liquidarMontoRecibido, setLiquidarMontoRecibido] = useState("");
   const [liquidarSaldoTotal, setLiquidarSaldoTotal] = useState(0);
   const [clientsWithDebt, setClientsWithDebt] = useState<Set<number>>(new Set());
+  const [clientsWriteOff, setClientsWriteOff] = useState<Set<number>>(new Set());
   const [syncMessage, setSyncMessage] = useState("");
 
   const [editContactModal, setEditContactModal] = useState(false);
@@ -260,7 +261,12 @@ export function CreditCollectionsPage() {
       setClients(response);
       setClientsWithDebt(new Set<number>(
         allDebtors
-          .filter((d) => d.client_id != null && Number(d.balance_due) > 0)
+          .filter((d) => d.client_id != null && Number(d.balance_due) > 0 && !d.is_write_off)
+          .map((d) => d.client_id as number)
+      ));
+      setClientsWriteOff(new Set<number>(
+        allDebtors
+          .filter((d) => d.client_id != null && d.is_write_off)
           .map((d) => d.client_id as number)
       ));
     } catch (loadError) {
@@ -509,6 +515,7 @@ export function CreditCollectionsPage() {
         body: JSON.stringify({})
       });
       setConfirmWriteOffId(null);
+      setSelectedSaleId(null);
       await loadDebtors(search, statusFilter);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No fue posible marcar como incobrable");
@@ -1279,14 +1286,19 @@ export function CreditCollectionsPage() {
                         >
                           Editar
                         </button>
-                        {clientsWithDebt.has(client.id) ? (
+                        {clientsWriteOff.has(client.id) ? (
+                          <span className="muted" style={{ color: "#f59e0b" }} title="Deuda marcada como incobrable">Incobrable</span>
+                        ) : clientsWithDebt.has(client.id) ? (
                           <span className="muted" title="Tiene deuda activa">Con deuda</span>
                         ) : null}
                         <button
                           className="button ghost"
-                          disabled={clientsWithDebt.has(client.id)}
+                          disabled={clientsWithDebt.has(client.id) || clientsWriteOff.has(client.id)}
                           onClick={() => deleteClient(client.id, client.name)}
-                          title={clientsWithDebt.has(client.id) ? "Tiene deuda activa" : undefined}
+                          title={
+                            clientsWriteOff.has(client.id) ? "Deuda marcada como incobrable" :
+                            clientsWithDebt.has(client.id) ? "Tiene deuda activa" : undefined
+                          }
                           type="button"
                         >
                           Eliminar

@@ -70,6 +70,7 @@ async function listDebtors(actor, filters = {}) {
         sales.total,
         sales.initial_payment,
         sales.send_reminder,
+        sales.is_write_off,
         COALESCE(SUM(credit_payments.amount), 0) AS total_paid,
         (
           COALESCE(sales.total, 0)
@@ -92,6 +93,7 @@ async function listDebtors(actor, filters = {}) {
       sale_credit_totals.total,
       sale_credit_totals.initial_payment,
       sale_credit_totals.send_reminder,
+      sale_credit_totals.is_write_off,
       sale_credit_totals.total_paid,
       CASE
         WHEN ABS(sale_credit_totals.raw_balance_due) < 0.005 THEN 0
