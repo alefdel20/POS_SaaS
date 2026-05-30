@@ -106,7 +106,7 @@ export function CreditCollectionsPage() {
   const [saleSummary, setSaleSummary] = useState<CreditSaleSummary | null>(null);
   const [form, setForm] = useState(emptyPayment);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "overdue">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "overdue" | "write_off">("all");
   const [includeSettled, setIncludeSettled] = useState(false);
   const [error, setError] = useState("");
   const [sendingReminder, setSendingReminder] = useState(false);
@@ -125,6 +125,7 @@ export function CreditCollectionsPage() {
   const [liquidarSaldoTotal, setLiquidarSaldoTotal] = useState(0);
   const [clientsWithDebt, setClientsWithDebt] = useState<Set<number>>(new Set());
   const [clientsWriteOff, setClientsWriteOff] = useState<Set<number>>(new Set());
+  const [clientsCancelledWriteOff, setClientsCancelledWriteOff] = useState<Set<number>>(new Set());
   const [syncMessage, setSyncMessage] = useState("");
 
   const [editContactModal, setEditContactModal] = useState(false);
@@ -168,7 +169,9 @@ export function CreditCollectionsPage() {
     if (nextSearch.trim()) {
       params.set("search", nextSearch.trim());
     }
-    if (nextStatus !== "all") {
+    if (nextStatus === "write_off") {
+      params.set("write_off", "true");
+    } else if (nextStatus !== "all") {
       params.set("status", nextStatus);
     }
 
@@ -254,11 +257,13 @@ export function CreditCollectionsPage() {
     try {
       const params = new URLSearchParams();
       if (clientSearch.trim()) params.set("search", clientSearch.trim());
-      const [response, allDebtors] = await Promise.all([
+      const [response, allDebtors, cancelledIds] = await Promise.all([
         apiRequest<CatalogClient[]>(`/catalog-clients?${params.toString()}`, { token }),
-        apiRequest<Debtor[]>("/credit-collections", { token })
+        apiRequest<Debtor[]>("/credit-collections", { token }),
+        apiRequest<{ success: boolean; data: number[] }>("/credit-collections/cancelled-write-offs", { token })
       ]);
       setClients(response);
+      setClientsCancelledWriteOff(new Set<number>(cancelledIds.data ?? []));
       setClientsWithDebt(new Set<number>(
         allDebtors
           .filter((d) => d.client_id != null && Number(d.balance_due) > 0 && !d.is_write_off)
@@ -581,6 +586,7 @@ export function CreditCollectionsPage() {
             <option value="all">Todos</option>
             <option value="pending">Pendientes</option>
             <option value="overdue">Vencidos</option>
+            <option value="write_off">Incobrables</option>
           </select>
           <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", whiteSpace: "nowrap" }}>
             <input
@@ -1288,6 +1294,8 @@ export function CreditCollectionsPage() {
                         </button>
                         {clientsWriteOff.has(client.id) ? (
                           <span className="muted" style={{ color: "#f59e0b" }} title="Deuda marcada como incobrable">Incobrable</span>
+                        ) : clientsCancelledWriteOff.has(client.id) ? (
+                          <span className="muted" style={{ color: "#ef4444" }} title="Tuvo una deuda eliminada">Eliminada</span>
                         ) : clientsWithDebt.has(client.id) ? (
                           <span className="muted" title="Tiene deuda activa">Con deuda</span>
                         ) : null}
@@ -1297,6 +1305,7 @@ export function CreditCollectionsPage() {
                           onClick={() => deleteClient(client.id, client.name)}
                           title={
                             clientsWriteOff.has(client.id) ? "Deuda marcada como incobrable" :
+                            clientsCancelledWriteOff.has(client.id) ? "Tuvo una deuda eliminada" :
                             clientsWithDebt.has(client.id) ? "Tiene deuda activa" : undefined
                           }
                           type="button"

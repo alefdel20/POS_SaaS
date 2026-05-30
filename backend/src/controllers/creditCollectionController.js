@@ -28,9 +28,11 @@ const reminderPreferenceValidation = [
 ];
 
 const listDebtors = asyncHandler(async (req, res) => {
+  const write_off = req.query.write_off === "true";
   res.json(await creditCollectionService.listDebtors(req.user, {
     search: req.query.search,
-    status: req.query.status
+    status: req.query.status,
+    write_off
   }));
 });
 
@@ -113,6 +115,12 @@ const writeOffDebt = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result });
 });
 
+const listCancelledWriteOffClientIds = asyncHandler(async (req, res) => {
+  const actor = req.user;
+  const ids = await creditCollectionService.listCancelledWriteOffClientIds(actor.business_id);
+  res.json({ success: true, data: ids });
+});
+
 module.exports = {
   listDebtorsValidation,
   suggestionValidation,
@@ -130,5 +138,6 @@ module.exports = {
   exportDebtorsPdf,
   updateDebtorContact,
   cancelDebt,
-  writeOffDebt
+  writeOffDebt,
+  listCancelledWriteOffClientIds
 };

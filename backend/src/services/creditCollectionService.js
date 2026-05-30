@@ -58,6 +58,8 @@ async function listDebtors(actor, filters = {}) {
     conditions.push("COALESCE(sales.due_date, sales.sale_date + INTERVAL '30 days')::date >= CURRENT_DATE");
   }
 
+  conditions.push(filters.write_off === true ? "sales.is_write_off = TRUE" : "sales.is_write_off = FALSE");
+
   const query = `
     WITH sale_credit_totals AS (
       SELECT
@@ -771,6 +773,20 @@ async function writeOffDebt(saleId, businessId) {
   return rows[0];
 }
 
+async function listCancelledWriteOffClientIds(businessId) {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT client_id
+     FROM sales
+     WHERE business_id = $1
+       AND payment_method = 'credit'
+       AND status = 'cancelled'
+       AND is_write_off = TRUE
+       AND client_id IS NOT NULL`,
+    [businessId]
+  );
+  return rows.map((r) => r.client_id);
+}
+
 module.exports = {
   listDebtors,
   listDebtorSuggestions,
@@ -784,5 +800,6 @@ module.exports = {
   exportDebtorsPdf,
   updateDebtorContact,
   cancelDebt,
-  writeOffDebt
+  writeOffDebt,
+  listCancelledWriteOffClientIds
 };
