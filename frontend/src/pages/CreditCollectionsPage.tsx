@@ -257,21 +257,22 @@ export function CreditCollectionsPage() {
     try {
       const params = new URLSearchParams();
       if (clientSearch.trim()) params.set("search", clientSearch.trim());
-      const [response, allDebtors, cancelledIds] = await Promise.all([
+      const [response, allDebtors, writeOffDebtors, cancelledIds] = await Promise.all([
         apiRequest<CatalogClient[]>(`/catalog-clients?${params.toString()}`, { token }),
         apiRequest<Debtor[]>("/credit-collections", { token }),
+        apiRequest<Debtor[]>("/credit-collections?write_off=true", { token }),
         apiRequest<{ success: boolean; data: number[] }>("/credit-collections/cancelled-write-offs", { token })
       ]);
       setClients(response);
       setClientsCancelledWriteOff(new Set<number>(cancelledIds.data ?? []));
       setClientsWithDebt(new Set<number>(
         allDebtors
-          .filter((d) => d.client_id != null && Number(d.balance_due) > 0 && !d.is_write_off)
+          .filter((d) => d.client_id != null && Number(d.balance_due) > 0)
           .map((d) => d.client_id as number)
       ));
       setClientsWriteOff(new Set<number>(
-        allDebtors
-          .filter((d) => d.client_id != null && d.is_write_off)
+        writeOffDebtors
+          .filter((d) => d.client_id != null)
           .map((d) => d.client_id as number)
       ));
     } catch (loadError) {
