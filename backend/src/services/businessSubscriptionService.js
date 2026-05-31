@@ -623,6 +623,15 @@ const PLAN_CATALOG = {
   enterprise: { plan_name: 'Enterprise', subscription_amount: 999.00, max_branches: 5 },
 };
 
+const OPENPAY_PLAN_IDS = {
+  basico:           process.env.OPENPAY_PLAN_ID_BASICO,
+  premium:          process.env.OPENPAY_PLAN_ID_PREMIUM,
+  enterprise:       process.env.OPENPAY_PLAN_ID_ENTERPRISE,
+  basico_anual:     process.env.OPENPAY_PLAN_ID_BASICO_ANUAL,
+  premium_anual:    process.env.OPENPAY_PLAN_ID_PREMIUM_ANUAL,
+  enterprise_anual: process.env.OPENPAY_PLAN_ID_ENTERPRISE_ANUAL,
+};
+
 async function changePlan(businessId, targetPlanKey) {
   const plan = PLAN_CATALOG[targetPlanKey];
   if (!plan) throw new ApiError(400, 'Plan no válido. Planes disponibles: basico, premium, enterprise');
@@ -667,6 +676,92 @@ async function changePlan(businessId, targetPlanKey) {
   };
 }
 
+const openPayService = require('./openPayService');
+
+async function upgradePlan(businessId, targetPlanKey, planType, cardToken) {
+  // 1. Validar plan destino
+  const plan = PLAN_CATALOG[targetPlanKey];
+  if (!plan) throw new ApiError(400, 'Plan no válido. Usa: basico, premium, enterprise');
+
+  const openpayPlanKey = planType === 'yearly'
+    ? `${targetPlanKey}_anual`
+    : targetPlanKey;
+  const newOpenpayPlanId = OPENPAY_PLAN_IDS[openpayPlanKey];
+  if (!newOpenpayPlanId) throw new ApiError(500, `Plan ID de OpenPay no configurado para ${openpayPlanKey}`);
+
+  // 2. Leer suscripción actual
+  const { rows } = await pool.query(
+    `SELECT openpay_customer_id, openpay_subscription_id, plan_name, extra_branches_count
+     FROM business_subscriptions
+     WHERE business_id = $1`,
+    [businessId]
+  );
+  if (!rows.length) throw new ApiError(404, 'Suscripción no encontrada');
+
+  const current = rows[0];
+
+  // 3. Validar sucursales activas (bloquear downgrade con sucursales de más)
+  const { rows: branchRows } = await pool.query(
+    `SELECT COUNT(*) AS count FROM branches
+     WHERE business_id = $1 AND is_active = TRUE`,
+    [businessId]
+  );
+  const activeBranches = Number(branchRows[0].count);
+  const extraBranches = Number(current.extra_branches_count ?? 0);
+  const effectiveLimit = plan.max_branches + extraBranches;
+
+  if (activeBranches > effectiveLimit) {
+    throw new ApiError(400,
+      `No puedes cambiar a ${plan.plan_name}: tienes ${activeBranches} sucursales activas ` +
+      `y este plan permite ${effectiveLimit}. Desactiva ${activeBranches - effectiveLimit} sucursal(es) primero.`
+    );
+  }
+
+  // 4. Cancelar suscripción anterior en OpenPay (solo si existe)
+  if (current.openpay_customer_id && current.openpay_subscription_id) {
+    try {
+      await openPayService.cancelSubscription(
+        current.openpay_customer_id,
+        current.openpay_subscription_id
+      );
+    } catch (err) {
+      // Si ya estaba cancelada en OpenPay, continuar
+      console.warn('[upgradePlan] cancelSubscription warning:', err?.message);
+    }
+  }
+
+  // 5. Crear nueva suscripción en OpenPay
+  const newSubscriptionId = await openPayService.createSubscription(
+    current.openpay_customer_id,
+    newOpenpayPlanId,
+    cardToken
+  );
+
+  // 6. Actualizar DB
+  const subscriptionAmount = planType === 'yearly'
+    ? plan.subscription_amount * 10
+    : plan.subscription_amount;
+
+  await pool.query(
+    `UPDATE business_subscriptions
+     SET plan_name = $1,
+         subscription_amount = $2,
+         openpay_plan_id = $3,
+         openpay_subscription_id = $4,
+         plan_type = $5,
+         subscription_status = 'active'
+     WHERE business_id = $6`,
+    [plan.plan_name, subscriptionAmount, newOpenpayPlanId, newSubscriptionId, planType, businessId]
+  );
+
+  return {
+    plan_name: plan.plan_name,
+    subscription_amount: subscriptionAmount,
+    plan_type: planType,
+    max_branches: effectiveLimit,
+  };
+}
+
 module.exports = {
   BLOCKED_BUSINESS_MESSAGE,
   CANCELLED_SUBSCRIPTION_MESSAGE,
@@ -681,5 +776,7 @@ module.exports = {
   syncBusinessPaymentReminder,
   assertBusinessAccessAllowed,
   PLAN_CATALOG,
-  changePlan
+  OPENPAY_PLAN_IDS,
+  changePlan,
+  upgradePlan
 };

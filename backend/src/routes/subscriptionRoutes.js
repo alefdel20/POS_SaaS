@@ -28,4 +28,6 @@ router.put(
 
 router.patch("/plan", requireRole(["superadmin", "admin"]), controller.changePlan);
 
+router.post("/upgrade", requireRole(["superadmin", "admin"]), controller.upgradePlan);
+
 module.exports = router;

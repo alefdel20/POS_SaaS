@@ -210,4 +210,16 @@ const changePlan = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result });
 });
 
-module.exports = { cancelValidation, cancelSubscription, reportHourValidation, updateReportHour, alertHoursValidation, updateAlertHours, changePlan };
+const upgradePlan = asyncHandler(async (req, res) => {
+  const actor = req.user;
+  const { plan, planType, cardToken } = req.body;
+  if (!plan) throw new ApiError(400, 'El campo plan es requerido');
+  if (!planType) throw new ApiError(400, 'El campo planType es requerido (monthly/yearly)');
+  if (!cardToken) throw new ApiError(400, 'El campo cardToken es requerido');
+  const result = await subscriptionService.upgradePlan(
+    actor.business_id, plan, planType, cardToken
+  );
+  res.json({ success: true, data: result });
+});
+
+module.exports = { cancelValidation, cancelSubscription, reportHourValidation, updateReportHour, alertHoursValidation, updateAlertHours, changePlan, upgradePlan };

@@ -126,6 +126,16 @@ export function ProfilePage() {
   const [changePlanLoading, setChangePlanLoading] = useState(false);
   const [changePlanError, setChangePlanError] = useState('');
   const [changePlanSuccess, setChangePlanSuccess] = useState('');
+  const [checkoutStep, setCheckoutStep] = useState<'select' | 'card'>('select');
+  const [planType, setPlanType] = useState<'monthly' | 'yearly'>('monthly');
+  const [cardData, setCardData] = useState({
+    holder_name: '',
+    card_number: '',
+    expiration_month: '',
+    expiration_year: '',
+    cvv2: '',
+  });
+  const [openpayReady, setOpenpayReady] = useState(false);
   const [assetLoading, setAssetLoading] = useState<"business_image" | "signature" | "">("");
   const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "stamps" | "">("");
   const [reportHour, setReportHour] = useState<number | null>(null);
@@ -165,6 +175,39 @@ export function ProfilePage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil");
     });
   }, [token, isDoctor]);
+
+  function loadOpenpayScript(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if ((window as any).OpenPay) { resolve(); return; }
+      const script = document.createElement('script');
+      script.src = 'https://js.openpay.mx/openpay.v1.min.js';
+      script.onload = () => {
+        const deviceScript = document.createElement('script');
+        deviceScript.src = 'https://js.openpay.mx/openpay-data.v1.min.js';
+        deviceScript.onload = () => {
+          const OP = (window as any).OpenPay;
+          OP.setId(import.meta.env.VITE_OPENPAY_MERCHANT_ID);
+          OP.setApiKey(import.meta.env.VITE_OPENPAY_PUBLIC_KEY);
+          OP.setSandboxMode(import.meta.env.VITE_OPENPAY_SANDBOX === 'true');
+          setOpenpayReady(true);
+          resolve();
+        };
+        deviceScript.onerror = reject;
+        document.head.appendChild(deviceScript);
+      };
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+
+  useEffect(() => {
+    if (changePlanModal) {
+      setCheckoutStep('select');
+      setPlanType('monthly');
+      setCardData({ holder_name: '', card_number: '', expiration_month: '', expiration_year: '', cvv2: '' });
+      loadOpenpayScript().catch(console.error);
+    }
+  }, [changePlanModal]);
 
   async function saveDoctorProfile(event: FormEvent) {
     event.preventDefault();
@@ -378,18 +421,60 @@ export function ProfilePage() {
     }
   }
 
+  const PLAN_PRICES: Record<string, number> = {
+    basico: 349, premium: 699, enterprise: 999
+  };
+
   async function handleChangePlan() {
     if (!selectedPlan) return;
+
+    const currentAmount = profile?.subscription?.subscription_amount ?? 0;
+    const targetPrice = PLAN_PRICES[selectedPlan] ?? 0;
+    const isUpgrade = targetPrice > currentAmount;
+
+    if (isUpgrade && checkoutStep === 'select') {
+      setCheckoutStep('card');
+      return;
+    }
+
     setChangePlanLoading(true);
     setChangePlanError('');
     setChangePlanSuccess('');
+
     try {
-      await apiRequest('/subscription/plan', {
-        method: 'PATCH',
-        token,
-        body: JSON.stringify({ plan: selectedPlan }),
-      });
-      setChangePlanSuccess('Plan actualizado correctamente. Los cambios aplican en tu próximo ciclo de facturación.');
+      if (isUpgrade) {
+        const OP = (window as any).OpenPay;
+        const deviceSessionId = OP.deviceData.setup();
+
+        const cardToken: string = await new Promise((resolve, reject) => {
+          OP.token.create({
+            holder_name: cardData.holder_name,
+            card_number: cardData.card_number.replace(/\s/g, ''),
+            expiration_month: cardData.expiration_month,
+            expiration_year: cardData.expiration_year,
+            cvv2: cardData.cvv2,
+          }, (token: any) => resolve(token.data.id),
+             (err: any) => reject(new Error(err.data?.description ?? 'Error al tokenizar tarjeta')));
+        });
+
+        await apiRequest('/subscription/upgrade', {
+          method: 'POST',
+          token,
+          body: JSON.stringify({ plan: selectedPlan, planType, cardToken }),
+        });
+      } else {
+        await apiRequest('/subscription/plan', {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify({ plan: selectedPlan }),
+        });
+      }
+
+      setChangePlanSuccess(
+        isUpgrade
+          ? 'Plan actualizado correctamente. El cobro se procesó con tu tarjeta.'
+          : 'Plan actualizado. El cambio aplica en tu próximo ciclo de facturación.'
+      );
       setChangePlanModal(false);
       window.location.reload();
     } catch (e: unknown) {
@@ -781,34 +866,97 @@ export function ProfilePage() {
               <button className="button ghost" onClick={() => setChangePlanModal(false)} type="button">Cerrar</button>
             </div>
             <div style={{ padding: '16px 0' }}>
-              <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>
-                Plan actual: <strong>{profile?.subscription?.plan_name ?? '—'}</strong>
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-                {PLANES.map((p) => (
-                  <div
-                    key={p.key}
-                    onClick={() => setSelectedPlan(p.key)}
-                    style={{
-                      border: `2px solid ${selectedPlan === p.key ? 'var(--color-primary)' : 'var(--border)'}`,
-                      borderRadius: 10,
-                      padding: 14,
-                      cursor: 'pointer',
-                      background: selectedPlan === p.key ? 'var(--color-primary-soft, rgba(99,102,241,0.08))' : 'transparent',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{p.label}</div>
-                    <div style={{ color: 'var(--color-primary)', fontWeight: 600, marginBottom: 6 }}>{p.price}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>{p.branches}</div>
-                    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                      {p.features.map((f) => (
-                        <li key={f} style={{ fontSize: 12, marginBottom: 2 }}>✓ {f}</li>
-                      ))}
-                    </ul>
+              {checkoutStep === 'select' ? (
+                <>
+                  <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>
+                    Plan actual: <strong>{profile?.subscription?.plan_name ?? '—'}</strong>
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                    <button
+                      className={`button ${planType === 'monthly' ? '' : 'ghost'}`}
+                      onClick={() => setPlanType('monthly')}
+                      type="button"
+                      style={{ flex: 1 }}
+                    >
+                      Mensual
+                    </button>
+                    <button
+                      className={`button ${planType === 'yearly' ? '' : 'ghost'}`}
+                      onClick={() => setPlanType('yearly')}
+                      type="button"
+                      style={{ flex: 1 }}
+                    >
+                      Anual <span style={{ fontSize: 11, color: '#22c55e' }}>2 meses gratis</span>
+                    </button>
                   </div>
-                ))}
-              </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+                    {PLANES.map((p) => {
+                      const monthlyPrice = PLAN_PRICES[p.key] ?? 0;
+                      const displayPrice = planType === 'yearly'
+                        ? `$${(monthlyPrice * 10).toLocaleString('es-MX')}/año`
+                        : `$${monthlyPrice.toLocaleString('es-MX')}/mes`;
+                      return (
+                        <div
+                          key={p.key}
+                          onClick={() => setSelectedPlan(p.key)}
+                          style={{
+                            border: `2px solid ${selectedPlan === p.key ? 'var(--color-primary)' : 'var(--border)'}`,
+                            borderRadius: 10,
+                            padding: 14,
+                            cursor: 'pointer',
+                            background: selectedPlan === p.key ? 'var(--color-primary-soft, rgba(99,102,241,0.08))' : 'transparent',
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{p.label}</div>
+                          <div style={{ color: 'var(--color-primary)', fontWeight: 600, marginBottom: 6 }}>{displayPrice}</div>
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>{p.branches}</div>
+                          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                            {p.features.map((f) => (
+                              <li key={f} style={{ fontSize: 12, marginBottom: 2 }}>✓ {f}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div style={{ marginBottom: 16 }}>
+                  <button
+                    className="button ghost"
+                    onClick={() => setCheckoutStep('select')}
+                    type="button"
+                    style={{ fontSize: 12, marginBottom: 12 }}
+                  >
+                    ← Volver
+                  </button>
+                  <p style={{ fontSize: 13, marginBottom: 16 }}>
+                    Ingresa los datos de tu tarjeta para activar el plan <strong>{PLANES.find(p => p.key === selectedPlan)?.label}</strong>
+                  </p>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <input className="input" placeholder="Nombre del titular" value={cardData.holder_name}
+                      onChange={e => setCardData(p => ({ ...p, holder_name: e.target.value }))} />
+                    <input className="input" placeholder="Número de tarjeta" maxLength={19}
+                      value={cardData.card_number}
+                      onChange={e => setCardData(p => ({ ...p, card_number: e.target.value }))} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                      <input className="input" placeholder="MM" maxLength={2}
+                        value={cardData.expiration_month}
+                        onChange={e => setCardData(p => ({ ...p, expiration_month: e.target.value }))} />
+                      <input className="input" placeholder="AA" maxLength={2}
+                        value={cardData.expiration_year}
+                        onChange={e => setCardData(p => ({ ...p, expiration_year: e.target.value }))} />
+                      <input className="input" placeholder="CVV" maxLength={4}
+                        value={cardData.cvv2}
+                        onChange={e => setCardData(p => ({ ...p, cvv2: e.target.value }))} />
+                    </div>
+                  </div>
+                  <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>
+                    Pago seguro procesado por OpenPay. Tus datos no se almacenan en nuestros servidores.
+                  </p>
+                </div>
+              )}
               {changePlanError && (
                 <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{changePlanError}</p>
               )}
@@ -823,7 +971,7 @@ export function ProfilePage() {
                   onClick={handleChangePlan}
                   type="button"
                 >
-                  {changePlanLoading ? 'Cambiando...' : 'Confirmar cambio'}
+                  {changePlanLoading ? 'Cambiando...' : checkoutStep === 'card' ? 'Pagar y cambiar plan' : 'Confirmar cambio'}
                 </button>
               </div>
             </div>

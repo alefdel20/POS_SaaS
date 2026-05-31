@@ -82,6 +82,7 @@ export interface BusinessSubscription {
   overdue_days: number | null;
   should_block: boolean;
   openpay_subscription_id?: string | null;
+  subscription_amount?: number | null;
   created_at?: string;
   updated_at?: string;
   report_hour?: number | null;
