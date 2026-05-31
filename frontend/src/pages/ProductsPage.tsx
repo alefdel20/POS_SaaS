@@ -1628,7 +1628,7 @@ export function ProductsPage() {
       await loadProducts(wasEditing ? "" : search, wasEditing ? 1 : page, pageSize, categoryFilter);
       await loadSuppliers();
       await loadCategories();
-      if (!isCashier && isRestockRoute) {
+      if (!isCashier) {
         await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter);
       }
       if (isCashier) {
@@ -2630,8 +2630,8 @@ export function ProductsPage() {
                     <small className="muted">{item.supplier_whatsapp || "-"}</small>
                   </td>
                   <td>
-                    <div>{item.recent_purchase_cost !== null && item.recent_purchase_cost !== undefined ? currency(item.recent_purchase_cost) : currency(item.cost_price || 0)}</div>
-                    <small className="muted">{item.cost_updated_at ? `Actualizado ${shortDateTime(item.cost_updated_at)}` : "Sin costo reciente"}</small>
+                    <div>{currency(item.cost_price || 0)}</div>
+                    <small className="muted">{item.cost_updated_at ? `Actualizado ${shortDateTime(item.cost_updated_at)}` : "Sin costo registrado"}</small>
                   </td>
                   <td>{formatRestockQuantity(item.suggested_restock, item.unidad_de_venta)}</td>
                   <td>

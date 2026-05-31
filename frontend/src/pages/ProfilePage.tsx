@@ -457,7 +457,7 @@ export function ProfilePage() {
             ) : null}
           </div>
         ) : null}
-        {(currentRole === 'admin' || currentRole === 'superadmin') && (
+        {(currentRole === 'admin' || currentRole === 'superusuario') && (
           <button
             className="button ghost"
             onClick={() => {
