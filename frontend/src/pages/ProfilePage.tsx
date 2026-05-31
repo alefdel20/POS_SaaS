@@ -957,9 +957,23 @@ export function ProfilePage() {
                   {/* Logos tarjetas aceptadas */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                     <span style={{ fontSize: 12, color: 'var(--muted)' }}>Aceptamos:</span>
-                    <img src="https://js.openpay.mx/img/visa.png" alt="Visa" style={{ height: 24, objectFit: 'contain' }} />
-                    <img src="https://js.openpay.mx/img/mastercard.png" alt="Mastercard" style={{ height: 24, objectFit: 'contain' }} />
-                    <img src="https://js.openpay.mx/img/american_express.png" alt="Amex" style={{ height: 24, objectFit: 'contain' }} />
+                    {/* Visa */}
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 750 471" style={{ height: 24, width: 'auto' }}>
+                      <rect width="750" height="471" rx="40" fill="#1a1f71"/>
+                      <text x="375" y="300" textAnchor="middle" fill="white" fontSize="200" fontFamily="Arial" fontWeight="bold">VISA</text>
+                    </svg>
+                    {/* Mastercard */}
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 131.39 86.9" style={{ height: 24, width: 'auto' }}>
+                      <rect width="131.39" height="86.9" rx="8" fill="#252525"/>
+                      <circle cx="47.5" cy="43.45" r="27.5" fill="#eb001b"/>
+                      <circle cx="83.89" cy="43.45" r="27.5" fill="#f79e1b"/>
+                      <path d="M65.7 20.9a27.49 27.49 0 0 1 0 45.1 27.49 27.49 0 0 1 0-45.1z" fill="#ff5f00"/>
+                    </svg>
+                    {/* Amex */}
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 750 471" style={{ height: 24, width: 'auto' }}>
+                      <rect width="750" height="471" rx="40" fill="#2557D6"/>
+                      <text x="375" y="310" textAnchor="middle" fill="white" fontSize="160" fontFamily="Arial" fontWeight="bold">AMEX</text>
+                    </svg>
                   </div>
 
                   {/* Campos de tarjeta */}
@@ -1017,11 +1031,18 @@ export function ProfilePage() {
                     alignItems: 'center',
                     gap: 10,
                     marginTop: 12,
-                    padding: '8px 12px',
-                    background: 'var(--surface-2, rgba(0,0,0,0.08))',
+                    padding: '10px 14px',
+                    background: 'rgba(0, 195, 227, 0.08)',
+                    border: '1px solid rgba(0, 195, 227, 0.25)',
                     borderRadius: 8,
                   }}>
-                    <img src="https://js.openpay.mx/img/openpay.png" alt="OpenPay" style={{ height: 20, objectFit: 'contain' }} />
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#00c3e3',
+                      letterSpacing: 1,
+                      fontFamily: 'Arial, sans-serif'
+                    }}>openpay</span>
                     <span style={{ fontSize: 11, color: 'var(--muted)' }}>
                       🔒 Tu tarjeta es tokenizada por OpenPay. Ankode nunca almacena tus datos de pago.
                     </span>
