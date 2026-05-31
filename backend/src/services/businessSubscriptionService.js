@@ -632,6 +632,11 @@ const OPENPAY_PLAN_IDS = {
   enterprise_anual: process.env.OPENPAY_PLAN_ID_ENTERPRISE_ANUAL,
 };
 
+const TEST_BUSINESS_ID = 6;
+const OPENPAY_PLAN_IDS_TEST = {
+  basico: process.env.OPENPAY_PLAN_ID_BASICO_TEST ?? process.env.OPENPAY_PLAN_ID_BASICO,
+};
+
 async function changePlan(businessId, targetPlanKey) {
   const plan = PLAN_CATALOG[targetPlanKey];
   if (!plan) throw new ApiError(400, 'Plan no válido. Planes disponibles: basico, premium, enterprise');
@@ -686,7 +691,10 @@ async function upgradePlan(businessId, targetPlanKey, planType, cardToken) {
   const openpayPlanKey = planType === 'yearly'
     ? `${targetPlanKey}_anual`
     : targetPlanKey;
-  const newOpenpayPlanId = OPENPAY_PLAN_IDS[openpayPlanKey];
+  const planIdMap = Number(businessId) === TEST_BUSINESS_ID
+    ? { ...OPENPAY_PLAN_IDS, ...OPENPAY_PLAN_IDS_TEST }
+    : OPENPAY_PLAN_IDS;
+  const newOpenpayPlanId = planIdMap[openpayPlanKey];
   if (!newOpenpayPlanId) throw new ApiError(500, `Plan ID de OpenPay no configurado para ${openpayPlanKey}`);
 
   // 2. Leer suscripción actual

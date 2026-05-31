@@ -927,33 +927,115 @@ export function ProfilePage() {
                     className="button ghost"
                     onClick={() => setCheckoutStep('select')}
                     type="button"
-                    style={{ fontSize: 12, marginBottom: 12 }}
+                    style={{ fontSize: 12, marginBottom: 16 }}
                   >
-                    ← Volver
+                    ← Volver a planes
                   </button>
-                  <p style={{ fontSize: 13, marginBottom: 16 }}>
-                    Ingresa los datos de tu tarjeta para activar el plan <strong>{PLANES.find(p => p.key === selectedPlan)?.label}</strong>
-                  </p>
+
+                  {/* Resumen del plan seleccionado */}
+                  <div style={{
+                    background: 'var(--color-primary-soft, rgba(99,102,241,0.08))',
+                    border: '1px solid var(--color-primary)',
+                    borderRadius: 8,
+                    padding: '10px 14px',
+                    marginBottom: 16,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>
+                      {PLANES.find(p => p.key === selectedPlan)?.label} — {planType === 'yearly' ? 'Anual' : 'Mensual'}
+                    </span>
+                    <span style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: 15 }}>
+                      {planType === 'yearly'
+                        ? `$${((PLAN_PRICES[selectedPlan] ?? 0) * 10).toLocaleString('es-MX')}/año`
+                        : `$${(PLAN_PRICES[selectedPlan] ?? 0).toLocaleString('es-MX')}/mes`
+                      }
+                    </span>
+                  </div>
+
+                  {/* Logos tarjetas aceptadas */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Aceptamos:</span>
+                    <img src="https://js.openpay.mx/img/visa.png" alt="Visa" style={{ height: 24, objectFit: 'contain' }} />
+                    <img src="https://js.openpay.mx/img/mastercard.png" alt="Mastercard" style={{ height: 24, objectFit: 'contain' }} />
+                    <img src="https://js.openpay.mx/img/american_express.png" alt="Amex" style={{ height: 24, objectFit: 'contain' }} />
+                  </div>
+
+                  {/* Campos de tarjeta */}
                   <div style={{ display: 'grid', gap: 10 }}>
-                    <input className="input" placeholder="Nombre del titular" value={cardData.holder_name}
-                      onChange={e => setCardData(p => ({ ...p, holder_name: e.target.value }))} />
-                    <input className="input" placeholder="Número de tarjeta" maxLength={19}
-                      value={cardData.card_number}
-                      onChange={e => setCardData(p => ({ ...p, card_number: e.target.value }))} />
+                    <div>
+                      <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+                        Nombre en tarjeta
+                      </label>
+                      <input
+                        className="input"
+                        placeholder="Como aparece en la tarjeta"
+                        value={cardData.holder_name}
+                        onChange={e => setCardData(p => ({ ...p, holder_name: e.target.value }))}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+                        Número de tarjeta
+                      </label>
+                      <input
+                        className="input"
+                        placeholder="0000 0000 0000 0000"
+                        maxLength={19}
+                        value={cardData.card_number}
+                        onChange={e => setCardData(p => ({ ...p, card_number: e.target.value }))}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                      <input className="input" placeholder="MM" maxLength={2}
-                        value={cardData.expiration_month}
-                        onChange={e => setCardData(p => ({ ...p, expiration_month: e.target.value }))} />
-                      <input className="input" placeholder="AA" maxLength={2}
-                        value={cardData.expiration_year}
-                        onChange={e => setCardData(p => ({ ...p, expiration_year: e.target.value }))} />
-                      <input className="input" placeholder="CVV" maxLength={4}
-                        value={cardData.cvv2}
-                        onChange={e => setCardData(p => ({ ...p, cvv2: e.target.value }))} />
+                      <div>
+                        <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Mes venc.</label>
+                        <input className="input" placeholder="MM" maxLength={2}
+                          value={cardData.expiration_month}
+                          onChange={e => setCardData(p => ({ ...p, expiration_month: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Año venc.</label>
+                        <input className="input" placeholder="AA" maxLength={2}
+                          value={cardData.expiration_year}
+                          onChange={e => setCardData(p => ({ ...p, expiration_year: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>CVV</label>
+                        <input className="input" placeholder="•••" maxLength={4}
+                          value={cardData.cvv2}
+                          onChange={e => setCardData(p => ({ ...p, cvv2: e.target.value }))} />
+                      </div>
                     </div>
                   </div>
-                  <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>
-                    Pago seguro procesado por OpenPay. Tus datos no se almacenan en nuestros servidores.
+
+                  {/* Seguridad + OpenPay */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    marginTop: 12,
+                    padding: '8px 12px',
+                    background: 'var(--surface-2, rgba(0,0,0,0.08))',
+                    borderRadius: 8,
+                  }}>
+                    <img src="https://js.openpay.mx/img/openpay.png" alt="OpenPay" style={{ height: 20, objectFit: 'contain' }} />
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      🔒 Tu tarjeta es tokenizada por OpenPay. Ankode nunca almacena tus datos de pago.
+                    </span>
+                  </div>
+
+                  {/* Términos y condiciones */}
+                  <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10, textAlign: 'center' }}>
+                    Al continuar aceptas nuestros{' '}
+                    <a href="https://ankode.cloud/terminos" target="_blank" rel="noopener noreferrer"
+                      style={{ color: 'var(--color-primary)' }}>términos y condiciones</a>,{' '}
+                    <a href="https://ankode.cloud/privacidad" target="_blank" rel="noopener noreferrer"
+                      style={{ color: 'var(--color-primary)' }}>aviso de privacidad</a> y{' '}
+                    <a href="https://ankode.cloud/cancelacion" target="_blank" rel="noopener noreferrer"
+                      style={{ color: 'var(--color-primary)' }}>política de cancelación</a>.
                   </p>
                 </div>
               )}
