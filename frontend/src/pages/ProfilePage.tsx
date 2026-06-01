@@ -430,7 +430,9 @@ export function ProfilePage() {
   )?.key ?? null;
 
   const currentPlanType = profile?.subscription?.plan_type ?? 'monthly';
+  const isTrial = profile?.subscription?.is_trial ?? false;
   const isCurrentPlan =
+    !isTrial &&
     selectedPlan !== null &&
     selectedPlan !== '' &&
     selectedPlan === currentPlanKey &&
