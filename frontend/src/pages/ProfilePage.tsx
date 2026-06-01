@@ -126,7 +126,7 @@ export function ProfilePage() {
   const [changePlanLoading, setChangePlanLoading] = useState(false);
   const [changePlanError, setChangePlanError] = useState('');
   const [changePlanSuccess, setChangePlanSuccess] = useState('');
-  const [checkoutStep, setCheckoutStep] = useState<'select' | 'card'>('select');
+  const [checkoutStep, setCheckoutStep] = useState<'select' | 'confirm' | 'card'>('select');
   const [planType, setPlanType] = useState<'monthly' | 'yearly'>('monthly');
   const [cardData, setCardData] = useState({
     holder_name: '',
@@ -434,6 +434,11 @@ export function ProfilePage() {
 
     if (isUpgrade && checkoutStep === 'select') {
       setCheckoutStep('card');
+      return;
+    }
+
+    if (!isUpgrade && checkoutStep === 'select') {
+      setCheckoutStep('confirm');
       return;
     }
 
@@ -921,6 +926,49 @@ export function ProfilePage() {
                     })}
                   </div>
                 </>
+              ) : checkoutStep === 'confirm' ? (
+                <div style={{ marginBottom: 16 }}>
+                  <button
+                    className="button ghost"
+                    onClick={() => setCheckoutStep('select')}
+                    type="button"
+                    style={{ fontSize: 12, marginBottom: 16 }}
+                  >
+                    ← Regresar a planes
+                  </button>
+                  <div style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                    marginBottom: 16,
+                  }}>
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>Plan actual</span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{profile?.subscription?.plan_name ?? '—'}</span>
+                    </div>
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>Plan nuevo</span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{PLANES.find(p => p.key === selectedPlan)?.label ?? selectedPlan}</span>
+                    </div>
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>Nuevo monto mensual</span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>${(PLAN_PRICES[selectedPlan as keyof typeof PLAN_PRICES] ?? 0).toLocaleString('es-MX')} MXN</span>
+                    </div>
+                    <div style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>Fecha efectiva del cambio</span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>
+                        {profile?.subscription?.next_payment_date
+                          ? new Date(profile.subscription.next_payment_date + 'T12:00:00').toLocaleDateString('es-MX', {
+                              day: 'numeric', month: 'long', year: 'numeric'
+                            })
+                          : 'Tu próximo ciclo de facturación'}
+                      </span>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 0 }}>
+                    Seguirás con tu plan actual hasta la fecha efectiva. A partir de esa fecha se aplicará el nuevo plan y monto.
+                  </p>
+                </div>
               ) : (
                 <div style={{ marginBottom: 16 }}>
                   <button
@@ -1074,7 +1122,7 @@ export function ProfilePage() {
                   onClick={handleChangePlan}
                   type="button"
                 >
-                  {changePlanLoading ? 'Cambiando...' : checkoutStep === 'card' ? 'Pagar y cambiar plan' : 'Confirmar cambio'}
+                  {changePlanLoading ? 'Cambiando...' : checkoutStep === 'card' ? 'Pagar y cambiar plan' : checkoutStep === 'confirm' ? 'Confirmar downgrade' : 'Continuar'}
                 </button>
               </div>
             </div>
