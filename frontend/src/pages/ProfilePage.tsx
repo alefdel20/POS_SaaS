@@ -425,8 +425,16 @@ export function ProfilePage() {
     basico: 349, premium: 699, enterprise: 999
   };
 
+  const currentPlanKey = PLANES.find(
+    (p) => p.label === profile?.subscription?.plan_name
+  )?.key ?? null;
+
+  const isCurrentPlan = selectedPlan !== null && selectedPlan !== '' && selectedPlan === currentPlanKey;
+
   async function handleChangePlan() {
     if (!selectedPlan) return;
+
+    if (checkoutStep === 'select' && isCurrentPlan) return;
 
     const currentAmount = profile?.subscription?.subscription_amount ?? 0;
     const targetPrice = PLAN_PRICES[selectedPlan] ?? 0;
@@ -913,7 +921,25 @@ export function ProfilePage() {
                             transition: 'all 0.15s',
                           }}
                         >
-                          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{p.label}</div>
+                          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+                            {p.label}
+                            {p.key === currentPlanKey && (
+                              <span style={{
+                                display: 'inline-block',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                backgroundColor: 'var(--color-primary)',
+                                color: 'white',
+                                borderRadius: 4,
+                                padding: '2px 7px',
+                                marginLeft: 8,
+                                verticalAlign: 'middle',
+                                letterSpacing: 0.5,
+                              }}>
+                                ACTUAL
+                              </span>
+                            )}
+                          </div>
                           <div style={{ color: 'var(--color-primary)', fontWeight: 600, marginBottom: 6 }}>{displayPrice}</div>
                           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>{p.branches}</div>
                           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
@@ -1118,8 +1144,12 @@ export function ProfilePage() {
                 <button className="button ghost" onClick={() => setChangePlanModal(false)} type="button">Cancelar</button>
                 <button
                   className="button"
-                  disabled={!selectedPlan || changePlanLoading}
+                  disabled={!selectedPlan || changePlanLoading || (checkoutStep === 'select' && isCurrentPlan)}
                   onClick={handleChangePlan}
+                  style={{
+                    opacity: changePlanLoading || (checkoutStep === 'select' && isCurrentPlan) ? 0.5 : 1,
+                    cursor: changePlanLoading || (checkoutStep === 'select' && isCurrentPlan) ? 'not-allowed' : 'pointer',
+                  }}
                   type="button"
                 >
                   {changePlanLoading ? 'Cambiando...' : checkoutStep === 'card' ? 'Pagar y cambiar plan' : checkoutStep === 'confirm' ? 'Confirmar downgrade' : 'Continuar'}
