@@ -429,7 +429,12 @@ export function ProfilePage() {
     (p) => p.label === profile?.subscription?.plan_name
   )?.key ?? null;
 
-  const isCurrentPlan = selectedPlan !== null && selectedPlan !== '' && selectedPlan === currentPlanKey;
+  const currentPlanType = profile?.subscription?.plan_type ?? 'monthly';
+  const isCurrentPlan =
+    selectedPlan !== null &&
+    selectedPlan !== '' &&
+    selectedPlan === currentPlanKey &&
+    planType === currentPlanType;
 
   async function handleChangePlan() {
     if (!selectedPlan) return;
