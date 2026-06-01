@@ -105,6 +105,37 @@ function isConfigured(row) {
 }
 
 function deriveSubscriptionState(row, today = getMexicoCityDate()) {
+  if (row?.trial_ends_at != null) {
+    const trialEnd = new Date(row.trial_ends_at);
+    const todayDate = today instanceof Date ? today : new Date(today);
+    const diffMs = trialEnd - todayDate;
+    const trialDaysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+    if (trialDaysRemaining > 0) {
+      return {
+        subscription_status: "trial",
+        is_trial: true,
+        trial_days_remaining: trialDaysRemaining,
+        trial_ends_at: row.trial_ends_at,
+        should_block: false,
+        is_configured: true,
+        due_in_days: null,
+        overdue_days: null
+      };
+    } else {
+      return {
+        subscription_status: "trial_expired",
+        is_trial: true,
+        trial_days_remaining: 0,
+        trial_ends_at: row.trial_ends_at,
+        should_block: true,
+        is_configured: true,
+        due_in_days: null,
+        overdue_days: null
+      };
+    }
+  }
+
   if (row?.subscription_status === "cancelled") {
     return {
       subscription_status: "cancelled",
@@ -180,7 +211,10 @@ function mapBusinessSubscription(row, today = getMexicoCityDate()) {
     stock_alert_hour_morning: row.stock_alert_hour_morning ?? null,
     stock_alert_hour_evening: row.stock_alert_hour_evening ?? null,
     inventory_alert_hour: row.inventory_alert_hour ?? null,
-    ...derived
+    ...derived,
+    is_trial: derived.is_trial ?? false,
+    trial_days_remaining: derived.trial_days_remaining ?? null,
+    trial_ends_at: row.trial_ends_at ?? null
   };
 }
 
@@ -331,33 +365,71 @@ async function syncBusinessPaymentReminder(businessId, client = pool) {
   return rows[0];
 }
 
-async function initializeBusinessSubscriptionForNewBusiness(business, actorId, client = pool) {
+async function initializeBusinessSubscriptionForNewBusiness(business, actorId, isTrial = false, client = pool) {
   const anchorDate = formatDateOnly(business.created_at);
   const nextPaymentDate = calculateNextPaymentDate(anchorDate, "monthly", anchorDate);
-  const { rows } = await client.query(
-    `INSERT INTO business_subscriptions (
-       business_id,
-       plan_type,
-       billing_anchor_date,
-       next_payment_date,
-       grace_period_days,
-       enforcement_enabled,
-       manual_adjustment_reason,
-       created_by,
-       updated_by
-     )
-     VALUES ($1, 'monthly', $2, $3, 0, TRUE, 'Alta inicial del negocio', $4, $4)
-     ON CONFLICT (business_id) DO UPDATE
-       SET plan_type = EXCLUDED.plan_type,
-           billing_anchor_date = EXCLUDED.billing_anchor_date,
-           next_payment_date = EXCLUDED.next_payment_date,
-           enforcement_enabled = EXCLUDED.enforcement_enabled,
-           manual_adjustment_reason = EXCLUDED.manual_adjustment_reason,
-           updated_by = EXCLUDED.updated_by,
-           updated_at = NOW()
-     RETURNING *`,
-    [business.id, anchorDate, nextPaymentDate, actorId || null]
-  );
+  let rows;
+
+  if (isTrial) {
+    ({ rows } = await client.query(
+      `INSERT INTO business_subscriptions (
+         business_id,
+         plan_type,
+         billing_anchor_date,
+         next_payment_date,
+         grace_period_days,
+         enforcement_enabled,
+         manual_adjustment_reason,
+         trial_started_at,
+         trial_ends_at,
+         created_by,
+         updated_by
+       )
+       VALUES ($1, 'monthly', $2, $3, 0, FALSE, 'Alta inicial del negocio - período de prueba', NOW(), NOW() + INTERVAL '7 days', $4, $4)
+       ON CONFLICT (business_id) DO UPDATE
+         SET plan_type = EXCLUDED.plan_type,
+             billing_anchor_date = EXCLUDED.billing_anchor_date,
+             next_payment_date = EXCLUDED.next_payment_date,
+             enforcement_enabled = EXCLUDED.enforcement_enabled,
+             manual_adjustment_reason = EXCLUDED.manual_adjustment_reason,
+             trial_started_at = EXCLUDED.trial_started_at,
+             trial_ends_at = EXCLUDED.trial_ends_at,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = NOW()
+       RETURNING *`,
+      [business.id, anchorDate, nextPaymentDate, actorId || null]
+    ));
+  } else {
+    ({ rows } = await client.query(
+      `INSERT INTO business_subscriptions (
+         business_id,
+         plan_type,
+         billing_anchor_date,
+         next_payment_date,
+         grace_period_days,
+         enforcement_enabled,
+         manual_adjustment_reason,
+         trial_started_at,
+         trial_ends_at,
+         created_by,
+         updated_by
+       )
+       VALUES ($1, 'monthly', $2, $3, 0, TRUE, 'Alta inicial del negocio', NULL, NULL, $4, $4)
+       ON CONFLICT (business_id) DO UPDATE
+         SET plan_type = EXCLUDED.plan_type,
+             billing_anchor_date = EXCLUDED.billing_anchor_date,
+             next_payment_date = EXCLUDED.next_payment_date,
+             enforcement_enabled = EXCLUDED.enforcement_enabled,
+             manual_adjustment_reason = EXCLUDED.manual_adjustment_reason,
+             trial_started_at = EXCLUDED.trial_started_at,
+             trial_ends_at = EXCLUDED.trial_ends_at,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = NOW()
+       RETURNING *`,
+      [business.id, anchorDate, nextPaymentDate, actorId || null]
+    ));
+  }
+
   await syncBusinessPaymentReminder(business.id, client);
   return mapBusinessSubscription(rows[0]);
 }

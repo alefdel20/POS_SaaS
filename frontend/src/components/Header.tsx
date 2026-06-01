@@ -90,6 +90,27 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderPro
           </Link>
         </div>
       ) : null}
+      {user?.is_trial ? (
+        <div style={{
+          backgroundColor: (user.trial_days_remaining ?? 0) <= 2 ? "#fff3cd" : "#e8f4fd",
+          borderBottom: `1px solid ${(user.trial_days_remaining ?? 0) <= 2 ? "#ffc107" : "#bee3f8"}`,
+          padding: "6px 16px",
+          textAlign: "center",
+          fontSize: 13,
+          color: "#1a1a2e",
+        }}>
+          {(user.trial_days_remaining ?? 0) <= 0
+            ? "⚠️ Tu período de prueba ha vencido."
+            : (user.trial_days_remaining ?? 0) === 1
+              ? "⏳ Tu prueba gratuita vence hoy. ¡Activa tu plan!"
+              : `🎉 Prueba gratuita: ${user.trial_days_remaining} días restantes.`
+          }
+          {" "}
+          <a href="/profile" style={{ fontWeight: 600, textDecoration: "underline", color: "inherit" }}>
+            Activar plan
+          </a>
+        </div>
+      ) : null}
       <header className="header">
         <div className="header-left">
           <button

@@ -199,13 +199,16 @@ async function provisionBusinessFromOnboarding(orderId) {
   try {
     await client.query("BEGIN");
 
-    // If the email already exists in a cancelled business, reactivate it instead of creating a new one
+    // If the email already exists in a cancelled or trial-expired business, reactivate it instead of creating a new one
     const { rows: cancelledEmailRows } = await client.query(
       `SELECT u.id AS user_id, u.business_id, u.full_name
        FROM users u
        JOIN business_subscriptions bs ON bs.business_id = u.business_id
        WHERE LOWER(u.email) = LOWER($1)
-         AND bs.subscription_status = 'cancelled'
+         AND (
+           bs.subscription_status = 'cancelled'
+           OR (bs.trial_ends_at IS NOT NULL AND bs.trial_ends_at < NOW())
+         )
        LIMIT 1`,
       [String(email).trim().toLowerCase()]
     );
@@ -223,6 +226,8 @@ async function provisionBusinessFromOnboarding(orderId) {
              enforcement_enabled  = TRUE,
              next_payment_date    = $1,
              last_payment_date    = CURRENT_DATE,
+             trial_ends_at        = NULL,
+             trial_started_at     = NULL,
              updated_at           = NOW()
          WHERE business_id = $2`,
         [nextPaymentDateStr, cancelledUser.business_id]
@@ -339,7 +344,7 @@ async function provisionBusinessFromOnboarding(orderId) {
     );
 
     // 5. Initialize subscription (enforcement=true, monthly, anchor=today)
-    await initializeBusinessSubscriptionForNewBusiness(business, user.id, client);
+    await initializeBusinessSubscriptionForNewBusiness(business, user.id, false, client);
 
     // 5a. Persist plan_name from the onboarding record into business_subscriptions
     if (plan_name) {

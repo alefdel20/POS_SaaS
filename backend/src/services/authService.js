@@ -145,7 +145,7 @@ async function registerBusiness(payload) {
        ON CONFLICT (business_id, profile_key) DO NOTHING`,
       [business.id, user.id]
     );
-    await initializeBusinessSubscriptionForNewBusiness(business, user.id, client);
+    await initializeBusinessSubscriptionForNewBusiness(business, user.id, true, client);
 
     await saveAuditLog({
       business_id: business.id,

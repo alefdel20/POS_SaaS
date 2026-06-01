@@ -29,6 +29,8 @@ export interface User {
   tutorial_seen?: boolean;
   has_ai_access?: boolean;
   plan_key?: string;
+  trial_days_remaining?: number | null;
+  is_trial?: boolean;
   plan_features?: {
     ai_chat: boolean;
     ai_agents: boolean;
@@ -76,7 +78,7 @@ export interface BusinessSubscription {
   grace_period_days: number;
   enforcement_enabled: boolean;
   manual_adjustment_reason: string;
-  subscription_status: "active" | "due_soon" | "overdue" | "blocked" | "cancelled";
+  subscription_status: "active" | "due_soon" | "overdue" | "blocked" | "cancelled" | "trial" | "trial_expired";
   is_configured: boolean;
   due_in_days: number | null;
   overdue_days: number | null;
@@ -89,6 +91,9 @@ export interface BusinessSubscription {
   stock_alert_hour_morning?: number | null;
   stock_alert_hour_evening?: number | null;
   inventory_alert_hour?: number | null;
+  trial_days_remaining?: number | null;
+  is_trial?: boolean;
+  trial_ends_at?: string | null;
 }
 
 export interface Supplier {

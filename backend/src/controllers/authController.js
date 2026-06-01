@@ -44,7 +44,7 @@ const registerBusiness = asyncHandler(async (req, res) => {
 
 const me = asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT plan_name FROM business_subscriptions
+    `SELECT plan_name, trial_ends_at FROM business_subscriptions
      WHERE business_id = $1
      LIMIT 1`,
     [req.user?.business_id]
@@ -52,7 +52,29 @@ const me = asyncHandler(async (req, res) => {
   const planName = rows[0]?.plan_name || null;
   const planKey = resolvePlanKey(planName);
   const planFeatures = getPlanFeatures(planName);
-  res.json({ user: { ...req.user, has_ai_access: planFeatures.ai_chat, plan_key: planKey, plan_features: planFeatures } });
+
+  let trialDaysRemaining = null;
+  let isTrial = false;
+
+  if (req.user?.business_id && !["superusuario", "soporte"].includes(req.user.role)) {
+    const trialEndsAt = rows[0]?.trial_ends_at ?? null;
+    if (trialEndsAt) {
+      const diffMs = new Date(trialEndsAt) - new Date();
+      trialDaysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      isTrial = trialDaysRemaining > 0;
+    }
+  }
+
+  res.json({
+    user: {
+      ...req.user,
+      has_ai_access: planFeatures.ai_chat,
+      plan_key: planKey,
+      plan_features: planFeatures,
+      trial_days_remaining: trialDaysRemaining,
+      is_trial: isTrial
+    }
+  });
 });
 
 const changePassword = asyncHandler(async (req, res) => {

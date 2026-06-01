@@ -154,7 +154,7 @@ async function createBusiness(payload, actor) {
        VALUES ($1, 'default', '{}'::jsonb, TRUE, $2, $2)`,
       [business.id, actor.id]
     );
-    await initializeBusinessSubscriptionForNewBusiness(business, actor.id, client);
+    await initializeBusinessSubscriptionForNewBusiness(business, actor.id, true, client);
 
     if (payload.plan_name) {
       await client.query(

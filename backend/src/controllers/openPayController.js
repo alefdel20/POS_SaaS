@@ -770,6 +770,29 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   // ---------------------------------------------------------------------------
   if (isNewSignup) {
     console.log("[CHECKOUT] Taking Path A — new business signup");
+
+    // Validar correo duplicado antes de cobrar
+    const { rows: existingUserRows } = await pool.query(
+      `SELECT u.id, u.business_id, u.is_active,
+              bs.subscription_status, bs.trial_ends_at, bs.cancelled_at
+       FROM users u
+       JOIN business_subscriptions bs ON bs.business_id = u.business_id
+       WHERE LOWER(u.email) = LOWER($1)
+       LIMIT 1`,
+      [email]
+    );
+
+    if (existingUserRows.length > 0) {
+      const existing = existingUserRows[0];
+      const isTrialExpired = existing.trial_ends_at && new Date(existing.trial_ends_at) < new Date();
+      const isCancelled = existing.subscription_status === "cancelled";
+
+      if (!isTrialExpired && !isCancelled) {
+        throw new ApiError(409, "Ya existe una cuenta activa con ese correo electrónico. Inicia sesión en pos.ankode.cloud");
+      }
+      // trial vencido o cancelado → el webhook manejará la reactivación, continuar
+    }
+
     // Generate a unique order_id that the webhook will use to find this pending row
     const orderId = `onb-${crypto.randomBytes(8).toString("hex")}`;
 
