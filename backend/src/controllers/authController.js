@@ -44,14 +44,17 @@ const registerBusiness = asyncHandler(async (req, res) => {
 
 const me = asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT plan_name, trial_ends_at FROM business_subscriptions
-     WHERE business_id = $1
+    `SELECT bs.plan_name, bs.trial_ends_at, b.is_demo
+     FROM business_subscriptions bs
+     JOIN businesses b ON b.id = bs.business_id
+     WHERE bs.business_id = $1
      LIMIT 1`,
     [req.user?.business_id]
   );
   const planName = rows[0]?.plan_name || null;
   const planKey = resolvePlanKey(planName);
   const planFeatures = getPlanFeatures(planName);
+  const isDemo = Boolean(rows[0]?.is_demo ?? false);
 
   let trialDaysRemaining = null;
   let isTrial = false;
@@ -72,7 +75,8 @@ const me = asyncHandler(async (req, res) => {
       plan_key: planKey,
       plan_features: planFeatures,
       trial_days_remaining: trialDaysRemaining,
-      is_trial: isTrial
+      is_trial: isTrial,
+      is_demo: isDemo
     }
   });
 });

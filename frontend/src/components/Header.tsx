@@ -90,7 +90,27 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderPro
           </Link>
         </div>
       ) : null}
-      {user?.is_trial ? (
+      {user?.is_demo && !user?.is_trial ? (
+        <div style={{
+          backgroundColor: "#fdecea",
+          borderBottom: "1px solid #f44336",
+          padding: "6px 16px",
+          textAlign: "center",
+          fontSize: 13,
+          color: "#1a1a2e",
+        }}>
+          ⏰ Tu demo gratuito ha terminado.{" "}
+          <a
+            href="https://ankode.cloud"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontWeight: 600, textDecoration: "underline", color: "inherit" }}
+          >
+            Regístrate en ankode.cloud
+          </a>
+          {" "}para continuar — toda tu información está guardada. 🔒
+        </div>
+      ) : user?.is_trial ? (
         <div style={{
           backgroundColor: (user.trial_days_remaining ?? 0) <= 2 ? "#fff3cd" : "#e8f4fd",
           borderBottom: `1px solid ${(user.trial_days_remaining ?? 0) <= 2 ? "#ffc107" : "#bee3f8"}`,
