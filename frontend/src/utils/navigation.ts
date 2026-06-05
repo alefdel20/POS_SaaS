@@ -388,17 +388,18 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
       ]
     },
     {
-      title: "Operacion",
+      title: "Operación",
       items: [
         { label: "Productos", to: "/products", roles: "all", activeMatch: ["/products"] },
-        { label: "Historial", to: "/history", roles: "all", activeMatch: ["/history"] }
+        { label: "Historial", to: "/sales-history", roles: "all", activeMatch: ["/sales-history"] }
       ]
     },
     {
-      title: "Administracion",
+      title: "Administración",
       items: [
         { label: "Configuracion", to: "/restaurant/admin", roles: "management", activeMatch: ["/restaurant/admin"] },
         { label: "Usuarios", to: "/users", roles: "users", activeMatch: ["/users"] },
+        { label: "Alertas", to: "/alertas", roles: "profile", activeMatch: ["/alertas"] },
         { label: "Perfil", to: "/profile", roles: "profile", activeMatch: ["/profile"] }
       ]
     }
