@@ -12,6 +12,7 @@ const {
 } = require("./businessSubscriptionService");
 const { loadStampsForBusiness, listStampMovementsForBusiness } = require("./stampService");
 const { seedInitialCatalogForBusiness } = require("./initialCatalogSeedService");
+const { sendTrialWelcomeEmail } = require("./emailService");
 
 function slugify(value) {
   return String(value || "")
@@ -155,6 +156,19 @@ async function createBusiness(payload, actor) {
       [business.id, actor.id]
     );
     await initializeBusinessSubscriptionForNewBusiness(business, actor.id, true, client);
+
+    const ownerEmail = payload.owner_email || payload.email || null;
+    if (ownerEmail) {
+      sendTrialWelcomeEmail(ownerEmail, {
+        businessName: business.name,
+        ownerName: payload.owner_name || payload.full_name || ownerEmail,
+        email: ownerEmail,
+        trialStartDate: new Date(),
+        trialEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      }).catch((emailError) => {
+        console.error("[BUSINESS] Failed to send trial welcome email:", emailError.message);
+      });
+    }
 
     if (payload.plan_name) {
       await client.query(

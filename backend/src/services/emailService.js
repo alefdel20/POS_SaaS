@@ -28,7 +28,7 @@ function getFrontendUrl() { return process.env.FRONTEND_URL || "http://localhost
 
 async function sendWelcomeEmail(to, data = {}) {
   console.log(`[EMAIL] Attempting to send to: ${to}`);
-  const { businessName = "", ownerName = "", email = "", tempPassword = "", planName = "", amount = "" } = data;
+  const { businessName = "", ownerName = "", email = "", planName = "", amount = "" } = data;
   const EMAIL_FROM = getEmailFrom();
   const loginUrl = `${getFrontendUrl()}/login`;
 
@@ -38,43 +38,46 @@ async function sendWelcomeEmail(to, data = {}) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>¡Tu cuenta de Ankode está lista!</title>
+  <title>¡Bienvenido a Ankode!</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
-    .container { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 8px; overflow: hidden; }
-    .header { background: #0d9488; padding: 32px 40px; }
-    .header h1 { color: #fff; margin: 0; font-size: 22px; }
-    .body { padding: 32px 40px; color: #333; font-size: 15px; line-height: 1.6; }
-    .credentials { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 16px 20px; margin: 20px 0; }
-    .credentials p { margin: 6px 0; }
-    .credentials strong { color: #0d9488; }
-    .btn { display: inline-block; margin: 24px 0 0; padding: 12px 28px; background: #0d9488; color: #fff !important; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: bold; }
-    .footer { padding: 20px 40px; font-size: 12px; color: #888; border-top: 1px solid #eee; }
+    body { font-family: Arial, sans-serif; background: #f8fafc; margin: 0; padding: 0; }
+    .container { max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+    .header { background: #7c3aed; padding: 32px 40px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 26px; letter-spacing: -0.5px; }
+    .header p { color: #ede9fe; margin: 6px 0 0; font-size: 14px; }
+    .body { padding: 32px 40px; color: #1e293b; font-size: 15px; line-height: 1.7; }
+    .card { background: #f1f5f9; border-left: 4px solid #7c3aed; border-radius: 6px; padding: 18px 22px; margin: 22px 0; }
+    .card p { margin: 6px 0; font-size: 14px; color: #1e293b; }
+    .card strong { color: #7c3aed; }
+    .btn { display: inline-block; margin: 24px 0 0; padding: 13px 32px; background: #4ade80; color: #0f172a !important; text-decoration: none; border-radius: 7px; font-size: 15px; font-weight: bold; }
+    .note { margin-top: 20px; font-size: 13px; color: #64748b; }
+    .footer { padding: 20px 40px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; text-align: center; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>¡Tu cuenta de Ankode está lista!</h1>
+      <h1>Ankode</h1>
+      <p>Sistema de punto de venta para tu negocio</p>
     </div>
     <div class="body">
-      <p>Hola <strong>${ownerName || email}</strong>,</p>
-      <p>Tu pago fue procesado correctamente y tu negocio <strong>${businessName}</strong> ya está activo en Ankode POS.</p>
-      <p>Usa las siguientes credenciales para acceder:</p>
-      <div class="credentials">
+      <p>¡Bienvenido a Ankode, <strong>${ownerName || email}</strong>!</p>
+      <p>Gracias por contratar Ankode. Tu cuenta está lista para comenzar.</p>
+      <div class="card">
         <p><strong>Negocio:</strong> ${businessName}</p>
-        <p><strong>Usuario:</strong> ${email}</p>
-        <p><strong>Contraseña temporal:</strong> ${tempPassword}</p>
+        ${planName ? `<p><strong>Plan:</strong> ${planName}</p>` : ""}
+        <p><strong>Usuario:</strong> ${email || to}</p>
+        <p><strong>Contraseña:</strong> la misma que registraste al contratar</p>
       </div>
-      <p>Te recomendamos cambiar tu contraseña después de tu primer inicio de sesión.</p>
       <a class="btn" href="${loginUrl}">Acceder a Ankode</a>
-      <p style="margin-top:24px; font-size:13px; color:#555;">
-        Si el botón no funciona, copia este enlace en tu navegador:<br />
-        <a href="${loginUrl}">${loginUrl}</a>
+      <p style="margin-top:18px; font-size:13px; color:#64748b;">
+        Si el botón no funciona, copia este enlace:<br />
+        <a href="${loginUrl}" style="color:#7c3aed;">${loginUrl}</a>
       </p>
+      <p class="note">Por seguridad, te recomendamos cambiar tu contraseña en tu primer inicio de sesión.</p>
     </div>
     <div class="footer">
-      Este correo fue generado automáticamente. Si tienes dudas, contacta a soporte@ankode.mx
+      © Ankode · ankode.cloud · contacto@ankode.cloud
     </div>
   </div>
 </body>
@@ -82,35 +85,36 @@ async function sendWelcomeEmail(to, data = {}) {
   `.trim();
 
   const text = [
-    `¡Tu cuenta de Ankode está lista!`,
+    `¡Bienvenido a Ankode, ${ownerName || email}!`,
     ``,
-    `Hola ${ownerName || email},`,
-    `Tu pago fue procesado y tu negocio "${businessName}" ya está activo.`,
+    `Gracias por contratar Ankode. Tu cuenta está lista para comenzar.`,
     ``,
-    `Credenciales de acceso:`,
-    `  Usuario: ${email}`,
-    `  Contraseña temporal: ${tempPassword}`,
+    `Datos de acceso:`,
+    `  Negocio: ${businessName}`,
+    planName ? `  Plan: ${planName}` : "",
+    `  Usuario: ${email || to}`,
+    `  Contraseña: la misma que registraste al contratar`,
     ``,
     `Accede en: ${loginUrl}`,
     ``,
-    `Te recomendamos cambiar tu contraseña tras el primer inicio de sesión.`
-  ].join("\n");
+    `Por seguridad, te recomendamos cambiar tu contraseña en tu primer inicio de sesión.`
+  ].filter((l) => l !== undefined).join("\n");
 
   try {
     const transporter = createTransporter();
     await transporter.sendMail({
       from: EMAIL_FROM,
       to,
-      subject: "¡Tu cuenta de Ankode está lista!",
+      subject: "¡Bienvenido a Ankode! Tu cuenta está lista",
       html,
       text
     });
     console.info(`[EMAIL] Welcome email sent to ${to} for business "${businessName}"`);
   } catch (error) {
-    console.error("[EMAIL] Error completo:", error);
+    console.error("[EMAIL] Error sending welcome email:", error.message);
   }
 
-  // Admin purchase notification
+  // Notificación interna de nueva compra
   try {
     const transporter = createTransporter();
     const fecha = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
@@ -130,6 +134,103 @@ async function sendWelcomeEmail(to, data = {}) {
     console.info(`[EMAIL] Admin purchase notification sent for ${to}`);
   } catch (error) {
     console.error(`[EMAIL] Failed to send admin purchase notification:`, error.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendTrialWelcomeEmail
+// Sent when a new trial business is created (authService / businessService).
+// data: { businessName, ownerName, email, trialStartDate, trialEndDate }
+// Never throws.
+// ---------------------------------------------------------------------------
+
+async function sendTrialWelcomeEmail(to, data = {}) {
+  const { businessName = "", ownerName = "", email = "", trialStartDate, trialEndDate } = data;
+  const EMAIL_FROM = getEmailFrom();
+  const loginUrl = `${getFrontendUrl()}/login`;
+
+  const fmtDate = (d) => {
+    if (!d) return "—";
+    return new Date(d).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Mexico_City" });
+  };
+
+  const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>¡Tu prueba gratuita de Ankode está activa!</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f8fafc; margin: 0; padding: 0; }
+    .container { max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+    .header { background: #7c3aed; padding: 32px 40px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 26px; letter-spacing: -0.5px; }
+    .header p { color: #ede9fe; margin: 6px 0 0; font-size: 14px; }
+    .body { padding: 32px 40px; color: #1e293b; font-size: 15px; line-height: 1.7; }
+    .card { background: #f1f5f9; border-left: 4px solid #7c3aed; border-radius: 6px; padding: 18px 22px; margin: 22px 0; }
+    .card p { margin: 6px 0; font-size: 14px; color: #1e293b; }
+    .card strong { color: #7c3aed; }
+    .btn { display: inline-block; margin: 24px 0 0; padding: 13px 32px; background: #4ade80; color: #0f172a !important; text-decoration: none; border-radius: 7px; font-size: 15px; font-weight: bold; }
+    .footer { padding: 20px 40px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Ankode</h1>
+      <p>Tu prueba gratuita está activa</p>
+    </div>
+    <div class="body">
+      <p>¡Hola, <strong>${ownerName || email}</strong>!</p>
+      <p>Tu negocio <strong>${businessName}</strong> ya está listo para usar Ankode durante tu período de prueba gratuita.</p>
+      <div class="card">
+        <p><strong>Inicio de prueba:</strong> ${fmtDate(trialStartDate)}</p>
+        <p><strong>Fin de prueba:</strong> ${fmtDate(trialEndDate)}</p>
+        <p><strong>Usuario:</strong> ${email || to}</p>
+        <p><strong>Contraseña:</strong> la misma que registraste al crear tu cuenta</p>
+      </div>
+      <p>Explora todas las funcionalidades y, si tienes dudas, escríbenos.</p>
+      <a class="btn" href="${loginUrl}">Comenzar ahora</a>
+      <p style="margin-top:18px; font-size:13px; color:#64748b;">
+        Si el botón no funciona, copia este enlace:<br />
+        <a href="${loginUrl}" style="color:#7c3aed;">${loginUrl}</a>
+      </p>
+    </div>
+    <div class="footer">
+      © Ankode · ankode.cloud · contacto@ankode.cloud
+    </div>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  const text = [
+    `¡Tu prueba gratuita de Ankode está activa!`,
+    ``,
+    `Hola ${ownerName || email},`,
+    `Tu negocio "${businessName}" ya está listo en Ankode.`,
+    ``,
+    `  Inicio de prueba: ${fmtDate(trialStartDate)}`,
+    `  Fin de prueba: ${fmtDate(trialEndDate)}`,
+    `  Usuario: ${email || to}`,
+    `  Contraseña: la misma que registraste al crear tu cuenta`,
+    ``,
+    `Accede en: ${loginUrl}`
+  ].join("\n");
+
+  try {
+    const transporter = createTransporter();
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to,
+      subject: "¡Tu prueba gratuita de Ankode está activa!",
+      html,
+      text
+    });
+    console.info(`[EMAIL] Trial welcome email sent to ${to} for business "${businessName}"`);
+  } catch (error) {
+    console.error(`[EMAIL] Failed to send trial welcome email to ${to}:`, error.message);
   }
 }
 
@@ -339,8 +440,9 @@ async function sendSpeiInstructionsEmail(to, data = {}) {
 // Never throws — email failure is logged but does not expose user existence.
 // ---------------------------------------------------------------------------
 
-async function sendPasswordResetEmail(to, resetLink) {
+async function sendPasswordResetEmail(to, resetLink, userName = "") {
   const EMAIL_FROM = getEmailFrom();
+  const greeting = userName ? `Hola, <strong>${userName}</strong>` : "Hola";
 
   const html = `
 <!DOCTYPE html>
@@ -350,33 +452,39 @@ async function sendPasswordResetEmail(to, resetLink) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Recupera tu contraseña — Ankode</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
-    .container { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 8px; overflow: hidden; }
-    .header { background: #0d9488; padding: 32px 40px; }
-    .header h1 { color: #fff; margin: 0; font-size: 22px; }
-    .body { padding: 32px 40px; color: #333; font-size: 15px; line-height: 1.6; }
-    .btn { display: inline-block; margin: 24px 0 0; padding: 12px 28px; background: #0d9488; color: #fff !important; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: bold; }
-    .note { margin-top: 20px; font-size: 13px; color: #666; }
-    .footer { padding: 20px 40px; font-size: 12px; color: #888; border-top: 1px solid #eee; }
+    body { font-family: Arial, sans-serif; background: #f8fafc; margin: 0; padding: 0; }
+    .container { max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+    .header { background: #7c3aed; padding: 32px 40px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 26px; letter-spacing: -0.5px; }
+    .header p { color: #ede9fe; margin: 6px 0 0; font-size: 14px; }
+    .body { padding: 32px 40px; color: #1e293b; font-size: 15px; line-height: 1.7; }
+    .card { background: #f1f5f9; border-left: 4px solid #7c3aed; border-radius: 6px; padding: 18px 22px; margin: 22px 0; font-size: 14px; color: #475569; }
+    .btn { display: inline-block; margin: 24px 0 0; padding: 13px 32px; background: #4ade80; color: #0f172a !important; text-decoration: none; border-radius: 7px; font-size: 15px; font-weight: bold; }
+    .note { margin-top: 20px; font-size: 13px; color: #64748b; }
+    .footer { padding: 20px 40px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; text-align: center; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>Recupera tu contraseña</h1>
+      <h1>Ankode</h1>
+      <p>Recuperación de contraseña</p>
     </div>
     <div class="body">
+      <p>${greeting},</p>
       <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en Ankode.</p>
-      <p>Haz clic en el botón para crear una nueva contraseña. El enlace es válido por <strong>1 hora</strong>.</p>
+      <div class="card">
+        El enlace es válido por <strong>1 hora</strong>. Si no lo usas, tu contraseña no cambiará.
+      </div>
       <a class="btn" href="${resetLink}">Restablecer contraseña</a>
-      <p style="margin-top:24px; font-size:13px; color:#555;">
-        Si el botón no funciona, copia este enlace en tu navegador:<br />
-        <a href="${resetLink}">${resetLink}</a>
+      <p style="margin-top:18px; font-size:13px; color:#64748b;">
+        Si el botón no funciona, copia este enlace:<br />
+        <a href="${resetLink}" style="color:#7c3aed;">${resetLink}</a>
       </p>
-      <p class="note">Si no solicitaste este cambio, ignora este correo. Tu contraseña no será modificada.</p>
+      <p class="note">Si no solicitaste este cambio, puedes ignorar este correo. Tu cuenta está segura.</p>
     </div>
     <div class="footer">
-      Este correo fue generado automáticamente. ¿Dudas? Escríbenos a soporte@ankode.mx
+      © Ankode · ankode.cloud · contacto@ankode.cloud
     </div>
   </div>
 </body>
@@ -385,12 +493,14 @@ async function sendPasswordResetEmail(to, resetLink) {
   const text = [
     `Recupera tu contraseña — Ankode`,
     ``,
-    `Recibimos una solicitud para restablecer la contraseña de tu cuenta.`,
+    userName ? `Hola, ${userName}` : "Hola",
     ``,
-    `Haz clic en el siguiente enlace (válido por 1 hora):`,
+    `Recibimos una solicitud para restablecer la contraseña de tu cuenta.`,
+    `El enlace es válido por 1 hora.`,
+    ``,
     resetLink,
     ``,
-    `Si no solicitaste este cambio, ignora este correo.`
+    `Si no solicitaste este cambio, ignora este correo. Tu cuenta está segura.`
   ].join("\n");
 
   try {
@@ -583,6 +693,7 @@ async function sendReactivationEmail(to, data = {}) {
 
 module.exports = {
   sendWelcomeEmail,
+  sendTrialWelcomeEmail,
   sendPaymentFailedEmail,
   sendPaymentConfirmationEmail,
   sendSpeiInstructionsEmail,

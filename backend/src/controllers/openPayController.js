@@ -15,7 +15,7 @@ const {
   markOnboardingFailed,
   getPendingOnboarding
 } = require("../services/paymentProvisioningService");
-const { sendPaymentConfirmationEmail, sendSpeiInstructionsEmail, sendCancellationEmail, sendReactivationEmail } = require("../services/emailService");
+const { sendWelcomeEmail, sendPaymentConfirmationEmail, sendSpeiInstructionsEmail, sendCancellationEmail, sendReactivationEmail } = require("../services/emailService");
 
 // URL for the n8n workflow that sends the welcome email after a business is provisioned.
 // Override per environment via N8N_WELCOME_EMAIL_URL.
@@ -549,16 +549,18 @@ const handleWebhook = asyncHandler(async (req, res) => {
             console.info(
               `[OPENPAY-WEBHOOK] Business provisioned for order_id=${pendingOnboarding.order_id}`
             );
+            // notifyN8nWelcomeEmail kept for reference — replaced by direct sendWelcomeEmail
             try {
-              await notifyN8nWelcomeEmail({
+              await sendWelcomeEmail(pendingOnboarding.email, {
+                ownerName: pendingOnboarding.owner_name,
+                businessName: pendingOnboarding.business_name,
                 email: pendingOnboarding.email,
-                owner_name: pendingOnboarding.owner_name,
-                business_name: pendingOnboarding.business_name,
-                frontend_url: process.env.FRONTEND_URL || ""
+                planName: pendingOnboarding.plan_name,
+                amount: pendingOnboarding.amount
               });
-            } catch (n8nError) {
+            } catch (emailError) {
               console.error(
-                "[OPENPAY-WEBHOOK] n8n welcome email notification failed:", n8nError.message
+                "[OPENPAY-WEBHOOK] Welcome email failed:", emailError.message
               );
             }
           }

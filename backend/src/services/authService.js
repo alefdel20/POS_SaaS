@@ -12,6 +12,7 @@ const {
   assertBusinessAccessAllowed,
   initializeBusinessSubscriptionForNewBusiness
 } = require("./businessSubscriptionService");
+const { sendTrialWelcomeEmail } = require("./emailService");
 
 function signToken(user, options = {}) {
   const businessId = requireActorBusinessId(user);
@@ -146,6 +147,16 @@ async function registerBusiness(payload) {
       [business.id, user.id]
     );
     await initializeBusinessSubscriptionForNewBusiness(business, user.id, true, client);
+
+    sendTrialWelcomeEmail(user.email, {
+      businessName: business.name,
+      ownerName: user.full_name || user.email,
+      email: user.email,
+      trialStartDate: new Date(),
+      trialEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    }).catch((emailError) => {
+      console.error("[AUTH] Failed to send trial welcome email:", emailError.message);
+    });
 
     await saveAuditLog({
       business_id: business.id,

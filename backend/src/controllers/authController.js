@@ -100,12 +100,13 @@ const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
 
   const { rows } = await pool.query(
-    "SELECT id FROM users WHERE email = $1 AND is_active = TRUE LIMIT 1",
+    "SELECT id, full_name FROM users WHERE email = $1 AND is_active = TRUE LIMIT 1",
     [email]
   );
 
   if (rows[0]) {
     const userId = rows[0].id;
+    const userName = rows[0].full_name || "";
     const token = randomBytes(32).toString("hex");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
@@ -117,7 +118,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
     );
 
     const resetLink = `${frontendUrl}/reset-password?token=${token}`;
-    await sendPasswordResetEmail(email, resetLink);
+    await sendPasswordResetEmail(email, resetLink, userName);
   }
 
   res.json({ message: "Si el correo existe, recibirás un enlace de recuperación." });
