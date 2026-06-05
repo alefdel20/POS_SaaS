@@ -102,6 +102,7 @@ async function ensureSchema(client) {
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS cancellation_reason TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(20) NOT NULL DEFAULT 'active'",
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP DEFAULT NULL",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMP DEFAULT NULL",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(40)",
