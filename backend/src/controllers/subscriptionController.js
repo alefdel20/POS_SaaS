@@ -127,6 +127,12 @@ const reportHourValidation = [
       }
       return true;
     }),
+  body("report_whatsapp_enabled")
+    .isBoolean()
+    .withMessage("report_whatsapp_enabled debe ser un booleano"),
+  body("report_email_enabled")
+    .isBoolean()
+    .withMessage("report_email_enabled debe ser un booleano"),
   validateRequest
 ];
 
@@ -137,13 +143,25 @@ const updateReportHour = asyncHandler(async (req, res) => {
     rawValue === null || rawValue === undefined || rawValue === ""
       ? null
       : Number(rawValue);
+  const whatsappEnabled = Boolean(req.body.report_whatsapp_enabled);
+  const emailEnabled = Boolean(req.body.report_email_enabled);
 
   await pool.query(
-    `UPDATE business_subscriptions SET report_hour = $1, updated_at = NOW() WHERE business_id = $2`,
-    [reportHour, Number(businessId)]
+    `UPDATE business_subscriptions
+     SET report_hour             = $1,
+         report_whatsapp_enabled = $2,
+         report_email_enabled    = $3,
+         updated_at              = NOW()
+     WHERE business_id = $4`,
+    [reportHour, whatsappEnabled, emailEnabled, Number(businessId)]
   );
 
-  return res.json({ success: true, report_hour: reportHour });
+  return res.json({
+    success: true,
+    report_hour: reportHour,
+    report_whatsapp_enabled: whatsappEnabled,
+    report_email_enabled: emailEnabled
+  });
 });
 
 const alertHoursValidation = [
@@ -174,6 +192,15 @@ const alertHoursValidation = [
         throw new Error("inventory_alert_hour debe ser un entero entre 0 y 23, o null");
       return true;
     }),
+  body("inventory_alert_hour_evening")
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null || value === undefined || value === "") return true;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 0 || n > 23)
+        throw new Error("inventory_alert_hour_evening debe ser un entero entre 0 y 23, o null");
+      return true;
+    }),
   validateRequest
 ];
 
@@ -183,22 +210,25 @@ const updateAlertHours = asyncHandler(async (req, res) => {
   const stockMorning = norm(req.body.stock_alert_hour_morning);
   const stockEvening = norm(req.body.stock_alert_hour_evening);
   const inventoryHour = norm(req.body.inventory_alert_hour);
+  const inventoryEveningHour = norm(req.body.inventory_alert_hour_evening);
 
   await pool.query(
     `UPDATE business_subscriptions
-     SET stock_alert_hour_morning = $1,
-         stock_alert_hour_evening = $2,
-         inventory_alert_hour     = $3,
-         updated_at               = NOW()
-     WHERE business_id = $4`,
-    [stockMorning, stockEvening, inventoryHour, Number(businessId)]
+     SET stock_alert_hour_morning    = $1,
+         stock_alert_hour_evening    = $2,
+         inventory_alert_hour        = $3,
+         inventory_alert_hour_evening = $4,
+         updated_at                  = NOW()
+     WHERE business_id = $5`,
+    [stockMorning, stockEvening, inventoryHour, inventoryEveningHour, Number(businessId)]
   );
 
   return res.json({
     success: true,
     stock_alert_hour_morning: stockMorning,
     stock_alert_hour_evening: stockEvening,
-    inventory_alert_hour: inventoryHour
+    inventory_alert_hour: inventoryHour,
+    inventory_alert_hour_evening: inventoryEveningHour
   });
 });
 

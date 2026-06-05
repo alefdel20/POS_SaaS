@@ -40,6 +40,7 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Resumen", to: "/dashboard", roles: "gerente", activeMatch: ["/dashboard"] },
   { label: "Usuarios", to: "/users", roles: "users", activeMatch: ["/users"] },
   { label: "Sucursales", to: "/branches", roles: "management", activeMatch: ["/branches", "/retail/admin/branches", "/health/admin/branches"] },
+  { label: "Alertas", to: "/alertas", roles: "profile", activeMatch: ["/alertas"] },
   { label: "Perfil", to: "/profile", roles: "profile", activeMatch: ["/profile", "/retail/admin/profile", "/health/admin/profile", "/health/doctor/profile"] }
 ];
 

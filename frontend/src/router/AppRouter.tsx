@@ -14,6 +14,7 @@ import { MedicalConsultationsPage } from "../pages/MedicalConsultationsPage";
 import { MedicalHistoryPage } from "../pages/MedicalHistoryPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { PatientsPage } from "../pages/PatientsPage";
+import { AlertsPage } from "../pages/AlertsPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { ProductsPage } from "../pages/ProductsPage";
 import { ProductUpdateRequestsPage } from "../pages/ProductUpdateRequestsPage";
@@ -122,6 +123,7 @@ export function AppRouter() {
               <Route path="/health/admin/approvals" element={<ProductUpdateRequestsPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.clinical, ...ROUTE_ROLES.gerente]} />}>
+              <Route path="/alertas" element={<AlertsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/retail/admin/profile" element={<ProfilePage />} />
               <Route path="/health/admin/profile" element={<ProfilePage />} />

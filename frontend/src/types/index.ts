@@ -88,9 +88,12 @@ export interface BusinessSubscription {
   created_at?: string;
   updated_at?: string;
   report_hour?: number | null;
+  report_whatsapp_enabled?: boolean;
+  report_email_enabled?: boolean;
   stock_alert_hour_morning?: number | null;
   stock_alert_hour_evening?: number | null;
   inventory_alert_hour?: number | null;
+  inventory_alert_hour_evening?: number | null;
   trial_days_remaining?: number | null;
   is_trial?: boolean;
   trial_ends_at?: string | null;

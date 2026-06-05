@@ -208,9 +208,12 @@ function mapBusinessSubscription(row, today = getMexicoCityDate()) {
     created_at: row.created_at,
     updated_at: row.updated_at,
     report_hour: row.report_hour ?? null,
+    report_whatsapp_enabled: row.report_whatsapp_enabled ?? true,
+    report_email_enabled: row.report_email_enabled ?? false,
     stock_alert_hour_morning: row.stock_alert_hour_morning ?? null,
     stock_alert_hour_evening: row.stock_alert_hour_evening ?? null,
     inventory_alert_hour: row.inventory_alert_hour ?? null,
+    inventory_alert_hour_evening: row.inventory_alert_hour_evening ?? null,
     ...derived,
     is_trial: derived.is_trial ?? false,
     trial_days_remaining: derived.trial_days_remaining ?? null,
@@ -383,9 +386,17 @@ async function initializeBusinessSubscriptionForNewBusiness(business, actorId, i
          trial_started_at,
          trial_ends_at,
          created_by,
-         updated_by
+         updated_by,
+         report_hour,
+         stock_alert_hour_morning,
+         stock_alert_hour_evening,
+         inventory_alert_hour,
+         inventory_alert_hour_evening,
+         report_whatsapp_enabled,
+         report_email_enabled
        )
-       VALUES ($1, 'monthly', $2, $3, 0, FALSE, 'Alta inicial del negocio - período de prueba', NOW(), NOW() + INTERVAL '7 days', $4, $4)
+       VALUES ($1, 'monthly', $2, $3, 0, FALSE, 'Alta inicial del negocio - período de prueba', NOW(), NOW() + INTERVAL '7 days', $4, $4,
+               NULL, NULL, NULL, NULL, NULL, TRUE, FALSE)
        ON CONFLICT (business_id) DO UPDATE
          SET plan_type = EXCLUDED.plan_type,
              billing_anchor_date = EXCLUDED.billing_anchor_date,
@@ -412,9 +423,17 @@ async function initializeBusinessSubscriptionForNewBusiness(business, actorId, i
          trial_started_at,
          trial_ends_at,
          created_by,
-         updated_by
+         updated_by,
+         report_hour,
+         stock_alert_hour_morning,
+         stock_alert_hour_evening,
+         inventory_alert_hour,
+         inventory_alert_hour_evening,
+         report_whatsapp_enabled,
+         report_email_enabled
        )
-       VALUES ($1, 'monthly', $2, $3, 0, TRUE, 'Alta inicial del negocio', NULL, NULL, $4, $4)
+       VALUES ($1, 'monthly', $2, $3, 0, TRUE, 'Alta inicial del negocio', NULL, NULL, $4, $4,
+               NULL, NULL, NULL, NULL, NULL, TRUE, FALSE)
        ON CONFLICT (business_id) DO UPDATE
          SET plan_type = EXCLUDED.plan_type,
              billing_anchor_date = EXCLUDED.billing_anchor_date,
