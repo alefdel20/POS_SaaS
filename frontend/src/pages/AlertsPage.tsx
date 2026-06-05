@@ -177,28 +177,23 @@ export function AlertsPage() {
             ))}
           </select>
         </label>
-        <div>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: "normal", cursor: "pointer" }}>
+        <div style={{ display: "flex", gap: "1.5rem", marginTop: "0.75rem" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
             <input
               type="checkbox"
               checked={reportWhatsappEnabled}
-              disabled={savingReportHour}
-              onChange={(event) => setReportWhatsappEnabled(event.target.checked)}
+              onChange={(e) => setReportWhatsappEnabled(e.target.checked)}
             />
             WhatsApp
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: "normal", cursor: "pointer", marginTop: "0.5rem" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
             <input
               type="checkbox"
               checked={reportEmailEnabled}
-              disabled={savingReportHour}
-              onChange={(event) => setReportEmailEnabled(event.target.checked)}
+              onChange={(e) => setReportEmailEnabled(e.target.checked)}
             />
             Correo electrónico
           </label>
-          <p className="muted" style={{ marginTop: "0.5rem", fontSize: "0.85em" }}>
-            El reporte se enviará al número y correo registrados en tu cuenta.
-          </p>
         </div>
         <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
           <button className="button" disabled={savingReportHour} onClick={saveReportConfig} type="button">
