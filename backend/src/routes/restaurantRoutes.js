@@ -9,6 +9,10 @@ const ALL_ROLES   = ["superusuario", "superadmin", "admin", "cajero", "clinico"]
 const STAFF_ROLES = ["superusuario", "superadmin", "admin", "cajero"];
 const ADMIN_ROLES = ["superusuario", "superadmin", "admin"];
 
+// ─── SSE ─────────────────────────────────────────────────────────────────────
+// Registered first — no :id param, no conflict risk
+router.get("/sse", requireRole(ALL_ROLES), controller.restaurantSSEHandler);
+
 // ─── ZONES ───────────────────────────────────────────────────────────────────
 router.get("/zones",      requireRole(ALL_ROLES),   controller.getZones);
 router.post("/zones",     requireRole(ADMIN_ROLES),  controller.zoneValidation, controller.createZone);

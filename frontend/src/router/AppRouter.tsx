@@ -32,6 +32,7 @@ import { InvoicesPage } from "../pages/InvoicesPage";
 import { RestaurantAdminPage } from "../pages/RestaurantAdminPage";
 import { RestaurantMapPage } from "../pages/RestaurantMapPage";
 import { RestaurantOrderPage } from "../pages/RestaurantOrderPage";
+import { KdsPage } from "../pages/KdsPage";
 import { ForgotPasswordPage } from "../pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 import { ROUTE_ROLES } from "../utils/roles";
@@ -179,6 +180,7 @@ export function AppRouter() {
             <Route element={<ProtectedRoute posTypes={["Restaurante"]} />}>
               <Route path="/restaurant/map" element={<RestaurantMapPage />} />
               <Route path="/restaurant/orders/:orderId" element={<RestaurantOrderPage />} />
+              <Route path="/restaurant/kds" element={<KdsPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={["superusuario", "superadmin", "admin"]} posTypes={["Restaurante"]} />}>
               <Route path="/restaurant/admin" element={<RestaurantAdminPage />} />

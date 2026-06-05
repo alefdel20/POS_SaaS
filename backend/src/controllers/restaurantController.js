@@ -2,6 +2,8 @@ const { body, param, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const restaurantService = require("../services/restaurantService");
+const pool = require("../db/pool");
+const { addClient, removeClient, emitToRoom } = require("../sse/restaurantSSE");
 
 // ─── VALIDATIONS ─────────────────────────────────────────────────────────────
 
@@ -97,9 +99,13 @@ const updateTable = asyncHandler(async (req, res) => {
 });
 
 const updateTableStatus = asyncHandler(async (req, res) => {
-  res.json(
-    await restaurantService.updateTableStatus(req.user.business_id, Number(req.params.id), req.body.status)
-  );
+  const businessId = req.user.business_id;
+  const tableId = Number(req.params.id);
+  const table = await restaurantService.updateTableStatus(businessId, tableId, req.body.status);
+  try {
+    emitToRoom(businessId, "table_updated", { tableId, status: table.status });
+  } catch (e) { console.error("[SSE emit]", e.message); }
+  res.json(table);
 });
 
 // ─── ORDER CONTROLLERS ───────────────────────────────────────────────────────
@@ -144,24 +150,59 @@ const addItemsToOrder = asyncHandler(async (req, res) => {
 });
 
 const sendItemsToKitchen = asyncHandler(async (req, res) => {
-  res.json(
-    await restaurantService.sendItemsToKitchen(
-      req.user.business_id,
-      Number(req.params.id),
-      req.body.item_ids || null
-    )
+  const businessId = req.user.business_id;
+  const orderId = Number(req.params.id);
+  const sentItems = await restaurantService.sendItemsToKitchen(
+    businessId,
+    orderId,
+    req.body.item_ids || null
   );
+  if (sentItems.length > 0) {
+    try {
+      const { rows: orderRows } = await pool.query(
+        `SELECT ro.table_id, rt.name AS table_name
+         FROM restaurant_orders ro
+         JOIN restaurant_tables rt ON rt.id = ro.table_id
+         WHERE ro.business_id = $1 AND ro.id = $2`,
+        [businessId, orderId]
+      );
+      const orderInfo = orderRows[0] || {};
+      emitToRoom(businessId, "items_sent", {
+        orderId,
+        tableId: orderInfo.table_id,
+        tableName: orderInfo.table_name,
+        items: sentItems.map(i => ({
+          id: i.id, product_name: i.product_name,
+          quantity: i.quantity, notes: i.notes, status: i.status
+        }))
+      });
+    } catch (e) { console.error("[SSE emit]", e.message); }
+  }
+  res.json(sentItems);
 });
 
 const updateItemStatus = asyncHandler(async (req, res) => {
-  res.json(
-    await restaurantService.updateItemStatus(
-      req.user.business_id,
-      Number(req.params.itemId),
-      req.body.status,
-      req.user.id
-    )
+  const businessId = req.user.business_id;
+  const itemId = Number(req.params.itemId);
+  const item = await restaurantService.updateItemStatus(
+    businessId,
+    itemId,
+    req.body.status,
+    req.user.id
   );
+  try {
+    const { rows: orderRows } = await pool.query(
+      `SELECT table_id FROM restaurant_orders WHERE business_id = $1 AND id = $2`,
+      [businessId, item.order_id]
+    );
+    emitToRoom(businessId, "item_updated", {
+      itemId,
+      status: item.status,
+      orderId: item.order_id,
+      tableId: orderRows[0]?.table_id ?? null
+    });
+  } catch (e) { console.error("[SSE emit]", e.message); }
+  res.json(item);
 });
 
 const requestBill = asyncHandler(async (req, res) => {
@@ -171,14 +212,18 @@ const requestBill = asyncHandler(async (req, res) => {
 });
 
 const closeOrder = asyncHandler(async (req, res) => {
-  res.json(
-    await restaurantService.closeOrder(
-      req.user.business_id,
-      Number(req.params.id),
-      req.body.payments,
-      req.user.id
-    )
+  const businessId = req.user.business_id;
+  const orderId = Number(req.params.id);
+  const order = await restaurantService.closeOrder(
+    businessId,
+    orderId,
+    req.body.payments,
+    req.user.id
   );
+  try {
+    emitToRoom(businessId, "order_closed", { orderId, tableId: order.table_id });
+  } catch (e) { console.error("[SSE emit]", e.message); }
+  res.json(order);
 });
 
 // ─── KDS CONTROLLERS ─────────────────────────────────────────────────────────
@@ -188,10 +233,76 @@ const getKitchenDisplay = asyncHandler(async (req, res) => {
 });
 
 const markItemPrepared = asyncHandler(async (req, res) => {
-  res.json(
-    await restaurantService.markItemPrepared(req.user.business_id, Number(req.params.itemId))
-  );
+  const businessId = req.user.business_id;
+  const itemId = Number(req.params.itemId);
+  const item = await restaurantService.markItemPrepared(businessId, itemId);
+  try {
+    const { rows: orderRows } = await pool.query(
+      `SELECT table_id FROM restaurant_orders WHERE business_id = $1 AND id = $2`,
+      [businessId, item.order_id]
+    );
+    emitToRoom(businessId, "item_updated", {
+      itemId,
+      status: item.status,
+      orderId: item.order_id,
+      tableId: orderRows[0]?.table_id ?? null
+    });
+  } catch (e) { console.error("[SSE emit]", e.message); }
+  res.json(item);
 });
+
+// ─── SSE HANDLER ─────────────────────────────────────────────────────────────
+
+async function restaurantSSEHandler(req, res) {
+  const businessId = Number(req.actor?.business_id || req.user?.business_id);
+  if (!businessId) return res.status(401).json({ error: "Sin negocio" });
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const pingInterval = setInterval(() => {
+    try { res.write(": ping\n\n"); } catch (_) { cleanup(); }
+  }, 25000);
+
+  addClient(businessId, res);
+
+  try {
+    const { rows: tables } = await pool.query(
+      `SELECT id, name, status, zone_id, capacity
+       FROM restaurant_tables
+       WHERE business_id = $1 AND is_active = TRUE
+       ORDER BY name`,
+      [businessId]
+    );
+    const { rows: pendingItems } = await pool.query(
+      `SELECT roi.id, roi.order_id, roi.product_name, roi.quantity,
+              roi.notes, roi.status, roi.sent_to_kitchen_at,
+              rt.name AS table_name, rt.id AS table_id
+       FROM restaurant_order_items roi
+       JOIN restaurant_orders ro ON ro.id = roi.order_id
+       JOIN restaurant_tables rt  ON rt.id = ro.table_id
+       WHERE ro.business_id = $1
+         AND roi.status IN ('sent', 'preparing')
+         AND ro.status = 'open'
+       ORDER BY roi.sent_to_kitchen_at ASC NULLS LAST`,
+      [businessId]
+    );
+    res.write(`data: ${JSON.stringify({ type: "init", tables, pendingItems })}\n\n`);
+  } catch (err) {
+    console.error("[SSE] Error sending init state:", err.message);
+  }
+
+  function cleanup() {
+    clearInterval(pingInterval);
+    removeClient(businessId, res);
+  }
+
+  req.on("close", cleanup);
+  req.on("error", cleanup);
+}
 
 module.exports = {
   zoneValidation,
@@ -219,4 +330,5 @@ module.exports = {
   closeOrder,
   getKitchenDisplay,
   markItemPrepared,
+  restaurantSSEHandler,
 };

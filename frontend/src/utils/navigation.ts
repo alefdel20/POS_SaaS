@@ -382,7 +382,8 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
     {
       title: "Restaurante",
       items: [
-        { label: "Mapa de Mesas", to: "/restaurant/map", roles: "all", activeMatch: ["/restaurant/map", "/restaurant/orders"] }
+        { label: "Mapa de Mesas", to: "/restaurant/map", roles: "all", activeMatch: ["/restaurant/map", "/restaurant/orders"] },
+        { label: "Cocina", to: "/restaurant/kds", roles: "all", activeMatch: ["/restaurant/kds"] }
       ]
     },
     {
