@@ -49,6 +49,7 @@ async function ensureSchema(client) {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
     "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS business_type VARCHAR(80)",
+    "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE",
     `CREATE TABLE IF NOT EXISTS branches (
       id SERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -100,6 +101,7 @@ async function ensureSchema(client) {
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP DEFAULT NULL",
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS cancellation_reason TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(20) NOT NULL DEFAULT 'active'",
+    "ALTER TABLE business_subscriptions ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP DEFAULT NULL",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_type VARCHAR(40) NOT NULL DEFAULT 'Otro'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(40)",
