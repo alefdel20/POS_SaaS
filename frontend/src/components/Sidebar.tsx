@@ -268,12 +268,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const navigate = useNavigate();
   const currentRole = user?.role;
   const canShowCreditCollections = canUseCreditCollections(user?.pos_type);
+  const canShowAlerts = user?.plan_features?.stock_alerts !== false;
   const [badges, setBadges] = useState<Record<string, number>>({});
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
   const [openContextMenuKey, setOpenContextMenuKey] = useState<string | null>(null);
   const sections = useMemo(
-    () => getSidebarSectionsForVertical(user?.pos_type, currentRole, canShowCreditCollections),
-    [canShowCreditCollections, currentRole, user?.pos_type]
+    () => getSidebarSectionsForVertical(user?.pos_type, currentRole, canShowCreditCollections, canShowAlerts),
+    [canShowAlerts, canShowCreditCollections, currentRole, user?.pos_type]
   );
 
   useEffect(() => {

@@ -108,12 +108,13 @@ function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | nu
     .filter((item) => item.to || item.children?.length);
 }
 
-function filterMenuItems(items: SidebarMenuItem[], role?: string | null, canShowCreditCollections = true): SidebarMenuItem[] {
+function filterMenuItems(items: SidebarMenuItem[], role?: string | null, canShowCreditCollections = true, canShowAlerts = true): SidebarMenuItem[] {
   return items
     .map((item) => {
-      const children = item.children ? filterMenuItems(item.children, role, canShowCreditCollections) : undefined;
+      const children = item.children ? filterMenuItems(item.children, role, canShowCreditCollections, canShowAlerts) : undefined;
       const isAllowed = isRoleAllowed(role, item.roles || "all")
-        && (item.to !== "/credit-collections" || canShowCreditCollections);
+        && (item.to !== "/credit-collections" || canShowCreditCollections)
+        && (item.to !== "/alertas" || canShowAlerts);
 
       if (children?.length) {
         return { ...item, children };
@@ -209,7 +210,7 @@ function isPharmacyPos(posType?: string | null) {
   return PHARMACY_POS_TYPES.has((posType || "Otro") as PosType);
 }
 
-export function getSidebarSectionsForVertical(posType?: string | null, role?: string | null, canShowCreditCollections = true): SidebarMenuSection[] {
+export function getSidebarSectionsForVertical(posType?: string | null, role?: string | null, canShowCreditCollections = true, canShowAlerts = true): SidebarMenuSection[] {
   const vertical = resolveBusinessVertical(posType);
   const healthAccessoriesProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/health/products/accessories/new", roles: "gerente", activeMatch: ["/health/products/accessories/new"] },
@@ -410,7 +411,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
   const filterFn = vertical === "restaurant"
     ? (section: SidebarMenuSection) => ({
       ...section,
-      items: filterMenuItems(section.items, role, canShowCreditCollections)
+      items: filterMenuItems(section.items, role, canShowCreditCollections, canShowAlerts)
     })
     : (section: SidebarMenuSection) => ({
       ...section,
