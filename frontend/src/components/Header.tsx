@@ -66,7 +66,7 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderPro
   }, [token, user?.business_id, user?.role]);
 
   return (
-    <>
+    <div className="header-wrapper">
       {user?.support_context ? (
         <div className="support-banner">
           <div className="support-banner-copy">
@@ -165,6 +165,6 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderPro
           Cerrar sesion
         </button>
       </header>
-    </>
+    </div>
   );
 }

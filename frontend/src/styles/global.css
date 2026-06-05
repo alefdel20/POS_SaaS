@@ -387,17 +387,21 @@ td {
   gap: 1rem;
 }
 
-.header {
+.header-wrapper {
   position: sticky;
   top: 0;
   z-index: 30;
+}
+
+.header {
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(18px);
   transition: transform 0.22s ease;
 }
 
-.header.header-hidden {
+.header.header-hidden,
+.header-wrapper:has(.header.header-hidden) {
   transform: translateY(-110%);
 }
 
