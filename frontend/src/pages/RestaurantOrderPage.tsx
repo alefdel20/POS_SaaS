@@ -414,7 +414,7 @@ export function RestaurantOrderPage() {
             <div className="grid-form" style={{ marginTop: "1rem" }}>
               <label>
                 Cantidad
-                <div className="quantity-control">
+                <div className="quantity-control" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <button
                     className="button ghost"
                     type="button"
