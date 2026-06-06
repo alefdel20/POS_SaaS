@@ -75,8 +75,8 @@ export function RestaurantOrderPage() {
       const qs = search.trim()
         ? `?search=${encodeURIComponent(search.trim())}&pageSize=15`
         : "?pageSize=15";
-      const data = await apiRequest<{ items: Product[] }>(`/products${qs}`, { token });
-      setProducts(data.items);
+      const data = await apiRequest<Product[] | { items: Product[] }>(`/products${qs}`, { token });
+      setProducts(Array.isArray(data) ? data : (data.items ?? []));
     } catch {
       setProducts([]);
     } finally {
