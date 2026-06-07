@@ -418,6 +418,7 @@ export function RestaurantOrderPage() {
                   <button
                     className="button ghost"
                     type="button"
+                    style={{ padding: 0 }}
                     onClick={() => setQuickAdd((q) => q && q.quantity > 1 ? { ...q, quantity: q.quantity - 1 } : q)}
                   >
                     −
@@ -432,6 +433,7 @@ export function RestaurantOrderPage() {
                   <button
                     className="button ghost"
                     type="button"
+                    style={{ padding: 0 }}
                     onClick={() => setQuickAdd((q) => q ? { ...q, quantity: q.quantity + 1 } : q)}
                   >
                     +
