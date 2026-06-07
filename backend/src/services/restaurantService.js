@@ -1,6 +1,7 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
-const { getMexicoCityDate } = require("../utils/timezone");
+const { getMexicoCityDate, getMexicoCityTime } = require("../utils/timezone");
+const { recomputeDailyCut } = require("./dailyCutService");
 
 // ─── ZONES ───────────────────────────────────────────────────────────────────
 
@@ -529,7 +530,69 @@ async function closeOrder(businessId, orderId, payments, actorId) {
       [businessId, order.table_id]
     );
 
+    // ── Registrar en sales para historial y corte diario ──
+    const saleDate = getMexicoCityDate();
+    const saleTime = getMexicoCityTime();
+    const primaryPayment = payments[0];
+
+    const { rows: saleRows } = await client.query(
+      `INSERT INTO sales (
+         user_id, business_id, payment_method, sale_type,
+         subtotal, total, total_cost,
+         customer_name, customer_phone,
+         initial_payment, balance_due,
+         notes, sale_date, sale_time, created_at,
+         status, branch_id
+       )
+       VALUES ($1, $2, $3, 'ticket', $4, $4, 0,
+               NULL, NULL, $4, 0,
+               $5, $6, $7, CURRENT_TIMESTAMP,
+               'completed', NULL)
+       RETURNING *`,
+      [
+        actorId,
+        businessId,
+        primaryPayment.payment_method,
+        orderTotal,
+        `Mesa: ${order.table_id} | Comanda: ${order.order_number}`,
+        saleDate,
+        saleTime
+      ]
+    );
+    const saleId = saleRows[0].id;
+
+    // ── Insertar sale_items desde los ítems de la comanda ──
+    const { rows: orderItems } = await client.query(
+      `SELECT product_name, product_price, quantity, product_id
+       FROM restaurant_order_items
+       WHERE business_id = $1 AND order_id = $2 AND status != 'cancelled'`,
+      [businessId, orderId]
+    );
+
+    for (const item of orderItems) {
+      await client.query(
+        `INSERT INTO sale_items
+           (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, product_name_snapshot)
+         VALUES ($1, $2, $3, $4, $5, 0, $6, $7)`,
+        [
+          saleId,
+          item.product_id || null,
+          businessId,
+          item.quantity,
+          item.product_price,
+          item.product_price * item.quantity,
+          item.product_name
+        ]
+      );
+    }
+
     await client.query("COMMIT");
+
+    // Recompute corte diario en background — no bloquea la respuesta
+    recomputeDailyCut(businessId, saleDate).catch(err =>
+      console.error("[closeOrder] recomputeDailyCut error:", err.message)
+    );
+
     return closedRows[0];
   } catch (error) {
     await client.query("ROLLBACK");
