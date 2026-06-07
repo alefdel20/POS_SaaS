@@ -437,6 +437,16 @@ async function requestBill(businessId, orderId, actorId) {
   try {
     await client.query("BEGIN");
 
+    const { rows: pendingRows } = await client.query(
+      `SELECT COUNT(*) AS cnt
+       FROM restaurant_order_items
+       WHERE business_id = $1 AND order_id = $2 AND status = 'pending'`,
+      [businessId, orderId]
+    );
+    if (Number(pendingRows[0].cnt) > 0) {
+      throw new ApiError(400, "Hay productos pendientes de enviar a cocina. Envíalos antes de pedir la cuenta.");
+    }
+
     const { rows: orderRows } = await client.query(
       `UPDATE restaurant_orders
        SET status = 'bill_requested', updated_at = NOW()
