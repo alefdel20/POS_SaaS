@@ -265,11 +265,17 @@ export function RestaurantOrderPage() {
             <button
               className="button"
               type="button"
+              disabled={orderTotal === 0}
               onClick={() => {
                 setCashReceived(0); setPayTip(0); setTipPercent(0); setTipMode("percent");
                 setShowPayModal(true);
               }}
-              style={{ background: "linear-gradient(135deg, #16a34a, #15803d)", color: "#fff" }}
+              style={{
+                background: orderTotal === 0
+                  ? "var(--surface-soft)"
+                  : "linear-gradient(135deg, #16a34a, #15803d)",
+                color: orderTotal === 0 ? "var(--muted)" : "#fff"
+              }}
             >
               Cobrar
             </button>
