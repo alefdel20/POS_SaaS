@@ -6,9 +6,18 @@ import type { RestaurantTable, RestaurantTableStatus, RestaurantZoneWithTables }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+function getMexicoOffsetMs(): number {
+  const now = new Date();
+  const utcStr = now.toLocaleString("en-US", { timeZone: "UTC" });
+  const mxStr = now.toLocaleString("en-US", { timeZone: "America/Mexico_City" });
+  return new Date(utcStr).getTime() - new Date(mxStr).getTime();
+}
+
 function elapsedMinutes(openedAt: string): number {
-  const utc = openedAt.endsWith("Z") ? openedAt : openedAt + "Z";
-  return Math.floor((Date.now() - new Date(utc).getTime()) / 60_000);
+  const clean = openedAt.replace("Z", "").replace(" ", "T");
+  const naive = new Date(clean + "Z");
+  const mexicoOffset = getMexicoOffsetMs();
+  return Math.floor((Date.now() - naive.getTime() - mexicoOffset) / 60_000);
 }
 
 function heatBorderColor(minutes: number): string {
