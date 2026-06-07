@@ -57,6 +57,9 @@ export function RestaurantOrderPage() {
   const [payTip, setPayTip] = useState<number>(0);
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState("");
+  const [cashReceived, setCashReceived] = useState<number>(0);
+  const [tipMode, setTipMode] = useState<"percent" | "fixed">("percent");
+  const [tipPercent, setTipPercent] = useState<number>(0);
 
   // ── Fetch order ──
   const loadOrder = useCallback(async () => {
@@ -147,6 +150,7 @@ export function RestaurantOrderPage() {
         method: "POST", token, body: JSON.stringify({})
       });
       await loadOrder();
+      setCashReceived(0); setPayTip(0); setTipPercent(0); setTipMode("percent");
       setShowPayModal(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al solicitar la cuenta");
@@ -167,7 +171,7 @@ export function RestaurantOrderPage() {
           payments: [{
             payment_method: payMethod,
             amount: orderTotal,
-            ...(payTip > 0 ? { tip_amount: payTip } : {})
+            ...(tipAmount > 0 ? { tip_amount: tipAmount } : {})
           }]
         })
       });
@@ -191,6 +195,11 @@ export function RestaurantOrderPage() {
   const orderTotal = (order?.items ?? [])
     .filter((i: RestaurantOrderItem) => i.status !== "cancelled")
     .reduce((sum: number, i: RestaurantOrderItem) => sum + i.product_price * i.quantity, 0);
+
+  const tipAmount = tipMode === "percent"
+    ? Math.round(orderTotal * tipPercent) / 100
+    : payTip;
+  const grandTotal = orderTotal + tipAmount;
 
   // ── Render guards ──
 
@@ -256,7 +265,10 @@ export function RestaurantOrderPage() {
             <button
               className="button"
               type="button"
-              onClick={() => setShowPayModal(true)}
+              onClick={() => {
+                setCashReceived(0); setPayTip(0); setTipPercent(0); setTipMode("percent");
+                setShowPayModal(true);
+              }}
               style={{ background: "linear-gradient(135deg, #16a34a, #15803d)", color: "#fff" }}
             >
               Cobrar
@@ -552,34 +564,131 @@ export function RestaurantOrderPage() {
                 </select>
               </label>
               <label>
-                Propina (opcional)
-                <input
-                  type="number"
-                  min={0}
-                  placeholder="$0.00"
-                  value={payTip || ""}
-                  onChange={(e) => setPayTip(Math.max(0, Number(e.target.value) || 0))}
-                />
+                Propina
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <div style={{ display: "flex", borderRadius: "10px", overflow: "hidden", border: "1px solid var(--border)", flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setTipMode("percent"); setPayTip(0); }}
+                      style={{
+                        padding: "0.45rem 0.75rem",
+                        background: tipMode === "percent" ? "var(--accent)" : "transparent",
+                        color: tipMode === "percent" ? "#fff" : "var(--muted)",
+                        border: "none", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600
+                      }}
+                    >%</button>
+                    <button
+                      type="button"
+                      onClick={() => { setTipMode("fixed"); setTipPercent(0); }}
+                      style={{
+                        padding: "0.45rem 0.75rem",
+                        background: tipMode === "fixed" ? "var(--accent)" : "transparent",
+                        color: tipMode === "fixed" ? "#fff" : "var(--muted)",
+                        border: "none", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600
+                      }}
+                    >$</button>
+                  </div>
+                  {tipMode === "percent" ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1 }}>
+                      {[10, 15, 20].map(p => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setTipPercent(tipPercent === p ? 0 : p)}
+                          style={{
+                            padding: "0.45rem 0.6rem", borderRadius: "8px",
+                            border: "1px solid var(--border)",
+                            background: tipPercent === p ? "var(--accent)" : "transparent",
+                            color: tipPercent === p ? "#fff" : "var(--muted)",
+                            cursor: "pointer", fontSize: "0.82rem", fontWeight: 600
+                          }}
+                        >{p}%</button>
+                      ))}
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        placeholder="0"
+                        value={tipPercent || ""}
+                        onChange={(e) => setTipPercent(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                        style={{ width: "60px", textAlign: "center" }}
+                      />
+                    </div>
+                  ) : (
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="$0.00"
+                      value={payTip || ""}
+                      onChange={(e) => setPayTip(Math.max(0, Number(e.target.value) || 0))}
+                      style={{ flex: 1 }}
+                    />
+                  )}
+                </div>
+                {tipAmount > 0 && (
+                  <span className="muted" style={{ fontSize: "0.78rem", marginTop: "0.25rem" }}>
+                    Propina: {formatCurrency(tipAmount)}
+                  </span>
+                )}
               </label>
             </div>
 
-            <div
-              className="total-box"
-              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}
-            >
-              <span className="muted">Total</span>
-              <span style={{ fontSize: "1.3rem", fontWeight: 700 }}>{formatCurrency(orderTotal + payTip)}</span>
+            {payMethod === "cash" && (
+              <div className="grid-form" style={{ marginTop: "0.75rem" }}>
+                <label>
+                  Dinero recibido
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder={`$${grandTotal.toFixed(2)}`}
+                    value={cashReceived || ""}
+                    onChange={(e) => setCashReceived(Math.max(0, Number(e.target.value) || 0))}
+                  />
+                </label>
+              </div>
+            )}
+
+            <div className="total-box" style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "1rem" }}>
+              {tipAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="muted" style={{ fontSize: "0.88rem" }}>Subtotal</span>
+                  <span style={{ fontSize: "0.95rem" }}>{formatCurrency(orderTotal)}</span>
+                </div>
+              )}
+              {tipAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="muted" style={{ fontSize: "0.88rem" }}>Propina</span>
+                  <span style={{ fontSize: "0.95rem" }}>{formatCurrency(tipAmount)}</span>
+                </div>
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="muted">Total</span>
+                <span style={{ fontSize: "1.3rem", fontWeight: 700 }}>{formatCurrency(grandTotal)}</span>
+              </div>
+              {payMethod === "cash" && cashReceived > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "0.35rem", borderTop: "1px solid var(--border)" }}>
+                  <span className="muted">Cambio</span>
+                  <span style={{
+                    fontSize: "1.2rem", fontWeight: 700,
+                    color: cashReceived >= grandTotal ? "#4ade80" : "var(--danger)"
+                  }}>
+                    {cashReceived >= grandTotal
+                      ? formatCurrency(cashReceived - grandTotal)
+                      : `Faltan ${formatCurrency(grandTotal - cashReceived)}`}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="inline-actions" style={{ marginTop: "1.25rem", justifyContent: "flex-end" }}>
               <button
                 className="button"
                 type="button"
-                disabled={payLoading}
+                disabled={payLoading || (payMethod === "cash" && cashReceived > 0 && cashReceived < grandTotal)}
                 onClick={handleCloseOrder}
                 style={{ background: "linear-gradient(135deg, #16a34a, #15803d)", color: "#fff" }}
               >
-                {payLoading ? "Procesando..." : `Cobrar ${formatCurrency(orderTotal + payTip)}`}
+                {payLoading ? "Procesando..." : `Cobrar ${formatCurrency(grandTotal)}`}
               </button>
               <button
                 className="button ghost"
