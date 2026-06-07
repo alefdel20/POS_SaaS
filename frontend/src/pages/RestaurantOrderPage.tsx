@@ -52,6 +52,11 @@ export function RestaurantOrderPage() {
   const [error, setError] = useState("");
   const [quickAdd, setQuickAdd] = useState<QuickAdd | null>(null);
   const [addError, setAddError] = useState("");
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payMethod, setPayMethod] = useState<"cash" | "card" | "transfer">("cash");
+  const [payTip, setPayTip] = useState<number>(0);
+  const [payLoading, setPayLoading] = useState(false);
+  const [payError, setPayError] = useState("");
 
   // ── Fetch order ──
   const loadOrder = useCallback(async () => {
@@ -139,14 +144,37 @@ export function RestaurantOrderPage() {
     setActionLoading(true);
     try {
       await apiRequest(`/restaurant/orders/${orderId}/request-bill`, {
+        method: "POST", token, body: JSON.stringify({})
+      });
+      await loadOrder();
+      setShowPayModal(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al solicitar la cuenta");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleCloseOrder() {
+    if (!token || !orderId) return;
+    setPayLoading(true);
+    setPayError("");
+    try {
+      await apiRequest(`/restaurant/orders/${orderId}/close`, {
         method: "POST",
         token,
-        body: JSON.stringify({})
+        body: JSON.stringify({
+          payments: [{
+            payment_method: payMethod,
+            amount: orderTotal,
+            ...(payTip > 0 ? { tip_amount: payTip } : {})
+          }]
+        })
       });
       navigate("/restaurant/map");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al solicitar la cuenta");
-      setActionLoading(false);
+      setPayError(err instanceof Error ? err.message : "Error al cobrar");
+      setPayLoading(false);
     }
   }
 
@@ -223,6 +251,16 @@ export function RestaurantOrderPage() {
             >
               Cuenta pedida
             </span>
+          )}
+          {order.status === "bill_requested" && canMutateOrders(user?.role) && (
+            <button
+              className="button"
+              type="button"
+              onClick={() => setShowPayModal(true)}
+              style={{ background: "linear-gradient(135deg, #16a34a, #15803d)", color: "#fff" }}
+            >
+              Cobrar
+            </button>
           )}
           {userCanMutate && order.status === "open" && (
             <button
@@ -475,6 +513,83 @@ export function RestaurantOrderPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Pay modal ── */}
+      {showPayModal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-card">
+
+            <div className="panel-header">
+              <h3 style={{ margin: 0 }}>Cobrar mesa</h3>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => { setShowPayModal(false); setPayError(""); }}
+                aria-label="Cerrar"
+                style={{ padding: "0.5rem 0.75rem" }}
+              >✕</button>
+            </div>
+
+            <p className="muted" style={{ margin: "0.5rem 0 0", fontSize: "0.88rem" }}>
+              {order.table_name ?? `Mesa ${order.table_id}`} · Comanda #{order.order_number}
+            </p>
+
+            {payError && <p className="error-text" style={{ marginTop: "0.5rem" }}>{payError}</p>}
+
+            <div className="grid-form" style={{ marginTop: "1rem" }}>
+              <label>
+                Método de pago
+                <select
+                  value={payMethod}
+                  onChange={(e) => setPayMethod(e.target.value as "cash" | "card" | "transfer")}
+                >
+                  <option value="cash">Efectivo</option>
+                  <option value="card">Tarjeta</option>
+                  <option value="transfer">Transferencia</option>
+                </select>
+              </label>
+              <label>
+                Propina (opcional)
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="$0.00"
+                  value={payTip || ""}
+                  onChange={(e) => setPayTip(Math.max(0, Number(e.target.value) || 0))}
+                />
+              </label>
+            </div>
+
+            <div
+              className="total-box"
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}
+            >
+              <span className="muted">Total</span>
+              <span style={{ fontSize: "1.3rem", fontWeight: 700 }}>{formatCurrency(orderTotal + payTip)}</span>
+            </div>
+
+            <div className="inline-actions" style={{ marginTop: "1.25rem", justifyContent: "flex-end" }}>
+              <button
+                className="button"
+                type="button"
+                disabled={payLoading}
+                onClick={handleCloseOrder}
+                style={{ background: "linear-gradient(135deg, #16a34a, #15803d)", color: "#fff" }}
+              >
+                {payLoading ? "Procesando..." : `Cobrar ${formatCurrency(orderTotal + payTip)}`}
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => { setShowPayModal(false); setPayError(""); }}
+              >
+                Cancelar
+              </button>
+            </div>
+
           </div>
         </div>
       )}
