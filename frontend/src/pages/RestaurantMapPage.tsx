@@ -7,7 +7,8 @@ import type { RestaurantTable, RestaurantTableStatus, RestaurantZoneWithTables }
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function elapsedMinutes(openedAt: string): number {
-  return Math.floor((Date.now() - new Date(openedAt).getTime()) / 60_000);
+  const utc = openedAt.endsWith("Z") ? openedAt : openedAt + "Z";
+  return Math.floor((Date.now() - new Date(utc).getTime()) / 60_000);
 }
 
 function heatBorderColor(minutes: number): string {

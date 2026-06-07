@@ -319,7 +319,8 @@ export function DailyCutPage() {
               <strong>Caja abierta</strong> — Fondo:{" "}
               <strong>{currency(cashSession.opening_amount)}</strong>
               {" | "}Abierta por: {cashSession.opened_by_name || "—"} a las{" "}
-              {new Date(cashSession.opened_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+              {new Date(cashSession.opened_at.endsWith("Z") ? cashSession.opened_at : cashSession.opened_at + "Z")
+                .toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
             </p>
           ) : (
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.75rem" }}>
