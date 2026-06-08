@@ -267,6 +267,7 @@ export function RestaurantOrderPage() {
               type="button"
               disabled={orderTotal === 0}
               onClick={() => {
+                if (orderTotal === 0) return;
                 setCashReceived(0); setPayTip(0); setTipPercent(0); setTipMode("percent");
                 setShowPayModal(true);
               }}
@@ -690,7 +691,7 @@ export function RestaurantOrderPage() {
               <button
                 className="button"
                 type="button"
-                disabled={payLoading || (payMethod === "cash" && cashReceived > 0 && cashReceived < grandTotal)}
+                disabled={payLoading || grandTotal === 0 || (payMethod === "cash" && cashReceived > 0 && cashReceived < grandTotal)}
                 onClick={handleCloseOrder}
                 style={{ background: "linear-gradient(135deg, #16a34a, #15803d)", color: "#fff" }}
               >
