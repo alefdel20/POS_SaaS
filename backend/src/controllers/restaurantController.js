@@ -231,11 +231,11 @@ const cancelOrder = asyncHandler(async (req, res) => {
   const orderId = Number(req.params.id);
 
   const { rows: orders } = await pool.query(
-    `SELECT o.id, COUNT(oi.id) AS item_count
+    `SELECT o.id, o.table_id, COUNT(oi.id) AS item_count
      FROM restaurant_orders o
      LEFT JOIN restaurant_order_items oi ON o.id = oi.order_id
      WHERE o.id = $1 AND o.business_id = $2
-     GROUP BY o.id`,
+     GROUP BY o.id, o.table_id`,
     [orderId, businessId]
   );
 
@@ -247,13 +247,22 @@ const cancelOrder = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "No se puede cancelar una orden con productos" });
   }
 
+  const tableId = orders[0].table_id;
+
   await pool.query(
     `DELETE FROM restaurant_orders WHERE id = $1 AND business_id = $2`,
     [orderId, businessId]
   );
 
+  if (tableId) {
+    await pool.query(
+      `UPDATE restaurant_tables SET status = 'available' WHERE id = $1`,
+      [tableId]
+    );
+  }
+
   try {
-    emitToRoom(businessId, "order_cancelled", { orderId });
+    emitToRoom(businessId, "order_cancelled", { orderId, tableId });
   } catch (e) { console.error("[SSE emit]", e.message); }
 
   res.json({ success: true });
