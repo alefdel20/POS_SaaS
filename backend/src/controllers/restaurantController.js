@@ -226,6 +226,39 @@ const closeOrder = asyncHandler(async (req, res) => {
   res.json(order);
 });
 
+const cancelOrder = asyncHandler(async (req, res) => {
+  const businessId = req.user.business_id;
+  const orderId = Number(req.params.id);
+
+  const { rows: orders } = await pool.query(
+    `SELECT o.id, COUNT(oi.id) AS item_count
+     FROM restaurant_orders o
+     LEFT JOIN restaurant_order_items oi ON o.id = oi.order_id
+     WHERE o.id = $1 AND o.business_id = $2
+     GROUP BY o.id`,
+    [orderId, businessId]
+  );
+
+  if (orders.length === 0) {
+    return res.status(404).json({ error: "Orden no encontrada" });
+  }
+
+  if (Number(orders[0].item_count) > 0) {
+    return res.status(400).json({ error: "No se puede cancelar una orden con productos" });
+  }
+
+  await pool.query(
+    `DELETE FROM restaurant_orders WHERE id = $1 AND business_id = $2`,
+    [orderId, businessId]
+  );
+
+  try {
+    emitToRoom(businessId, "order_cancelled", { orderId });
+  } catch (e) { console.error("[SSE emit]", e.message); }
+
+  res.json({ success: true });
+});
+
 // ─── KDS CONTROLLERS ─────────────────────────────────────────────────────────
 
 const getKitchenDisplay = asyncHandler(async (req, res) => {
@@ -328,6 +361,7 @@ module.exports = {
   updateItemStatus,
   requestBill,
   closeOrder,
+  cancelOrder,
   getKitchenDisplay,
   markItemPrepared,
   restaurantSSEHandler,

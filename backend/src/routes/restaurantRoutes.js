@@ -41,6 +41,7 @@ router.post("/orders/:id/send-to-kitchen", requireRole(STAFF_ROLES), controller.
 router.patch("/orders/:id/items/:itemId/status", requireRole(STAFF_ROLES), controller.updateItemStatus);
 router.post("/orders/:id/request-bill",   requireRole(STAFF_ROLES), controller.requestBill);
 router.post("/orders/:id/close",          requireRole(STAFF_ROLES), controller.closeOrderValidation, controller.closeOrder);
+router.delete("/orders/:id",              requireRole(STAFF_ROLES), controller.cancelOrder);
 
 // ─── KDS ─────────────────────────────────────────────────────────────────────
 router.get("/kds",                          requireRole(ALL_ROLES),   controller.getKitchenDisplay);

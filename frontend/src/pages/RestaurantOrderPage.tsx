@@ -144,6 +144,10 @@ export function RestaurantOrderPage() {
 
   async function handleRequestBill() {
     if (!token || !orderId) return;
+    if (!order?.items || order.items.length === 0) {
+      setError("Debes agregar al menos 1 producto para pedir la cuenta");
+      return;
+    }
     setActionLoading(true);
     try {
       await apiRequest(`/restaurant/orders/${orderId}/request-bill`, {
@@ -159,8 +163,25 @@ export function RestaurantOrderPage() {
     }
   }
 
+  async function handleCancelOrder() {
+    if (!token || !orderId) return;
+    if (!window.confirm("¿Estás seguro de que deseas cancelar esta orden?")) return;
+    setActionLoading(true);
+    try {
+      await apiRequest(`/restaurant/orders/${orderId}`, { method: "DELETE", token });
+      navigate("/restaurant/map");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al cancelar la orden");
+      setActionLoading(false);
+    }
+  }
+
   async function handleCloseOrder() {
     if (!token || !orderId) return;
+    if (grandTotal <= 0) {
+      setPayError("No se puede cobrar $0.00. Agrega productos o cancela la orden.");
+      return;
+    }
     setPayLoading(true);
     setPayError("");
     try {
@@ -282,18 +303,31 @@ export function RestaurantOrderPage() {
             </button>
           )}
           {userCanMutate && order.status === "open" && (
-            <button
-              className="button"
-              type="button"
-              disabled={actionLoading}
-              onClick={handleRequestBill}
-              style={{
-                background: "linear-gradient(135deg, var(--danger), #c0392b)",
-                color: "#fff"
-              }}
-            >
-              {actionLoading ? "..." : "Pedir cuenta"}
-            </button>
+            <>
+              <button
+                className="button"
+                type="button"
+                disabled={actionLoading}
+                onClick={handleRequestBill}
+                style={{
+                  background: "linear-gradient(135deg, var(--danger), #c0392b)",
+                  color: "#fff"
+                }}
+              >
+                {actionLoading ? "..." : "Pedir cuenta"}
+              </button>
+              {(order.items ?? []).length === 0 && (
+                <button
+                  className="button ghost"
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={handleCancelOrder}
+                  style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
+                >
+                  Cancelar orden
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
