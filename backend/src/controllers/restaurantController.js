@@ -334,19 +334,8 @@ async function restaurantSSEHandler(req, res) {
        ORDER BY name`,
       [businessId]
     );
-    const { rows: pendingItems } = await pool.query(
-      `SELECT roi.id, roi.order_id, roi.product_name, roi.quantity,
-              roi.notes, roi.status, roi.sent_to_kitchen_at,
-              rt.name AS table_name, rt.id AS table_id
-       FROM restaurant_order_items roi
-       JOIN restaurant_orders ro ON ro.id = roi.order_id
-       JOIN restaurant_tables rt  ON rt.id = ro.table_id
-       WHERE ro.business_id = $1
-         AND roi.status IN ('sent', 'preparing')
-         AND ro.status = 'open'
-       ORDER BY roi.sent_to_kitchen_at ASC NULLS LAST`,
-      [businessId]
-    );
+    const kdsOrders = await restaurantService.getKitchenDisplay(businessId);
+    const pendingItems = kdsOrders.flatMap(o => o.items || []);
     res.write(`data: ${JSON.stringify({ type: "init", tables, pendingItems })}\n\n`);
   } catch (err) {
     console.error("[SSE] Error sending init state:", err.message);
