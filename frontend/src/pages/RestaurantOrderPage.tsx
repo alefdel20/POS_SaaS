@@ -52,6 +52,9 @@ interface SplitPart {
   itemIds: number[];
   paid: boolean;
   cashReceived: string;
+  tipMode: "percent" | "fixed";
+  tipInput: string;
+  tipAmount: number;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -303,15 +306,22 @@ export function RestaurantOrderPage() {
           itemIds: [],
           paid: false,
           cashReceived: "",
+          tipMode: "percent" as const,
+          tipInput: "",
+          tipAmount: 0,
         }))
       );
     } else {
       setSplitParts([
-        { id: 1, method: "cash", amount: 0, itemIds: [], paid: false, cashReceived: "" },
-        { id: 2, method: "cash", amount: 0, itemIds: [], paid: false, cashReceived: "" },
+        { id: 1, method: "cash", amount: 0, itemIds: [], paid: false, cashReceived: "", tipMode: "percent", tipInput: "", tipAmount: 0 },
+        { id: 2, method: "cash", amount: 0, itemIds: [], paid: false, cashReceived: "", tipMode: "percent", tipInput: "", tipAmount: 0 },
       ]);
     }
     setSplitStep("pay");
+  }
+
+  function calcPartTotal(part: SplitPart): number {
+    return parseFloat((part.amount + part.tipAmount).toFixed(2));
   }
 
   function calcPartAmount(itemIds: number[]): number {
@@ -342,8 +352,9 @@ export function RestaurantOrderPage() {
     const part = splitParts.find((p) => p.id === partId);
     if (!part) return;
 
-    if (part.method === "cash" && (!part.cashReceived || Number(part.cashReceived) < part.amount)) {
-      setSplitError(`Persona ${partId}: ingresa el efectivo recibido (mínimo $${part.amount.toFixed(2)})`);
+    const partTotal = calcPartTotal(part);
+    if (part.method === "cash" && (!part.cashReceived || Number(part.cashReceived) < partTotal)) {
+      setSplitError(`Persona ${partId}: ingresa el efectivo recibido (mínimo $${partTotal.toFixed(2)})`);
       return;
     }
 
@@ -362,6 +373,7 @@ export function RestaurantOrderPage() {
           amount: part.amount,
           method: part.method,
           item_ids: part.itemIds,
+          tip: part.tipAmount,
         }),
       });
 
@@ -1030,7 +1042,14 @@ export function RestaurantOrderPage() {
                         Persona {part.id}
                         {part.paid && <span style={{ color: "#4ade80", marginLeft: "6px" }}>✓ Pagado</span>}
                       </strong>
-                      <span style={{ fontWeight: 700 }}>{formatCurrency(part.amount)}</span>
+                      <span style={{ fontWeight: 700 }}>
+                        {formatCurrency(calcPartTotal(part))}
+                        {part.tipAmount > 0 && (
+                          <span className="muted" style={{ fontSize: "0.75rem", fontWeight: 400, marginLeft: "4px" }}>
+                            (incl. propina)
+                          </span>
+                        )}
+                      </span>
                     </div>
 
                     {!part.paid && (
@@ -1053,6 +1072,95 @@ export function RestaurantOrderPage() {
                           <option value="transfer">Transferencia</option>
                         </select>
 
+                        {/* ── Propina ── */}
+                        <div style={{ marginBottom: "0.5rem" }}>
+                          <p style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                            Propina (opcional)
+                          </p>
+                          <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", alignItems: "center" }}>
+                            <button
+                              type="button"
+                              className={part.tipMode === "percent" ? "button" : "button ghost"}
+                              style={{ padding: "0.3rem 0.55rem", fontSize: "0.8rem" }}
+                              onClick={() =>
+                                setSplitParts((prev) =>
+                                  prev.map((p) =>
+                                    p.id === part.id
+                                      ? { ...p, tipMode: "percent", tipInput: "", tipAmount: 0 }
+                                      : p
+                                  )
+                                )
+                              }
+                            >%</button>
+                            <button
+                              type="button"
+                              className={part.tipMode === "fixed" ? "button" : "button ghost"}
+                              style={{ padding: "0.3rem 0.55rem", fontSize: "0.8rem" }}
+                              onClick={() =>
+                                setSplitParts((prev) =>
+                                  prev.map((p) =>
+                                    p.id === part.id
+                                      ? { ...p, tipMode: "fixed", tipInput: "", tipAmount: 0 }
+                                      : p
+                                  )
+                                )
+                              }
+                            >$</button>
+                            {part.tipMode === "percent" && [10, 15, 20].map((pct) => (
+                              <button
+                                key={pct}
+                                type="button"
+                                className={part.tipInput === String(pct) ? "button" : "button ghost"}
+                                style={{ padding: "0.3rem 0.55rem", fontSize: "0.8rem" }}
+                                onClick={() => {
+                                  const isActive = part.tipInput === String(pct);
+                                  const newInput = isActive ? "" : String(pct);
+                                  const newTip = isActive ? 0 : parseFloat(((part.amount * pct) / 100).toFixed(2));
+                                  setSplitParts((prev) =>
+                                    prev.map((p) =>
+                                      p.id === part.id
+                                        ? { ...p, tipInput: newInput, tipAmount: newTip }
+                                        : p
+                                    )
+                                  );
+                                }}
+                              >
+                                {pct}%
+                              </button>
+                            ))}
+                            <input
+                              type="number"
+                              min={0}
+                              step={part.tipMode === "percent" ? "1" : "0.01"}
+                              placeholder={part.tipMode === "percent" ? "7%" : "$0.00"}
+                              value={part.tipInput}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const num = parseFloat(val) || 0;
+                                const newTip =
+                                  part.tipMode === "percent"
+                                    ? parseFloat(((part.amount * num) / 100).toFixed(2))
+                                    : parseFloat(num.toFixed(2));
+                                setSplitParts((prev) =>
+                                  prev.map((p) =>
+                                    p.id === part.id
+                                      ? { ...p, tipInput: val, tipAmount: newTip }
+                                      : p
+                                  )
+                                );
+                              }}
+                              style={{ width: "90px", padding: "0.3rem 0.5rem", fontSize: "0.82rem" }}
+                            />
+                          </div>
+                          {part.tipAmount > 0 && (
+                            <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.3rem", marginBottom: 0 }}>
+                              ${part.amount.toFixed(2)} + ${part.tipAmount.toFixed(2)} propina
+                              {" = "}
+                              <strong style={{ color: "var(--text)" }}>${calcPartTotal(part).toFixed(2)}</strong>
+                            </p>
+                          )}
+                        </div>
+
                         {part.method === "cash" && (
                           <div style={{ marginBottom: "0.5rem" }}>
                             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -1060,7 +1168,7 @@ export function RestaurantOrderPage() {
                                 type="number"
                                 min={0}
                                 step="0.01"
-                                placeholder={`Mínimo $${part.amount.toFixed(2)}`}
+                                placeholder={`Mínimo $${calcPartTotal(part).toFixed(2)}`}
                                 value={part.cashReceived}
                                 onChange={(e) =>
                                   setSplitParts((prev) =>
@@ -1140,7 +1248,7 @@ export function RestaurantOrderPage() {
                           onClick={() => handlePaySplitPart(part.id)}
                           style={{ width: "100%", background: "linear-gradient(135deg, #16a34a, #15803d)", color: "#fff" }}
                         >
-                          {splitLoading ? "Procesando..." : `Cobrar $${part.amount.toFixed(2)}`}
+                          {splitLoading ? "Procesando..." : `Cobrar $${calcPartTotal(part).toFixed(2)}`}
                         </button>
                       </>
                     )}
