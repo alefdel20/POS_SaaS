@@ -70,7 +70,8 @@ export function RestaurantOrderPage() {
   const [payTip, setPayTip] = useState<number>(0);
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState("");
-  const [cashReceived, setCashReceived] = useState<number>(0);
+  const [cashReceived, setCashReceived] = useState("");
+  const [showNumpad, setShowNumpad] = useState(false);
   const [tipMode, setTipMode] = useState<"percent" | "fixed">("percent");
   const [tipPercent, setTipPercent] = useState<number>(0);
 
@@ -221,7 +222,7 @@ export function RestaurantOrderPage() {
         method: "POST", token, body: JSON.stringify({})
       });
       await loadOrder();
-      setCashReceived(0); setPayTip(0); setTipPercent(0); setTipMode("percent");
+      setCashReceived(""); setPayTip(0); setTipPercent(0); setTipMode("percent"); setShowNumpad(false);
       setShowPayModal(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al solicitar la cuenta");
@@ -247,6 +248,10 @@ export function RestaurantOrderPage() {
     if (!token || !orderId) return;
     if (grandTotal <= 0) {
       setPayError("No se puede cobrar $0.00. Agrega productos o cancela la orden.");
+      return;
+    }
+    if (payMethod === "cash" && (!cashReceived || Number(cashReceived) <= 0)) {
+      setPayError("Ingresa el dinero recibido antes de cobrar.");
       return;
     }
     setPayLoading(true);
@@ -356,7 +361,7 @@ export function RestaurantOrderPage() {
               disabled={orderTotal === 0}
               onClick={() => {
                 if (orderTotal === 0) return;
-                setCashReceived(0); setPayTip(0); setTipPercent(0); setTipMode("percent");
+                setCashReceived(""); setPayTip(0); setTipPercent(0); setTipMode("percent"); setShowNumpad(false);
                 setShowPayModal(true);
               }}
               style={{
@@ -851,16 +856,63 @@ export function RestaurantOrderPage() {
 
             {payMethod === "cash" && (
               <div className="grid-form" style={{ marginTop: "0.75rem" }}>
-                <label>
-                  Dinero recibido
+                <label>Dinero recibido</label>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                   <input
                     type="number"
                     min={0}
                     placeholder={`$${grandTotal.toFixed(2)}`}
-                    value={cashReceived || ""}
-                    onChange={(e) => setCashReceived(Math.max(0, Number(e.target.value) || 0))}
+                    value={cashReceived}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "" || (/^\d*\.?\d{0,2}$/).test(val)) setCashReceived(val);
+                    }}
+                    style={{ flex: 1 }}
                   />
-                </label>
+                  <button
+                    type="button"
+                    className="button ghost"
+                    onClick={() => setShowNumpad((v) => !v)}
+                    style={{ padding: "0.55rem 0.75rem", fontSize: "1rem" }}
+                    aria-label="Teclado numérico"
+                  >
+                    🔢
+                  </button>
+                </div>
+                {showNumpad && (
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(3, 1fr)",
+                    gap: "0.4rem",
+                    marginTop: "0.6rem"
+                  }}>
+                    {["1","2","3","4","5","6","7","8","9",".","0","⌫"].map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className="button ghost"
+                        onClick={() => {
+                          if (key === "⌫") {
+                            setCashReceived((prev) => prev.slice(0, -1));
+                          } else if (key === ".") {
+                            if (!cashReceived.includes(".")) setCashReceived((prev) => prev + ".");
+                          } else {
+                            const next = cashReceived + key;
+                            if ((/^\d*\.?\d{0,2}$/).test(next)) setCashReceived(next);
+                          }
+                        }}
+                        style={{
+                          padding: "0.75rem",
+                          fontSize: "1.1rem",
+                          fontWeight: key === "⌫" ? 700 : 400,
+                          textAlign: "center"
+                        }}
+                      >
+                        {key}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -881,16 +933,16 @@ export function RestaurantOrderPage() {
                 <span className="muted">Total</span>
                 <span style={{ fontSize: "1.3rem", fontWeight: 700 }}>{formatCurrency(grandTotal)}</span>
               </div>
-              {payMethod === "cash" && cashReceived > 0 && (
+              {payMethod === "cash" && Number(cashReceived) > 0 && (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "0.35rem", borderTop: "1px solid var(--border)" }}>
                   <span className="muted">Cambio</span>
                   <span style={{
                     fontSize: "1.2rem", fontWeight: 700,
-                    color: cashReceived >= grandTotal ? "#4ade80" : "var(--danger)"
+                    color: Number(cashReceived) >= grandTotal ? "#4ade80" : "var(--danger)"
                   }}>
-                    {cashReceived >= grandTotal
-                      ? formatCurrency(cashReceived - grandTotal)
-                      : `Faltan ${formatCurrency(grandTotal - cashReceived)}`}
+                    {Number(cashReceived) >= grandTotal
+                      ? formatCurrency(Number(cashReceived) - grandTotal)
+                      : `Faltan ${formatCurrency(grandTotal - Number(cashReceived))}`}
                   </span>
                 </div>
               )}
@@ -900,7 +952,7 @@ export function RestaurantOrderPage() {
               <button
                 className="button"
                 type="button"
-                disabled={payLoading || grandTotal === 0 || (payMethod === "cash" && cashReceived > 0 && cashReceived < grandTotal)}
+                disabled={payLoading || grandTotal === 0 || (payMethod === "cash" && Number(cashReceived) > 0 && Number(cashReceived) < grandTotal)}
                 onClick={handleCloseOrder}
                 style={{ background: "linear-gradient(135deg, #16a34a, #15803d)", color: "#fff" }}
               >
