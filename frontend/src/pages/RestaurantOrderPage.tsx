@@ -88,6 +88,7 @@ export function RestaurantOrderPage() {
   const [showNumpad, setShowNumpad] = useState(false);
   const [tipMode, setTipMode] = useState<"percent" | "fixed">("percent");
   const [tipPercent, setTipPercent] = useState<number>(0);
+  const [tipInputValue, setTipInputValue] = useState("");
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [splitMode, setSplitMode] = useState<SplitMode>("equal");
   const [splitParts, setSplitParts] = useState<SplitPart[]>([]);
@@ -502,7 +503,7 @@ export function RestaurantOrderPage() {
                 disabled={orderTotal === 0}
                 onClick={() => {
                   if (orderTotal === 0) return;
-                  setCashReceived(""); setPayTip(0); setTipPercent(0); setTipMode("percent"); setShowNumpad(false);
+                  setCashReceived(""); setPayTip(0); setTipPercent(0); setTipMode("percent"); setTipInputValue(""); setShowNumpad(false);
                   setShowPayModal(true);
                 }}
                 style={{
@@ -1274,7 +1275,7 @@ export function RestaurantOrderPage() {
               <button
                 className="button ghost"
                 type="button"
-                onClick={() => { setShowPayModal(false); setPayError(""); }}
+                onClick={() => { setShowPayModal(false); setPayError(""); setTipInputValue(""); }}
                 aria-label="Cerrar"
                 style={{ padding: "0.5rem 0.75rem" }}
               >✕</button>
@@ -1300,11 +1301,11 @@ export function RestaurantOrderPage() {
               </label>
               <label>
                 Propina
-                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
                   <div style={{ display: "flex", borderRadius: "10px", overflow: "hidden", border: "1px solid var(--border)", flexShrink: 0 }}>
                     <button
                       type="button"
-                      onClick={() => { setTipMode("percent"); setPayTip(0); }}
+                      onClick={() => { setTipMode("percent"); setPayTip(0); setTipInputValue(""); }}
                       style={{
                         padding: "0.45rem 0.75rem",
                         background: tipMode === "percent" ? "var(--accent)" : "transparent",
@@ -1314,7 +1315,7 @@ export function RestaurantOrderPage() {
                     >%</button>
                     <button
                       type="button"
-                      onClick={() => { setTipMode("fixed"); setTipPercent(0); }}
+                      onClick={() => { setTipMode("fixed"); setTipPercent(0); setTipInputValue(""); }}
                       style={{
                         padding: "0.45rem 0.75rem",
                         background: tipMode === "fixed" ? "var(--accent)" : "transparent",
@@ -1323,42 +1324,43 @@ export function RestaurantOrderPage() {
                       }}
                     >$</button>
                   </div>
-                  {tipMode === "percent" ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1 }}>
-                      {[10, 15, 20].map(p => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setTipPercent(tipPercent === p ? 0 : p)}
-                          style={{
-                            padding: "0.45rem 0.6rem", borderRadius: "8px",
-                            border: "1px solid var(--border)",
-                            background: tipPercent === p ? "var(--accent)" : "transparent",
-                            color: tipPercent === p ? "#fff" : "var(--muted)",
-                            cursor: "pointer", fontSize: "0.82rem", fontWeight: 600
-                          }}
-                        >{p}%</button>
-                      ))}
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        placeholder="0"
-                        value={tipPercent || ""}
-                        onChange={(e) => setTipPercent(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
-                        style={{ width: "60px", textAlign: "center" }}
-                      />
-                    </div>
-                  ) : (
-                    <input
-                      type="number"
-                      min={0}
-                      placeholder="$0.00"
-                      value={payTip || ""}
-                      onChange={(e) => setPayTip(Math.max(0, Number(e.target.value) || 0))}
-                      style={{ flex: 1 }}
-                    />
-                  )}
+                  {tipMode === "percent" && [10, 15, 20].map(p => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => {
+                        const isActive = tipInputValue === String(p);
+                        const newVal = isActive ? "" : String(p);
+                        setTipInputValue(newVal);
+                        setTipPercent(isActive ? 0 : p);
+                      }}
+                      style={{
+                        padding: "0.45rem 0.6rem", borderRadius: "8px",
+                        border: "1px solid var(--border)",
+                        background: tipInputValue === String(p) ? "var(--accent)" : "transparent",
+                        color: tipInputValue === String(p) ? "#fff" : "var(--muted)",
+                        cursor: "pointer", fontSize: "0.82rem", fontWeight: 600, flexShrink: 0
+                      }}
+                    >{p}%</button>
+                  ))}
+                  <input
+                    type="number"
+                    min={0}
+                    step={tipMode === "percent" ? "1" : "0.01"}
+                    placeholder={tipMode === "percent" ? "7%" : "$0.00"}
+                    value={tipInputValue}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const num = parseFloat(val) || 0;
+                      setTipInputValue(val);
+                      if (tipMode === "percent") {
+                        setTipPercent(Math.max(0, num));
+                      } else {
+                        setPayTip(Math.max(0, num));
+                      }
+                    }}
+                    style={{ width: "80px", textAlign: "center" }}
+                  />
                 </div>
                 {tipAmount > 0 && (
                   <span className="muted" style={{ fontSize: "0.78rem", marginTop: "0.25rem" }}>
@@ -1475,7 +1477,7 @@ export function RestaurantOrderPage() {
               <button
                 className="button ghost"
                 type="button"
-                onClick={() => { setShowPayModal(false); setPayError(""); }}
+                onClick={() => { setShowPayModal(false); setPayError(""); setTipInputValue(""); }}
               >
                 Cancelar
               </button>
