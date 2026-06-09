@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 
+interface KdsModifier {
+  name: string;
+  price_delta: number;
+}
+
 interface KdsItem {
   id: number;
   order_id: number;
@@ -11,6 +16,7 @@ interface KdsItem {
   sent_to_kitchen_at?: string | null;
   table_name: string;
   table_id: number;
+  modifiers?: KdsModifier[];
 }
 
 interface KdsTable {
@@ -225,6 +231,25 @@ export function KdsPage() {
                       <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
                         {item.quantity}× {item.product_name}
                       </div>
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.25rem" }}>
+                          {item.modifiers.map((m, i) => (
+                            <span
+                              key={i}
+                              style={{
+                                fontSize: "0.78rem",
+                                background: "rgba(251,191,36,0.15)",
+                                color: "#fbbf24",
+                                borderRadius: "6px",
+                                padding: "0.15rem 0.45rem",
+                                border: "1px solid rgba(251,191,36,0.3)"
+                              }}
+                            >
+                              {m.name}{Number(m.price_delta) > 0 ? ` +$${Number(m.price_delta).toFixed(2)}` : ""}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {item.notes && (
                         <div
                           style={{ fontSize: "0.8rem", color: "#f59e0b", marginTop: "0.2rem" }}

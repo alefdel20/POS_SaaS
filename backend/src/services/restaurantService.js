@@ -663,7 +663,24 @@ async function getKitchenDisplay(businessId) {
             o.notes        AS order_notes,
             t.name         AS table_name,
             z.name         AS zone_name,
-            json_agg(i ORDER BY i.sent_to_kitchen_at ASC NULLS LAST) AS items
+            json_agg(
+              json_build_object(
+                'id',                 i.id,
+                'order_id',           i.order_id,
+                'product_name',       i.product_name,
+                'quantity',           i.quantity,
+                'notes',              i.notes,
+                'status',             i.status,
+                'sent_to_kitchen_at', i.sent_to_kitchen_at,
+                'table_name',         t.name,
+                'table_id',           o.table_id,
+                'modifiers', COALESCE(
+                  (SELECT json_agg(json_build_object('name', oim.name, 'price_delta', oim.price_delta))
+                   FROM restaurant_order_item_modifiers oim WHERE oim.order_item_id = i.id),
+                  '[]'::json
+                )
+              ) ORDER BY i.sent_to_kitchen_at ASC NULLS LAST
+            ) AS items
      FROM restaurant_order_items i
      JOIN restaurant_orders o
        ON o.id = i.order_id AND o.business_id = i.business_id

@@ -167,13 +167,28 @@ const sendItemsToKitchen = asyncHandler(async (req, res) => {
         [businessId, orderId]
       );
       const orderInfo = orderRows[0] || {};
+
+      const sentItemIds = sentItems.map(i => i.id);
+      const { rows: modRows } = await pool.query(
+        `SELECT order_item_id, name, price_delta
+         FROM restaurant_order_item_modifiers
+         WHERE order_item_id = ANY($1::int[])`,
+        [sentItemIds]
+      );
+      const modsByItem: Record<number, { name: string; price_delta: number }[]> = {};
+      for (const m of modRows) {
+        if (!modsByItem[m.order_item_id]) modsByItem[m.order_item_id] = [];
+        modsByItem[m.order_item_id].push({ name: m.name, price_delta: m.price_delta });
+      }
+
       emitToRoom(businessId, "items_sent", {
         orderId,
         tableId: orderInfo.table_id,
         tableName: orderInfo.table_name,
         items: sentItems.map(i => ({
           id: i.id, product_name: i.product_name,
-          quantity: i.quantity, notes: i.notes, status: i.status
+          quantity: i.quantity, notes: i.notes, status: i.status,
+          modifiers: modsByItem[i.id] || []
         }))
       });
     } catch (e) { console.error("[SSE emit]", e.message); }
