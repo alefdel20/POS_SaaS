@@ -92,6 +92,7 @@ export function RestaurantOrderPage() {
   const [splitLoading, setSplitLoading] = useState(false);
   const [splitError, setSplitError] = useState("");
   const [splitStep, setSplitStep] = useState<"config" | "pay">("config");
+  const [splitNumpadOpen, setSplitNumpadOpen] = useState<number | null>(null);
 
   // ── Fetch order ──
   const loadOrder = useCallback(async () => {
@@ -385,6 +386,7 @@ export function RestaurantOrderPage() {
     setSplitDiners(2);
     setSplitMode("equal");
     setSplitError("");
+    setSplitNumpadOpen(null);
   }
 
   // ── Derived state ──
@@ -1052,21 +1054,83 @@ export function RestaurantOrderPage() {
                         </select>
 
                         {part.method === "cash" && (
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            placeholder={`Mínimo $${part.amount.toFixed(2)}`}
-                            value={part.cashReceived}
-                            onChange={(e) =>
-                              setSplitParts((prev) =>
-                                prev.map((p) =>
-                                  p.id === part.id ? { ...p, cashReceived: e.target.value } : p
-                                )
-                              )
-                            }
-                            style={{ width: "100%", marginBottom: "0.5rem" }}
-                          />
+                          <div style={{ marginBottom: "0.5rem" }}>
+                            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                placeholder={`Mínimo $${part.amount.toFixed(2)}`}
+                                value={part.cashReceived}
+                                onChange={(e) =>
+                                  setSplitParts((prev) =>
+                                    prev.map((p) =>
+                                      p.id === part.id ? { ...p, cashReceived: e.target.value } : p
+                                    )
+                                  )
+                                }
+                                onFocus={() => setSplitNumpadOpen(null)}
+                                style={{ flex: 1 }}
+                              />
+                              <button
+                                type="button"
+                                className="button ghost"
+                                onClick={() =>
+                                  setSplitNumpadOpen((prev) => (prev === part.id ? null : part.id))
+                                }
+                                style={{ padding: "0.55rem 0.75rem", fontSize: "1rem", flexShrink: 0 }}
+                                aria-label="Teclado numérico"
+                              >
+                                🔢
+                              </button>
+                            </div>
+
+                            {splitNumpadOpen === part.id && (
+                              <div style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(3, 1fr)",
+                                gap: "0.4rem",
+                                marginTop: "0.6rem"
+                              }}>
+                                {["1","2","3","4","5","6","7","8","9",".","0","⌫"].map((key) => (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    className="button ghost"
+                                    onClick={() => {
+                                      setSplitParts((prev) =>
+                                        prev.map((p) => {
+                                          if (p.id !== part.id) return p;
+                                          let next: string;
+                                          if (key === "⌫") {
+                                            next = p.cashReceived.slice(0, -1);
+                                          } else if (key === ".") {
+                                            next = p.cashReceived.includes(".")
+                                              ? p.cashReceived
+                                              : p.cashReceived + ".";
+                                          } else {
+                                            const candidate = p.cashReceived + key;
+                                            next = /^\d*\.?\d{0,2}$/.test(candidate)
+                                              ? candidate
+                                              : p.cashReceived;
+                                          }
+                                          return { ...p, cashReceived: next };
+                                        })
+                                      );
+                                    }}
+                                    style={{
+                                      padding: "0.75rem",
+                                      fontSize: "1.1rem",
+                                      fontWeight: key === "⌫" ? 700 : 400,
+                                      textAlign: "center"
+                                    }}
+                                  >
+                                    {key}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         )}
 
                         <button
