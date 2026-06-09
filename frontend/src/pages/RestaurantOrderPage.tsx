@@ -3,7 +3,14 @@ import { useNavigate, useParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Product } from "../types";
-import type { RestaurantItemStatus, RestaurantOrder, RestaurantOrderItem } from "../types/restaurant";
+import type {
+  RestaurantItemStatus,
+  RestaurantModifierGroup,
+  RestaurantModifierOption,
+  RestaurantOrder,
+  RestaurantOrderItem,
+  RestaurantOrderItemModifier,
+} from "../types/restaurant";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -52,6 +59,12 @@ export function RestaurantOrderPage() {
   const [error, setError] = useState("");
   const [quickAdd, setQuickAdd] = useState<QuickAdd | null>(null);
   const [addError, setAddError] = useState("");
+  const [modifierModal, setModifierModal] = useState<{
+    product: Product | null;
+    groups: RestaurantModifierGroup[];
+    selected: Record<number, RestaurantModifierOption[]>;
+  }>({ product: null, groups: [], selected: {} });
+  const [modifierLoading, setModifierLoading] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [payMethod, setPayMethod] = useState<"cash" | "card" | "transfer">("cash");
   const [payTip, setPayTip] = useState<number>(0);
@@ -101,27 +114,81 @@ export function RestaurantOrderPage() {
 
   // ── Actions ──
 
+  async function addItemToOrder(
+    product: Product,
+    quantity: number,
+    notes: string,
+    modifiers: RestaurantModifierOption[]
+  ) {
+    if (!token || !orderId) return;
+    await apiRequest(`/restaurant/orders/${orderId}/items`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({
+        items: [{
+          product_id: product.id,
+          product_name: product.name,
+          product_price: product.price,
+          quantity,
+          ...(notes.trim() ? { notes: notes.trim() } : {}),
+          modifiers: modifiers.map(m => ({ id: m.id, name: m.name, price_delta: m.price_delta }))
+        }]
+      })
+    });
+    await loadOrder();
+  }
+
   async function handleAddItem() {
     if (!quickAdd || !token || !orderId) return;
     setAddError("");
     try {
-      await apiRequest(`/restaurant/orders/${orderId}/items`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          items: [{
-            product_id: quickAdd.product.id,
-            product_name: quickAdd.product.name,
-            product_price: quickAdd.product.price,
-            quantity: quickAdd.quantity,
-            ...(quickAdd.notes.trim() ? { notes: quickAdd.notes.trim() } : {})
-          }]
-        })
-      });
+      await addItemToOrder(quickAdd.product, quickAdd.quantity, quickAdd.notes, []);
       setQuickAdd(null);
-      await loadOrder();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Error al agregar el producto");
+    }
+  }
+
+  async function handleProductClick(product: Product) {
+    if (!token) return;
+    setModifierLoading(true);
+    try {
+      const groups = await apiRequest<RestaurantModifierGroup[]>(
+        `/restaurant/products/${product.id}/modifiers`,
+        { token }
+      );
+      if (groups.length === 0) {
+        setAddError("");
+        setQuickAdd({ product, quantity: 1, notes: "" });
+      } else {
+        setModifierModal({ product, groups, selected: {} });
+      }
+    } catch {
+      setAddError("");
+      setQuickAdd({ product, quantity: 1, notes: "" });
+    } finally {
+      setModifierLoading(false);
+    }
+  }
+
+  async function handleModifierConfirm() {
+    if (!modifierModal.product) return;
+
+    const missing = modifierModal.groups.filter(
+      (g) => g.required && !(modifierModal.selected[g.group_id]?.length > 0)
+    );
+    if (missing.length > 0) {
+      setError(`Elige una opción en: ${missing.map((g) => g.group_name).join(", ")}`);
+      return;
+    }
+
+    const modifiers = Object.values(modifierModal.selected).flat();
+    setAddError("");
+    try {
+      await addItemToOrder(modifierModal.product, 1, "", modifiers);
+      setModifierModal({ product: null, groups: [], selected: {} });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al agregar el producto");
     }
   }
 
@@ -372,10 +439,8 @@ export function RestaurantOrderPage() {
                       key={product.id}
                       type="button"
                       className="catalog-card"
-                      onClick={() => {
-                        setAddError("");
-                        setQuickAdd({ product, quantity: 1, notes: "" });
-                      }}
+                      disabled={modifierLoading}
+                      onClick={() => handleProductClick(product)}
                       style={{ textAlign: "left", cursor: "pointer", display: "grid", gap: "0.35rem" }}
                     >
                       <strong style={{ fontSize: "0.88rem" }}>{product.name}</strong>
@@ -445,6 +510,21 @@ export function RestaurantOrderPage() {
                         {badge.label}
                       </span>
                     </div>
+
+                    {/* Modifiers */}
+                    {item.modifiers && item.modifiers.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", marginTop: "0.2rem" }}>
+                        {item.modifiers.map((m: RestaurantOrderItemModifier, i: number) => (
+                          <span
+                            key={i}
+                            className="status-badge"
+                            style={{ background: "rgba(96,165,250,0.12)", color: "#bfdbfe", marginTop: 0, fontSize: "0.72rem" }}
+                          >
+                            {m.name}{Number(m.price_delta) > 0 ? ` +${formatCurrency(Number(m.price_delta))}` : ""}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Notes */}
                     {item.notes && (
@@ -565,6 +645,101 @@ export function RestaurantOrderPage() {
                   Cancelar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modifier modal ── */}
+      {modifierModal.product && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-card" style={{ maxWidth: "480px", maxHeight: "80vh", overflowY: "auto" }}>
+            <div className="panel-header">
+              <h3 style={{ margin: 0 }}>{modifierModal.product.name}</h3>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => setModifierModal({ product: null, groups: [], selected: {} })}
+                aria-label="Cerrar"
+                style={{ padding: "0.5rem 0.75rem" }}
+              >✕</button>
+            </div>
+
+            <div style={{ marginTop: "1rem", display: "grid", gap: "1.25rem" }}>
+              {modifierModal.groups.map((group) => (
+                <div key={group.group_id}>
+                  <p style={{ fontWeight: 600, margin: "0 0 0.5rem", fontSize: "0.9rem" }}>
+                    {group.group_name}
+                    {group.required && (
+                      <span style={{ color: "var(--danger)", marginLeft: "4px" }}>*</span>
+                    )}
+                    <span className="muted" style={{ fontWeight: 400, fontSize: "0.78rem", marginLeft: "6px" }}>
+                      {group.multi_select ? "(varios)" : "(uno)"}
+                    </span>
+                  </p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                    {group.options.map((opt) => {
+                      const isSelected = modifierModal.selected[group.group_id]?.some((o) => o.id === opt.id) ?? false;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={isSelected ? "button" : "button ghost"}
+                          style={{ fontSize: "0.82rem", padding: "0.45rem 0.75rem" }}
+                          onClick={() => {
+                            setModifierModal((prev) => {
+                              const current = prev.selected[group.group_id] ?? [];
+                              let next: RestaurantModifierOption[];
+                              if (group.multi_select) {
+                                next = isSelected
+                                  ? current.filter((o) => o.id !== opt.id)
+                                  : [...current, opt];
+                              } else {
+                                next = isSelected ? [] : [opt];
+                              }
+                              return { ...prev, selected: { ...prev.selected, [group.group_id]: next } };
+                            });
+                          }}
+                        >
+                          {opt.name}
+                          {Number(opt.price_delta) > 0 && (
+                            <span style={{ marginLeft: "4px", opacity: 0.8 }}>
+                              +{formatCurrency(Number(opt.price_delta))}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Resumen de precio */}
+            <div
+              className="total-box"
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}
+            >
+              <span className="muted">Total</span>
+              <span style={{ fontSize: "1.15rem", fontWeight: 700 }}>
+                {formatCurrency(
+                  Number(modifierModal.product.price) +
+                  Object.values(modifierModal.selected).flat().reduce((s, o) => s + Number(o.price_delta), 0)
+                )}
+              </span>
+            </div>
+
+            <div className="inline-actions" style={{ marginTop: "1.25rem", justifyContent: "flex-end" }}>
+              <button className="button" type="button" onClick={handleModifierConfirm}>
+                Agregar a comanda
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => setModifierModal({ product: null, groups: [], selected: {} })}
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>

@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { RestaurantTable, RestaurantTableStatus, RestaurantZone } from "../types/restaurant";
+import type { Product } from "../types";
 
 // ─── Local form types ─────────────────────────────────────────────────────────
 
@@ -21,6 +22,31 @@ interface TableForm {
 
 const emptyZoneForm: ZoneForm = { name: "", description: "", sort_order: "0" };
 const emptyTableForm: TableForm = { zone_id: "", name: "", capacity: "4", position_x: "", position_y: "" };
+
+// ─── Modifier local types ─────────────────────────────────────────────────────
+
+interface ModifierOption {
+  id: number;
+  name: string;
+  price_delta: number;
+  sort_order: number;
+  is_active: boolean;
+}
+
+interface ModifierGroup {
+  id: number;
+  name: string;
+  required: boolean;
+  multi_select: boolean;
+  sort_order: number;
+  modifiers: ModifierOption[];
+}
+
+interface GroupForm { name: string; required: boolean; multi_select: boolean; sort_order: string }
+interface OptionForm { name: string; price_delta: string }
+
+const emptyGroupForm: GroupForm = { name: "", required: false, multi_select: true, sort_order: "0" };
+const emptyOptionForm: OptionForm = { name: "", price_delta: "0" };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -65,6 +91,22 @@ export function RestaurantAdminPage() {
   const [tableForm, setTableForm]       = useState<TableForm>(emptyTableForm);
   const [tableError, setTableError]     = useState("");
 
+  // ── Modifier state ──
+  const [groups, setGroups]               = useState<ModifierGroup[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState(true);
+  const [groupModal, setGroupModal]       = useState<"create" | "edit" | null>(null);
+  const [editingGroup, setEditingGroup]   = useState<ModifierGroup | null>(null);
+  const [groupForm, setGroupForm]         = useState<GroupForm>(emptyGroupForm);
+  const [groupError, setGroupError]       = useState("");
+  const [optionModal, setOptionModal]     = useState<ModifierGroup | null>(null);
+  const [optionForm, setOptionForm]       = useState<OptionForm>(emptyOptionForm);
+  const [optionError, setOptionError]     = useState("");
+  const [assignModal, setAssignModal]     = useState<Product | null>(null);
+  const [assignGroups, setAssignGroups]   = useState<number[]>([]);
+  const [assignError, setAssignError]     = useState("");
+  const [products, setProducts]           = useState<Product[]>([]);
+  const [assignProductId, setAssignProductId] = useState("");
+
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
   async function loadZones() {
@@ -97,7 +139,30 @@ export function RestaurantAdminPage() {
     }
   }
 
-  useEffect(() => { loadZones(); }, [token]);
+  async function loadGroups() {
+    if (!token) return;
+    setLoadingGroups(true);
+    try {
+      const data = await apiRequest<ModifierGroup[]>("/restaurant/modifiers/groups", { token });
+      setGroups(data);
+    } catch {
+      setGroups([]);
+    } finally {
+      setLoadingGroups(false);
+    }
+  }
+
+  async function loadProducts() {
+    if (!token) return;
+    try {
+      const data = await apiRequest<Product[] | { items: Product[] }>("/products?pageSize=200", { token });
+      setProducts(Array.isArray(data) ? data : (data.items ?? []));
+    } catch {
+      setProducts([]);
+    }
+  }
+
+  useEffect(() => { loadZones(); loadGroups(); loadProducts(); }, [token]);
 
   useEffect(() => {
     if (activeZoneId) loadTables(activeZoneId);
@@ -237,6 +302,127 @@ export function RestaurantAdminPage() {
       await loadZones(); // refresh table_count
     } catch (err) {
       setTableError(err instanceof Error ? err.message : "Error al guardar la mesa");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Modifier handlers ─────────────────────────────────────────────────────
+
+  async function handleSaveGroup(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setSaving(true);
+    setGroupError("");
+    try {
+      const payload = {
+        name: groupForm.name.trim(),
+        required: groupForm.required,
+        multi_select: groupForm.multi_select,
+        sort_order: Number(groupForm.sort_order) || 0
+      };
+      if (groupModal === "create") {
+        await apiRequest("/restaurant/modifiers/groups", {
+          method: "POST", token, body: JSON.stringify(payload)
+        });
+      } else if (editingGroup) {
+        await apiRequest(`/restaurant/modifiers/groups/${editingGroup.id}`, {
+          method: "PATCH", token, body: JSON.stringify(payload)
+        });
+      }
+      setGroupModal(null);
+      setEditingGroup(null);
+      await loadGroups();
+    } catch (err) {
+      setGroupError(err instanceof Error ? err.message : "Error al guardar el grupo");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteGroup(group: ModifierGroup) {
+    if (!token || !window.confirm(`¿Eliminar el grupo "${group.name}" y todas sus opciones?`)) return;
+    setSaving(true);
+    try {
+      await apiRequest(`/restaurant/modifiers/groups/${group.id}`, { method: "DELETE", token });
+      await loadGroups();
+    } catch (err) {
+      setGroupError(err instanceof Error ? err.message : "Error al eliminar el grupo");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveOption(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !optionModal) return;
+    setSaving(true);
+    setOptionError("");
+    try {
+      await apiRequest(`/restaurant/modifiers/groups/${optionModal.id}/options`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          name: optionForm.name.trim(),
+          price_delta: Number(optionForm.price_delta) || 0
+        })
+      });
+      setOptionModal(null);
+      setOptionForm(emptyOptionForm);
+      await loadGroups();
+    } catch (err) {
+      setOptionError(err instanceof Error ? err.message : "Error al agregar la opción");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteOption(optionId: number) {
+    if (!token || !window.confirm("¿Eliminar esta opción?")) return;
+    setSaving(true);
+    try {
+      await apiRequest(`/restaurant/modifiers/options/${optionId}`, { method: "DELETE", token });
+      await loadGroups();
+    } catch (err) {
+      setGroupError(err instanceof Error ? err.message : "Error al eliminar la opción");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openAssignModal() {
+    if (!assignProductId || !token) return;
+    setSaving(true);
+    setAssignError("");
+    try {
+      const existing = await apiRequest<number[]>(
+        `/restaurant/products/${assignProductId}/modifier-groups`,
+        { token }
+      );
+      setAssignGroups(existing);
+      const product = products.find(p => p.id === Number(assignProductId)) ?? null;
+      setAssignModal(product as Product | null);
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : "Error al cargar asignaciones");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveAssignment() {
+    if (!token || !assignModal) return;
+    setSaving(true);
+    setAssignError("");
+    try {
+      await apiRequest(`/restaurant/products/${assignModal.id}/modifier-groups`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ group_ids: assignGroups })
+      });
+      setAssignModal(null);
+      setAssignProductId("");
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : "Error al guardar la asignación");
     } finally {
       setSaving(false);
     }
@@ -410,6 +596,174 @@ export function RestaurantAdminPage() {
               })}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ── SECTION 3 — Modificadores ── */}
+      <div style={{ marginTop: "1.5rem" }}>
+        <div className="panel page-grid">
+          <div className="panel-header">
+            <strong>Modificadores de platillos</strong>
+            <button
+              className="button"
+              type="button"
+              onClick={() => {
+                setGroupForm(emptyGroupForm);
+                setGroupError("");
+                setEditingGroup(null);
+                setGroupModal("create");
+              }}
+              style={{ fontSize: "0.85rem", padding: "0.55rem 0.9rem" }}
+            >
+              + Nuevo grupo
+            </button>
+          </div>
+
+          {loadingGroups && <p className="muted" style={{ margin: 0 }}>Cargando modificadores...</p>}
+
+          {!loadingGroups && groups.length === 0 && (
+            <div className="empty-state-card">
+              <p className="muted" style={{ margin: 0 }}>
+                Sin grupos de modificadores. Crea uno (Extras, Término, Proteína...).
+              </p>
+            </div>
+          )}
+
+          {!loadingGroups && groups.length > 0 && (
+            <div className="stack-list">
+              {groups.map((group) => (
+                <div
+                  key={group.id}
+                  style={{
+                    padding: "0.75rem",
+                    borderRadius: "14px",
+                    border: "1px solid var(--border)",
+                    background: "var(--surface-soft)",
+                    display: "grid",
+                    gap: "0.5rem"
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                    <div>
+                      <strong style={{ fontSize: "0.95rem" }}>{group.name}</strong>
+                      <span className="muted" style={{ fontSize: "0.78rem", marginLeft: "8px" }}>
+                        {group.required ? "Requerido" : "Opcional"} · {group.multi_select ? "Selección múltiple" : "Selección única"}
+                      </span>
+                    </div>
+                    <div className="inline-actions">
+                      <button
+                        className="button ghost"
+                        type="button"
+                        style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem" }}
+                        onClick={() => setOptionModal(group)}
+                      >
+                        + Opción
+                      </button>
+                      <button
+                        className="button ghost"
+                        type="button"
+                        style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem" }}
+                        onClick={() => {
+                          setGroupForm({
+                            name: group.name,
+                            required: group.required,
+                            multi_select: group.multi_select,
+                            sort_order: String(group.sort_order)
+                          });
+                          setGroupError("");
+                          setEditingGroup(group);
+                          setGroupModal("edit");
+                        }}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        className="button ghost danger"
+                        type="button"
+                        style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem" }}
+                        onClick={() => handleDeleteGroup(group)}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+
+                  {group.modifiers.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                      {group.modifiers.map((opt) => (
+                        <div
+                          key={opt.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.35rem",
+                            background: "var(--surface)",
+                            borderRadius: "8px",
+                            padding: "0.25rem 0.55rem",
+                            border: "1px solid var(--border)"
+                          }}
+                        >
+                          <span style={{ fontSize: "0.82rem" }}>{opt.name}</span>
+                          {Number(opt.price_delta) > 0 && (
+                            <span className="muted" style={{ fontSize: "0.76rem" }}>
+                              +${Number(opt.price_delta).toFixed(2)}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            className="button ghost"
+                            style={{ padding: "0 0.3rem", fontSize: "0.72rem", lineHeight: 1 }}
+                            onClick={() => handleDeleteOption(opt.id)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {group.modifiers.length === 0 && (
+                    <p className="muted" style={{ margin: 0, fontSize: "0.82rem" }}>Sin opciones aún.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Asignar grupos a producto */}
+          <div
+            style={{
+              marginTop: "0.5rem",
+              padding: "0.75rem",
+              borderRadius: "14px",
+              border: "1px solid var(--border)",
+              background: "var(--surface-soft)"
+            }}
+          >
+            <strong style={{ fontSize: "0.88rem" }}>Asignar modificadores a producto</strong>
+            {assignError && <p className="error-text" style={{ marginTop: "0.4rem", marginBottom: 0 }}>{assignError}</p>}
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.65rem", flexWrap: "wrap", alignItems: "center" }}>
+              <select
+                value={assignProductId}
+                onChange={(e) => setAssignProductId(e.target.value)}
+                style={{ flex: 1, minWidth: "180px" }}
+              >
+                <option value="">Selecciona un producto</option>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <button
+                className="button ghost"
+                type="button"
+                disabled={!assignProductId || saving}
+                onClick={openAssignModal}
+                style={{ flexShrink: 0 }}
+              >
+                Ver / editar grupos
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -598,6 +952,181 @@ export function RestaurantAdminPage() {
           </div>
         </div>
       )}
+      {/* ── Modifier group modal ── */}
+      {groupModal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <div className="panel-header">
+              <h3 style={{ margin: 0 }}>
+                {groupModal === "create" ? "Nuevo grupo" : `Editar — ${editingGroup?.name}`}
+              </h3>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => { setGroupModal(null); setEditingGroup(null); }}
+                style={{ padding: "0.5rem 0.75rem" }}
+              >✕</button>
+            </div>
+
+            {groupError && <p className="error-text" style={{ marginTop: "0.75rem" }}>{groupError}</p>}
+
+            <form className="grid-form" style={{ marginTop: "1rem" }} onSubmit={handleSaveGroup}>
+              <label>
+                Nombre del grupo *
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Extras, Término, Proteína"
+                  value={groupForm.name}
+                  onChange={(e) => setGroupForm((f) => ({ ...f, name: e.target.value }))}
+                />
+              </label>
+              <label>
+                Orden
+                <input
+                  type="number"
+                  min={0}
+                  value={groupForm.sort_order}
+                  onChange={(e) => setGroupForm((f) => ({ ...f, sort_order: e.target.value }))}
+                />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <input
+                  type="checkbox"
+                  checked={groupForm.required}
+                  onChange={(e) => setGroupForm((f) => ({ ...f, required: e.target.checked }))}
+                  style={{ width: "auto" }}
+                />
+                Selección requerida
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <input
+                  type="checkbox"
+                  checked={groupForm.multi_select}
+                  onChange={(e) => setGroupForm((f) => ({ ...f, multi_select: e.target.checked }))}
+                  style={{ width: "auto" }}
+                />
+                Selección múltiple
+              </label>
+              <div className="inline-actions" style={{ marginTop: "0.5rem" }}>
+                <button className="button" type="submit" disabled={saving}>
+                  {saving ? "Guardando..." : "Guardar"}
+                </button>
+                <button className="button ghost" type="button" onClick={() => setGroupModal(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add option modal ── */}
+      {optionModal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <div className="panel-header">
+              <h3 style={{ margin: 0 }}>Agregar opción a "{optionModal.name}"</h3>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => { setOptionModal(null); setOptionForm(emptyOptionForm); }}
+                style={{ padding: "0.5rem 0.75rem" }}
+              >✕</button>
+            </div>
+
+            {optionError && <p className="error-text" style={{ marginTop: "0.75rem" }}>{optionError}</p>}
+
+            <form className="grid-form" style={{ marginTop: "1rem" }} onSubmit={handleSaveOption}>
+              <label>
+                Nombre *
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Extra queso, Sin cebolla, Término medio"
+                  value={optionForm.name}
+                  onChange={(e) => setOptionForm((f) => ({ ...f, name: e.target.value }))}
+                />
+              </label>
+              <label>
+                Costo adicional ($0 = gratis)
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="0.00"
+                  value={optionForm.price_delta}
+                  onChange={(e) => setOptionForm((f) => ({ ...f, price_delta: e.target.value }))}
+                />
+              </label>
+              <div className="inline-actions" style={{ marginTop: "0.5rem" }}>
+                <button className="button" type="submit" disabled={saving}>
+                  {saving ? "Guardando..." : "Agregar opción"}
+                </button>
+                <button className="button ghost" type="button" onClick={() => setOptionModal(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Assign groups to product modal ── */}
+      {assignModal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <div className="panel-header">
+              <h3 style={{ margin: 0 }}>Grupos de "{assignModal.name}"</h3>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => setAssignModal(null)}
+                style={{ padding: "0.5rem 0.75rem" }}
+              >✕</button>
+            </div>
+
+            {assignError && <p className="error-text" style={{ marginTop: "0.75rem" }}>{assignError}</p>}
+
+            <div style={{ marginTop: "1rem", display: "grid", gap: "0.5rem" }}>
+              {groups.length === 0 && (
+                <p className="muted" style={{ margin: 0 }}>No hay grupos creados aún.</p>
+              )}
+              {groups.map((g) => (
+                <label key={g.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={assignGroups.includes(g.id)}
+                    onChange={(e) => setAssignGroups((prev) =>
+                      e.target.checked ? [...prev, g.id] : prev.filter((id) => id !== g.id)
+                    )}
+                    style={{ width: "auto" }}
+                  />
+                  <span>{g.name}</span>
+                  <span className="muted" style={{ fontSize: "0.78rem" }}>
+                    ({g.modifiers.length} {g.modifiers.length === 1 ? "opción" : "opciones"})
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div className="inline-actions" style={{ marginTop: "1.25rem" }}>
+              <button
+                className="button"
+                type="button"
+                disabled={saving}
+                onClick={handleSaveAssignment}
+              >
+                {saving ? "Guardando..." : "Guardar asignación"}
+              </button>
+              <button className="button ghost" type="button" onClick={() => setAssignModal(null)}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

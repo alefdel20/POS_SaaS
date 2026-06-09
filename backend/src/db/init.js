@@ -967,6 +967,41 @@ async function ensureSchema(client) {
       created_at      TIMESTAMP NOT NULL DEFAULT NOW()
     )`,
 
+    `CREATE TABLE IF NOT EXISTS restaurant_modifier_groups (
+      id            SERIAL PRIMARY KEY,
+      business_id   INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      name          VARCHAR(100) NOT NULL,
+      required      BOOLEAN NOT NULL DEFAULT FALSE,
+      multi_select  BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order    INTEGER NOT NULL DEFAULT 0,
+      created_at    TIMESTAMP DEFAULT NOW()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS restaurant_modifiers (
+      id            SERIAL PRIMARY KEY,
+      group_id      INTEGER NOT NULL REFERENCES restaurant_modifier_groups(id) ON DELETE CASCADE,
+      business_id   INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      name          VARCHAR(100) NOT NULL,
+      price_delta   NUMERIC(10,2) NOT NULL DEFAULT 0,
+      sort_order    INTEGER NOT NULL DEFAULT 0,
+      is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at    TIMESTAMP DEFAULT NOW()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS restaurant_product_modifiers (
+      product_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      group_id      INTEGER NOT NULL REFERENCES restaurant_modifier_groups(id) ON DELETE CASCADE,
+      PRIMARY KEY (product_id, group_id)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS restaurant_order_item_modifiers (
+      id            SERIAL PRIMARY KEY,
+      order_item_id INTEGER NOT NULL REFERENCES restaurant_order_items(id) ON DELETE CASCADE,
+      modifier_id   INTEGER NOT NULL REFERENCES restaurant_modifiers(id),
+      name          VARCHAR(100) NOT NULL,
+      price_delta   NUMERIC(10,2) NOT NULL DEFAULT 0
+    )`,
+
     "CREATE INDEX IF NOT EXISTS idx_restaurant_zones_business_id ON restaurant_zones(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_tables_business_id ON restaurant_tables(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_tables_zone_id ON restaurant_tables(zone_id)",
@@ -977,6 +1012,9 @@ async function ensureSchema(client) {
     "CREATE INDEX IF NOT EXISTS idx_restaurant_order_items_order_id ON restaurant_order_items(order_id)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_order_items_status ON restaurant_order_items(business_id, status)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_payments_order_id ON restaurant_payments(order_id)",
+    "CREATE INDEX IF NOT EXISTS idx_modifier_groups_business ON restaurant_modifier_groups(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_modifiers_group ON restaurant_modifiers(group_id)",
+    "CREATE INDEX IF NOT EXISTS idx_order_item_modifiers_item ON restaurant_order_item_modifiers(order_item_id)",
 
     // === BRANCHES: branch_id nullable en tablas clave ===
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL",

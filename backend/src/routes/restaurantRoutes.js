@@ -1,6 +1,7 @@
 const express = require("express");
 const { requireRole } = require("../middleware/authMiddleware");
 const controller = require("../controllers/restaurantController");
+const modifierController = require("../controllers/restaurantModifierController");
 
 const router = express.Router();
 
@@ -42,6 +43,20 @@ router.patch("/orders/:id/items/:itemId/status", requireRole(STAFF_ROLES), contr
 router.post("/orders/:id/request-bill",   requireRole(STAFF_ROLES), controller.requestBill);
 router.post("/orders/:id/close",          requireRole(STAFF_ROLES), controller.closeOrderValidation, controller.closeOrder);
 router.delete("/orders/:id",              requireRole(STAFF_ROLES), controller.cancelOrder);
+
+// ─── MODIFICADORES (admin) ────────────────────────────────────────────────────
+router.get("/modifiers/groups",                    requireRole(ADMIN_ROLES),  modifierController.getModifierGroups);
+router.post("/modifiers/groups",                   requireRole(ADMIN_ROLES),  modifierController.createModifierGroup);
+router.patch("/modifiers/groups/:id",              requireRole(ADMIN_ROLES),  modifierController.updateModifierGroup);
+router.delete("/modifiers/groups/:id",             requireRole(ADMIN_ROLES),  modifierController.deleteModifierGroup);
+router.post("/modifiers/groups/:groupId/options",  requireRole(ADMIN_ROLES),  modifierController.createModifier);
+router.patch("/modifiers/options/:id",             requireRole(ADMIN_ROLES),  modifierController.updateModifier);
+router.delete("/modifiers/options/:id",            requireRole(ADMIN_ROLES),  modifierController.deleteModifier);
+router.get("/products/:productId/modifier-groups", requireRole(ALL_ROLES),    modifierController.getProductModifierGroups);
+router.put("/products/:productId/modifier-groups", requireRole(ADMIN_ROLES),  modifierController.setProductModifierGroups);
+
+// ─── MODIFICADORES (mesero) ───────────────────────────────────────────────────
+router.get("/products/:productId/modifiers",       requireRole(ALL_ROLES),    modifierController.getProductModifiers);
 
 // ─── KDS ─────────────────────────────────────────────────────────────────────
 router.get("/kds",                          requireRole(ALL_ROLES),   controller.getKitchenDisplay);

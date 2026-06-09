@@ -12,6 +12,25 @@ export interface RestaurantZone {
   table_count: number;
 }
 
+export interface RestaurantModifierOption {
+  id: number;
+  name: string;
+  price_delta: number;
+}
+
+export interface RestaurantModifierGroup {
+  group_id: number;
+  group_name: string;
+  required: boolean;
+  multi_select: boolean;
+  options: RestaurantModifierOption[];
+}
+
+export interface RestaurantOrderItemModifier {
+  name: string;
+  price_delta: number;
+}
+
 export interface RestaurantOrderItem {
   id: number;
   order_id: number;
@@ -24,6 +43,7 @@ export interface RestaurantOrderItem {
   sent_to_kitchen_at?: string | null;
   prepared_at?: string | null;
   served_at?: string | null;
+  modifiers?: RestaurantOrderItemModifier[];
 }
 
 export interface RestaurantOrder {

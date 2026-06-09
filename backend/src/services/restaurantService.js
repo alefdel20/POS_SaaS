@@ -257,7 +257,27 @@ async function getOrderById(businessId, orderId) {
             t.name AS table_name,
             z.name AS zone_name,
             COALESCE(
-              json_agg(i ORDER BY i.created_at ASC) FILTER (WHERE i.id IS NOT NULL),
+              json_agg(
+                json_build_object(
+                  'id', i.id,
+                  'order_id', i.order_id,
+                  'product_id', i.product_id,
+                  'product_name', i.product_name,
+                  'product_price', i.product_price,
+                  'quantity', i.quantity,
+                  'notes', i.notes,
+                  'status', i.status,
+                  'sent_to_kitchen_at', i.sent_to_kitchen_at,
+                  'prepared_at', i.prepared_at,
+                  'served_at', i.served_at,
+                  'created_at', i.created_at,
+                  'modifiers', COALESCE(
+                    (SELECT json_agg(json_build_object('name', oim.name, 'price_delta', oim.price_delta))
+                     FROM restaurant_order_item_modifiers oim WHERE oim.order_item_id = i.id),
+                    '[]'::json
+                  )
+                ) ORDER BY i.created_at ASC
+              ) FILTER (WHERE i.id IS NOT NULL),
               '[]'
             ) AS items,
             COALESCE(
@@ -353,6 +373,12 @@ async function addItemsToOrder(businessId, orderId, items, actorId) {
 
     const inserted = [];
     for (const item of items) {
+      const modifiers = Array.isArray(item.modifiers) ? item.modifiers : [];
+      const modifiersDelta = modifiers.reduce(
+        (sum, m) => sum + parseFloat(m.price_delta || 0), 0
+      );
+      const finalPrice = parseFloat(item.product_price) + modifiersDelta;
+
       const { rows } = await client.query(
         `INSERT INTO restaurant_order_items
            (business_id, order_id, product_id, product_name, product_price, quantity, notes, created_by)
@@ -363,13 +389,27 @@ async function addItemsToOrder(businessId, orderId, items, actorId) {
           orderId,
           item.product_id || null,
           item.product_name,
-          item.product_price,
+          finalPrice,
           item.quantity || 1,
           item.notes || null,
           actorId
         ]
       );
-      inserted.push(rows[0]);
+
+      const insertedItem = rows[0];
+
+      if (modifiers.length > 0) {
+        for (const mod of modifiers) {
+          await client.query(
+            `INSERT INTO restaurant_order_item_modifiers
+               (order_item_id, modifier_id, name, price_delta)
+             VALUES ($1, $2, $3, $4)`,
+            [insertedItem.id, mod.id, mod.name, mod.price_delta]
+          );
+        }
+      }
+
+      inserted.push(insertedItem);
     }
 
     await client.query("COMMIT");
