@@ -264,23 +264,27 @@ const recordSplitPayment = asyncHandler(async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    // Query 1: bloquear la orden con FOR UPDATE (sin GROUP BY)
     const { rows: orders } = await client.query(
-      `SELECT ro.id, ro.table_id, ro.order_number,
-              COALESCE(SUM(roi.product_price * roi.quantity), 0) AS total_amount
-       FROM restaurant_orders ro
-       LEFT JOIN restaurant_order_items roi
-         ON roi.order_id = ro.id AND roi.business_id = ro.business_id
-            AND roi.status != 'cancelled'
-       WHERE ro.id = $1 AND ro.business_id = $2 AND ro.status = 'bill_requested'
-       GROUP BY ro.id, ro.table_id, ro.order_number
-       FOR UPDATE OF ro`,
+      `SELECT id, table_id, order_number
+       FROM restaurant_orders
+       WHERE id = $1 AND business_id = $2 AND status = 'bill_requested'
+       FOR UPDATE`,
       [orderId, businessId]
     );
     if (!orders.length) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Orden no encontrada o no está lista para cobrar" });
     }
-    const order = orders[0];
+
+    // Query 2: calcular total real de ítems no cancelados
+    const { rows: totalRows } = await client.query(
+      `SELECT COALESCE(SUM(product_price * quantity), 0) AS total_amount
+       FROM restaurant_order_items
+       WHERE order_id = $1 AND business_id = $2 AND status != 'cancelled'`,
+      [orderId, businessId]
+    );
+    const order = { ...orders[0], total_amount: totalRows[0].total_amount };
     orderTotalVal = parseFloat(order.total_amount);
 
     const { rows: existing } = await client.query(

@@ -240,8 +240,6 @@ export function RestaurantOrderPage() {
         method: "POST", token, body: JSON.stringify({})
       });
       await loadOrder();
-      setCashReceived(""); setPayTip(0); setTipPercent(0); setTipMode("percent"); setShowNumpad(false);
-      setShowPayModal(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al solicitar la cuenta");
     } finally {
