@@ -265,9 +265,15 @@ const recordSplitPayment = asyncHandler(async (req, res) => {
     await client.query("BEGIN");
 
     const { rows: orders } = await client.query(
-      `SELECT id, total_amount, table_id, order_number FROM restaurant_orders
-       WHERE id = $1 AND business_id = $2 AND status = 'bill_requested'
-       FOR UPDATE`,
+      `SELECT ro.id, ro.table_id, ro.order_number,
+              COALESCE(SUM(roi.product_price * roi.quantity), 0) AS total_amount
+       FROM restaurant_orders ro
+       LEFT JOIN restaurant_order_items roi
+         ON roi.order_id = ro.id AND roi.business_id = ro.business_id
+            AND roi.status != 'cancelled'
+       WHERE ro.id = $1 AND ro.business_id = $2 AND ro.status = 'bill_requested'
+       GROUP BY ro.id, ro.table_id, ro.order_number
+       FOR UPDATE OF ro`,
       [orderId, businessId]
     );
     if (!orders.length) {
