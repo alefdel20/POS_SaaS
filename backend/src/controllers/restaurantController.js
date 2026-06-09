@@ -4,6 +4,8 @@ const validateRequest = require("../middleware/validateRequest");
 const restaurantService = require("../services/restaurantService");
 const pool = require("../db/pool");
 const { addClient, removeClient, emitToRoom } = require("../sse/restaurantSSE");
+const { getMexicoCityDate, getMexicoCityTime } = require("../utils/timezone");
+const { recomputeDailyCut } = require("../services/dailyCutService");
 
 // ─── VALIDATIONS ─────────────────────────────────────────────────────────────
 
@@ -241,6 +243,139 @@ const closeOrder = asyncHandler(async (req, res) => {
   res.json(order);
 });
 
+const recordSplitPayment = asyncHandler(async (req, res) => {
+  const businessId = req.user.business_id;
+  const orderId = Number(req.params.id);
+  const actorId = req.user.id;
+  const { amount, method, item_ids = [] } = req.body;
+
+  if (!amount || parseFloat(amount) <= 0) {
+    return res.status(400).json({ error: "El monto debe ser mayor a $0" });
+  }
+  if (!["cash", "card", "transfer"].includes(method)) {
+    return res.status(400).json({ error: "Método de pago inválido" });
+  }
+
+  const client = await pool.connect();
+  let orderClosed = false;
+  let newTotal = 0;
+  let orderTotalVal = 0;
+
+  try {
+    await client.query("BEGIN");
+
+    const { rows: orders } = await client.query(
+      `SELECT id, total_amount, table_id, order_number FROM restaurant_orders
+       WHERE id = $1 AND business_id = $2 AND status = 'bill_requested'
+       FOR UPDATE`,
+      [orderId, businessId]
+    );
+    if (!orders.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Orden no encontrada o no está lista para cobrar" });
+    }
+    const order = orders[0];
+    orderTotalVal = parseFloat(order.total_amount);
+
+    const { rows: existing } = await client.query(
+      `SELECT COALESCE(SUM(amount), 0) AS paid FROM restaurant_payments
+       WHERE order_id = $1 AND business_id = $2`,
+      [orderId, businessId]
+    );
+    const alreadyPaid = parseFloat(existing[0].paid);
+    const newAmount = parseFloat(amount);
+    newTotal = alreadyPaid + newAmount;
+
+    await client.query(
+      `INSERT INTO restaurant_payments
+         (business_id, order_id, payment_method, amount, tip_amount, diner_number, created_by)
+       VALUES ($1, $2, $3, $4, 0, NULL, $5)`,
+      [businessId, orderId, method, newAmount, actorId]
+    );
+
+    if (newTotal >= orderTotalVal) {
+      await client.query(
+        `UPDATE restaurant_orders
+         SET status = 'paid', closed_at = NOW(), closed_by = $3, total_amount = $4, updated_at = NOW()
+         WHERE id = $1 AND business_id = $2`,
+        [orderId, businessId, actorId, orderTotalVal]
+      );
+      await client.query(
+        `UPDATE restaurant_tables SET status = 'available', updated_at = NOW()
+         WHERE business_id = $1 AND id = $2`,
+        [businessId, order.table_id]
+      );
+
+      const saleDate = getMexicoCityDate();
+      const saleTime = getMexicoCityTime();
+
+      const { rows: saleRows } = await client.query(
+        `INSERT INTO sales (
+           user_id, business_id, payment_method, sale_type,
+           subtotal, total, total_cost,
+           customer_name, notes, sale_date, sale_time, created_at,
+           status, branch_id
+         )
+         VALUES ($1, $2, $3, 'ticket', $4, $4, 0,
+                 NULL, $5, $6, $7, CURRENT_TIMESTAMP, 'completed', NULL)
+         RETURNING id`,
+        [
+          actorId, businessId, method, orderTotalVal,
+          `Mesa: ${order.table_id} | Comanda: ${order.order_number}`,
+          saleDate, saleTime
+        ]
+      );
+      const saleId = saleRows[0].id;
+
+      const { rows: orderItems } = await client.query(
+        `SELECT product_name, product_price, quantity, product_id
+         FROM restaurant_order_items
+         WHERE business_id = $1 AND order_id = $2 AND status != 'cancelled'`,
+        [businessId, orderId]
+      );
+      for (const item of orderItems) {
+        await client.query(
+          `INSERT INTO sale_items
+             (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, product_name_snapshot)
+           VALUES ($1, $2, $3, $4, $5, 0, $6, $7)`,
+          [
+            saleId, item.product_id || null, businessId,
+            item.quantity, item.product_price,
+            item.product_price * item.quantity, item.product_name
+          ]
+        );
+      }
+
+      orderClosed = true;
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  if (orderClosed) {
+    recomputeDailyCut(businessId, getMexicoCityDate()).catch(err =>
+      console.error("[recordSplitPayment] recomputeDailyCut error:", err.message)
+    );
+    try {
+      emitToRoom(businessId, "order_closed", { orderId });
+    } catch (e) {
+      console.error("[SSE emit]", e.message);
+    }
+  }
+
+  res.json({
+    success: true,
+    paid: newTotal,
+    remaining: Math.max(0, orderTotalVal - newTotal),
+    order_closed: orderClosed,
+  });
+});
+
 const cancelOrder = asyncHandler(async (req, res) => {
   const businessId = req.user.business_id;
   const orderId = Number(req.params.id);
@@ -374,6 +509,7 @@ module.exports = {
   updateItemStatus,
   requestBill,
   closeOrder,
+  recordSplitPayment,
   cancelOrder,
   getKitchenDisplay,
   markItemPrepared,

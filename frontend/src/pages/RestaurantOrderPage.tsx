@@ -43,6 +43,17 @@ interface QuickAdd {
   notes: string;
 }
 
+type SplitMode = "equal" | "byItem";
+
+interface SplitPart {
+  id: number;
+  method: "cash" | "card" | "transfer";
+  amount: number;
+  itemIds: number[];
+  paid: boolean;
+  cashReceived: string;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function RestaurantOrderPage() {
@@ -74,6 +85,13 @@ export function RestaurantOrderPage() {
   const [showNumpad, setShowNumpad] = useState(false);
   const [tipMode, setTipMode] = useState<"percent" | "fixed">("percent");
   const [tipPercent, setTipPercent] = useState<number>(0);
+  const [showSplitModal, setShowSplitModal] = useState(false);
+  const [splitMode, setSplitMode] = useState<SplitMode>("equal");
+  const [splitParts, setSplitParts] = useState<SplitPart[]>([]);
+  const [splitDiners, setSplitDiners] = useState(2);
+  const [splitLoading, setSplitLoading] = useState(false);
+  const [splitError, setSplitError] = useState("");
+  const [splitStep, setSplitStep] = useState<"config" | "pay">("config");
 
   // ── Fetch order ──
   const loadOrder = useCallback(async () => {
@@ -275,6 +293,102 @@ export function RestaurantOrderPage() {
     }
   }
 
+  function initSplitParts() {
+    if (splitMode === "equal") {
+      const amountPerPerson = grandTotal / splitDiners;
+      setSplitParts(
+        Array.from({ length: splitDiners }, (_, i) => ({
+          id: i + 1,
+          method: "cash" as const,
+          amount: parseFloat(amountPerPerson.toFixed(2)),
+          itemIds: [],
+          paid: false,
+          cashReceived: "",
+        }))
+      );
+    } else {
+      setSplitParts([
+        { id: 1, method: "cash", amount: 0, itemIds: [], paid: false, cashReceived: "" },
+        { id: 2, method: "cash", amount: 0, itemIds: [], paid: false, cashReceived: "" },
+      ]);
+    }
+    setSplitStep("pay");
+  }
+
+  function calcPartAmount(itemIds: number[]): number {
+    if (!order?.items) return 0;
+    return order.items
+      .filter((item) => itemIds.includes(item.id))
+      .reduce((sum, item) => sum + parseFloat(String(item.product_price)) * item.quantity, 0);
+  }
+
+  function toggleItemInPart(partId: number, itemId: number) {
+    setSplitParts((prev) =>
+      prev.map((part) => {
+        if (part.id === partId) {
+          const hasItem = part.itemIds.includes(itemId);
+          const newItemIds = hasItem
+            ? part.itemIds.filter((id) => id !== itemId)
+            : [...part.itemIds, itemId];
+          return { ...part, itemIds: newItemIds, amount: calcPartAmount(newItemIds) };
+        }
+        const filtered = part.itemIds.filter((id) => id !== itemId);
+        return { ...part, itemIds: filtered, amount: calcPartAmount(filtered) };
+      })
+    );
+  }
+
+  async function handlePaySplitPart(partId: number) {
+    if (!token || !orderId) return;
+    const part = splitParts.find((p) => p.id === partId);
+    if (!part) return;
+
+    if (part.method === "cash" && (!part.cashReceived || Number(part.cashReceived) < part.amount)) {
+      setSplitError(`Persona ${partId}: ingresa el efectivo recibido (mínimo $${part.amount.toFixed(2)})`);
+      return;
+    }
+
+    setSplitLoading(true);
+    setSplitError("");
+    try {
+      const result = await apiRequest<{
+        success: boolean;
+        paid: number;
+        remaining: number;
+        order_closed: boolean;
+      }>(`/restaurant/orders/${orderId}/split-payment`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          amount: part.amount,
+          method: part.method,
+          item_ids: part.itemIds,
+        }),
+      });
+
+      setSplitParts((prev) =>
+        prev.map((p) => (p.id === partId ? { ...p, paid: true } : p))
+      );
+
+      if (result.order_closed) {
+        navigate("/restaurant/map");
+      }
+    } catch (err) {
+      setSplitError(err instanceof Error ? err.message : "Error al registrar el pago");
+    } finally {
+      setSplitLoading(false);
+    }
+  }
+
+  function closeSplitModal() {
+    setShowSplitModal(false);
+    setSplitStep("config");
+    setSplitParts([]);
+    setSplitDiners(2);
+    setSplitMode("equal");
+    setSplitError("");
+  }
+
   // ── Derived state ──
 
   const isReadOnly = order?.status === "bill_requested"
@@ -355,24 +469,40 @@ export function RestaurantOrderPage() {
             </span>
           )}
           {order.status === "bill_requested" && canMutateOrders(user?.role) && (
-            <button
-              className="button"
-              type="button"
-              disabled={orderTotal === 0}
-              onClick={() => {
-                if (orderTotal === 0) return;
-                setCashReceived(""); setPayTip(0); setTipPercent(0); setTipMode("percent"); setShowNumpad(false);
-                setShowPayModal(true);
-              }}
-              style={{
-                background: orderTotal === 0
-                  ? "var(--surface-soft)"
-                  : "linear-gradient(135deg, #16a34a, #15803d)",
-                color: orderTotal === 0 ? "var(--muted)" : "#fff"
-              }}
-            >
-              Cobrar
-            </button>
+            <>
+              <button
+                className="button"
+                type="button"
+                disabled={orderTotal === 0}
+                onClick={() => {
+                  if (orderTotal === 0) return;
+                  setSplitError("");
+                  setSplitStep("config");
+                  setShowSplitModal(true);
+                }}
+                style={{ background: "var(--surface-2)", color: "var(--text)" }}
+              >
+                Dividir cuenta
+              </button>
+              <button
+                className="button"
+                type="button"
+                disabled={orderTotal === 0}
+                onClick={() => {
+                  if (orderTotal === 0) return;
+                  setCashReceived(""); setPayTip(0); setTipPercent(0); setTipMode("percent"); setShowNumpad(false);
+                  setShowPayModal(true);
+                }}
+                style={{
+                  background: orderTotal === 0
+                    ? "var(--surface-soft)"
+                    : "linear-gradient(135deg, #16a34a, #15803d)",
+                  color: orderTotal === 0 ? "var(--muted)" : "#fff"
+                }}
+              >
+                Cobrar
+              </button>
+            </>
           )}
           {userCanMutate && order.status === "open" && (
             <>
@@ -746,6 +876,220 @@ export function RestaurantOrderPage() {
                 Cancelar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Split modal ── */}
+      {showSplitModal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-card" style={{ maxWidth: "520px", maxHeight: "85vh", overflowY: "auto" }}>
+
+            <div className="panel-header">
+              <h3 style={{ margin: 0 }}>Dividir cuenta</h3>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={closeSplitModal}
+                style={{ padding: "0.5rem 0.75rem" }}
+              >✕</button>
+            </div>
+
+            {splitError && (
+              <p className="error-text" style={{ marginTop: "0.75rem" }}>{splitError}</p>
+            )}
+
+            {splitStep === "config" && (
+              <div style={{ marginTop: "1rem", display: "grid", gap: "1.25rem" }}>
+                <div>
+                  <p style={{ fontWeight: 600, marginBottom: "0.5rem", fontSize: "0.9rem" }}>
+                    ¿Cómo dividir?
+                  </p>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button
+                      type="button"
+                      className={splitMode === "equal" ? "button" : "button ghost"}
+                      onClick={() => setSplitMode("equal")}
+                      style={{ flex: 1 }}
+                    >
+                      Por igual
+                    </button>
+                    <button
+                      type="button"
+                      className={splitMode === "byItem" ? "button" : "button ghost"}
+                      onClick={() => setSplitMode("byItem")}
+                      style={{ flex: 1 }}
+                    >
+                      Por ítem
+                    </button>
+                  </div>
+                </div>
+
+                {splitMode === "equal" && (
+                  <div>
+                    <p style={{ fontWeight: 600, marginBottom: "0.5rem", fontSize: "0.9rem" }}>
+                      Número de personas
+                    </p>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                      <button
+                        type="button"
+                        className="button ghost"
+                        style={{ padding: "0.5rem 1rem", fontSize: "1.2rem" }}
+                        onClick={() => setSplitDiners((n) => Math.max(2, n - 1))}
+                      >−</button>
+                      <span style={{ fontSize: "1.4rem", fontWeight: 700, minWidth: "2rem", textAlign: "center" }}>
+                        {splitDiners}
+                      </span>
+                      <button
+                        type="button"
+                        className="button ghost"
+                        style={{ padding: "0.5rem 1rem", fontSize: "1.2rem" }}
+                        onClick={() => setSplitDiners((n) => Math.min(10, n + 1))}
+                      >+</button>
+                    </div>
+                    <p className="muted" style={{ fontSize: "0.82rem", marginTop: "0.4rem" }}>
+                      ${(grandTotal / splitDiners).toFixed(2)} por persona
+                    </p>
+                  </div>
+                )}
+
+                <div className="total-box" style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span className="muted">Total a dividir</span>
+                  <span style={{ fontWeight: 700 }}>{formatCurrency(grandTotal)}</span>
+                </div>
+
+                <div className="inline-actions" style={{ justifyContent: "flex-end" }}>
+                  <button className="button ghost" type="button" onClick={closeSplitModal}>
+                    Cancelar
+                  </button>
+                  <button className="button" type="button" onClick={initSplitParts}>
+                    Continuar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {splitStep === "pay" && (
+              <div style={{ marginTop: "1rem", display: "grid", gap: "1rem" }}>
+
+                {splitMode === "byItem" && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <p style={{ fontWeight: 600, fontSize: "0.88rem", marginBottom: "0.5rem" }}>
+                      Asigna cada ítem a una persona:
+                    </p>
+                    {order?.items?.map((item) => {
+                      const assignedTo = splitParts.find((p) => p.itemIds.includes(item.id));
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "0.4rem 0.6rem",
+                            borderRadius: "8px",
+                            background: "var(--surface-soft)",
+                            marginBottom: "0.3rem",
+                            fontSize: "0.85rem"
+                          }}
+                        >
+                          <span>{item.quantity}× {item.product_name} — {formatCurrency(item.product_price * item.quantity)}</span>
+                          <div style={{ display: "flex", gap: "0.3rem" }}>
+                            {splitParts.map((part) => (
+                              <button
+                                key={part.id}
+                                type="button"
+                                className={part.itemIds.includes(item.id) ? "button" : "button ghost"}
+                                style={{ padding: "0.25rem 0.55rem", fontSize: "0.78rem" }}
+                                onClick={() => toggleItemInPart(part.id, item.id)}
+                                disabled={part.paid}
+                              >
+                                P{part.id}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {splitParts.map((part) => (
+                  <div
+                    key={part.id}
+                    style={{
+                      padding: "0.75rem",
+                      borderRadius: "12px",
+                      border: `1px solid ${part.paid ? "var(--success, #4ade80)" : "var(--border)"}`,
+                      background: part.paid ? "rgba(74,222,128,0.07)" : "var(--surface-soft)",
+                      opacity: part.paid ? 0.75 : 1,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+                      <strong style={{ fontSize: "0.9rem" }}>
+                        Persona {part.id}
+                        {part.paid && <span style={{ color: "#4ade80", marginLeft: "6px" }}>✓ Pagado</span>}
+                      </strong>
+                      <span style={{ fontWeight: 700 }}>{formatCurrency(part.amount)}</span>
+                    </div>
+
+                    {!part.paid && (
+                      <>
+                        <select
+                          value={part.method}
+                          onChange={(e) =>
+                            setSplitParts((prev) =>
+                              prev.map((p) =>
+                                p.id === part.id
+                                  ? { ...p, method: e.target.value as SplitPart["method"] }
+                                  : p
+                              )
+                            )
+                          }
+                          style={{ width: "100%", marginBottom: "0.5rem" }}
+                        >
+                          <option value="cash">Efectivo</option>
+                          <option value="card">Tarjeta</option>
+                          <option value="transfer">Transferencia</option>
+                        </select>
+
+                        {part.method === "cash" && (
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder={`Mínimo $${part.amount.toFixed(2)}`}
+                            value={part.cashReceived}
+                            onChange={(e) =>
+                              setSplitParts((prev) =>
+                                prev.map((p) =>
+                                  p.id === part.id ? { ...p, cashReceived: e.target.value } : p
+                                )
+                              )
+                            }
+                            style={{ width: "100%", marginBottom: "0.5rem" }}
+                          />
+                        )}
+
+                        <button
+                          type="button"
+                          className="button"
+                          disabled={splitLoading || part.amount <= 0}
+                          onClick={() => handlePaySplitPart(part.id)}
+                          style={{ width: "100%", background: "linear-gradient(135deg, #16a34a, #15803d)", color: "#fff" }}
+                        >
+                          {splitLoading ? "Procesando..." : `Cobrar $${part.amount.toFixed(2)}`}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+
+                <button className="button ghost" type="button" onClick={closeSplitModal} style={{ marginTop: "0.25rem" }}>
+                  Cancelar
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
