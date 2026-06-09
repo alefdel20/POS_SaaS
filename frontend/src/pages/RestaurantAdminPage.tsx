@@ -155,7 +155,7 @@ export function RestaurantAdminPage() {
   async function loadProducts() {
     if (!token) return;
     try {
-      const data = await apiRequest<Product[] | { items: Product[] }>("/products?pageSize=200", { token });
+      const data = await apiRequest<Product[] | { items: Product[] }>("/products", { token });
       setProducts(Array.isArray(data) ? data : (data.items ?? []));
     } catch {
       setProducts([]);
