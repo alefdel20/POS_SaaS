@@ -175,7 +175,7 @@ const sendItemsToKitchen = asyncHandler(async (req, res) => {
          WHERE order_item_id = ANY($1::int[])`,
         [sentItemIds]
       );
-      const modsByItem: Record<number, { name: string; price_delta: number }[]> = {};
+      const modsByItem = {};
       for (const m of modRows) {
         if (!modsByItem[m.order_item_id]) modsByItem[m.order_item_id] = [];
         modsByItem[m.order_item_id].push({ name: m.name, price_delta: m.price_delta });
