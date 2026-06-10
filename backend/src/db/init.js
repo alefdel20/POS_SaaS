@@ -603,6 +603,8 @@ async function ensureSchema(client) {
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(12,2) DEFAULT NULL",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS credit_days INTEGER DEFAULT 30",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS clients_business_name_phone_uq ON clients (business_id, LOWER(TRIM(name)), COALESCE(LOWER(TRIM(phone)), '')) WHERE deleted_at IS NULL",
 
@@ -630,6 +632,7 @@ async function ensureSchema(client) {
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS breed VARCHAR(120)",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS sex VARCHAR(20)",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS birth_date DATE",
+    "ALTER TABLE patients ADD COLUMN IF NOT EXISTS phone VARCHAR(30)",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS weight NUMERIC(10, 3)",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS allergies TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE patients ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
