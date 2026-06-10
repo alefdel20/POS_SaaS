@@ -1,8 +1,8 @@
 import type { PosType } from "../types";
-import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessInvoices, canAccessSales, canViewUsers, isManagementRole, normalizeRole, ROLE_MANAGER } from "./roles";
+import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessFinancialDashboard, canAccessInvoices, canAccessSales, canViewUsers, isManagementRole, normalizeRole, ROLE_MANAGER } from "./roles";
 import { getClinicalPatientLabel, getHealthcareSidebarTitle, getMedicalHistoryNavLabel, hidesAesthetics, usesPatientLabel, usesHumanPatientsOnly } from "./pos";
 
-export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "gerente" | "clinical" | "profile" | "invoices" | "businesses" | "all";
+export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "gerente" | "clinical" | "profile" | "invoices" | "businesses" | "financialDashboard" | "all";
 
 export type SidebarMenuItem = {
   label: string;
@@ -49,6 +49,7 @@ function getAdminLinksByRole(role?: string | null): SidebarMenuItem[] {
   if (normalizedRole === "superusuario") {
     return [
       { label: "Negocios", to: "/businesses", roles: "businesses", activeMatch: withAlias("/retail/admin/businesses", "/businesses") },
+      { label: "Dashboard Financiero", to: "/admin/dashboard", roles: "financialDashboard", activeMatch: ["/admin/dashboard"] },
       ...ADMIN_LINKS.filter((item) => item.label !== "Usuarios")
     ];
   }
@@ -70,6 +71,7 @@ function isRoleAllowed(role?: string | null, roleGroup: SidebarRoleGroup = "all"
   if (roleGroup === "profile") return isManagementRole(role) || normalizeRole(role) === "clinico" || normalizeRole(role) === ROLE_MANAGER;
   if (roleGroup === "invoices") return canAccessInvoices(role);
   if (roleGroup === "businesses") return canAccessBusinesses(role);
+  if (roleGroup === "financialDashboard") return canAccessFinancialDashboard(role);
   return false;
 }
 

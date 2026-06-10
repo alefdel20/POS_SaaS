@@ -1229,3 +1229,12 @@ export interface AdministrativeInvoice {
 }
 
 export * from "./restaurant";
+
+export interface AdminMetricsSummary {
+  mrr: number;
+  churn_count: number;
+  plans: { plan_name: string; count: number }[];
+  trials_active: number;
+  trials_converted_month: number;
+  revenue_by_method: { method: string; total: number }[];
+}

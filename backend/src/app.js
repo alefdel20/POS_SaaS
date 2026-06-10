@@ -46,6 +46,7 @@ const branchRoutes = require("./routes/branchRoutes");
 const tutorialRoutes = require("./routes/tutorialRoutes");
 const aiChatRoutes = require("./routes/aiChatRoutes");
 const grossProfitRoutes = require("./routes/grossProfitRoutes");
+const adminMetricsRoutes = require("./routes/adminMetricsRoutes");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -99,6 +100,7 @@ const routes = [
   { path: "/finances", router: financeRoutes, auth: true },
   { path: "/profile", router: profileRoutes, auth: true },
   { path: "/businesses", router: businessRoutes, auth: true },
+  { path: "/admin/metrics", router: adminMetricsRoutes, auth: true },
   { path: "/admin-invoices", router: adminInvoiceRoutes, auth: true },
   { path: "/onboarding", router: onboardingStatusRoutes, auth: false },
   { path: "/onboarding", router: onboardingRoutes, auth: true },

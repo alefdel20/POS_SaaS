@@ -27,6 +27,7 @@ import { ServicesPage } from "../pages/ServicesPage";
 import { UsersPage } from "../pages/UsersPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { BusinessesPage } from "../pages/BusinessesPage";
+import { FinancialDashboardPage } from "../pages/FinancialDashboardPage";
 import { BranchesPage } from "../pages/BranchesPage";
 import { InvoicesPage } from "../pages/InvoicesPage";
 import { RestaurantAdminPage } from "../pages/RestaurantAdminPage";
@@ -176,6 +177,9 @@ export function AppRouter() {
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.businesses]} />}>
               <Route path="/businesses" element={<BusinessesPage />} />
               <Route path="/retail/admin/businesses" element={<BusinessesPage />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.financialDashboard]} />}>
+              <Route path="/admin/dashboard" element={<FinancialDashboardPage />} />
             </Route>
             <Route element={<ProtectedRoute posTypes={["Restaurante"]} />}>
               <Route path="/restaurant/map" element={<RestaurantMapPage />} />

@@ -17,6 +17,7 @@ export const ROUTE_ROLES = {
   clinical: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_CLINICAL] as const,
   invoices: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_SUPPORT] as const,
   businesses: [ROLE_SUPERUSER] as const,
+  financialDashboard: [ROLE_SUPERUSER] as const,
 } as const;
 
 export function normalizeRole(role?: string | null): Role | null {
@@ -58,6 +59,10 @@ export function canAccessInvoices(role?: string | null) {
 
 export function canAccessBusinesses(role?: string | null) {
   return hasAnyRole(role, ROUTE_ROLES.businesses);
+}
+
+export function canAccessFinancialDashboard(role?: string | null) {
+  return hasAnyRole(role, ROUTE_ROLES.financialDashboard);
 }
 
 export function canEditAdministrativeInvoices(role?: string | null) {
