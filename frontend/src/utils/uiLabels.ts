@@ -29,7 +29,9 @@ const roleLabels: Record<string, string> = {
   support: "soporte",
   user: "cajero",
   cajero: "cajero",
-  cashier: "cajero"
+  cashier: "cajero",
+  cocina: "Cocina",
+  kitchen: "Cocina"
 };
 
 const errorTranslations: Record<string, string> = {

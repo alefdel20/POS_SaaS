@@ -1,4 +1,4 @@
-export const USER_ROLES = ["superusuario", "admin", "gerente", "clinico", "cajero", "soporte"] as const;
+export const USER_ROLES = ["superusuario", "admin", "gerente", "clinico", "cajero", "cocina", "soporte"] as const;
 export const CLINICAL_POS_TYPES = ["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"] as const;
 export const PRODUCT_CATALOG_TYPES = ["accessories", "medications"] as const;
 export const REMINDER_CATEGORIES = ["administrative", "clinical"] as const;
@@ -19,6 +19,8 @@ const USER_ROLE_ALIASES: Record<string, typeof USER_ROLES[number]> = {
   cajero: "cajero",
   cashier: "cajero",
   user: "cajero",
+  cocina: "cocina",
+  kitchen: "cocina",
   soporte: "soporte",
   support: "soporte"
 };

@@ -7,6 +7,7 @@ export const ROLE_MANAGER = "gerente" as const;
 export const ROLE_CLINICAL = "clinico" as const;
 export const ROLE_SUPPORT = "soporte" as const;
 export const ROLE_CASHIER = "cajero" as const;
+export const ROLE_KITCHEN = "cocina" as const;
 
 export const ROUTE_ROLES = {
   sales: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_MANAGER, ROLE_CASHIER] as const,
@@ -18,6 +19,9 @@ export const ROUTE_ROLES = {
   invoices: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_SUPPORT] as const,
   businesses: [ROLE_SUPERUSER] as const,
   financialDashboard: [ROLE_SUPERUSER] as const,
+  // Restaurante: staff de piso (excluye cocina) vs. KDS (incluye cocina)
+  restaurantStaff: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_MANAGER, ROLE_CASHIER] as const,
+  restaurantKds: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_MANAGER, ROLE_CASHIER, ROLE_KITCHEN] as const,
 } as const;
 
 export function normalizeRole(role?: string | null): Role | null {
@@ -73,10 +77,30 @@ export function isCashierRole(role?: string | null) {
   return normalizeRole(role) === ROLE_CASHIER;
 }
 
+export function isKitchenRole(role?: string | null) {
+  return normalizeRole(role) === ROLE_KITCHEN;
+}
+
+export function canAccessDashboard(role?: string | null) {
+  return hasAnyRole(role, ROUTE_ROLES.gerente);
+}
+
+export function canAccessRestaurantStaff(role?: string | null) {
+  return hasAnyRole(role, ROUTE_ROLES.restaurantStaff);
+}
+
+export function canAccessRestaurantKds(role?: string | null) {
+  return hasAnyRole(role, ROUTE_ROLES.restaurantKds);
+}
+
 export function getDefaultRouteForRole(role?: string | null) {
   const normalized = normalizeRole(role);
   if (normalized === ROLE_SUPPORT) {
     return "/users";
+  }
+
+  if (normalized === ROLE_KITCHEN) {
+    return "/restaurant/kds";
   }
 
   if (normalized === ROLE_CLINICAL) {

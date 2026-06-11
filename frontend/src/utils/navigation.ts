@@ -1,8 +1,8 @@
 import type { PosType } from "../types";
-import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessFinancialDashboard, canAccessInvoices, canAccessSales, canViewUsers, isManagementRole, normalizeRole, ROLE_MANAGER } from "./roles";
+import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessFinancialDashboard, canAccessInvoices, canAccessRestaurantKds, canAccessRestaurantStaff, canAccessSales, canViewUsers, isManagementRole, normalizeRole, ROLE_MANAGER } from "./roles";
 import { getClinicalPatientLabel, getHealthcareSidebarTitle, getMedicalHistoryNavLabel, hidesAesthetics, usesPatientLabel, usesHumanPatientsOnly } from "./pos";
 
-export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "gerente" | "clinical" | "profile" | "invoices" | "businesses" | "financialDashboard" | "all";
+export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "gerente" | "clinical" | "profile" | "invoices" | "businesses" | "financialDashboard" | "restaurantStaff" | "kitchen" | "all";
 
 export type SidebarMenuItem = {
   label: string;
@@ -61,7 +61,11 @@ function withAlias(aliasPath: string, targetPath: string) {
 }
 
 function isRoleAllowed(role?: string | null, roleGroup: SidebarRoleGroup = "all") {
+  // Cocina es un rol acotado: solo ve el item KDS, nunca un grupo genérico "all".
+  if (normalizeRole(role) === "cocina") return roleGroup === "kitchen";
   if (roleGroup === "all") return true;
+  if (roleGroup === "restaurantStaff") return canAccessRestaurantStaff(role);
+  if (roleGroup === "kitchen") return canAccessRestaurantKds(role);
   if (roleGroup === "sales") return canAccessSales(role);
   if (roleGroup === "users") return canViewUsers(role);
   if (roleGroup === "dailyCut") return canAccessDailyCut(role);
@@ -190,9 +194,15 @@ export function getDefaultRouteForUser(role?: string | null, posType?: string | 
     return "/users";
   }
 
+  // Cocina solo opera el KDS, independientemente de cómo se resuelva el vertical.
+  if (normalizeRole(role) === "cocina") {
+    return "/restaurant/kds";
+  }
+
   const vertical = resolveBusinessVertical(posType);
 
   if (vertical === "restaurant") {
+    // gerente / cajero / admin → mapa de mesas; cocina ya salió arriba al KDS.
     return "/restaurant/map";
   }
 
@@ -385,15 +395,15 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
     {
       title: "Restaurante",
       items: [
-        { label: "Mapa de Mesas", to: "/restaurant/map", roles: "all", activeMatch: ["/restaurant/map", "/restaurant/orders"] },
-        { label: "Cocina", to: "/restaurant/kds", roles: "all", activeMatch: ["/restaurant/kds"] }
+        { label: "Mapa de Mesas", to: "/restaurant/map", roles: "restaurantStaff", activeMatch: ["/restaurant/map", "/restaurant/orders"] },
+        { label: "Cocina", to: "/restaurant/kds", roles: "kitchen", activeMatch: ["/restaurant/kds"] }
       ]
     },
     {
       title: "Operación",
       items: [
-        { label: "Productos", to: "/products", roles: "all", activeMatch: ["/products"] },
-        { label: "Historial", to: "/sales-history", roles: "all", activeMatch: ["/sales-history"] }
+        { label: "Productos", to: "/products", roles: "restaurantStaff", activeMatch: ["/products"] },
+        { label: "Historial", to: "/sales-history", roles: "restaurantStaff", activeMatch: ["/sales-history"] }
       ]
     },
     {

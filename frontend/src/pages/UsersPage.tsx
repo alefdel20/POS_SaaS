@@ -63,10 +63,13 @@ export function UsersPage() {
   const roleOptions = useMemo(() => {
     const isClinical = CLINICAL_POS_TYPES.includes(posType as typeof CLINICAL_POS_TYPES[number]);
     const clinicalRoles = isClinical ? (["clinico"] as const) : ([] as const);
+    // El rol cocina solo aplica a negocios de tipo restaurante.
+    const isRestaurant = posType === "Restaurante";
+    const kitchenRoles = isRestaurant ? (["cocina"] as const) : ([] as const);
 
     if (currentRole === "superusuario") return USER_ROLES;
-    if (currentRole === "admin") return ["admin", "gerente", "cajero", ...clinicalRoles] as const;
-    if (currentRole === "gerente") return ["cajero", ...clinicalRoles] as const;
+    if (currentRole === "admin") return ["admin", "gerente", "cajero", ...clinicalRoles, ...kitchenRoles] as const;
+    if (currentRole === "gerente") return ["cajero", ...clinicalRoles, ...kitchenRoles] as const;
     return [] as const;
   }, [currentRole, posType]);
 

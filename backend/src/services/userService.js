@@ -301,7 +301,9 @@ async function updateUser(id, payload, actor) {
   const nextIsActive = payload.is_active ?? current.is_active;
 
   if (!nextRole) throw new ApiError(400, "Invalid role");
-  if (payload.role && !canAssignRole(actorRole, nextRole)) throw new ApiError(403, "Forbidden role assignment");
+  // Guardamos el cambio de rol con el pos_type del negocio destino (ej. cocina solo en restaurante).
+  const targetPosType = current.business_pos_type || current.pos_type || null;
+  if (payload.role && !canAssignRole(actorRole, nextRole, targetPosType)) throw new ApiError(403, "Forbidden role assignment");
   if (!isSuperUser(actor) && current.role === "superusuario") throw new ApiError(403, "Forbidden");
 
   const client = await pool.connect();

@@ -9,10 +9,13 @@ const router = express.Router();
 const ALL_ROLES   = ["superusuario", "superadmin", "admin", "gerente", "cajero", "clinico"];
 const STAFF_ROLES = ["superusuario", "superadmin", "admin", "gerente", "cajero"];
 const ADMIN_ROLES = ["superusuario", "superadmin", "admin"];
+// KDS: staff de piso + rol cocina (acotado al display de cocina y su stream)
+const KITCHEN_ROLES = ["superusuario", "superadmin", "admin", "gerente", "cajero", "cocina"];
 
 // ─── SSE ─────────────────────────────────────────────────────────────────────
 // Registered first — no :id param, no conflict risk
-router.get("/sse", requireRole(ALL_ROLES), controller.restaurantSSEHandler);
+// Cocina necesita el stream para recibir comandas en tiempo real en el KDS
+router.get("/sse", requireRole(KITCHEN_ROLES), controller.restaurantSSEHandler);
 
 // ─── ZONES ───────────────────────────────────────────────────────────────────
 router.get("/zones",      requireRole(ALL_ROLES),   controller.getZones);
@@ -60,7 +63,7 @@ router.put("/products/:productId/modifier-groups", requireRole(ADMIN_ROLES),  mo
 router.get("/products/:productId/modifiers",       requireRole(ALL_ROLES),    modifierController.getProductModifiers);
 
 // ─── KDS ─────────────────────────────────────────────────────────────────────
-router.get("/kds",                          requireRole(ALL_ROLES),   controller.getKitchenDisplay);
-router.patch("/kds/items/:itemId/prepared", requireRole(STAFF_ROLES), controller.markItemPrepared);
+router.get("/kds",                          requireRole(KITCHEN_ROLES), controller.getKitchenDisplay);
+router.patch("/kds/items/:itemId/prepared", requireRole(KITCHEN_ROLES), controller.markItemPrepared);
 
 module.exports = router;

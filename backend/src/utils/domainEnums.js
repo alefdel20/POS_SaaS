@@ -1,4 +1,4 @@
-const USER_ROLES = ["superusuario", "admin", "gerente", "clinico", "cajero", "soporte"];
+const USER_ROLES = ["superusuario", "admin", "gerente", "clinico", "cajero", "cocina", "soporte"];
 const CLINICAL_POS_TYPES = ["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"];
 const USER_ROLE_ALIASES = {
   superusuario: "superusuario",
@@ -11,6 +11,8 @@ const USER_ROLE_ALIASES = {
   cajero: "cajero",
   cashier: "cajero",
   user: "cajero",
+  cocina: "cocina",
+  kitchen: "cocina",
   soporte: "soporte",
   support: "soporte"
 };

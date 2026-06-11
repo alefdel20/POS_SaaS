@@ -6,7 +6,7 @@ import { apiRequest } from "../api/client";
 import { getSidebarSectionsForVertical, type SidebarMenuItem } from "../utils/navigation";
 import { canUseCreditCollections } from "../utils/pos";
 import type { ProductUpdateRequestPendingSummary } from "../types";
-import { isManagementRole } from "../utils/roles";
+import { canAccessDashboard, isManagementRole } from "../utils/roles";
 
 const NEW_TAB_ALLOWED_ROUTES = new Set<string>([
   "/products",
@@ -386,7 +386,11 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           <AnkodeLogo className="sidebar-logo" size={30} variant="icon" alt="ANKODE K" />
           <div className="brand">Menú</div>
         </div>
-        <p className="brand-subtitle">Panel comercial</p>
+        {canAccessDashboard(currentRole) ? (
+          <NavLink className="brand-subtitle brand-subtitle-link" to="/dashboard">Panel comercial</NavLink>
+        ) : (
+          <p className="brand-subtitle">Panel comercial</p>
+        )}
       </div>
       <nav className="nav-list">
         {sections.map((section, sectionIndex) => {
