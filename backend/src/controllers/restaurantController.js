@@ -235,7 +235,8 @@ const closeOrder = asyncHandler(async (req, res) => {
     businessId,
     orderId,
     req.body.payments,
-    req.user.id
+    req.user.id,
+    req.user
   );
   try {
     emitToRoom(businessId, "order_closed", { orderId, tableId: order.table_id });
@@ -368,7 +369,7 @@ const recordSplitPayment = asyncHandler(async (req, res) => {
   }
 
   if (orderClosed) {
-    recomputeDailyCut(businessId, getMexicoCityDate()).catch(err =>
+    recomputeDailyCut(getMexicoCityDate(), req.user).catch(err =>
       console.error("[recordSplitPayment] recomputeDailyCut error:", err.message)
     );
     try {

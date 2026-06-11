@@ -513,7 +513,7 @@ async function requestBill(businessId, orderId, actorId) {
   }
 }
 
-async function closeOrder(businessId, orderId, payments, actorId) {
+async function closeOrder(businessId, orderId, payments, actorId, actor) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -639,7 +639,7 @@ async function closeOrder(businessId, orderId, payments, actorId) {
     await client.query("COMMIT");
 
     // Recompute corte diario en background — no bloquea la respuesta
-    recomputeDailyCut(businessId, saleDate).catch(err =>
+    recomputeDailyCut(saleDate, actor ?? { business_id: businessId }).catch(err =>
       console.error("[closeOrder] recomputeDailyCut error:", err.message)
     );
 

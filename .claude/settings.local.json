@@ -44,7 +44,8 @@
       "Bash(Select-Object Name, PSIsContainer)",
       "Bash(xargs -I {} basename {})",
       "Bash(dir C:UserstatueDocumentsPOS_SaaSpos-app *)",
-      "PowerShell(head *)"
+      "PowerShell(head *)",
+      "PowerShell(git *)"
     ]
   }
 }
