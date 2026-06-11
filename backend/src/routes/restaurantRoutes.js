@@ -6,8 +6,8 @@ const modifierController = require("../controllers/restaurantModifierController"
 const router = express.Router();
 
 // Role sets
-const ALL_ROLES   = ["superusuario", "superadmin", "admin", "cajero", "clinico"];
-const STAFF_ROLES = ["superusuario", "superadmin", "admin", "cajero"];
+const ALL_ROLES   = ["superusuario", "superadmin", "admin", "gerente", "cajero", "clinico"];
+const STAFF_ROLES = ["superusuario", "superadmin", "admin", "gerente", "cajero"];
 const ADMIN_ROLES = ["superusuario", "superadmin", "admin"];
 
 // ─── SSE ─────────────────────────────────────────────────────────────────────

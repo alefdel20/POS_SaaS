@@ -1012,6 +1012,7 @@ async function ensureSchema(client) {
     "CREATE INDEX IF NOT EXISTS idx_restaurant_orders_business_id ON restaurant_orders(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_orders_table_id ON restaurant_orders(table_id)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_orders_status ON restaurant_orders(business_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_restaurant_orders_opened_by ON restaurant_orders(opened_by)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_order_items_order_id ON restaurant_order_items(order_id)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_order_items_status ON restaurant_order_items(business_id, status)",
     "CREATE INDEX IF NOT EXISTS idx_restaurant_payments_order_id ON restaurant_payments(order_id)",

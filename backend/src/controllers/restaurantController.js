@@ -85,7 +85,7 @@ const getTables = asyncHandler(async (req, res) => {
 });
 
 const getTableMap = asyncHandler(async (req, res) => {
-  res.json(await restaurantService.getTableMap(req.user.business_id));
+  res.json(await restaurantService.getTableMap(req.user.business_id, req.user.id, req.user.role));
 });
 
 const createTable = asyncHandler(async (req, res) => {
@@ -113,7 +113,7 @@ const updateTableStatus = asyncHandler(async (req, res) => {
 // ─── ORDER CONTROLLERS ───────────────────────────────────────────────────────
 
 const getActiveOrders = asyncHandler(async (req, res) => {
-  res.json(await restaurantService.getActiveOrders(req.user.business_id));
+  res.json(await restaurantService.getActiveOrders(req.user.business_id, req.user.id, req.user.role));
 });
 
 const getOrderByTable = asyncHandler(async (req, res) => {
@@ -146,7 +146,8 @@ const addItemsToOrder = asyncHandler(async (req, res) => {
       req.user.business_id,
       Number(req.params.id),
       req.body.items,
-      req.user.id
+      req.user.id,
+      req.user.role
     )
   );
 });
@@ -224,7 +225,7 @@ const updateItemStatus = asyncHandler(async (req, res) => {
 
 const requestBill = asyncHandler(async (req, res) => {
   res.json(
-    await restaurantService.requestBill(req.user.business_id, Number(req.params.id), req.user.id)
+    await restaurantService.requestBill(req.user.business_id, Number(req.params.id), req.user.id, req.user.role)
   );
 });
 
@@ -236,6 +237,7 @@ const closeOrder = asyncHandler(async (req, res) => {
     orderId,
     req.body.payments,
     req.user.id,
+    req.user.role,
     req.user
   );
   try {
@@ -392,16 +394,21 @@ const cancelOrder = asyncHandler(async (req, res) => {
   const orderId = Number(req.params.id);
 
   const { rows: orders } = await pool.query(
-    `SELECT o.id, o.table_id, COUNT(oi.id) AS item_count
+    `SELECT o.id, o.table_id, o.opened_by, COUNT(oi.id) AS item_count
      FROM restaurant_orders o
      LEFT JOIN restaurant_order_items oi ON o.id = oi.order_id
      WHERE o.id = $1 AND o.business_id = $2
-     GROUP BY o.id, o.table_id`,
+     GROUP BY o.id, o.table_id, o.opened_by`,
     [orderId, businessId]
   );
 
   if (orders.length === 0) {
     return res.status(404).json({ error: "Orden no encontrada" });
+  }
+
+  // Cajero (mesero): sólo puede cancelar órdenes que él abrió.
+  if (req.user.role === "cajero" && orders[0].opened_by !== req.user.id) {
+    return res.status(403).json({ error: "No tienes permiso para operar esta orden" });
   }
 
   if (Number(orders[0].item_count) > 0) {
@@ -457,7 +464,7 @@ const markItemPrepared = asyncHandler(async (req, res) => {
 // ─── SSE HANDLER ─────────────────────────────────────────────────────────────
 
 async function restaurantSSEHandler(req, res) {
-  const businessId = Number(req.actor?.business_id || req.user?.business_id);
+  const businessId = Number(req.user?.business_id);
   if (!businessId) return res.status(401).json({ error: "Sin negocio" });
 
   res.setHeader("Content-Type", "text/event-stream");

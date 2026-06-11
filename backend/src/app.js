@@ -47,6 +47,7 @@ const tutorialRoutes = require("./routes/tutorialRoutes");
 const aiChatRoutes = require("./routes/aiChatRoutes");
 const grossProfitRoutes = require("./routes/grossProfitRoutes");
 const adminMetricsRoutes = require("./routes/adminMetricsRoutes");
+const publicMenuRoutes = require("./routes/publicMenuRoutes");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -83,6 +84,7 @@ const loginLimiter = rateLimit({
 
 const routes = [
   { path: "/auth", router: authRoutes, auth: false, limiter: loginLimiter },
+  { path: "/menu", router: publicMenuRoutes, auth: false },
   { path: "/automation", router: automationRoutes, auth: false },
   { path: "/openpay", router: openPayRoutes, auth: false },
   { path: "/web-services", router: webServicesRoutes, auth: false },

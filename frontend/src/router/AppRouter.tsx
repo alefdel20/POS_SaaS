@@ -36,6 +36,7 @@ import { RestaurantOrderPage } from "../pages/RestaurantOrderPage";
 import { KdsPage } from "../pages/KdsPage";
 import { ForgotPasswordPage } from "../pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "../pages/ResetPasswordPage";
+import { PublicMenuPage } from "../pages/PublicMenuPage";
 import { ROUTE_ROLES } from "../utils/roles";
 import { getDefaultRouteForUser } from "../utils/navigation";
 import { Navigate } from "react-router-dom";
@@ -53,6 +54,7 @@ export function AppRouter() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/menu/:slug" element={<PublicMenuPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<RoleHomeRedirect />} />

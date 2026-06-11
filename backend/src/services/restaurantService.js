@@ -3,6 +3,18 @@ const ApiError = require("../utils/ApiError");
 const { getMexicoCityDate, getMexicoCityTime } = require("../utils/timezone");
 const { recomputeDailyCut } = require("./dailyCutService");
 
+// Roles que sólo operan sus propias órdenes (mesero). El resto ve/opera todo el negocio.
+function isWaiterScoped(role) {
+  return role === "cajero";
+}
+
+// Lanza 403 si un cajero intenta operar una orden que no abrió.
+function assertOrderOwnership(order, actorId, role) {
+  if (isWaiterScoped(role) && order.opened_by !== actorId) {
+    throw new ApiError(403, "No tienes permiso para operar esta orden");
+  }
+}
+
 // ─── ZONES ───────────────────────────────────────────────────────────────────
 
 async function getZones(businessId) {
@@ -106,13 +118,22 @@ async function getTables(businessId, zoneId) {
   return rows;
 }
 
-async function getTableMap(businessId) {
+async function getTableMap(businessId, actorId = null, role = null) {
   const { rows: zones } = await pool.query(
     `SELECT * FROM restaurant_zones
      WHERE business_id = $1 AND is_active = TRUE
      ORDER BY sort_order ASC, name ASC`,
     [businessId]
   );
+
+  // Cajero (mesero): sólo se le adjuntan las órdenes que él abrió; las mesas con
+  // orden ajena aparecen como disponibles. Gerente/Admin/Superusuario ven todo.
+  const params = [businessId];
+  let openedByFilter = "";
+  if (isWaiterScoped(role)) {
+    params.push(actorId);
+    openedByFilter = `AND ro.opened_by = $${params.length}`;
+  }
 
   const { rows: tables } = await pool.query(
     `SELECT t.*,
@@ -126,9 +147,10 @@ async function getTableMap(businessId) {
        ON ro.table_id = t.id
        AND ro.business_id = t.business_id
        AND ro.status IN ('open', 'bill_requested')
+       ${openedByFilter}
      WHERE t.business_id = $1 AND t.is_active = TRUE
      ORDER BY t.name ASC`,
-    [businessId]
+    params
   );
 
   const tablesByZone = {};
@@ -206,7 +228,15 @@ async function updateTableStatus(businessId, tableId, status) {
 
 // ─── ORDERS ──────────────────────────────────────────────────────────────────
 
-async function getActiveOrders(businessId) {
+async function getActiveOrders(businessId, actorId = null, role = null) {
+  // Cajero (mesero): sólo sus propias órdenes. Gerente/Admin/Superusuario: todas.
+  const params = [businessId];
+  let openedByFilter = "";
+  if (isWaiterScoped(role)) {
+    params.push(actorId);
+    openedByFilter = `AND o.opened_by = $${params.length}`;
+  }
+
   const { rows } = await pool.query(
     `SELECT o.*,
             t.name AS table_name,
@@ -220,10 +250,10 @@ async function getActiveOrders(businessId) {
      JOIN restaurant_zones z ON z.id = o.zone_id
      LEFT JOIN restaurant_order_items i
        ON i.order_id = o.id AND i.business_id = o.business_id
-     WHERE o.business_id = $1 AND o.status IN ('open', 'bill_requested')
+     WHERE o.business_id = $1 AND o.status IN ('open', 'bill_requested') ${openedByFilter}
      GROUP BY o.id, t.name, z.name
      ORDER BY o.opened_at ASC`,
-    [businessId]
+    params
   );
   return rows;
 }
@@ -359,13 +389,14 @@ async function openOrder(businessId, tableId, payload, actorId) {
   }
 }
 
-async function addItemsToOrder(businessId, orderId, items, actorId) {
+async function addItemsToOrder(businessId, orderId, items, actorId, role = null) {
   const { rows: orderCheck } = await pool.query(
-    `SELECT id FROM restaurant_orders
+    `SELECT id, opened_by FROM restaurant_orders
      WHERE business_id = $1 AND id = $2 AND status = 'open'`,
     [businessId, orderId]
   );
   if (!orderCheck.length) throw new ApiError(404, "Open order not found");
+  assertOrderOwnership(orderCheck[0], actorId, role);
 
   const client = await pool.connect();
   try {
@@ -472,10 +503,19 @@ async function updateItemStatus(businessId, itemId, status, actorId) {
   return rows[0];
 }
 
-async function requestBill(businessId, orderId, actorId) {
+async function requestBill(businessId, orderId, actorId, role = null) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    const { rows: ownerRows } = await client.query(
+      `SELECT opened_by FROM restaurant_orders
+       WHERE business_id = $1 AND id = $2 AND status = 'open'
+       FOR UPDATE`,
+      [businessId, orderId]
+    );
+    if (!ownerRows.length) throw new ApiError(404, "Open order not found");
+    assertOrderOwnership(ownerRows[0], actorId, role);
 
     const { rows: pendingRows } = await client.query(
       `SELECT COUNT(*) AS cnt
@@ -513,7 +553,7 @@ async function requestBill(businessId, orderId, actorId) {
   }
 }
 
-async function closeOrder(businessId, orderId, payments, actorId, actor) {
+async function closeOrder(businessId, orderId, payments, actorId, role, actor) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -526,6 +566,7 @@ async function closeOrder(businessId, orderId, payments, actorId, actor) {
     );
     if (!orderRows.length) throw new ApiError(404, "Active order not found");
     const order = orderRows[0];
+    assertOrderOwnership(order, actorId, role);
 
     const { rows: totals } = await client.query(
       `SELECT COALESCE(SUM(product_price * quantity), 0) AS total
