@@ -2,7 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { AnkodeLogo } from "../components/AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
-import { getDefaultRouteForRole } from "../utils/roles";
+import { getDefaultRouteForUser } from "../utils/navigation";
 
 export function LoginPage() {
   const { login, user } = useAuth();
@@ -12,7 +12,8 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   if (user) {
-    return <Navigate to={getDefaultRouteForRole(user.role)} replace />;
+    // Usa pos_type para que gerente/cajero de restaurante caigan en /restaurant/map (no /sales).
+    return <Navigate to={getDefaultRouteForUser(user.role, user.pos_type)} replace />;
   }
 
   async function handleSubmit(event: FormEvent) {

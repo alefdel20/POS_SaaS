@@ -54,7 +54,7 @@ export function UsersPage() {
   const currentRole = normalizeRole(currentUser?.role);
   const posType = currentUser?.pos_type || null;
   const isSupportContextActive = Boolean(currentUser?.support_context);
-  const canCreateUsers = currentRole === "superusuario" || currentRole === "admin";
+  const canCreateUsers = currentRole === "superusuario" || currentRole === "admin" || currentRole === "gerente";
   const canResetPasswords = currentRole === "superusuario";
   const canEditRoles = currentRole === "superusuario";
   const currentBusinessId = currentUser?.business_id;

@@ -11,7 +11,7 @@ export const ROLE_KITCHEN = "cocina" as const;
 
 export const ROUTE_ROLES = {
   sales: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_MANAGER, ROLE_CASHIER] as const,
-  users: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_SUPPORT] as const,
+  users: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_SUPPORT, ROLE_MANAGER] as const,
   dailyCut: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_MANAGER, ROLE_CASHIER] as const,
   management: [ROLE_SUPERUSER, ROLE_ADMIN] as const,
   gerente: [ROLE_SUPERUSER, ROLE_ADMIN, ROLE_MANAGER] as const,
@@ -82,7 +82,8 @@ export function isKitchenRole(role?: string | null) {
 }
 
 export function canAccessDashboard(role?: string | null) {
-  return hasAnyRole(role, ROUTE_ROLES.gerente);
+  const normalized = normalizeRole(role);
+  return normalized === ROLE_SUPERUSER || normalized === ROLE_ADMIN || normalized === ROLE_MANAGER;
 }
 
 export function canAccessRestaurantStaff(role?: string | null) {
