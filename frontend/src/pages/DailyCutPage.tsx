@@ -366,7 +366,7 @@ export function DailyCutPage() {
             <div className="stat-card"><span className="stat-label">Efectivo</span><strong className="stat-value">{today ? currency(today.cash_total) : "—"}</strong></div>
             <div className="stat-card"><span className="stat-label">Tarjeta</span><strong className="stat-value">{today ? currency(today.card_total) : "—"}</strong></div>
             <div className="stat-card"><span className="stat-label">Transferencia</span><strong className="stat-value">{today ? currency(today.transfer_total) : "—"}</strong></div>
-            <div className="stat-card"><span className="stat-label">Credito generado</span><strong className="stat-value" style={{ color: "var(--color-text-danger)" }}>{today ? currency(todayCreditGenerated) : "—"}</strong></div>
+            <div className="stat-card"><span className="stat-label">Credito generado</span><strong className="stat-value" style={{ color: "var(--danger)" }}>{today ? currency(todayCreditGenerated) : "—"}</strong></div>
             <div className="stat-card"><span className="stat-label">Cobranza</span><strong className="stat-value">{today ? currency(todayCreditCollected) : "—"}</strong></div>
             <div className="stat-card"><span className="stat-label">Inversión en inventario (hoy)</span><strong className="stat-value">{today ? currency(today.inventory_restock_total || 0) : "—"}</strong></div>
             <div className="stat-card"><span className="stat-label">Facturas emitidas</span><strong className="stat-value">{today ? today.invoice_count : "—"}</strong></div>
