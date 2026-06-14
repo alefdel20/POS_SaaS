@@ -178,6 +178,7 @@ export function SalesPage() {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
   const [requiresAdministrativeInvoice, setRequiresAdministrativeInvoice] = useState(false);
+  const [cfdiAddonActive, setCfdiAddonActive] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -307,6 +308,16 @@ export function SalesPage() {
     setProfile(response);
   }
 
+  async function loadCfdiAddonStatus() {
+    if (!token) return;
+    try {
+      const response = await apiRequest<{ addon?: { status?: string } }>("/cfdi/status", { token });
+      setCfdiAddonActive(response?.addon?.status === "active");
+    } catch {
+      setCfdiAddonActive(false);
+    }
+  }
+
   async function loadCategories(term = "") {
     if (!token) return;
     if (!isManagementRole(user?.role)) {
@@ -427,6 +438,7 @@ export function SalesPage() {
     loadProfile().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil del negocio");
     });
+    loadCfdiAddonStatus();
     if (isManagementRole(user?.role)) {
       loadCategories().catch(() => setCategories([]));
     } else {
@@ -929,6 +941,35 @@ export function SalesPage() {
       setLastReceipt(response.receipt);
       setLastSaleItems(cart);
       setLastSale(response.sale);
+
+      // Timbrar CFDI si addon activo y la venta requiere factura
+      if (cfdiAddonActive && saleType === "invoice" && response.sale?.id) {
+        try {
+          await apiRequest("/cfdi/invoices", {
+            method: "POST",
+            token,
+            body: JSON.stringify({
+              sale_id: response.sale.id,
+              client_rfc: invoiceData.client_rfc || "XAXX010101000",
+              client_name: invoiceData.client_name || "Público en General",
+              client_email: invoiceData.client_email || undefined,
+              cfdi_use: invoiceData.cfdi_use || "G03",
+              payment_form: paymentMethod === "cash" ? "01" : paymentMethod === "card" ? "04" : "03",
+              total,
+              items: cart.map((item) => ({
+                description: item.product.name,
+                product_key: "01010101",
+                unit_key: "H87",
+                unit_price: item.product.effective_price ?? item.product.price,
+                quantity: item.quantity
+              }))
+            })
+          });
+        } catch {
+          setWarnings((prev) => [...(prev || []), "La venta se registró pero el timbrado CFDI falló. Puedes intentarlo desde Configuración > Facturación."]);
+        }
+      }
+
       resetSaleForm();
       setPrescriptionSeedId(null);
       setSearchParams((current) => {
