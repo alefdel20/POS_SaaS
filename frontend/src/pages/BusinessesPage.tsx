@@ -119,6 +119,9 @@ export function BusinessesPage() {
   const [loadingStamps, setLoadingStamps] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [savingUser, setSavingUser] = useState(false);
+  const [addonStatus, setAddonStatus] = useState<"active" | "inactive" | "loading" | null>(null);
+  const [addonLoading, setAddonLoading] = useState(false);
+  const [addonNote, setAddonNote] = useState("");
 
   const selectedBusiness = useMemo(
     () => businesses.find((business) => business.id === selectedBusinessId) || null,
@@ -181,6 +184,10 @@ export function BusinessesPage() {
     setStampQuantity("1");
     setStampNote("");
     setUserForm(emptyUserForm);
+    // El estado del addon CFDI aún no tiene endpoint de consulta por negocio:
+    // se reinicia al cambiar de negocio y el superusuario lo gestiona manualmente.
+    setAddonStatus(null);
+    setAddonNote("");
     if (selectedBusiness?.id) {
       loadStampMovements(selectedBusiness.id).catch(() => undefined);
     } else {
@@ -295,6 +302,56 @@ export function BusinessesPage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar timbres");
     } finally {
       setLoadingStamps(false);
+    }
+  }
+
+  async function handleActivateAddon() {
+    if (!token || !selectedBusiness) return;
+
+    try {
+      setAddonLoading(true);
+      setError("");
+      setInfo("");
+      await apiRequest(`/cfdi/admin/activate`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          business_id: selectedBusiness.id,
+          notes: addonNote.trim() || undefined
+        })
+      });
+      setAddonStatus("active");
+      setAddonNote("");
+      setInfo("Add-on de Facturación CFDI activado");
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "No fue posible activar el add-on CFDI");
+    } finally {
+      setAddonLoading(false);
+    }
+  }
+
+  async function handleDeactivateAddon() {
+    if (!token || !selectedBusiness) return;
+
+    try {
+      setAddonLoading(true);
+      setError("");
+      setInfo("");
+      await apiRequest(`/cfdi/admin/deactivate`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          business_id: selectedBusiness.id,
+          notes: addonNote.trim() || undefined
+        })
+      });
+      setAddonStatus("inactive");
+      setAddonNote("");
+      setInfo("Add-on de Facturación CFDI desactivado");
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "No fue posible desactivar el add-on CFDI");
+    } finally {
+      setAddonLoading(false);
     }
   }
 
@@ -725,6 +782,40 @@ export function BusinessesPage() {
               {loadingStamps ? "Registrando..." : "Registrar carga de timbres"}
             </button>
           </form>
+
+          <div className="panel grid-form">
+            <div className="panel-header">
+              <div>
+                <h2>Add-on Facturación CFDI</h2>
+                <p className="muted">Activa o desactiva la facturación CFDI 4.0 para este negocio.</p>
+              </div>
+            </div>
+            <div className="info-card form-span-2">
+              <p>
+                <strong>Estado:</strong>{" "}
+                {addonStatus === "active" ? (
+                  <span className="status-badge appointment-status-completed">Activo</span>
+                ) : addonStatus === "inactive" ? (
+                  <span className="status-badge supplier-status-inactive">Inactivo</span>
+                ) : (
+                  <span className="status-badge">—</span>
+                )}
+              </p>
+            </div>
+            <label className="form-span-2">
+              Notas
+              <textarea value={addonNote} onChange={(event) => setAddonNote(event.target.value)} placeholder="Opcional (motivo de activación o desactivación)" />
+            </label>
+            {addonStatus !== "active" ? (
+              <button className="button" type="button" disabled={addonLoading} onClick={handleActivateAddon}>
+                {addonLoading ? "Procesando..." : "Activar addon"}
+              </button>
+            ) : (
+              <button className="button ghost" type="button" disabled={addonLoading} onClick={handleDeactivateAddon}>
+                {addonLoading ? "Procesando..." : "Desactivar addon"}
+              </button>
+            )}
+          </div>
 
           <div className="panel form-span-2">
             <div className="panel-header">

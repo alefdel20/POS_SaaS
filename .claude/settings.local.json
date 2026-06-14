@@ -45,7 +45,8 @@
       "Bash(xargs -I {} basename {})",
       "Bash(dir C:UserstatueDocumentsPOS_SaaSpos-app *)",
       "PowerShell(head *)",
-      "PowerShell(git *)"
+      "PowerShell(git *)",
+      "Bash(npx vite *)"
     ]
   }
 }

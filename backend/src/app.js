@@ -48,6 +48,7 @@ const aiChatRoutes = require("./routes/aiChatRoutes");
 const grossProfitRoutes = require("./routes/grossProfitRoutes");
 const adminMetricsRoutes = require("./routes/adminMetricsRoutes");
 const publicMenuRoutes = require("./routes/publicMenuRoutes");
+const cfdiRoutes = require("./routes/cfdiRoutes");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -104,6 +105,7 @@ const routes = [
   { path: "/businesses", router: businessRoutes, auth: true },
   { path: "/admin/metrics", router: adminMetricsRoutes, auth: true },
   { path: "/admin-invoices", router: adminInvoiceRoutes, auth: true },
+  { path: "/cfdi", router: cfdiRoutes, auth: true },
   { path: "/onboarding", router: onboardingStatusRoutes, auth: false },
   { path: "/onboarding", router: onboardingRoutes, auth: true },
   { path: "/services", router: serviceCatalogRoutes, auth: true },

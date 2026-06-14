@@ -2099,7 +2099,71 @@ async function ensureConstraints(client) {
       used_at    TIMESTAMPTZ NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )`,
-    "CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token_hash ON password_reset_tokens(token_hash)"
+    "CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token_hash ON password_reset_tokens(token_hash)",
+
+    `CREATE TABLE IF NOT EXISTS business_addons (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      addon_key VARCHAR(50) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'inactive' CHECK (status IN ('active','inactive','suspended')),
+      activated_at TIMESTAMPTZ,
+      deactivated_at TIMESTAMPTZ,
+      activated_by INTEGER REFERENCES users(id),
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(business_id, addon_key)
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_business_addons_business_id ON business_addons(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_business_addons_key_status ON business_addons(addon_key, status)",
+
+    `CREATE TABLE IF NOT EXISTS business_cfdi_config (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL UNIQUE REFERENCES businesses(id) ON DELETE CASCADE,
+      facturapi_org_id VARCHAR(120),
+      facturapi_live_key VARCHAR(200),
+      facturapi_test_key VARCHAR(200),
+      pac_mode VARCHAR(20) NOT NULL DEFAULT 'test' CHECK (pac_mode IN ('test','production')),
+      legal_name VARCHAR(200),
+      rfc VARCHAR(13),
+      tax_regime VARCHAR(10),
+      zip_code VARCHAR(10),
+      csd_uploaded BOOLEAN DEFAULT FALSE,
+      csd_expires_at DATE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS cfdi_invoices (
+      id SERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      sale_id INTEGER REFERENCES sales(id),
+      facturapi_invoice_id VARCHAR(120),
+      folio_number INTEGER,
+      series VARCHAR(10) DEFAULT 'A',
+      status VARCHAR(30) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','valid','canceled','cancellation_request')),
+      total NUMERIC(12,2),
+      pdf_url TEXT,
+      xml_url TEXT,
+      cfdi_use VARCHAR(10),
+      payment_method VARCHAR(10),
+      client_rfc VARCHAR(13),
+      client_name VARCHAR(200),
+      client_email VARCHAR(200),
+      stamped_at TIMESTAMPTZ,
+      canceled_at TIMESTAMPTZ,
+      cancel_reason VARCHAR(200),
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_cfdi_invoices_business_id ON cfdi_invoices(business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_cfdi_invoices_sale_id ON cfdi_invoices(sale_id)",
+    "CREATE INDEX IF NOT EXISTS idx_cfdi_invoices_status ON cfdi_invoices(business_id, status)",
+
+    `ALTER TABLE subscription_payment_history
+      ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'plan'
+      CHECK (source IN ('plan','cfdi_addon'))`
   ]);
 }
 

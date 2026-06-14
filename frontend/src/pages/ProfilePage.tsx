@@ -34,6 +34,13 @@ type ProfileFormState = {
   stamp_alert_threshold: string;
 };
 
+type CfdiConfig = {
+  legal_name?: string | null;
+  rfc?: string | null;
+  tax_regime?: string | null;
+  zip_code?: string | null;
+} | null;
+
 const emptyForm: ProfileFormState = {
   owner_name: "",
   company_name: "",
@@ -138,8 +145,11 @@ export function ProfilePage() {
   const [openpayReady, setOpenpayReady] = useState(false);
   const [assetLoading, setAssetLoading] = useState<"business_image" | "signature" | "">("");
   const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "stamps" | "">("");
+  const [cfdiStatus, setCfdiStatus] = useState<{ addon: { status: string }; config: CfdiConfig } | null>(null);
+  const [cfdiLoading, setCfdiLoading] = useState(false);
+  const [cfdiSaving, setCfdiSaving] = useState(false);
+  const [cfdiForm, setCfdiForm] = useState({ legal_name: "", rfc: "", tax_regime: "", zip_code: "" });
   const currentRole = normalizeRole(user?.role);
-  const canEditStamps = currentRole === "superusuario";
 
   async function loadProfile() {
     if (!token) return;
@@ -158,6 +168,32 @@ export function ProfilePage() {
     loadProfile().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil");
     });
+  }, [token, isDoctor]);
+
+  useEffect(() => {
+    if (!token || isDoctor) return;
+    let cancelled = false;
+    setCfdiLoading(true);
+    apiRequest<{ addon: { status: string }; config: CfdiConfig }>("/cfdi/status", { token })
+      .then((response) => {
+        if (cancelled) return;
+        setCfdiStatus(response);
+        if (response?.addon?.status === "active" && response.config) {
+          setCfdiForm({
+            legal_name: response.config.legal_name || "",
+            rfc: response.config.rfc || "",
+            tax_regime: response.config.tax_regime || "",
+            zip_code: response.config.zip_code || ""
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCfdiStatus(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCfdiLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [token, isDoctor]);
 
   function loadOpenpayScript(): Promise<void> {
@@ -332,6 +368,28 @@ export function ProfilePage() {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el perfil");
     } finally {
       setSavingSection("");
+    }
+  }
+
+  async function saveCfdiConfig(event: FormEvent) {
+    event.preventDefault();
+    if (!token) return;
+
+    try {
+      setCfdiSaving(true);
+      setError("");
+      setInfo("");
+      const response = await apiRequest<CfdiConfig>("/cfdi/config", {
+        method: "PUT",
+        token,
+        body: JSON.stringify(cfdiForm)
+      });
+      setCfdiStatus((current) => (current ? { ...current, config: response } : current));
+      setInfo("Configuración CFDI guardada correctamente");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "No fue posible guardar la configuración CFDI");
+    } finally {
+      setCfdiSaving(false);
     }
   }
 
@@ -1002,56 +1060,44 @@ export function ProfilePage() {
         </div>
       )}
 
-      {/* HIDDEN: Configuración > Facturación — pending PAC CFDI contract
-      <form className="panel grid-form" onSubmit={(event) => saveSection(event, "stamps", {
-        fiscal_rfc: formData.fiscal_rfc,
-        pac_provider: formData.pac_provider,
-        pac_mode: formData.pac_mode,
-        stamp_alert_threshold: Number(formData.stamp_alert_threshold || 0)
-      })}>
+      <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Configuración &gt; Facturación</h2>
-            <p className="muted">Configura RFC emisor, proveedor CFDI y disponibilidad de timbres.</p>
+            <h2>Facturación CFDI</h2>
+            <p className="muted">Configura los datos fiscales para timbrar tus facturas CFDI 4.0.</p>
           </div>
         </div>
-        <label>
-          RFC empresa
-          <input disabled={!canEditStamps} value={formData.fiscal_rfc} onChange={(event) => updateField("fiscal_rfc", event.target.value)} />
-        </label>
-        <label>
-          Proveedor CFDI
-          <input
-            disabled={!canEditStamps}
-            placeholder="Proveedor CFDI mock"
-            value={formData.pac_provider}
-            onChange={(event) => updateField("pac_provider", event.target.value)}
-          />
-        </label>
-        <label>
-          Modo PAC
-          <select disabled={!canEditStamps} value={formData.pac_mode} onChange={(event) => updateField("pac_mode", event.target.value as "test" | "production")}>
-            <option value="test">Pruebas</option>
-            <option value="production">Producción</option>
-          </select>
-        </label>
-        <label>
-          Timbres disponibles
-          <input disabled readOnly type="number" min="0" value={formData.stamps_available} />
-        </label>
-        <label>
-          Alerta de timbres
-          <input disabled={!canEditStamps} type="number" min="0" value={formData.stamp_alert_threshold} onChange={(event) => updateField("stamp_alert_threshold", event.target.value)} />
-        </label>
-        {!canEditStamps ? <p className="muted">Solo superusuario puede editar esta configuración.</p> : null}
-        {canEditStamps ? <p className="muted">Las cargas manuales de timbres ahora se registran desde Negocios para mantener trazabilidad por movimiento.</p> : null}
-        {canEditStamps ? (
-          <button className="button" disabled={savingSection === "stamps"} type="submit">
-            {savingSection === "stamps" ? "Guardando..." : "Guardar configuración de facturación"}
-          </button>
-        ) : null}
-      </form>
-      */}
+        {cfdiLoading ? (
+          <p className="muted">Cargando...</p>
+        ) : !cfdiStatus || cfdiStatus.addon.status !== "active" ? (
+          <div className="info-card">
+            <p className="muted">El add-on de Facturación CFDI no está activo en tu cuenta.</p>
+            <p className="muted">Contacta a soporte en contacto@ankode.cloud para activarlo.</p>
+          </div>
+        ) : (
+          <form className="grid-form" onSubmit={saveCfdiConfig}>
+            <label>
+              Razón social
+              <input value={cfdiForm.legal_name} onChange={(event) => setCfdiForm((current) => ({ ...current, legal_name: event.target.value }))} />
+            </label>
+            <label>
+              RFC
+              <input value={cfdiForm.rfc} onChange={(event) => setCfdiForm((current) => ({ ...current, rfc: event.target.value.toUpperCase() }))} />
+            </label>
+            <label>
+              Régimen fiscal
+              <input value={cfdiForm.tax_regime} onChange={(event) => setCfdiForm((current) => ({ ...current, tax_regime: event.target.value }))} />
+            </label>
+            <label>
+              Código postal
+              <input value={cfdiForm.zip_code} onChange={(event) => setCfdiForm((current) => ({ ...current, zip_code: event.target.value }))} />
+            </label>
+            <button className="button" disabled={cfdiSaving} type="submit">
+              {cfdiSaving ? "Guardando..." : "Guardar configuración"}
+            </button>
+          </form>
+        )}
+      </div>
     </section>
   );
 }
