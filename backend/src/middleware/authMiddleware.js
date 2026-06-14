@@ -85,7 +85,7 @@ async function requireAuth(req, res, next) {
 
     next();
   } catch (error) {
-    next(error.statusCode ? error : new ApiError(401, "Token inválido o expirado"));
+    next(error.statusCode ? error : new ApiError(401, "Sesión expirada"));
   }
 }
 

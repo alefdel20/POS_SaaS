@@ -68,6 +68,14 @@ const CUT_METRICS_CTE_SQL = `
       AND expenses.is_voided = FALSE
       AND COALESCE(expenses.movement_type, 'general_expense') = 'inventory_restock'
   ),
+  expense_rows AS (
+    SELECT
+      expenses.date::date AS cut_date,
+      GREATEST(COALESCE(expenses.amount, 0), 0) AS expense_component
+    FROM expenses
+    WHERE expenses.business_id = $1
+      AND expenses.is_voided = FALSE
+  ),
   cashflow AS (
     SELECT
       sale_rows.cut_date,
@@ -148,6 +156,7 @@ const CUT_METRICS_CTE_SQL = `
       cashflow.gross_profit_component,
       cashflow.gross_sales_component,
       0::NUMERIC AS inventory_restock_component,
+      0::NUMERIC AS expense_component,
       cashflow.timbres_usados,
       cashflow.timbres_restantes
     FROM cashflow
@@ -167,6 +176,7 @@ const CUT_METRICS_CTE_SQL = `
       0::NUMERIC AS gross_profit_component,
       0::NUMERIC AS gross_sales_component,
       0::NUMERIC AS inventory_restock_component,
+      0::NUMERIC AS expense_component,
       0::INTEGER AS timbres_usados,
       NULL::NUMERIC AS timbres_restantes
     FROM credit_generated
@@ -186,6 +196,7 @@ const CUT_METRICS_CTE_SQL = `
       0::NUMERIC AS gross_profit_component,
       0::NUMERIC AS gross_sales_component,
       0::NUMERIC AS inventory_restock_component,
+      0::NUMERIC AS expense_component,
       0::INTEGER AS timbres_usados,
       NULL::NUMERIC AS timbres_restantes
     FROM credit_collected
@@ -205,9 +216,30 @@ const CUT_METRICS_CTE_SQL = `
       0::NUMERIC AS gross_profit_component,
       0::NUMERIC AS gross_sales_component,
       restock_rows.inventory_restock_component,
+      0::NUMERIC AS expense_component,
       0::INTEGER AS timbres_usados,
       NULL::NUMERIC AS timbres_restantes
     FROM restock_rows
+    UNION ALL
+    SELECT
+      expense_rows.cut_date,
+      NULL::INTEGER AS sale_user_id,
+      NULL::text AS cashier_name,
+      0::NUMERIC AS cash_real_component,
+      0::NUMERIC AS cash_total_component,
+      0::NUMERIC AS card_total_component,
+      0::NUMERIC AS transfer_total_component,
+      0::NUMERIC AS credit_generated_component,
+      0::NUMERIC AS credit_collected_component,
+      0::INTEGER AS invoice_count,
+      0::INTEGER AS ticket_count,
+      0::NUMERIC AS gross_profit_component,
+      0::NUMERIC AS gross_sales_component,
+      0::NUMERIC AS inventory_restock_component,
+      expense_rows.expense_component,
+      0::INTEGER AS timbres_usados,
+      NULL::NUMERIC AS timbres_restantes
+    FROM expense_rows
   )
 `;
 
@@ -270,7 +302,7 @@ async function listRealizedDailyCuts(filters = {}, actor) {
      SELECT
        cut_date,
        COALESCE(SUM(cash_real_component), 0) AS total_day,
-       COALESCE(SUM(cash_real_component), 0) AS cash_real,
+       (COALESCE(SUM(cash_real_component), 0) - COALESCE(SUM(expense_component), 0)) AS cash_real,
        COALESCE(SUM(cash_total_component), 0) AS cash_total,
        COALESCE(SUM(card_total_component), 0) AS card_total,
        COALESCE(SUM(credit_generated_component), 0) AS credit_total,
@@ -300,7 +332,7 @@ function mapCutRow(row) {
     ...row,
     cut_date: row.cut_date ? normalizeBusinessDate(row.cut_date, row.cut_date) : row.cut_date,
     total_day: Number(row.total_day || 0),
-    cash_real: Number(row.cash_real || row.total_day || 0),
+    cash_real: row.cash_real != null ? Number(row.cash_real) : Number(row.total_day || 0),
     cash_total: Number(row.cash_total || 0),
     card_total: Number(row.card_total || 0),
     credit_total: Number(row.credit_total || 0),
@@ -382,7 +414,7 @@ async function listMonthlyCuts(filters = {}, actor) {
        MIN(cut_date) AS start_date,
        MAX(cut_date) AS end_date,
        COALESCE(SUM(cash_real_component), 0) AS total_day,
-       COALESCE(SUM(cash_real_component), 0) AS cash_real,
+       (COALESCE(SUM(cash_real_component), 0) - COALESCE(SUM(expense_component), 0)) AS cash_real,
        COALESCE(SUM(cash_total_component), 0) AS cash_total,
        COALESCE(SUM(card_total_component), 0) AS card_total,
        COALESCE(SUM(credit_generated_component), 0) AS credit_total,

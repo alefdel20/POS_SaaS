@@ -275,6 +275,10 @@ async function listDebtorSuggestions(actor, search = "") {
        COALESCE(SUM(sales.balance_due), 0) AS pending_balance,
        MAX(sales.sale_date) AS last_sale_date
      FROM sales
+     LEFT JOIN clients c
+       ON c.business_id = sales.business_id
+       AND LOWER(TRIM(c.name)) = LOWER(TRIM(sales.customer_name))
+       AND LOWER(TRIM(COALESCE(c.phone, ''))) = LOWER(TRIM(COALESCE(sales.customer_phone, '')))
      WHERE sales.business_id = $1
        AND sales.payment_method = 'credit'
        AND COALESCE(sales.status, 'completed') <> 'cancelled'
@@ -283,6 +287,7 @@ async function listDebtorSuggestions(actor, search = "") {
          OR COALESCE(sales.customer_phone, '') ILIKE $2
        )
        AND COALESCE(sales.customer_name, '') <> ''
+       AND (c.id IS NULL OR c.deleted_at IS NULL)
      GROUP BY sales.customer_name, sales.customer_phone
      ORDER BY MAX(sales.sale_date) DESC, sales.customer_name ASC
      LIMIT 8`,

@@ -352,17 +352,17 @@ export function SalesPage() {
       return;
     }
     const catalogIdMap = new Map(
-      catalogResponse.map((c) => [`${c.name.toLowerCase()}::${String(c.phone || "").replace(/\D/g, "")}`, c.id])
+      catalogResponse.map((c) => [`${c.name.trim().toLowerCase()}::${String(c.phone || "").replace(/\D/g, "")}`, c.id])
     );
     const existingKeys = new Set(
-      debtorResponse.map((d) => `${String(d.customer_name || "").toLowerCase()}::${String(d.customer_phone || "").replace(/\D/g, "")}`)
+      debtorResponse.map((d) => `${String(d.customer_name || "").trim().toLowerCase()}::${String(d.customer_phone || "").replace(/\D/g, "")}`)
     );
     const enrichedDebtorResponse = debtorResponse.map((d) => {
-      const key = `${String(d.customer_name || "").toLowerCase()}::${String(d.customer_phone || "").replace(/\D/g, "")}`;
+      const key = `${String(d.customer_name || "").trim().toLowerCase()}::${String(d.customer_phone || "").replace(/\D/g, "")}`;
       return { ...d, catalog_id: catalogIdMap.get(key) };
     });
     const catalogAsSuggestions: DebtorSuggestion[] = catalogResponse
-      .filter((c) => !existingKeys.has(`${c.name.toLowerCase()}::${String(c.phone || "").replace(/\D/g, "")}`))
+      .filter((c) => !existingKeys.has(`${c.name.trim().toLowerCase()}::${String(c.phone || "").replace(/\D/g, "")}`))
       .map((c) => ({
         customer_name: c.name,
         customer_phone: c.phone || null,
