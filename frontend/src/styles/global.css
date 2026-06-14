@@ -950,8 +950,8 @@ td {
   height: 30px;
   border-radius: 50%;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
+  background: var(--button-ghost-bg);
+  color: var(--button-ghost-text);
 }
 
 .warning-box,

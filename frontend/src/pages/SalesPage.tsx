@@ -1607,6 +1607,7 @@ export function SalesPage() {
                         return;
                       }
                       setClientBalance(null);
+                      setCustomerPhone("");
                       setCustomerNameInput(nextValue);
                       setCustomerName(nextValue.trim());
                     }}
@@ -1626,6 +1627,7 @@ export function SalesPage() {
                         return;
                       }
                       setClientBalance(null);
+                      setCustomerPhone("");
                       setCustomerName(customerNameInput.trim());
                     }}
                   />
