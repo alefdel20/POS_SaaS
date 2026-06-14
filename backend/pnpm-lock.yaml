@@ -35,6 +35,9 @@ importers:
       express-validator:
         specifier: ^7.2.1
         version: 7.3.2
+      facturapi:
+        specifier: ^4.18.0
+        version: 4.18.0
       helmet:
         specifier: ^8.1.0
         version: 8.1.0
@@ -358,6 +361,10 @@ packages:
   express@4.22.2:
     resolution: {integrity: sha512-IuL+Elrou2ZvCFHs18/CIzy2Nzvo25nZ1/D2eIZlz7c+QUayAcYoiM2BthCjs+EBHVpjYjcuLDAiCWgeIX3X1Q==}
     engines: {node: '>= 0.10.0'}
+
+  facturapi@4.18.0:
+    resolution: {integrity: sha512-HR13NU6NNEe2PB8Y76uTQLCYn/3EGxjN8Y+cGiM4ZZkzwKe3QPavBnQINWp7Mo1HTX37nlVWmuG82HPjfBjYlQ==}
+    engines: {node: '>=18.0.0', npm: '>=10.0.0'}
 
   fast-csv@4.3.6:
     resolution: {integrity: sha512-2RNSpuwwsJGP0frGsOmTb9oUF+VkFSM4SyLTDgwf2ciHWTarN0lQTC+F2f/t5J9QjW+c65VFIAAu85GsvMIusw==}
@@ -1342,6 +1349,8 @@ snapshots:
       vary: 1.1.2
     transitivePeerDependencies:
       - supports-color
+
+  facturapi@4.18.0: {}
 
   fast-csv@4.3.6:
     dependencies:
