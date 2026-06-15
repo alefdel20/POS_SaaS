@@ -953,6 +953,7 @@ export function SalesPage() {
               client_rfc: invoiceData.client_rfc || "XAXX010101000",
               client_name: invoiceData.client_name || "Público en General",
               client_email: invoiceData.client_email || undefined,
+              client_tax_regime: invoiceData.client_tax_regime || undefined,
               cfdi_use: invoiceData.cfdi_use || "G03",
               payment_form: paymentMethod === "cash" ? "01" : paymentMethod === "card" ? "04" : "03",
               total,

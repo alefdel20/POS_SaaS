@@ -64,7 +64,7 @@ async function stampInvoice(req, res, next) {
     const addon = await addonService.getAddonStatus(businessId, addonService.CFDI_ADDON_KEY);
     if (addon?.status !== 'active') throw new ApiError(403, "Add-on CFDI no activo");
 
-    const { sale_id, client_rfc, client_name, client_email, cfdi_use, items, total, payment_form } = req.body;
+    const { sale_id, client_rfc, client_name, client_email, client_tax_regime, cfdi_use, items, total, payment_form } = req.body;
     if (!items || !Array.isArray(items) || items.length === 0) {
       throw new ApiError(400, "Se requiere al menos un producto en items");
     }
@@ -74,7 +74,7 @@ async function stampInvoice(req, res, next) {
 
     const result = await cfdiService.stampInvoice(
       businessId,
-      { sale_id, client_rfc, client_name, client_email, cfdi_use, items, total: Number(total), payment_form },
+      { sale_id, client_rfc, client_name, client_email, client_tax_regime, cfdi_use, items, total: Number(total), payment_form },
       req.user.id
     );
 

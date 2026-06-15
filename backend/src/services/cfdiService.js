@@ -74,7 +74,7 @@ async function listCfdiInvoices(businessId, { page = 1, pageSize = 20 } = {}) {
 }
 
 // Timbra una factura en Facturapi sandbox
-async function stampInvoice(businessId, { sale_id, client_rfc, client_name, client_email, cfdi_use, items, total, payment_form }, createdByUserId) {
+async function stampInvoice(businessId, { sale_id, client_rfc, client_name, client_email, client_tax_regime, cfdi_use, items, total, payment_form }, createdByUserId) {
   const config = await getCfdiConfig(businessId);
 
   // Usar key del negocio si existe, si no usar la global (sandbox)
@@ -88,7 +88,7 @@ async function stampInvoice(businessId, { sale_id, client_rfc, client_name, clie
   // Construir customer
   const customer = generic
     ? { legal_name: "Público en General", tax_id: "XAXX010101000", tax_system: "616", address: { zip: config?.zip_code || "06600" } }
-    : { legal_name: client_name, email: client_email || undefined, tax_id: client_rfc, tax_system: "601", address: { zip: config?.zip_code || "06600" } };
+    : { legal_name: client_name, email: client_email || undefined, tax_id: client_rfc, tax_system: client_tax_regime || "601", address: { zip: config?.zip_code || "06600" } };
 
   // Construir items
   const facturapiItems = (items || []).map((i) => ({
