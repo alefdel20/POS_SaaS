@@ -529,7 +529,7 @@ export function SalesPage() {
     profile?.fiscal_address
   );
   const hasAvailableStamps = Number(profile?.stamps_available || 0) > 0;
-  const canUseInvoice = hasFiscalProfile;
+  const canUseInvoice = cfdiAddonActive && hasFiscalProfile;
   const invoiceBlockedByStamps = canUseInvoice && !hasAvailableStamps;
   const hasValidCashReceived = paymentMethod !== "cash"
     || (cashReceived.trim() !== "" && cashReceivedAmount > 0 && cashReceivedAmount >= total);
