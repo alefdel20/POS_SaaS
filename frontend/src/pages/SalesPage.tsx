@@ -178,7 +178,7 @@ export function SalesPage() {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
   const [requiresAdministrativeInvoice, setRequiresAdministrativeInvoice] = useState(false);
-  const [cfdiAddonActive, setCfdiAddonActive] = useState(false);
+  const [cfdiAddonActive, setCfdiAddonActive] = useState<boolean | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -563,10 +563,10 @@ export function SalesPage() {
   }, [profile]);
 
   useEffect(() => {
-    if ((!canUseInvoice || invoiceBlockedByStamps) && saleType === "invoice") {
+    if (cfdiAddonActive !== null && (!canUseInvoice || invoiceBlockedByStamps) && saleType === "invoice") {
       setSaleType("ticket");
     }
-  }, [canUseInvoice, invoiceBlockedByStamps, saleType]);
+  }, [cfdiAddonActive, canUseInvoice, invoiceBlockedByStamps, saleType]);
 
   useEffect(() => {
     if (!canUseCredit && paymentMethod === "credit") {
@@ -1191,10 +1191,12 @@ export function SalesPage() {
               ) : null}
             </select>
           </label>
-          <label className="checkbox-row">
-            <input checked={requiresAdministrativeInvoice} onChange={(event) => setRequiresAdministrativeInvoice(event.target.checked)} type="checkbox" />
-            <span>Requiere factura</span>
-          </label>
+          {!cfdiAddonActive && (
+            <label className="checkbox-row">
+              <input checked={requiresAdministrativeInvoice} onChange={(event) => setRequiresAdministrativeInvoice(event.target.checked)} type="checkbox" />
+              <span>Requiere factura</span>
+            </label>
+          )}
         </div>
         <div className="table-wrap" style={{ overflowY: "auto", maxHeight: "340px" }}>
           <table>
