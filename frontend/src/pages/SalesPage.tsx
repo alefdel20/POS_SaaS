@@ -10,6 +10,7 @@ import SaleReturnModal from "../components/SaleReturnModal";
 import { resolveProductImageUrl } from "../utils/assets";
 import { canUseCreditCollections, canUseExpiryDate, getDefaultUnitForPosType } from "../utils/pos";
 import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
+import { useCfdiAddon } from "../hooks/useCfdiAddon";
 
 const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
@@ -178,7 +179,7 @@ export function SalesPage() {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
   const [requiresAdministrativeInvoice, setRequiresAdministrativeInvoice] = useState(false);
-  const [cfdiAddonActive, setCfdiAddonActive] = useState<boolean | null>(null);
+  const { cfdiAddonActive } = useCfdiAddon();
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -308,16 +309,6 @@ export function SalesPage() {
     setProfile(response);
   }
 
-  async function loadCfdiAddonStatus() {
-    if (!token) return;
-    try {
-      const response = await apiRequest<{ addon?: { status?: string } }>("/cfdi/status", { token });
-      setCfdiAddonActive(response?.addon?.status === "active");
-    } catch {
-      setCfdiAddonActive(false);
-    }
-  }
-
   async function loadCategories(term = "") {
     if (!token) return;
     if (!isManagementRole(user?.role)) {
@@ -438,7 +429,6 @@ export function SalesPage() {
     loadProfile().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil del negocio");
     });
-    loadCfdiAddonStatus();
     if (isManagementRole(user?.role)) {
       loadCategories().catch(() => setCategories([]));
     } else {

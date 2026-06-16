@@ -11,6 +11,7 @@ import type {
   RestaurantOrderItem,
   RestaurantOrderItemModifier,
 } from "../types/restaurant";
+import { useCfdiAddon } from "../hooks/useCfdiAddon";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -97,6 +98,15 @@ export function RestaurantOrderPage() {
   const [splitError, setSplitError] = useState("");
   const [splitStep, setSplitStep] = useState<"config" | "pay">("config");
   const [splitNumpadOpen, setSplitNumpadOpen] = useState<number | null>(null);
+  const { cfdiAddonActive } = useCfdiAddon();
+  const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
+  const [invoiceData, setInvoiceData] = useState({
+    client_rfc: "",
+    client_name: "",
+    client_email: "",
+    client_tax_regime: "",
+    cfdi_use: "",
+  });
 
   // ── Fetch order ──
   const loadOrder = useCallback(async () => {
@@ -278,7 +288,7 @@ export function RestaurantOrderPage() {
     setPayLoading(true);
     setPayError("");
     try {
-      await apiRequest(`/restaurant/orders/${orderId}/close`, {
+      const response = await apiRequest<{ sale_id?: number }>(`/restaurant/orders/${orderId}/close`, {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -289,6 +299,35 @@ export function RestaurantOrderPage() {
           }]
         })
       });
+      if (cfdiAddonActive && saleType === "invoice" && response?.sale_id) {
+        try {
+          await apiRequest("/cfdi/invoices", {
+            method: "POST",
+            token,
+            body: JSON.stringify({
+              sale_id: response.sale_id,
+              client_rfc: invoiceData.client_rfc || "XAXX010101000",
+              client_name: invoiceData.client_name || "Público en General",
+              client_email: invoiceData.client_email || undefined,
+              client_tax_regime: invoiceData.client_tax_regime || undefined,
+              cfdi_use: invoiceData.cfdi_use || "G03",
+              payment_form: payMethod === "cash" ? "01" : payMethod === "card" ? "04" : "03",
+              total: orderTotal,
+              items: (order?.items ?? [])
+                .filter((item: RestaurantOrderItem) => item.status !== "cancelled")
+                .map((item: RestaurantOrderItem) => ({
+                  description: item.product_name,
+                  product_key: "01010101",
+                  unit_key: "H87",
+                  unit_price: item.product_price,
+                  quantity: item.quantity,
+                })),
+            }),
+          });
+        } catch {
+          // Timbrado no bloquea el cobro
+        }
+      }
       navigate("/restaurant/map");
     } catch (err) {
       setPayError(err instanceof Error ? err.message : "Error al cobrar");
@@ -1299,6 +1338,18 @@ export function RestaurantOrderPage() {
                   <option value="transfer">Transferencia</option>
                 </select>
               </label>
+              {cfdiAddonActive && (
+                <label>
+                  Tipo de salida
+                  <select
+                    value={saleType}
+                    onChange={(e) => setSaleType(e.target.value as "ticket" | "invoice")}
+                  >
+                    <option value="ticket">Ticket</option>
+                    <option value="invoice">Factura</option>
+                  </select>
+                </label>
+              )}
               <label>
                 Propina
                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
@@ -1369,6 +1420,51 @@ export function RestaurantOrderPage() {
                 )}
               </label>
             </div>
+
+            {cfdiAddonActive && saleType === "invoice" && (
+              <div className="invoice-grid" style={{ marginTop: "0.75rem" }}>
+                <label>
+                  RFC
+                  <input
+                    value={invoiceData.client_rfc}
+                    onChange={(e) => setInvoiceData(p => ({ ...p, client_rfc: e.target.value }))}
+                    placeholder="XAXX010101000"
+                  />
+                </label>
+                <label>
+                  Nombre o razón social
+                  <input
+                    value={invoiceData.client_name}
+                    onChange={(e) => setInvoiceData(p => ({ ...p, client_name: e.target.value }))}
+                    placeholder="Público en General"
+                  />
+                </label>
+                <label>
+                  Correo electrónico
+                  <input
+                    value={invoiceData.client_email}
+                    onChange={(e) => setInvoiceData(p => ({ ...p, client_email: e.target.value }))}
+                    placeholder="correo@ejemplo.com"
+                  />
+                </label>
+                <label>
+                  Uso CFDI
+                  <input
+                    value={invoiceData.cfdi_use}
+                    onChange={(e) => setInvoiceData(p => ({ ...p, cfdi_use: e.target.value }))}
+                    placeholder="G03"
+                  />
+                </label>
+                <label>
+                  Régimen fiscal receptor
+                  <input
+                    value={invoiceData.client_tax_regime}
+                    onChange={(e) => setInvoiceData(p => ({ ...p, client_tax_regime: e.target.value }))}
+                    placeholder="616"
+                  />
+                </label>
+              </div>
+            )}
 
             {payMethod === "cash" && (
               <div className="grid-form" style={{ marginTop: "0.75rem" }}>

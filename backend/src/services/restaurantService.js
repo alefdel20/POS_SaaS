@@ -684,7 +684,7 @@ async function closeOrder(businessId, orderId, payments, actorId, role, actor) {
       console.error("[closeOrder] recomputeDailyCut error:", err.message)
     );
 
-    return closedRows[0];
+    return { ...closedRows[0], sale_id: saleId };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
