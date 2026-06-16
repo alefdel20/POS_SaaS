@@ -15,3 +15,4 @@ export function useCfdiAddon() {
 
   return { cfdiAddonActive };
 }
+"// $(date)" 
