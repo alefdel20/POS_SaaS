@@ -31,6 +31,7 @@ export interface User {
   plan_key?: string;
   trial_days_remaining?: number | null;
   is_trial?: boolean;
+  is_demo?: boolean;
   plan_features?: {
     ai_chat: boolean;
     ai_agents: boolean;
