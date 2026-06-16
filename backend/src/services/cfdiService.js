@@ -41,8 +41,8 @@ async function getCfdiConfig(businessId) {
   return rows[0] || null;
 }
 
-// Guarda/actualiza config CFDI básica (sin CSD aún)
-async function upsertCfdiConfig(businessId, { legal_name, rfc, tax_regime, zip_code, pac_mode }) {
+// Guarda/actualiza config CFDI básica (sin CSD aún) + dual-write a company_profiles
+async function upsertCfdiConfig(businessId, { legal_name, rfc, tax_regime, zip_code, pac_mode, fiscal_address }) {
   const { rows } = await pool.query(
     `INSERT INTO business_cfdi_config (business_id, legal_name, rfc, tax_regime, zip_code, pac_mode, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, NOW())
@@ -52,6 +52,18 @@ async function upsertCfdiConfig(businessId, { legal_name, rfc, tax_regime, zip_c
      RETURNING *`,
     [businessId, legal_name, rfc, tax_regime, zip_code, pac_mode || 'test']
   );
+
+  await pool.query(
+    `UPDATE company_profiles
+     SET fiscal_rfc = COALESCE($1, fiscal_rfc),
+         fiscal_business_name = COALESCE($2, fiscal_business_name),
+         fiscal_regime = COALESCE($3, fiscal_regime),
+         fiscal_address = COALESCE($4, fiscal_address),
+         updated_at = NOW()
+     WHERE business_id = $5`,
+    [rfc, legal_name, tax_regime, fiscal_address || zip_code, businessId]
+  );
+
   return rows[0];
 }
 

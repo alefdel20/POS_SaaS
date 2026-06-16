@@ -148,7 +148,7 @@ export function ProfilePage() {
   const [cfdiStatus, setCfdiStatus] = useState<{ addon: { status: string }; config: CfdiConfig } | null>(null);
   const [cfdiLoading, setCfdiLoading] = useState(false);
   const [cfdiSaving, setCfdiSaving] = useState(false);
-  const [cfdiForm, setCfdiForm] = useState({ legal_name: "", rfc: "", tax_regime: "", zip_code: "" });
+  const [cfdiForm, setCfdiForm] = useState({ legal_name: "", rfc: "", tax_regime: "", zip_code: "", fiscal_address: "" });
   const currentRole = normalizeRole(user?.role);
 
   async function loadProfile() {
@@ -162,6 +162,13 @@ export function ProfilePage() {
     const response = await apiRequest<CompanyProfile>("/profile", { token });
     setProfile(response);
     setFormData(profileToForm(response));
+    setCfdiForm((current) => ({
+      ...current,
+      legal_name: current.legal_name || response.fiscal_business_name || "",
+      rfc: current.rfc || response.fiscal_rfc || "",
+      tax_regime: current.tax_regime || response.fiscal_regime || "",
+      fiscal_address: current.fiscal_address || response.fiscal_address || ""
+    }));
   }
 
   useEffect(() => {
@@ -178,13 +185,14 @@ export function ProfilePage() {
       .then((response) => {
         if (cancelled) return;
         setCfdiStatus(response);
-        if (response?.addon?.status === "active" && response.config) {
-          setCfdiForm({
-            legal_name: response.config.legal_name || "",
-            rfc: response.config.rfc || "",
-            tax_regime: response.config.tax_regime || "",
-            zip_code: response.config.zip_code || ""
-          });
+        if (response?.addon?.status === "active") {
+          setCfdiForm((current) => ({
+            legal_name: response.config?.legal_name || current.legal_name || "",
+            rfc: response.config?.rfc || current.rfc || "",
+            tax_regime: response.config?.tax_regime || current.tax_regime || "",
+            zip_code: response.config?.zip_code || current.zip_code || "",
+            fiscal_address: current.fiscal_address || ""
+          }));
         }
       })
       .catch(() => {
@@ -385,6 +393,7 @@ export function ProfilePage() {
         body: JSON.stringify(cfdiForm)
       });
       setCfdiStatus((current) => (current ? { ...current, config: response } : current));
+      await loadProfile();
       setInfo("Configuración CFDI guardada correctamente");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar la configuración CFDI");
@@ -737,39 +746,6 @@ export function ProfilePage() {
       </form>
       */}
 
-      <form className="panel grid-form" onSubmit={(event) => saveSection(event, "fiscal", {
-        fiscal_rfc: formData.fiscal_rfc,
-        fiscal_business_name: formData.fiscal_business_name,
-        fiscal_regime: formData.fiscal_regime,
-        fiscal_address: formData.fiscal_address
-      })}>
-        <div className="panel-header">
-          <div>
-            <h2>Datos fiscales</h2>
-            <p className="muted">Completa esta sección para habilitar la opción de factura en Ventas.</p>
-          </div>
-        </div>
-        <label>
-          RFC
-          <input value={formData.fiscal_rfc} onChange={(event) => updateField("fiscal_rfc", event.target.value)} />
-        </label>
-        <label>
-          Razón social
-          <input value={formData.fiscal_business_name} onChange={(event) => updateField("fiscal_business_name", event.target.value)} />
-        </label>
-        <label>
-          Régimen fiscal
-          <input value={formData.fiscal_regime} onChange={(event) => updateField("fiscal_regime", event.target.value)} />
-        </label>
-        <label>
-          Dirección fiscal
-          <textarea value={formData.fiscal_address} onChange={(event) => updateField("fiscal_address", event.target.value)} />
-        </label>
-        <button className="button" disabled={savingSection === "fiscal"} type="submit">
-          {savingSection === "fiscal" ? "Guardando..." : "Guardar datos fiscales"}
-        </button>
-      </form>
-
       {changePlanModal && (
         <div className="modal-backdrop" role="presentation">
           <div className="modal-card" style={{ maxWidth: 640, width: '95vw' }}>
@@ -1088,8 +1064,12 @@ export function ProfilePage() {
               <input value={cfdiForm.tax_regime} onChange={(event) => setCfdiForm((current) => ({ ...current, tax_regime: event.target.value }))} />
             </label>
             <label>
-              Código postal
+              Código postal fiscal
               <input value={cfdiForm.zip_code} onChange={(event) => setCfdiForm((current) => ({ ...current, zip_code: event.target.value }))} />
+            </label>
+            <label className="form-span-2">
+              Dirección fiscal
+              <textarea value={cfdiForm.fiscal_address} onChange={(event) => setCfdiForm((current) => ({ ...current, fiscal_address: event.target.value }))} />
             </label>
             <button className="button" disabled={cfdiSaving} type="submit">
               {cfdiSaving ? "Guardando..." : "Guardar configuración"}
