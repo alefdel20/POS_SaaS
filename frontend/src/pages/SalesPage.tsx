@@ -201,6 +201,7 @@ export function SalesPage() {
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [confirmSaleLoading, setConfirmSaleLoading] = useState(false);
+  const [cfdiStampError, setCfdiStampError] = useState<string | null>(null);
   const [expandedSaleId, setExpandedSaleId] = useState<number | null>(null);
   const [expandedSaleDetail, setExpandedSaleDetail] = useState<SaleDetail | null>(null);
   const [loadingExpandedDetail, setLoadingExpandedDetail] = useState(false);
@@ -407,6 +408,7 @@ export function SalesPage() {
     setCashReceived("");
     setRequiresAdministrativeInvoice(false);
     setWarnings([]);
+    setCfdiStampError(null);
     setCartDiscountType("");
     setCartDiscountValue("");
     setInvoiceData({
@@ -518,9 +520,7 @@ export function SalesPage() {
     profile?.fiscal_regime &&
     profile?.fiscal_address
   );
-  const hasAvailableStamps = Number(profile?.stamps_available || 0) > 0;
   const canUseInvoice = cfdiAddonActive && hasFiscalProfile;
-  const invoiceBlockedByStamps = canUseInvoice && !hasAvailableStamps;
   const hasValidCashReceived = paymentMethod !== "cash"
     || (cashReceived.trim() !== "" && cashReceivedAmount > 0 && cashReceivedAmount >= total);
   const transferDetails = {
@@ -538,7 +538,6 @@ export function SalesPage() {
   const requiresQuickCreateReason = isCashierRole(user?.role);
   const canUseCredit = canUseCreditCollections(user?.pos_type);
   const showLotExpiryInQuickAdd = canUseExpiryDate(user?.pos_type);
-  const stampCount = Number(profile?.stamps_available || 0);
   const canAuthorizeReturn = hasAnyRole(user?.role, [ROLE_MANAGER, ROLE_ADMIN, ROLE_SUPERUSER]);
   const displayProducts = search.trim() ? products : (recentUserProducts.length > 0 ? recentUserProducts : products.slice(0, 9));
 
@@ -553,10 +552,10 @@ export function SalesPage() {
   }, [profile]);
 
   useEffect(() => {
-    if (cfdiAddonActive !== null && (!canUseInvoice || invoiceBlockedByStamps) && saleType === "invoice") {
+    if (cfdiAddonActive !== null && !canUseInvoice && saleType === "invoice") {
       setSaleType("ticket");
     }
-  }, [cfdiAddonActive, canUseInvoice, invoiceBlockedByStamps, saleType]);
+  }, [cfdiAddonActive, canUseInvoice, saleType]);
 
   useEffect(() => {
     if (!canUseCredit && paymentMethod === "credit") {
@@ -870,10 +869,6 @@ export function SalesPage() {
       setError("Faltan datos fiscales en el perfil del negocio");
       return;
     }
-    if (saleType === "invoice" && !requiresAdministrativeInvoice && invoiceBlockedByStamps) {
-      setError("No hay timbres disponibles para facturar");
-      return;
-    }
     if (paymentMethod === "credit" && !resolvedCustomerName) {
       setError("Debes capturar el nombre del comprador");
       return;
@@ -956,8 +951,9 @@ export function SalesPage() {
               }))
             })
           });
-        } catch {
-          setWarnings((prev) => [...(prev || []), "La venta se registró pero el timbrado CFDI falló. Puedes intentarlo desde Configuración > Facturación."]);
+        } catch (stampErr) {
+          const msg = stampErr instanceof Error ? stampErr.message : "Error desconocido al timbrar";
+          setCfdiStampError(msg);
         }
       }
 
@@ -974,6 +970,38 @@ export function SalesPage() {
       window.setTimeout(() => searchInputRef.current?.focus(), 0);
     } catch (saleError) {
       setError(saleError instanceof Error ? saleError.message : "No fue posible confirmar la venta");
+    }
+  }
+
+  async function retryCfdiStamp() {
+    if (!token || !lastSale?.id) return;
+    try {
+      setCfdiStampError(null);
+      await apiRequest("/cfdi/invoices", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          sale_id: lastSale.id,
+          client_rfc: invoiceData.client_rfc || "XAXX010101000",
+          client_name: invoiceData.client_name || "Público en General",
+          client_email: invoiceData.client_email || undefined,
+          client_tax_regime: invoiceData.client_tax_regime || undefined,
+          cfdi_use: invoiceData.cfdi_use || "G03",
+          payment_form: lastSale.payment_method === "cash" ? "01" : lastSale.payment_method === "card" ? "04" : "03",
+          total: lastSale.total,
+          items: lastSaleItems.map((item) => ({
+            description: item.product.name,
+            product_key: "01010101",
+            unit_key: "H87",
+            unit_price: item.product.effective_price ?? item.product.price,
+            quantity: item.quantity
+          }))
+        })
+      });
+      setWarnings((prev) => [...prev, "Timbrado CFDI completado exitosamente."]);
+    } catch (retryErr) {
+      const msg = retryErr instanceof Error ? retryErr.message : "Error desconocido al reintentar timbrado";
+      setCfdiStampError(msg);
     }
   }
 
@@ -1177,7 +1205,7 @@ export function SalesPage() {
             <select value={saleType} onChange={(event) => setSaleType(event.target.value as typeof saleType)}>
               <option value="ticket">{getSaleTypeLabel("ticket")}</option>
               {canUseInvoice ? (
-                <option disabled={invoiceBlockedByStamps} value="invoice">{getSaleTypeLabel("invoice")}</option>
+                <option value="invoice">{getSaleTypeLabel("invoice")}</option>
               ) : null}
             </select>
           </label>
@@ -1244,18 +1272,9 @@ export function SalesPage() {
           </div>
         ) : null}
 
-        {invoiceBlockedByStamps ? (
-          <div className="warning-box">
-            <p>Facturación no disponible (sin timbres).</p>
-            <p>El saldo de timbres está en cero. Recarga timbres en Configuración &gt; Facturación para continuar.</p>
-            <p>Timbres restantes: {profile?.stamps_available || 0}</p>
-          </div>
-        ) : null}
-
         {requiresAdministrativeInvoice ? (
           <div className="warning-box">
             <p>La venta creará una factura administrativa pendiente.</p>
-            <p>Este flujo no consume timbres ni intenta timbrar en caja.</p>
           </div>
         ) : null}
 
@@ -1286,6 +1305,12 @@ export function SalesPage() {
             {lastSale.payment_method === "credit" ? <p>Saldo pendiente: {currency(lastReceipt?.balance_due || 0)}</p> : null}
             {lastSale.sale_type === "invoice" && lastReceipt?.invoice_status ? <p>Estado factura: {lastReceipt.invoice_status}</p> : null}
             {lastSale.sale_type === "invoice" && lastReceipt?.stamp_status ? <p>Estado timbre: {lastReceipt.stamp_status}</p> : null}
+            {cfdiStampError ? (
+              <div className="warning-box" style={{ marginTop: 8 }}>
+                <p>El timbrado CFDI falló: {cfdiStampError}</p>
+                <button className="button ghost" onClick={retryCfdiStamp} type="button">Reintentar timbrado</button>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1752,18 +1777,9 @@ export function SalesPage() {
               </div>
             ) : null}
 
-            {invoiceBlockedByStamps ? (
-              <div className="warning-box">
-                <p>Facturación no disponible (sin timbres).</p>
-                <p>El saldo de timbres está en cero. Recarga timbres en Configuración &gt; Facturación para continuar.</p>
-                <p>Timbres restantes: {profile?.stamps_available || 0}</p>
-              </div>
-            ) : null}
-
             {requiresAdministrativeInvoice ? (
               <div className="warning-box">
                 <p>La venta creará una factura administrativa pendiente.</p>
-                <p>Este flujo no consume timbres ni intenta timbrar en caja.</p>
               </div>
             ) : null}
 
@@ -1771,7 +1787,7 @@ export function SalesPage() {
               <button className="button ghost" onClick={() => setShowCheckoutModal(false)} type="button">Cancelar</button>
               <button
                 className="button"
-                disabled={confirmSaleLoading || !hasValidCashReceived || (saleType === "invoice" && (!canUseInvoice || (!requiresAdministrativeInvoice && invoiceBlockedByStamps)))}
+                disabled={confirmSaleLoading || !hasValidCashReceived || (saleType === "invoice" && !canUseInvoice)}
                 onClick={async () => {
                   setConfirmSaleLoading(true);
                   try {

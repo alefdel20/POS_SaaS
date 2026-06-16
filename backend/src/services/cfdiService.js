@@ -76,6 +76,7 @@ async function listCfdiInvoices(businessId, { page = 1, pageSize = 20 } = {}) {
 // Timbra una factura en Facturapi sandbox
 async function stampInvoice(businessId, { sale_id, client_rfc, client_name, client_email, client_tax_regime, cfdi_use, items, total, payment_form }, createdByUserId) {
   const config = await getCfdiConfig(businessId);
+  if (!config) throw new ApiError(400, "Configuración CFDI no encontrada para este negocio");
 
   // Usar key del negocio si existe, si no usar la global (sandbox)
   const apiKey = config?.pac_mode === "production"

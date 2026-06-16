@@ -3,21 +3,10 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { AuthResponse, Business, BusinessSubscription, PosType, Role, User } from "../types";
 import { POS_TYPE_OPTIONS, getPosTypeLabel } from "../utils/pos";
-import { shortDate, shortDateTime } from "../utils/format";
+import { shortDate } from "../utils/format";
 import { getRoleLabel } from "../utils/uiLabels";
 import { normalizeRole } from "../utils/roles";
 import { CLINICAL_POS_TYPES } from "../utils/domainEnums";
-
-type StampMovement = {
-  id: number;
-  movement_type: string;
-  quantity: number;
-  balance_before: number;
-  balance_after: number;
-  note?: string;
-  actor_name?: string | null;
-  created_at: string;
-};
 
 const MANAGED_USER_ROLES: Role[] = ["admin", "clinico", "cajero", "soporte"];
 
@@ -110,13 +99,8 @@ export function BusinessesPage() {
   const [subscriptionForm, setSubscriptionForm] = useState(() => toSubscriptionForm(null));
   const [paymentDate, setPaymentDate] = useState(getTodayIsoDate());
   const [paymentNote, setPaymentNote] = useState("");
-  const [stampQuantity, setStampQuantity] = useState("1");
-  const [stampNote, setStampNote] = useState("");
-  const [stampMovements, setStampMovements] = useState<StampMovement[]>([]);
-  const [loadingMovements, setLoadingMovements] = useState(false);
   const [savingSubscription, setSavingSubscription] = useState(false);
   const [registeringPayment, setRegisteringPayment] = useState(false);
-  const [loadingStamps, setLoadingStamps] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [savingUser, setSavingUser] = useState(false);
   const [addonStatus, setAddonStatus] = useState<"active" | "inactive" | "loading" | null>(null);
@@ -158,20 +142,6 @@ export function BusinessesPage() {
     }
   }
 
-  async function loadStampMovements(businessId: number) {
-    if (!token) return;
-    try {
-      setLoadingMovements(true);
-      const response = await apiRequest<StampMovement[]>(`/businesses/${businessId}/stamps/movements`, { token });
-      setStampMovements(response);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar movimientos de timbres");
-      setStampMovements([]);
-    } finally {
-      setLoadingMovements(false);
-    }
-  }
-
   useEffect(() => {
     loadBusinesses().catch(() => undefined);
     loadUsers().catch(() => undefined);
@@ -181,18 +151,9 @@ export function BusinessesPage() {
     setSubscriptionForm(toSubscriptionForm(selectedBusiness?.subscription));
     setPaymentDate(getTodayIsoDate());
     setPaymentNote("");
-    setStampQuantity("1");
-    setStampNote("");
     setUserForm(emptyUserForm);
-    // El estado del addon CFDI aún no tiene endpoint de consulta por negocio:
-    // se reinicia al cambiar de negocio y el superusuario lo gestiona manualmente.
     setAddonStatus(null);
     setAddonNote("");
-    if (selectedBusiness?.id) {
-      loadStampMovements(selectedBusiness.id).catch(() => undefined);
-    } else {
-      setStampMovements([]);
-    }
   }, [selectedBusiness?.id, selectedBusiness?.subscription]);
 
   async function handleCreateBusiness(event: FormEvent) {
@@ -274,34 +235,6 @@ export function BusinessesPage() {
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible registrar el pago");
     } finally {
       setRegisteringPayment(false);
-    }
-  }
-
-  async function handleLoadStamps(event: FormEvent) {
-    event.preventDefault();
-    if (!token || !selectedBusiness) return;
-
-    try {
-      setLoadingStamps(true);
-      setError("");
-      setInfo("");
-      await apiRequest(`/businesses/${selectedBusiness.id}/stamps/load`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          quantity: Number(stampQuantity || 0),
-          note: stampNote.trim() || undefined
-        })
-      });
-      setStampQuantity("1");
-      setStampNote("");
-      setInfo("Carga manual de timbres registrada");
-      await loadBusinesses();
-      await loadStampMovements(selectedBusiness.id);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar timbres");
-    } finally {
-      setLoadingStamps(false);
     }
   }
 
@@ -568,7 +501,7 @@ export function BusinessesPage() {
         <div className="panel-header">
           <div>
             <h2>Negocios</h2>
-            <p className="muted">Selecciona un negocio para gestionar usuarios, suscripcion y timbres desde un solo contexto.</p>
+            <p className="muted">Selecciona un negocio para gestionar usuarios y suscripcion desde un solo contexto.</p>
           </div>
         </div>
         <div className="table-wrap">
@@ -578,7 +511,6 @@ export function BusinessesPage() {
                 <th>Nombre</th>
                 <th>POS</th>
                 <th>Usuarios</th>
-                <th>Timbres</th>
                 <th>Plan</th>
                 <th>Inicio cobro</th>
                 <th>Proximo pago</th>
@@ -595,7 +527,6 @@ export function BusinessesPage() {
                   <td>{business.name}</td>
                   <td>{getPosTypeLabel(business.pos_type)}</td>
                   <td>{business.user_count ?? 0}</td>
-                  <td>{business.stamps_available ?? 0}</td>
                   <td>{(business.subscription as any)?.plan_name || getPlanLabel(business.subscription) || "-"}</td>
                   <td>{business.subscription?.billing_anchor_date ? shortDate(business.subscription.billing_anchor_date) : "-"}</td>
                   <td>{business.subscription?.next_payment_date ? shortDate(business.subscription.next_payment_date) : "-"}</td>
@@ -759,30 +690,6 @@ export function BusinessesPage() {
             </button>
           </form>
 
-          <form className="panel grid-form" onSubmit={handleLoadStamps}>
-            <div className="panel-header">
-              <div>
-                <h2>Carga manual de timbres</h2>
-                <p className="muted">Cada carga genera movimiento auditable con actor, cantidad y saldo final.</p>
-              </div>
-            </div>
-            <div className="info-card form-span-2">
-              <p><strong>Timbres disponibles:</strong> {selectedBusiness.stamps_available ?? 0}</p>
-              <p><strong>Timbres usados:</strong> {selectedBusiness.stamps_used ?? 0}</p>
-            </div>
-            <label>
-              Cantidad
-              <input min="1" type="number" value={stampQuantity} onChange={(event) => setStampQuantity(event.target.value)} required />
-            </label>
-            <label className="form-span-2">
-              Nota o motivo
-              <textarea value={stampNote} onChange={(event) => setStampNote(event.target.value)} placeholder="Opcional" />
-            </label>
-            <button className="button" disabled={loadingStamps} type="submit">
-              {loadingStamps ? "Registrando..." : "Registrar carga de timbres"}
-            </button>
-          </form>
-
           <div className="panel grid-form">
             <div className="panel-header">
               <div>
@@ -890,48 +797,6 @@ export function BusinessesPage() {
             </div>
           </div>
 
-          <div className="panel form-span-2">
-            <div className="panel-header">
-              <div>
-                <h2>Ultimos movimientos de timbres</h2>
-                <p className="muted">Historial reciente del negocio seleccionado.</p>
-              </div>
-            </div>
-            {loadingMovements ? <p className="muted">Cargando movimientos...</p> : null}
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Tipo</th>
-                    <th>Cantidad</th>
-                    <th>Saldo antes</th>
-                    <th>Saldo despues</th>
-                    <th>Actor</th>
-                    <th>Nota</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stampMovements.map((movement) => (
-                    <tr key={movement.id}>
-                      <td>{shortDateTime(movement.created_at)}</td>
-                      <td>{movement.movement_type}</td>
-                      <td>{movement.quantity}</td>
-                      <td>{movement.balance_before}</td>
-                      <td>{movement.balance_after}</td>
-                      <td>{movement.actor_name || "-"}</td>
-                      <td>{movement.note || "-"}</td>
-                    </tr>
-                  ))}
-                  {!loadingMovements && !stampMovements.length ? (
-                    <tr>
-                      <td className="muted" colSpan={7}>No hay movimientos registrados para este negocio.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </>
       ) : null}
     </section>
