@@ -104,9 +104,11 @@ export function RestaurantOrderPage() {
     client_rfc: "",
     client_name: "",
     client_email: "",
-    client_tax_regime: "",
-    cfdi_use: "",
+    client_tax_regime: "616",
+    cfdi_use: "G03",
   });
+  const [invoiceClients, setInvoiceClients] = useState<Array<{ id: number; name: string; phone: string | null; email: string | null; tax_id: string | null }>>([]);
+  const [invoiceClientMode, setInvoiceClientMode] = useState<"select" | "manual">("manual");
 
   // ── Fetch order ──
   const loadOrder = useCallback(async () => {
@@ -140,6 +142,14 @@ export function RestaurantOrderPage() {
   }, [token, search]);
 
   useEffect(() => { loadOrder(); }, [loadOrder]);
+
+  useEffect(() => {
+    if (token) {
+      apiRequest<Array<{ id: number; name: string; phone: string | null; email: string | null; tax_id: string | null }>>("/catalog-clients", { token })
+        .then(setInvoiceClients)
+        .catch(() => setInvoiceClients([]));
+    }
+  }, [token]);
 
   useEffect(() => {
     const id = setTimeout(fetchProducts, 280);
@@ -1314,7 +1324,7 @@ export function RestaurantOrderPage() {
               <button
                 className="button ghost"
                 type="button"
-                onClick={() => { setShowPayModal(false); setPayError(""); setTipInputValue(""); }}
+                onClick={() => { setShowPayModal(false); setPayError(""); setTipInputValue(""); setInvoiceClientMode("manual"); }}
                 aria-label="Cerrar"
                 style={{ padding: "0.5rem 0.75rem" }}
               >✕</button>
@@ -1424,19 +1434,44 @@ export function RestaurantOrderPage() {
             {cfdiAddonActive && saleType === "invoice" && (
               <div className="invoice-grid" style={{ marginTop: "0.75rem" }}>
                 <label>
+                  Cliente
+                  {invoiceClientMode === "select" ? (
+                    <>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const clientId = Number(e.target.value);
+                          if (clientId === 0) {
+                            setInvoiceData(p => ({ ...p, client_name: "Público en General", client_rfc: "XAXX010101000", client_email: "", client_tax_regime: "616" }));
+                          } else {
+                            const client = invoiceClients.find((c) => c.id === clientId);
+                            if (client) {
+                              setInvoiceData(p => ({ ...p, client_name: client.name, client_rfc: client.tax_id || "", client_email: client.email || "" }));
+                            }
+                          }
+                        }}
+                      >
+                        <option value="">— Seleccionar cliente —</option>
+                        <option value="0">Público en General</option>
+                        {invoiceClients.map((client) => (
+                          <option key={client.id} value={client.id}>{client.name}{client.tax_id ? ` (${client.tax_id})` : ""}</option>
+                        ))}
+                      </select>
+                      <button className="button ghost" onClick={() => setInvoiceClientMode("manual")} type="button" style={{ fontSize: 12, padding: "2px 6px", marginTop: 4 }}>Escribir manualmente</button>
+                    </>
+                  ) : (
+                    <>
+                      <input value={invoiceData.client_name} onChange={(e) => setInvoiceData(p => ({ ...p, client_name: e.target.value }))} placeholder="Nombre o razón social" />
+                      <button className="button ghost" onClick={() => setInvoiceClientMode("select")} type="button" style={{ fontSize: 12, padding: "2px 6px", marginTop: 4 }}>Seleccionar cliente</button>
+                    </>
+                  )}
+                </label>
+                <label>
                   RFC
                   <input
                     value={invoiceData.client_rfc}
                     onChange={(e) => setInvoiceData(p => ({ ...p, client_rfc: e.target.value }))}
                     placeholder="XAXX010101000"
-                  />
-                </label>
-                <label>
-                  Nombre o razón social
-                  <input
-                    value={invoiceData.client_name}
-                    onChange={(e) => setInvoiceData(p => ({ ...p, client_name: e.target.value }))}
-                    placeholder="Público en General"
                   />
                 </label>
                 <label>
@@ -1449,19 +1484,45 @@ export function RestaurantOrderPage() {
                 </label>
                 <label>
                   Uso CFDI
-                  <input
-                    value={invoiceData.cfdi_use}
-                    onChange={(e) => setInvoiceData(p => ({ ...p, cfdi_use: e.target.value }))}
-                    placeholder="G03"
-                  />
+                  <select value={invoiceData.cfdi_use} onChange={(e) => setInvoiceData(p => ({ ...p, cfdi_use: e.target.value }))}>
+                    <option value="G01">G01 — Adquisición de mercancías</option>
+                    <option value="G02">G02 — Devoluciones, descuentos o bonificaciones</option>
+                    <option value="G03">G03 — Gastos en general</option>
+                    <option value="I01">I01 — Construcciones</option>
+                    <option value="I02">I02 — Mobiliario y equipo de oficina</option>
+                    <option value="I03">I03 — Equipo de transporte</option>
+                    <option value="I04">I04 — Equipo de cómputo y accesorios</option>
+                    <option value="I08">I08 — Otra maquinaria y equipo</option>
+                    <option value="D01">D01 — Honorarios médicos, dentales y gastos hospitalarios</option>
+                    <option value="D10">D10 — Pagos por servicios educativos</option>
+                    <option value="S01">S01 — Sin efectos fiscales</option>
+                    <option value="CP01">CP01 — Pagos</option>
+                    <option value="CN01">CN01 — Nómina</option>
+                  </select>
                 </label>
                 <label>
                   Régimen fiscal receptor
-                  <input
-                    value={invoiceData.client_tax_regime}
-                    onChange={(e) => setInvoiceData(p => ({ ...p, client_tax_regime: e.target.value }))}
-                    placeholder="616"
-                  />
+                  <select value={invoiceData.client_tax_regime} onChange={(e) => setInvoiceData(p => ({ ...p, client_tax_regime: e.target.value }))}>
+                    <option value="601">601 — General de Ley Personas Morales</option>
+                    <option value="603">603 — Personas Morales con Fines no Lucrativos</option>
+                    <option value="605">605 — Sueldos y Salarios e Ingresos Asimilados a Salarios</option>
+                    <option value="606">606 — Arrendamiento</option>
+                    <option value="607">607 — Régimen de Enajenación o Adquisición de Bienes</option>
+                    <option value="608">608 — Demás ingresos</option>
+                    <option value="610">610 — Residentes en el Extranjero sin Establecimiento Permanente en México</option>
+                    <option value="611">611 — Ingresos por Dividendos (socios y accionistas)</option>
+                    <option value="612">612 — Personas Físicas con Actividades Empresariales y Profesionales</option>
+                    <option value="614">614 — Ingresos por intereses</option>
+                    <option value="615">615 — Régimen de los ingresos por obtención de premios</option>
+                    <option value="616">616 — Sin obligaciones fiscales</option>
+                    <option value="620">620 — Sociedades Cooperativas de Producción que optan por diferir sus ingresos</option>
+                    <option value="621">621 — Incorporación Fiscal</option>
+                    <option value="622">622 — Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</option>
+                    <option value="623">623 — Opcional para Grupos de Sociedades</option>
+                    <option value="624">624 — Coordinados</option>
+                    <option value="625">625 — Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas</option>
+                    <option value="626">626 — Régimen Simplificado de Confianza (RESICO)</option>
+                  </select>
                 </label>
               </div>
             )}
@@ -1573,7 +1634,7 @@ export function RestaurantOrderPage() {
               <button
                 className="button ghost"
                 type="button"
-                onClick={() => { setShowPayModal(false); setPayError(""); setTipInputValue(""); }}
+                onClick={() => { setShowPayModal(false); setPayError(""); setTipInputValue(""); setInvoiceClientMode("manual"); }}
               >
                 Cancelar
               </button>
