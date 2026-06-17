@@ -62,7 +62,7 @@ const emptyInvoiceData = {
   client_email: "",
   client_phone: "",
   cfdi_use: "G03",
-  client_tax_regime: ""
+  client_tax_regime: "616"
 };
 
 const emptyQuickProduct: QuickProductFormState = {
@@ -202,6 +202,8 @@ export function SalesPage() {
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [confirmSaleLoading, setConfirmSaleLoading] = useState(false);
   const [cfdiStampError, setCfdiStampError] = useState<string | null>(null);
+  const [invoiceClients, setInvoiceClients] = useState<Array<{ id: number; name: string; phone: string | null; email: string | null; tax_id: string | null }>>([]);
+  const [invoiceClientMode, setInvoiceClientMode] = useState<"select" | "manual">("select");
   const [expandedSaleId, setExpandedSaleId] = useState<number | null>(null);
   const [expandedSaleDetail, setExpandedSaleDetail] = useState<SaleDetail | null>(null);
   const [loadingExpandedDetail, setLoadingExpandedDetail] = useState(false);
@@ -409,6 +411,7 @@ export function SalesPage() {
     setRequiresAdministrativeInvoice(false);
     setWarnings([]);
     setCfdiStampError(null);
+    setInvoiceClientMode("select");
     setCartDiscountType("");
     setCartDiscountValue("");
     setInvoiceData({
@@ -435,6 +438,11 @@ export function SalesPage() {
       loadCategories().catch(() => setCategories([]));
     } else {
       setCategories([]);
+    }
+    if (token) {
+      apiRequest<Array<{ id: number; name: string; phone: string | null; email: string | null; tax_id: string | null }>>("/catalog-clients", { token })
+        .then(setInvoiceClients)
+        .catch(() => setInvoiceClients([]));
     }
   }, [catalogScope, token, user?.role]);
 
@@ -1737,12 +1745,41 @@ export function SalesPage() {
                 <div className="info-card">
                   <h3>Datos cliente</h3>
                   <label>
-                    RFC
-                    <input value={invoiceData.client_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, client_rfc: event.target.value })} />
+                    Cliente
+                    {invoiceClientMode === "select" ? (
+                      <>
+                        <select
+                          value=""
+                          onChange={(event) => {
+                            const clientId = Number(event.target.value);
+                            if (clientId === 0) {
+                              setInvoiceData({ ...invoiceData, client_name: "Público en General", client_rfc: "XAXX010101000", client_email: "", client_phone: "", client_tax_regime: "616" });
+                            } else {
+                              const client = invoiceClients.find((c) => c.id === clientId);
+                              if (client) {
+                                setInvoiceData({ ...invoiceData, client_name: client.name, client_rfc: client.tax_id || "", client_email: client.email || "", client_phone: client.phone || "" });
+                              }
+                            }
+                          }}
+                        >
+                          <option value="">— Seleccionar cliente —</option>
+                          <option value="0">Público en General</option>
+                          {invoiceClients.map((client) => (
+                            <option key={client.id} value={client.id}>{client.name}{client.tax_id ? ` (${client.tax_id})` : ""}</option>
+                          ))}
+                        </select>
+                        <button className="button ghost" onClick={() => setInvoiceClientMode("manual")} type="button" style={{ fontSize: 12, padding: "2px 6px", marginTop: 4 }}>Escribir manualmente</button>
+                      </>
+                    ) : (
+                      <>
+                        <input value={invoiceData.client_name} onChange={(event) => setInvoiceData({ ...invoiceData, client_name: event.target.value })} placeholder="Nombre o razón social" />
+                        <button className="button ghost" onClick={() => setInvoiceClientMode("select")} type="button" style={{ fontSize: 12, padding: "2px 6px", marginTop: 4 }}>Seleccionar cliente</button>
+                      </>
+                    )}
                   </label>
                   <label>
-                    Nombre o razón social
-                    <input value={invoiceData.client_name} onChange={(event) => setInvoiceData({ ...invoiceData, client_name: event.target.value })} />
+                    RFC
+                    <input value={invoiceData.client_rfc} onChange={(event) => setInvoiceData({ ...invoiceData, client_rfc: event.target.value })} />
                   </label>
                   <label>
                     Correo electrónico
@@ -1772,7 +1809,27 @@ export function SalesPage() {
                   </label>
                   <label>
                     Régimen fiscal receptor
-                    <input value={invoiceData.client_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, client_tax_regime: event.target.value })} />
+                    <select value={invoiceData.client_tax_regime} onChange={(event) => setInvoiceData({ ...invoiceData, client_tax_regime: event.target.value })}>
+                      <option value="601">601 — General de Ley Personas Morales</option>
+                      <option value="603">603 — Personas Morales con Fines no Lucrativos</option>
+                      <option value="605">605 — Sueldos y Salarios e Ingresos Asimilados a Salarios</option>
+                      <option value="606">606 — Arrendamiento</option>
+                      <option value="607">607 — Régimen de Enajenación o Adquisición de Bienes</option>
+                      <option value="608">608 — Demás ingresos</option>
+                      <option value="610">610 — Residentes en el Extranjero sin Establecimiento Permanente en México</option>
+                      <option value="611">611 — Ingresos por Dividendos (socios y accionistas)</option>
+                      <option value="612">612 — Personas Físicas con Actividades Empresariales y Profesionales</option>
+                      <option value="614">614 — Ingresos por intereses</option>
+                      <option value="615">615 — Régimen de los ingresos por obtención de premios</option>
+                      <option value="616">616 — Sin obligaciones fiscales</option>
+                      <option value="620">620 — Sociedades Cooperativas de Producción que optan por diferir sus ingresos</option>
+                      <option value="621">621 — Incorporación Fiscal</option>
+                      <option value="622">622 — Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</option>
+                      <option value="623">623 — Opcional para Grupos de Sociedades</option>
+                      <option value="624">624 — Coordinados</option>
+                      <option value="625">625 — Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas</option>
+                      <option value="626">626 — Régimen Simplificado de Confianza (RESICO)</option>
+                    </select>
                   </label>
                 </div>
                 <div className="info-card">
