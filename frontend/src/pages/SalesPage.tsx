@@ -61,7 +61,7 @@ const emptyInvoiceData = {
   client_name: "",
   client_email: "",
   client_phone: "",
-  cfdi_use: "",
+  cfdi_use: "G03",
   client_tax_regime: ""
 };
 
@@ -1754,7 +1754,21 @@ export function SalesPage() {
                   </label>
                   <label>
                     Uso CFDI
-                    <input value={invoiceData.cfdi_use} onChange={(event) => setInvoiceData({ ...invoiceData, cfdi_use: event.target.value })} />
+                    <select value={invoiceData.cfdi_use} onChange={(event) => setInvoiceData({ ...invoiceData, cfdi_use: event.target.value })}>
+                      <option value="G01">G01 — Adquisición de mercancías</option>
+                      <option value="G02">G02 — Devoluciones, descuentos o bonificaciones</option>
+                      <option value="G03">G03 — Gastos en general</option>
+                      <option value="I01">I01 — Construcciones</option>
+                      <option value="I02">I02 — Mobiliario y equipo de oficina</option>
+                      <option value="I03">I03 — Equipo de transporte</option>
+                      <option value="I04">I04 — Equipo de cómputo y accesorios</option>
+                      <option value="I08">I08 — Otra maquinaria y equipo</option>
+                      <option value="D01">D01 — Honorarios médicos, dentales y gastos hospitalarios</option>
+                      <option value="D10">D10 — Pagos por servicios educativos</option>
+                      <option value="S01">S01 — Sin efectos fiscales</option>
+                      <option value="CP01">CP01 — Pagos</option>
+                      <option value="CN01">CN01 — Nómina</option>
+                    </select>
                   </label>
                   <label>
                     Régimen fiscal receptor
