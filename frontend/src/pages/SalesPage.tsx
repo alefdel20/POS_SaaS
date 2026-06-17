@@ -203,7 +203,7 @@ export function SalesPage() {
   const [confirmSaleLoading, setConfirmSaleLoading] = useState(false);
   const [cfdiStampError, setCfdiStampError] = useState<string | null>(null);
   const [invoiceClients, setInvoiceClients] = useState<Array<{ id: number; name: string; phone: string | null; email: string | null; tax_id: string | null }>>([]);
-  const [invoiceClientMode, setInvoiceClientMode] = useState<"select" | "manual">("select");
+  const [invoiceClientMode, setInvoiceClientMode] = useState<"select" | "manual">("manual");
   const [expandedSaleId, setExpandedSaleId] = useState<number | null>(null);
   const [expandedSaleDetail, setExpandedSaleDetail] = useState<SaleDetail | null>(null);
   const [loadingExpandedDetail, setLoadingExpandedDetail] = useState(false);
@@ -411,7 +411,7 @@ export function SalesPage() {
     setRequiresAdministrativeInvoice(false);
     setWarnings([]);
     setCfdiStampError(null);
-    setInvoiceClientMode("select");
+    setInvoiceClientMode("manual");
     setCartDiscountType("");
     setCartDiscountValue("");
     setInvoiceData({
