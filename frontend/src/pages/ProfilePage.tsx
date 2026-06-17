@@ -39,6 +39,10 @@ type CfdiConfig = {
   rfc?: string | null;
   tax_regime?: string | null;
   zip_code?: string | null;
+  facturapi_org_id?: string | null;
+  csd_uploaded?: boolean;
+  csd_expires_at?: string | null;
+  pac_mode?: string | null;
 } | null;
 
 const emptyForm: ProfileFormState = {
@@ -149,6 +153,12 @@ export function ProfilePage() {
   const [cfdiLoading, setCfdiLoading] = useState(false);
   const [cfdiSaving, setCfdiSaving] = useState(false);
   const [cfdiForm, setCfdiForm] = useState({ legal_name: "", rfc: "", tax_regime: "", zip_code: "", fiscal_address: "" });
+  const [orgCreating, setOrgCreating] = useState(false);
+  const [csdUploading, setCsdUploading] = useState(false);
+  const [csdCerFile, setCsdCerFile] = useState<File | null>(null);
+  const [csdKeyFile, setCsdKeyFile] = useState<File | null>(null);
+  const [csdPassword, setCsdPassword] = useState("");
+  const [liveActivating, setLiveActivating] = useState(false);
   const currentRole = normalizeRole(user?.role);
 
   async function loadProfile() {
@@ -399,6 +409,89 @@ export function ProfilePage() {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar la configuración CFDI");
     } finally {
       setCfdiSaving(false);
+    }
+  }
+
+  async function createCfdiOrganization() {
+    if (!token) return;
+    try {
+      setOrgCreating(true);
+      setError("");
+      setInfo("");
+      const response = await apiRequest<{ ok: boolean; config: CfdiConfig }>("/cfdi/organization", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ legal_name: cfdiForm.legal_name })
+      });
+      setCfdiStatus((current) => (current ? { ...current, config: response.config } : current));
+      setInfo("Organización de facturación creada exitosamente");
+    } catch (orgError) {
+      setError(orgError instanceof Error ? orgError.message : "No fue posible crear la organización");
+    } finally {
+      setOrgCreating(false);
+    }
+  }
+
+  async function handleCsdUpload(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !csdCerFile || !csdKeyFile || !csdPassword) return;
+    try {
+      setCsdUploading(true);
+      setError("");
+      setInfo("");
+      const formData = new FormData();
+      formData.append("cer", csdCerFile);
+      formData.append("key", csdKeyFile);
+      formData.append("password", csdPassword);
+      const response = await apiRequest<{ ok: boolean; csd_uploaded: boolean; csd_expires_at: string | null }>("/cfdi/csd", {
+        method: "POST",
+        token,
+        body: formData
+      });
+      setCfdiStatus((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          config: {
+            ...current.config,
+            csd_uploaded: response.csd_uploaded,
+            csd_expires_at: response.csd_expires_at
+          }
+        };
+      });
+      setCsdCerFile(null);
+      setCsdKeyFile(null);
+      setCsdPassword("");
+      setInfo("CSD subido y configurado exitosamente");
+    } catch (csdError) {
+      setError(csdError instanceof Error ? csdError.message : "No fue posible subir el CSD");
+    } finally {
+      setCsdUploading(false);
+    }
+  }
+
+  async function activateLiveMode() {
+    if (!token) return;
+    const confirmed = window.confirm(
+      "ATENCIÓN: Esto activará el modo producción para facturación CFDI.\n\n" +
+      "Las facturas generadas tendrán validez fiscal ante el SAT y consumirán timbres reales (con costo).\n\n" +
+      "Esta acción no se puede deshacer fácilmente. ¿Deseas continuar?"
+    );
+    if (!confirmed) return;
+    try {
+      setLiveActivating(true);
+      setError("");
+      setInfo("");
+      await apiRequest<{ ok: boolean }>("/cfdi/activate-live", { method: "POST", token, body: JSON.stringify({}) });
+      setCfdiStatus((current) => {
+        if (!current) return current;
+        return { ...current, config: { ...current.config, pac_mode: "production" } };
+      });
+      setInfo("Modo producción activado exitosamente");
+    } catch (liveError) {
+      setError(liveError instanceof Error ? liveError.message : "No fue posible activar el modo producción");
+    } finally {
+      setLiveActivating(false);
     }
   }
 
@@ -1050,31 +1143,103 @@ export function ProfilePage() {
             <p className="muted">Contacta a soporte en contacto@ankode.cloud para activarlo.</p>
           </div>
         ) : (
-          <form className="grid-form" onSubmit={saveCfdiConfig}>
-            <label>
-              Razón social
-              <input value={cfdiForm.legal_name} onChange={(event) => setCfdiForm((current) => ({ ...current, legal_name: event.target.value }))} />
-            </label>
-            <label>
-              RFC
-              <input value={cfdiForm.rfc} onChange={(event) => setCfdiForm((current) => ({ ...current, rfc: event.target.value.toUpperCase() }))} />
-            </label>
-            <label>
-              Régimen fiscal
-              <input value={cfdiForm.tax_regime} onChange={(event) => setCfdiForm((current) => ({ ...current, tax_regime: event.target.value }))} />
-            </label>
-            <label>
-              Código postal fiscal
-              <input value={cfdiForm.zip_code} onChange={(event) => setCfdiForm((current) => ({ ...current, zip_code: event.target.value }))} />
-            </label>
-            <label className="form-span-2">
-              Dirección fiscal
-              <textarea value={cfdiForm.fiscal_address} onChange={(event) => setCfdiForm((current) => ({ ...current, fiscal_address: event.target.value }))} />
-            </label>
-            <button className="button" disabled={cfdiSaving} type="submit">
-              {cfdiSaving ? "Guardando..." : "Guardar configuración"}
-            </button>
-          </form>
+          <>
+            <form className="grid-form" onSubmit={saveCfdiConfig}>
+              <label>
+                Razón social
+                <input value={cfdiForm.legal_name} onChange={(event) => setCfdiForm((current) => ({ ...current, legal_name: event.target.value }))} />
+              </label>
+              <label>
+                RFC
+                <input value={cfdiForm.rfc} onChange={(event) => setCfdiForm((current) => ({ ...current, rfc: event.target.value.toUpperCase() }))} />
+              </label>
+              <label>
+                Régimen fiscal
+                <input value={cfdiForm.tax_regime} onChange={(event) => setCfdiForm((current) => ({ ...current, tax_regime: event.target.value }))} />
+              </label>
+              <label>
+                Código postal fiscal
+                <input value={cfdiForm.zip_code} onChange={(event) => setCfdiForm((current) => ({ ...current, zip_code: event.target.value }))} />
+              </label>
+              <label className="form-span-2">
+                Dirección fiscal
+                <textarea value={cfdiForm.fiscal_address} onChange={(event) => setCfdiForm((current) => ({ ...current, fiscal_address: event.target.value }))} />
+              </label>
+              <button className="button" disabled={cfdiSaving} type="submit">
+                {cfdiSaving ? "Guardando..." : "Guardar configuración"}
+              </button>
+            </form>
+
+            <div style={{ borderTop: "1px solid var(--border)", marginTop: "1.5rem", paddingTop: "1.5rem" }}>
+              <h3>Facturación con RFC propio</h3>
+              {!cfdiStatus.config?.facturapi_org_id ? (
+                <div className="info-card">
+                  <p className="muted">Actualmente se usa el RFC genérico de pruebas para timbrar. Para facturar con tu propio RFC, primero guarda tus datos fiscales arriba y luego activa tu organización.</p>
+                  <button className="button" disabled={orgCreating || !cfdiForm.legal_name} onClick={createCfdiOrganization} type="button">
+                    {orgCreating ? "Creando..." : "Activar facturación con mi propio RFC"}
+                  </button>
+                </div>
+              ) : !cfdiStatus.config?.csd_uploaded ? (
+                <form className="grid-form" onSubmit={handleCsdUpload}>
+                  <div className="info-card form-span-2">
+                    <p className="muted">Organización creada. Ahora sube tu Certificado de Sello Digital (CSD) para poder timbrar facturas con tu RFC.</p>
+                  </div>
+                  <label>
+                    Archivo .cer
+                    <input accept=".cer" type="file" onChange={(event) => setCsdCerFile(event.target.files?.[0] || null)} />
+                  </label>
+                  <label>
+                    Archivo .key
+                    <input accept=".key" type="file" onChange={(event) => setCsdKeyFile(event.target.files?.[0] || null)} />
+                  </label>
+                  <label className="form-span-2">
+                    Contraseña del CSD
+                    <input type="password" value={csdPassword} onChange={(event) => setCsdPassword(event.target.value)} />
+                  </label>
+                  <button className="button" disabled={csdUploading || !csdCerFile || !csdKeyFile || !csdPassword} type="submit">
+                    {csdUploading ? "Subiendo..." : "Subir CSD"}
+                  </button>
+                </form>
+              ) : (
+                <div className="info-card">
+                  <p>
+                    <strong style={{ color: (() => {
+                      if (!cfdiStatus.config.csd_expires_at) return "var(--success)";
+                      const days = Math.ceil((new Date(cfdiStatus.config.csd_expires_at).getTime() - Date.now()) / 86400000);
+                      if (days <= 0) return "var(--danger)";
+                      if (days <= 30) return "var(--warning)";
+                      return "var(--success)";
+                    })() }}>CSD configurado</strong>
+                    {cfdiStatus.config.csd_expires_at ? (
+                      <span>
+                        {" "}— Expira: {new Date(cfdiStatus.config.csd_expires_at).toLocaleDateString("es-MX")}
+                        {(() => {
+                          const days = Math.ceil((new Date(cfdiStatus.config.csd_expires_at!).getTime() - Date.now()) / 86400000);
+                          if (days <= 0) return " (expirado)";
+                          if (days <= 30) return ` (${days} días restantes)`;
+                          return "";
+                        })()}
+                      </span>
+                    ) : null}
+                  </p>
+                  {cfdiStatus.config.pac_mode === "production" ? (
+                    <p><strong style={{ color: "var(--success)" }}>Modo producción activo</strong> — Las facturas tienen validez fiscal ante el SAT.</p>
+                  ) : (
+                    <>
+                      <p className="muted">Tu CSD está configurado en modo pruebas (sandbox). Las facturas generadas no tienen validez fiscal.</p>
+                      <div style={{ marginTop: "0.75rem", padding: "0.75rem", border: "1px solid var(--warning)", borderRadius: "6px" }}>
+                        <p style={{ marginBottom: "0.5rem" }}><strong>Activar facturación en producción</strong></p>
+                        <p className="muted" style={{ marginBottom: "0.75rem" }}>Al activar, las facturas tendrán validez fiscal ante el SAT y cada timbre tendrá un costo real. Solo activa esto cuando el negocio esté listo para facturar de verdad.</p>
+                        <button className="button" disabled={liveActivating} onClick={activateLiveMode} type="button">
+                          {liveActivating ? "Activando..." : "Activar facturación en producción (timbres reales)"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </section>

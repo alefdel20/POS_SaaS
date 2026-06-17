@@ -46,7 +46,10 @@
       "Bash(dir C:UserstatueDocumentsPOS_SaaSpos-app *)",
       "PowerShell(head *)",
       "PowerShell(git *)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "WebSearch",
+      "PowerShell(node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\services\\\\cfdiService.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\\\\cfdiController.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\routes\\\\cfdiRoutes.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\middleware\\\\csdUpload.js)",
+      "PowerShell(node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\services\\\\cfdiService.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\\\\cfdiController.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\routes\\\\cfdiRoutes.js)"
     ]
   }
 }

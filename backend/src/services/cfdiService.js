@@ -5,9 +5,15 @@ const ApiError = require("../utils/ApiError");
 const Facturapi = require("facturapi").default;
 
 const FACTURAPI_KEY = process.env.FACTURAPI_TEST_KEY || process.env.FACTURAPI_LIVE_KEY;
+const FACTURAPI_USER_KEY = process.env.FACTURAPI_USER_KEY;
 
 function getClient(apiKey) {
   return new Facturapi(apiKey || FACTURAPI_KEY);
+}
+
+function getUserClient() {
+  if (!FACTURAPI_USER_KEY) throw new ApiError(500, "FACTURAPI_USER_KEY no configurada en el servidor");
+  return new Facturapi(FACTURAPI_USER_KEY);
 }
 
 // Detecta si el RFC es público en general
@@ -179,4 +185,86 @@ async function stampInvoice(businessId, { sale_id, client_rfc, client_name, clie
   return { invoice: rows[0], facturapi_id: invoice.id, pdf_url, xml_url };
 }
 
-module.exports = { getCfdiConfig, upsertCfdiConfig, listCfdiInvoices, stampInvoice };
+async function createOrganization(businessId, legalName) {
+  const config = await getCfdiConfig(businessId);
+  if (!config) throw new ApiError(400, "Primero guarda la configuración CFDI del negocio");
+  if (config.facturapi_org_id) throw new ApiError(409, "Este negocio ya tiene una organización de Facturapi vinculada");
+
+  const facturapi = getUserClient();
+  const org = await facturapi.organizations.create({ name: legalName || config.legal_name || "Organización" });
+
+  const testKey = await facturapi.organizations.getTestApiKey(org.id);
+
+  const { rows } = await pool.query(
+    `UPDATE business_cfdi_config
+     SET facturapi_org_id = $1, facturapi_test_key = $2, updated_at = NOW()
+     WHERE business_id = $3
+     RETURNING *`,
+    [org.id, testKey, businessId]
+  );
+
+  return rows[0];
+}
+
+async function uploadCsd(businessId, cerBuffer, keyBuffer, password) {
+  const config = await getCfdiConfig(businessId);
+  if (!config) throw new ApiError(400, "Primero guarda la configuración CFDI del negocio");
+  if (!config.facturapi_org_id) throw new ApiError(400, "Primero crea la organización de Facturapi para este negocio");
+
+  const facturapi = getUserClient();
+
+  let org;
+  try {
+    org = await facturapi.organizations.uploadCertificate(
+      config.facturapi_org_id,
+      cerBuffer,
+      keyBuffer,
+      password
+    );
+  } catch (err) {
+    const msg = err.message || "Error al subir el CSD a Facturapi";
+    throw new ApiError(err.status || 400, msg);
+  }
+
+  const testKey = await facturapi.organizations.getTestApiKey(config.facturapi_org_id);
+
+  const expiresAt = org.certificate?.expires_at || null;
+
+  const { rows } = await pool.query(
+    `UPDATE business_cfdi_config
+     SET csd_uploaded = TRUE,
+         csd_expires_at = $1,
+         facturapi_test_key = $2,
+         updated_at = NOW()
+     WHERE business_id = $3
+     RETURNING *`,
+    [expiresAt, testKey, businessId]
+  );
+
+  return rows[0];
+}
+
+async function activateLiveMode(businessId) {
+  const config = await getCfdiConfig(businessId);
+  if (!config) throw new ApiError(400, "Configuración CFDI no encontrada para este negocio");
+  if (!config.facturapi_org_id) throw new ApiError(400, "Primero crea la organización de Facturapi para este negocio");
+  if (!config.csd_uploaded) throw new ApiError(400, "Primero sube el CSD de tu organización antes de activar modo producción");
+  if (config.pac_mode === "production") throw new ApiError(409, "Este negocio ya está en modo producción");
+
+  const facturapi = getUserClient();
+  const liveKey = await facturapi.organizations.renewLiveApiKey(config.facturapi_org_id);
+
+  const { rows } = await pool.query(
+    `UPDATE business_cfdi_config
+     SET facturapi_live_key = $1,
+         pac_mode = 'production',
+         updated_at = NOW()
+     WHERE business_id = $2
+     RETURNING *`,
+    [liveKey, businessId]
+  );
+
+  return rows[0];
+}
+
+module.exports = { getCfdiConfig, upsertCfdiConfig, listCfdiInvoices, stampInvoice, createOrganization, uploadCsd, activateLiveMode };

@@ -82,4 +82,51 @@ async function stampInvoice(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { getAddonStatus, activateAddon, deactivateAddon, updateCfdiConfig, listInvoices, stampInvoice };
+// POST /cfdi/organization — crea organización en Facturapi para el negocio
+async function createOrganization(req, res, next) {
+  try {
+    const businessId = req.user.business_id;
+    const addon = await addonService.getAddonStatus(businessId, addonService.CFDI_ADDON_KEY);
+    if (addon?.status !== 'active') throw new ApiError(403, "Add-on CFDI no activo");
+
+    const config = await cfdiService.createOrganization(businessId, req.body.legal_name);
+    res.status(201).json({ ok: true, config });
+  } catch (err) { next(err); }
+}
+
+// POST /cfdi/csd — sube CSD (.cer + .key + password) para la organización del negocio
+async function uploadCsd(req, res, next) {
+  try {
+    const businessId = req.user.business_id;
+    const addon = await addonService.getAddonStatus(businessId, addonService.CFDI_ADDON_KEY);
+    if (addon?.status !== 'active') throw new ApiError(403, "Add-on CFDI no activo");
+
+    const cerFile = req.files?.cer?.[0];
+    const keyFile = req.files?.key?.[0];
+    if (!cerFile || !keyFile) throw new ApiError(400, "Se requieren ambos archivos: .cer y .key");
+
+    const { password } = req.body;
+    if (!password) throw new ApiError(400, "La contraseña del CSD es requerida");
+
+    const config = await cfdiService.uploadCsd(businessId, cerFile.buffer, keyFile.buffer, password);
+    res.json({
+      ok: true,
+      csd_uploaded: config.csd_uploaded,
+      csd_expires_at: config.csd_expires_at
+    });
+  } catch (err) { next(err); }
+}
+
+// POST /cfdi/activate-live — activa modo producción (genera live key, cambia pac_mode)
+async function activateLiveMode(req, res, next) {
+  try {
+    const businessId = req.user.business_id;
+    const addon = await addonService.getAddonStatus(businessId, addonService.CFDI_ADDON_KEY);
+    if (addon?.status !== 'active') throw new ApiError(403, "Add-on CFDI no activo");
+
+    await cfdiService.activateLiveMode(businessId);
+    res.json({ ok: true, pac_mode: "production" });
+  } catch (err) { next(err); }
+}
+
+module.exports = { getAddonStatus, activateAddon, deactivateAddon, updateCfdiConfig, listInvoices, stampInvoice, createOrganization, uploadCsd, activateLiveMode };
