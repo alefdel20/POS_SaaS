@@ -505,6 +505,7 @@ td {
   border-radius: 22px;
   padding: 1.25rem;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.22);
+  min-width: 0;
 }
 
 .stats-grid {
@@ -1390,6 +1391,11 @@ td {
 
   .inline-actions {
     flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .product-grid {
+    grid-template-columns: 1fr;
   }
 
   .sales-actions .button {
