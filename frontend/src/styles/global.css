@@ -998,6 +998,321 @@ td {
   gap: 1rem;
 }
 
+.order-layout {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+/* ── Layout utilities ──────────────────────────────────────── */
+
+.m0 { margin: 0; }
+.mt-sm { margin-top: 0.5rem; }
+.mt-md { margin-top: 0.75rem; }
+.mt-lg { margin-top: 1rem; }
+.mt-xl { margin-top: 1.25rem; }
+.mb-sm { margin-bottom: 0.5rem; }
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.flex-between--top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+}
+
+.flex-wrap-center {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.flex-1 { flex: 1; }
+.shrink-0 { flex-shrink: 0; }
+.w-full { width: 100%; }
+.text-center { text-align: center; }
+
+.gap-xs { gap: 0.25rem; }
+.gap-sm { gap: 0.3rem; }
+.gap-md { gap: 0.5rem; }
+.gap-lg { gap: 0.75rem; }
+.gap-xl { gap: 0.85rem; }
+.gap-2xl { gap: 1.25rem; }
+
+.grid-stack {
+  display: grid;
+  margin-top: 1rem;
+}
+
+/* ── Text styles ───────────────────────────────────────────── */
+
+.text-xs { font-size: 0.78rem; }
+.text-sm { font-size: 0.82rem; }
+.text-bold { font-weight: 700; }
+
+/* ── Restaurant order components ───────────────────────────── */
+
+.order-item-card {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.item-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.product-price {
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.text-price {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.total-price {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.section-label {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.modal-subtitle {
+  font-size: 0.88rem;
+}
+
+.quantity-display {
+  font-size: 1.4rem;
+  font-weight: 700;
+  min-width: 2rem;
+  text-align: center;
+}
+
+.split-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  margin-bottom: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.split-part {
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.split-part--paid {
+  border-color: var(--success, #4ade80);
+  background: rgba(74, 222, 128, 0.07);
+  opacity: 0.75;
+}
+
+.tip-toggle-group {
+  display: flex;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.tip-toggle-btn {
+  padding: 0.45rem 0.75rem;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.tip-toggle-btn--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.tip-pct-btn {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.tip-pct-btn--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.tip-input {
+  width: 80px;
+  text-align: center;
+}
+
+.paid-mark {
+  color: #4ade80;
+  margin-left: 6px;
+}
+
+/* ── Badge variants ────────────────────────────────────────── */
+
+.badge-pending   { background: rgba(148, 163, 184, 0.16); color: #cbd5e1;             margin-top: 0; }
+.badge-sent      { background: rgba(96, 165, 250, 0.14);  color: #bfdbfe;             margin-top: 0; }
+.badge-preparing { background: rgba(255, 159, 67, 0.16);  color: var(--warning-text); margin-top: 0; }
+.badge-ready     { background: rgba(88, 212, 179, 0.16);  color: #9ae6b4;             margin-top: 0; }
+.badge-served    { background: rgba(148, 163, 184, 0.08); color: var(--muted);        margin-top: 0; }
+.badge-cancelled { background: rgba(255, 123, 123, 0.16); color: #ffd1d1;             margin-top: 0; }
+
+.badge-modifier {
+  background: rgba(96, 165, 250, 0.12);
+  color: #bfdbfe;
+  margin-top: 0;
+  font-size: 0.72rem;
+}
+
+.badge-bill-requested {
+  background: rgba(255, 123, 123, 0.16);
+  color: #ffd1d1;
+  margin-top: 0;
+}
+
+/* ── Total-box modifiers ───────────────────────────────────── */
+
+.total-box--row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.total-box--col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* ── Inline-actions modifier ───────────────────────────────── */
+
+.inline-actions--end {
+  justify-content: flex-end;
+}
+
+/* ── Modal-card modifiers ──────────────────────────────────── */
+
+.modal-card--narrow { max-width: 480px; }
+.modal-card--medium { max-width: 520px; }
+
+/* ── Button modifiers ──────────────────────────────────────── */
+
+.btn-close { padding: 0.5rem 0.75rem; }
+.btn-sm { font-size: 0.82rem; padding: 0.5rem 0.75rem; }
+.btn-xs { padding: 0.3rem 0.55rem; font-size: 0.8rem; }
+.btn-qty { padding: 0.5rem 1rem; font-size: 1.2rem; }
+.btn-assign { padding: 0.25rem 0.55rem; font-size: 0.78rem; }
+.btn-pay {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #fff;
+}
+.btn-muted {
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
+.btn-danger-gradient {
+  background: linear-gradient(135deg, var(--danger), #c0392b);
+  color: #fff;
+}
+.btn-danger-outline {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.btn-surface {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.btn-numpad-toggle {
+  padding: 0.55rem 0.75rem;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.btn-link {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  margin-top: 4px;
+}
+
+.quantity-control .button { padding: 0; }
+
+.cambio-row {
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+
+.cambio-amount {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.cambio-amount--ok { color: #4ade80; }
+.cambio-amount--short { color: var(--danger); }
+
+/* ── Specificity overrides for modal-card ──────────────────── */
+
+.modal-card .m0 { margin: 0; }
+.modal-card .mt-sm { margin-top: 0.5rem; }
+.modal-card .mt-md { margin-top: 0.75rem; }
+.modal-card .mt-lg { margin-top: 1rem; }
+.modal-card .mt-xl { margin-top: 1.25rem; }
+.modal-card .modal-subtitle { margin: 0.5rem 0 0; }
+
+.numeric-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.numeric-keypad-btn {
+  padding: 0.75rem;
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.numeric-keypad-btn[data-key="backspace"] {
+  font-weight: 700;
+}
+
 .form-section-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 1rem;
@@ -1295,7 +1610,8 @@ td {
   .sales-actions,
   .form-section-grid,
   .credit-summary,
-  .share-actions {
+  .share-actions,
+  .order-layout {
     grid-template-columns: 1fr;
   }
 
