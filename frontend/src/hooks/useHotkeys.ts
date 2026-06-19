@@ -80,20 +80,16 @@ export function useHotkeys() {
         }
         case "F8": {
           event.preventDefault();
-          const discountSelect = document.querySelector<HTMLSelectElement>(".sales-actions select");
+          const discountSelect = document.querySelector<HTMLSelectElement>('[data-hotkey="cart-discount"]');
           if (discountSelect) {
             discountSelect.focus();
           }
           break;
         }
-        case "F9": {
+        case "F9":
           event.preventDefault();
-          const finalizeBtn = document.querySelector<HTMLButtonElement>(".sales-actions > .button:not(.ghost)");
-          if (finalizeBtn && !finalizeBtn.disabled) {
-            finalizeBtn.click();
-          }
+          navigate("/sales-history");
           break;
-        }
       }
     },
     [navigate]

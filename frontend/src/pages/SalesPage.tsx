@@ -1159,6 +1159,7 @@ export function SalesPage() {
         {isManagementRole(user?.role) ? (
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
             <select
+              data-hotkey="cart-discount"
               value={cartDiscountType}
               onChange={(e) => { setCartDiscountType(e.target.value as typeof cartDiscountType); setCartDiscountValue(""); }}
               style={{ minWidth: 130 }}

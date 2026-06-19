@@ -10,7 +10,7 @@ const HOTKEYS = [
   { key: "F5", label: "Buscar producto" },
   { key: "F6", label: "Seleccionar cliente" },
   { key: "F8", label: "Descuento del carrito" },
-  { key: "F9", label: "Finalizar venta" },
+  { key: "F9", label: "Historial / Devoluciones" },
   { key: "Esc", label: "Cerrar modal" },
   { key: "Alt", label: "Mostrar atajos" }
 ];
