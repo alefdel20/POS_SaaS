@@ -2,13 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Header } from "../components/Header";
 import { Sidebar } from "../components/Sidebar";
+import { HotkeysOverlay } from "../components/HotkeysOverlay";
 import { OnboardingTour, type OnboardingTourHandle } from "../components/OnboardingTour";
 import { WhatsNewModal } from "../components/WhatsNewModal";
 import { useAuth } from "../context/AuthContext";
+import { useHotkeys } from "../hooks/useHotkeys";
 
 export function AppLayout() {
   const { user } = useAuth();
   const location = useLocation();
+  const { showOverlay } = useHotkeys();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const menuToggleRef = useRef<HTMLButtonElement | null>(null);
   const tourRef = useRef<OnboardingTourHandle | null>(null);
@@ -96,6 +99,7 @@ export function AppLayout() {
       </div>
       {user ? <OnboardingTour autoStart={shouldAutoStart} ref={tourRef} /> : null}
       <WhatsNewModal />
+      <HotkeysOverlay visible={showOverlay} />
     </div>
   );
 }

@@ -1170,6 +1170,7 @@ export function SalesPage() {
             {cartDiscountType ? (
               <input
                 type="number"
+                inputMode="decimal"
                 min={0}
                 step="0.01"
                 placeholder={cartDiscountType === "percentage" ? "0–100" : "0.00"}
@@ -1248,6 +1249,7 @@ export function SalesPage() {
                       <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity - (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)))} type="button">-</button>
                       <input
                         min="0"
+                        inputMode="decimal"
                         step={getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? "0.001" : "1"}
                         type="number"
                         value={item.quantity}
@@ -1448,6 +1450,7 @@ export function SalesPage() {
                 Costo del producto
                 <input
                   min="0"
+                  inputMode="decimal"
                   step="0.00001"
                   type="number"
                   value={quickProductForm.cost_price}
@@ -1458,6 +1461,7 @@ export function SalesPage() {
                 Precio al público *
                 <input
                   min="0"
+                  inputMode="decimal"
                   step="0.00001"
                   type="number"
                   value={quickProductForm.price}
@@ -1467,6 +1471,7 @@ export function SalesPage() {
               <label>
                 % ganancia
                 <input
+                  inputMode="decimal"
                   step="0.001"
                   type="number"
                   value={quickProductForm.porcentaje_ganancia}
@@ -1477,6 +1482,7 @@ export function SalesPage() {
                 Stock inicial
                 <input
                   min="0"
+                  inputMode="decimal"
                   step={getResolvedSaleUnit(quickProductForm.unidad_de_venta) === "kg" || getResolvedSaleUnit(quickProductForm.unidad_de_venta) === "litro" ? "0.001" : "1"}
                   type="number"
                   value={quickProductForm.stock}
@@ -1625,6 +1631,7 @@ export function SalesPage() {
                   <input
                     autoFocus
                     min="0"
+                    inputMode="decimal"
                     step="0.01"
                     type="number"
                     value={cashReceived}
@@ -1718,7 +1725,7 @@ export function SalesPage() {
                 ) : null}
                 <label>
                   Pago inicial
-                  <input min="0" step="0.01" type="number" value={initialPayment} onChange={(event) => setInitialPayment(event.target.value)} />
+                  <input min="0" inputMode="decimal" step="0.01" type="number" value={initialPayment} onChange={(event) => setInitialPayment(event.target.value)} />
                 </label>
                 <div className="total-box secondary">
                   <span>Saldo pendiente</span>
