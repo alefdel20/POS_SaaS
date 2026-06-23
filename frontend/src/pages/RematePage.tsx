@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Product } from "../types";
@@ -39,6 +39,8 @@ export function RematePage() {
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<DiscountForm>(emptyDiscount);
   const [error, setError] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+  const skipFormSync = useRef(false);
 
   async function loadProducts(term = "") {
     if (!token) return;
@@ -81,6 +83,10 @@ export function RematePage() {
   );
 
   useEffect(() => {
+    if (skipFormSync.current) {
+      skipFormSync.current = false;
+      return;
+    }
     if (selectedProducts.length !== 1) {
       return;
     }
@@ -139,6 +145,20 @@ export function RematePage() {
     );
   }
 
+  function selectSuggestion(product: Product) {
+    skipFormSync.current = true;
+    setSelectedIds([product.id]);
+    const now = new Date();
+    const in14Days = new Date(now.getTime() + 14 * 86_400_000);
+    setForm({
+      discount_type: "percentage",
+      discount_value: "20",
+      discount_start: getMexicoCityDateTimeLocalValue(now.toISOString()),
+      discount_end: getMexicoCityDateTimeLocalValue(in14Days.toISOString()),
+    });
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function clearSelection() {
     setSelectedIds([]);
     setForm(emptyDiscount);
@@ -163,6 +183,7 @@ export function RematePage() {
                   <th>Motivo sugerido</th>
                   <th>Precio base</th>
                   <th>Referencia</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -179,11 +200,14 @@ export function RematePage() {
                     </td>
                     <td>{currency(product.price)}</td>
                     <td>{product.is_near_expiry ? shortDate(product.expires_at || null) : "Sin remate activo"}</td>
+                    <td>
+                      <button className="button ghost" onClick={() => selectSuggestion(product)} type="button">Aplicar remate</button>
+                    </td>
                   </tr>
                 ))}
                 {suggestedProducts.length === 0 ? (
                   <tr>
-                    <td className="muted" colSpan={4}>No hay sugerencias de remate en este momento.</td>
+                    <td className="muted" colSpan={5}>No hay sugerencias de remate en este momento.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -293,7 +317,7 @@ export function RematePage() {
         </div>
       </div>
 
-      <form className="panel grid-form" onSubmit={applyDiscount}>
+      <form ref={formRef} className="panel grid-form" onSubmit={applyDiscount}>
         <div className="panel-header">
           <div>
             <h2>Aplicar remate</h2>
