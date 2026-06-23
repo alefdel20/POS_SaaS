@@ -115,6 +115,7 @@ export function RematePage() {
   function clearSelection() {
     setSelectedProduct(null);
     setForm({ discountType: "", discountValue: "" });
+    setSearch("");
     setError("");
     setSuccess("");
   }
@@ -199,23 +200,30 @@ export function RematePage() {
       {error && <p className="error-text">{error}</p>}
       {success && <p className="success-text">{success}</p>}
 
+      {/* ROW 1: Baja rotación (LEFT) + Aplicar remate (RIGHT) */}
       <div className="page-grid two-columns">
-        {/* TOP 10 BAJA ROTACIÓN */}
         <div className="panel">
           <div className="panel-header">
             <div>
               <h2>Baja rotacion / Vencimiento</h2>
               <p className="muted">
-                Top 10 productos sin movimiento en {threshold} dias o proximos a vencer.
+                Top 10 sin movimiento en {threshold} dias o proximos a vencer.
                 {isPremium && (
                   <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.7 }}>
-                    (Configurable en Perfil → Alertas)
+                    (Configurable en Perfil)
                   </span>
                 )}
               </p>
             </div>
+            <input
+              className="search-input"
+              placeholder="Buscar por nombre o SKU..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ minWidth: 220 }}
+            />
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap" style={{ maxHeight: 520, overflowY: "auto" }}>
             <table>
               <thead>
                 <tr>
@@ -228,7 +236,7 @@ export function RematePage() {
               <tbody>
                 {loadingLow ? (
                   <tr><td className="muted" colSpan={4}>Cargando...</td></tr>
-                ) : lowRotation.length === 0 ? (
+                ) : lowRotation.length === 0 && !search.trim() ? (
                   <tr><td className="muted" colSpan={4}>No hay productos con baja rotacion.</td></tr>
                 ) : lowRotation.map((product) => (
                   <tr
@@ -294,116 +302,76 @@ export function RematePage() {
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
 
-        {/* TOP 10 MÁS VENDIDOS */}
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Mas vendidos</h2>
-              <p className="muted">Top 10 productos mas vendidos en los ultimos 30 dias.</p>
-            </div>
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Producto</th>
-                  <th>Cantidad vendida</th>
-                  <th>Ingresos</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loadingTop ? (
-                  <tr><td className="muted" colSpan={3}>Cargando...</td></tr>
-                ) : topSellers.length === 0 ? (
-                  <tr><td className="muted" colSpan={3}>No hay datos de ventas recientes.</td></tr>
-                ) : topSellers.map((product) => (
-                  <tr
-                    key={`ts-${product.id}`}
-                    onClick={() => selectProduct(product)}
-                    style={{
-                      cursor: "pointer",
-                      background: selectedProduct?.id === product.id ? "rgba(var(--accent-rgb), 0.12)" : undefined
-                    }}
-                  >
-                    <td><strong>{product.name}</strong></td>
-                    <td>{product.quantitySold}</td>
-                    <td>{currency(product.revenue)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* BÚSQUEDA + FORMULARIO INLINE */}
-      <div className="page-grid two-columns">
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Buscar producto</h2>
-              <p className="muted">Busca por nombre o SKU para aplicar remate.</p>
-            </div>
-            <input
-              className="search-input"
-              placeholder="Buscar producto por nombre o SKU..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          {search.trim() && (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Producto</th>
-                    <th>SKU</th>
-                    <th>Stock</th>
-                    <th>Precio</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {searchResults.length === 0 ? (
-                    <tr><td className="muted" colSpan={5}>Sin resultados.</td></tr>
-                  ) : searchResults.map((product) => (
-                    <tr
-                      key={`sr-${product.id}`}
-                      onClick={() => selectProduct(product)}
-                      style={{
-                        cursor: "pointer",
-                        background: selectedProduct?.id === product.id ? "rgba(var(--accent-rgb), 0.12)" : undefined
-                      }}
-                    >
-                      <td><strong>{product.name}</strong></td>
-                      <td className="muted">{product.sku}</td>
-                      <td>{product.stock}</td>
-                      <td>{currency(product.price)}</td>
-                      <td>
-                        <button
-                          className="button ghost"
-                          onClick={(e) => { e.stopPropagation(); selectProduct(product); }}
-                          type="button"
-                          style={{ fontSize: 12 }}
-                        >
-                          Seleccionar
-                        </button>
+                {searchResults.length > 0 && (
+                  <>
+                    <tr>
+                      <td colSpan={4} style={{ padding: 0 }}>
+                        <div style={{
+                          borderTop: "1px solid var(--border)",
+                          padding: "0.5rem 0.75rem",
+                          background: "var(--surface-soft)"
+                        }}>
+                          <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>
+                            Resultados de busqueda
+                          </span>
+                        </div>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                    {searchResults.map((product) => (
+                      <tr
+                        key={`sr-${product.id}`}
+                        onClick={() => selectProduct(product)}
+                        style={{
+                          cursor: "pointer",
+                          background: selectedProduct?.id === product.id
+                            ? "rgba(var(--accent-rgb), 0.12)"
+                            : "rgba(var(--accent-rgb), 0.04)"
+                        }}
+                      >
+                        <td>
+                          <strong>{product.name}</strong>
+                          <div className="muted" style={{ fontSize: 11 }}>{product.sku}</div>
+                        </td>
+                        <td>{product.stock}</td>
+                        <td className="muted" style={{ fontSize: 12 }}>{currency(product.price)}</td>
+                        <td>
+                          <button
+                            className="button ghost"
+                            onClick={(e) => { e.stopPropagation(); selectProduct(product); }}
+                            type="button"
+                            style={{ fontSize: 12 }}
+                          >
+                            Seleccionar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </>
+                )}
+
+                {search.trim() && searchResults.length === 0 && (
+                  <tr>
+                    <td colSpan={4} style={{ padding: 0 }}>
+                      <div style={{
+                        borderTop: "1px solid var(--border)",
+                        padding: "0.5rem 0.75rem",
+                        background: "var(--surface-soft)"
+                      }}>
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          Sin resultados para &ldquo;{search}&rdquo;
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* FORMULARIO DE APLICAR REMATE */}
-        <form className="panel grid-form" onSubmit={applyDiscount}>
+        {/* PANEL: Aplicar remate (LADO DERECHO) */}
+        <form className="panel grid-form" onSubmit={applyDiscount} style={{ alignSelf: "start" }}>
           <div className="panel-header">
             <div>
               <h2>Aplicar remate</h2>
@@ -415,7 +383,7 @@ export function RematePage() {
             </div>
           </div>
 
-          {selectedProduct && (
+          {selectedProduct ? (
             <>
               <div className="info-card">
                 <p><strong>{selectedProduct.name}</strong></p>
@@ -423,7 +391,7 @@ export function RematePage() {
                   <p className="muted">Precio actual: {currency(selectedProductPrice)}</p>
                 )}
                 {"stock" in selectedProduct && (
-                  <p className="muted">Stock: {(selectedProduct as any).stock}</p>
+                  <p className="muted">Stock: {(selectedProduct as SearchProduct | LowRotationProduct).stock}</p>
                 )}
               </div>
 
@@ -471,8 +439,66 @@ export function RematePage() {
                 </button>
               </div>
             </>
+          ) : (
+            <div className="info-card">
+              <p className="muted" style={{ textAlign: "center", padding: "1.5rem 0" }}>
+                Haz clic en un producto de la tabla o usa el buscador para seleccionarlo.
+              </p>
+            </div>
           )}
         </form>
+      </div>
+
+      {/* ROW 2: Más vendidos (FULL WIDTH) */}
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Mas vendidos</h2>
+            <p className="muted">Top 10 productos mas vendidos en los ultimos 30 dias.</p>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Cantidad vendida</th>
+                <th>Ingresos</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingTop ? (
+                <tr><td className="muted" colSpan={4}>Cargando...</td></tr>
+              ) : topSellers.length === 0 ? (
+                <tr><td className="muted" colSpan={4}>No hay datos de ventas recientes.</td></tr>
+              ) : topSellers.map((product) => (
+                <tr
+                  key={`ts-${product.id}`}
+                  onClick={() => selectProduct(product)}
+                  style={{
+                    cursor: "pointer",
+                    background: selectedProduct?.id === product.id ? "rgba(var(--accent-rgb), 0.12)" : undefined
+                  }}
+                >
+                  <td><strong>{product.name}</strong></td>
+                  <td>{product.quantitySold}</td>
+                  <td>{currency(product.revenue)}</td>
+                  <td>
+                    <button
+                      className="button ghost"
+                      onClick={(e) => { e.stopPropagation(); selectProduct(product); }}
+                      type="button"
+                      style={{ fontSize: 12 }}
+                    >
+                      Seleccionar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   );
