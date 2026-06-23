@@ -49,7 +49,10 @@
       "Bash(npx vite *)",
       "WebSearch",
       "PowerShell(node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\services\\\\cfdiService.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\\\\cfdiController.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\routes\\\\cfdiRoutes.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\middleware\\\\csdUpload.js)",
-      "PowerShell(node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\services\\\\cfdiService.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\\\\cfdiController.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\routes\\\\cfdiRoutes.js)"
+      "PowerShell(node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\services\\\\cfdiService.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\controllers\\\\cfdiController.js; node -c C:\\\\Users\\\\tatue\\\\Documents\\\\POS_SaaS\\\\pos-app\\\\backend\\\\src\\\\routes\\\\cfdiRoutes.js)",
+      "PowerShell(Test-NetConnection *)",
+      "PowerShell(try { \\(Get-Command psql -ErrorAction Stop\\).Source } catch { \"psql not found\" }; try { \\(Get-Command pgcli -ErrorAction Stop\\).Source } catch { \"pgcli not found\" })",
+      "PowerShell(try { \\(Get-Command ssh -ErrorAction Stop\\).Source } catch { \"ssh not found\" })"
     ]
   }
 }
