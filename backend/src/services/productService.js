@@ -558,8 +558,8 @@ function buildEffectivePriceCase() {
           AND product_data.discount_type IS NOT NULL
           AND product_data.discount_value IS NOT NULL
           AND product_data.discount_start IS NOT NULL
-          AND product_data.discount_end IS NOT NULL
-          AND NOW() BETWEEN product_data.discount_start AND product_data.discount_end
+          AND NOW() >= product_data.discount_start
+          AND (product_data.discount_end IS NULL OR NOW() <= product_data.discount_end)
         THEN GREATEST(
           CASE
             WHEN product_data.discount_type = 'percentage' THEN product_data.price - (product_data.price * (product_data.discount_value / 100))
@@ -600,8 +600,8 @@ function buildProductSelect(effectivePriceCase) {
         AND product_data.discount_type IS NOT NULL
         AND product_data.discount_value IS NOT NULL
         AND product_data.discount_start IS NOT NULL
-        AND product_data.discount_end IS NOT NULL
-        AND NOW() BETWEEN product_data.discount_start AND product_data.discount_end
+        AND NOW() >= product_data.discount_start
+        AND (product_data.discount_end IS NULL OR NOW() <= product_data.discount_end)
       ) AS has_active_discount,
       (${effectivePriceCase}) AS effective_price,
       product_data.price > (${effectivePriceCase}) AS is_on_sale
