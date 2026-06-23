@@ -5,6 +5,7 @@ const PLAN_FEATURES = {
     sales_reports: false,
     stock_alerts: false,
     whatsapp_agent: false,
+    low_rotation_alerts: false,
     max_branches: 1,
   },
   premium: {
@@ -13,6 +14,7 @@ const PLAN_FEATURES = {
     sales_reports: true,
     stock_alerts: false,
     whatsapp_agent: false,
+    low_rotation_alerts: true,
     max_branches: 3,
   },
   enterprise: {
@@ -21,6 +23,7 @@ const PLAN_FEATURES = {
     sales_reports: true,
     stock_alerts: true,
     whatsapp_agent: true,
+    low_rotation_alerts: true,
     max_branches: 5,
   },
 };

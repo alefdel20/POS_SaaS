@@ -2410,6 +2410,119 @@ async function exportProductsPdf(filters, actor) {
   return { buffer, filename: `productos-${today}.pdf` };
 }
 
+async function listLowRotationProducts(thresholdDays, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const days = Number(thresholdDays) || 21;
+
+  const { rows } = await pool.query(
+    `WITH recent_sales AS (
+       SELECT si.product_id, MAX(s.sale_date) AS last_sale_date,
+              COALESCE(SUM(si.quantity), 0) AS recent_units_sold
+       FROM sale_items si
+       INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
+       WHERE s.business_id = $1
+         AND COALESCE(s.status, 'completed') <> 'cancelled'
+       GROUP BY si.product_id
+     )
+     SELECT p.id, p.name, p.sku, p.stock, p.price, p.expires_at,
+            rs.last_sale_date,
+            CASE
+              WHEN rs.last_sale_date IS NULL THEN
+                EXTRACT(DAY FROM NOW() - p.created_at)::int
+              ELSE
+                EXTRACT(DAY FROM NOW() - rs.last_sale_date)::int
+            END AS days_since_last_sale
+     FROM products p
+     LEFT JOIN recent_sales rs ON rs.product_id = p.id
+     WHERE p.business_id = $1
+       AND p.is_active = TRUE
+       AND p.status = 'activo'
+       AND p.stock > 0
+       AND (
+         (rs.recent_units_sold IS NULL OR rs.recent_units_sold = 0)
+         AND p.created_at <= NOW() - make_interval(days => $2)
+         OR (
+           rs.last_sale_date IS NOT NULL
+           AND rs.last_sale_date <= NOW() - make_interval(days => $2)
+         )
+         OR (p.expires_at IS NOT NULL AND p.expires_at <= CURRENT_DATE + INTERVAL '14 days')
+       )
+     ORDER BY
+       CASE
+         WHEN p.expires_at IS NOT NULL AND p.expires_at <= CURRENT_DATE + INTERVAL '14 days'
+         THEN 0 ELSE 1
+       END,
+       days_since_last_sale DESC NULLS LAST
+     LIMIT 10`,
+    [businessId, days]
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    sku: r.sku,
+    stock: Number(r.stock),
+    price: Number(r.price),
+    lastSaleDate: r.last_sale_date || null,
+    daysSinceLastSale: r.days_since_last_sale != null ? Number(r.days_since_last_sale) : null,
+    expirationDate: r.expires_at || null
+  }));
+}
+
+async function listTopSellers(days, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const period = Number(days) || 30;
+
+  const { rows } = await pool.query(
+    `SELECT si.product_id AS id, p.name,
+            SUM(si.quantity) AS quantity_sold,
+            SUM(si.subtotal) AS revenue
+     FROM sale_items si
+     INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
+     INNER JOIN products p ON p.id = si.product_id AND p.business_id = si.business_id
+     WHERE s.business_id = $1
+       AND COALESCE(s.status, 'completed') <> 'cancelled'
+       AND s.sale_date >= CURRENT_DATE - make_interval(days => $2)
+     GROUP BY si.product_id, p.name
+     ORDER BY quantity_sold DESC
+     LIMIT 10`,
+    [businessId, period]
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    quantitySold: Number(r.quantity_sold),
+    revenue: Number(r.revenue)
+  }));
+}
+
+async function searchProducts(query, actor, limit = 10) {
+  const businessId = requireActorBusinessId(actor);
+  const term = String(query || "").trim();
+  if (!term) return [];
+
+  const { rows } = await pool.query(
+    `SELECT id, name, sku, stock, price
+     FROM products
+     WHERE business_id = $1
+       AND is_active = TRUE
+       AND status = 'activo'
+       AND (name ILIKE $2 OR sku ILIKE $2)
+     ORDER BY name ASC
+     LIMIT $3`,
+    [businessId, `%${term}%`, limit]
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    sku: r.sku,
+    stock: Number(r.stock),
+    price: Number(r.price)
+  }));
+}
+
 module.exports = {
   listProducts,
   getProductDetail,
@@ -2430,5 +2543,8 @@ module.exports = {
   deleteProduct,
   applyBulkDiscount,
   exportProductsExcel,
-  exportProductsPdf
+  exportProductsPdf,
+  listLowRotationProducts,
+  listTopSellers,
+  searchProducts
 };

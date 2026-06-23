@@ -7,6 +7,9 @@ const { uploadProductImportFile } = require("../middleware/productImportUpload")
 const router = express.Router();
 
 router.get("/", requireAuth, controller.listValidation, controller.listProducts);
+router.get("/alerts/low-rotation", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.lowRotationValidation, controller.listLowRotation);
+router.get("/top-sellers", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.topSellersValidation, controller.listTopSellers);
+router.get("/search", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.searchValidation, controller.searchProducts);
 router.get("/restock", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockValidation, controller.listRestockProducts);
 router.get("/restock-history", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockHistoryValidation, controller.listRestockHistory);
 router.get("/restock-history/metrics", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockHistoryValidation, controller.getRestockHistoryMetrics);

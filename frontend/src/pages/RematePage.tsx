@@ -1,178 +1,218 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { Product } from "../types";
-import { currency, shortDate, shortDateTime } from "../utils/format";
-import { dateTimeLocalToIsoString, getMexicoCityDateTimeLocalValue } from "../utils/timezone";
+import { currency } from "../utils/format";
+
+type LowRotationProduct = {
+  id: number;
+  name: string;
+  sku: string;
+  stock: number;
+  price: number;
+  lastSaleDate: string | null;
+  daysSinceLastSale: number | null;
+  expirationDate: string | null;
+};
+
+type TopSellerProduct = {
+  id: number;
+  name: string;
+  quantitySold: number;
+  revenue: number;
+};
+
+type SearchProduct = {
+  id: number;
+  name: string;
+  sku: string;
+  stock: number;
+  price: number;
+};
+
+type AlertConfig = {
+  threshold_days: number;
+  enabled: boolean;
+  persisted?: boolean;
+};
 
 type DiscountForm = {
-  discount_type: "" | "percentage" | "fixed";
-  discount_value: string;
-  discount_start: string;
-  discount_end: string;
+  discountType: "percentage" | "fixed" | "";
+  discountValue: string;
 };
 
-const emptyDiscount: DiscountForm = {
-  discount_type: "",
-  discount_value: "",
-  discount_start: "",
-  discount_end: ""
-};
-
-function toDateTimeLocal(value?: string | null) {
-  return getMexicoCityDateTimeLocalValue(value);
-}
-
-function productToDiscountForm(product: Product): DiscountForm {
-  return {
-    discount_type: product.discount_type || "",
-    discount_value: product.discount_value === null || product.discount_value === undefined ? "" : String(product.discount_value),
-    discount_start: toDateTimeLocal(product.discount_start),
-    discount_end: toDateTimeLocal(product.discount_end)
-  };
-}
+const DEFAULT_THRESHOLD = 21;
 
 export function RematePage() {
-  const { token } = useAuth();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [search, setSearch] = useState("");
-  const [form, setForm] = useState<DiscountForm>(emptyDiscount);
-  const [error, setError] = useState("");
-  const formRef = useRef<HTMLFormElement>(null);
-  const skipFormSync = useRef(false);
+  const { token, user } = useAuth();
+  const isPremium = user?.plan_key === "premium" || user?.plan_key === "enterprise";
 
-  async function loadProducts(term = "") {
-    if (!token) return;
-    const params = new URLSearchParams();
-    if (term.trim()) {
-      params.set("search", term.trim());
-    }
-    const response = await apiRequest<Product[]>(`/products?${params.toString()}`, { token });
-    setProducts(response);
-  }
+  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
+  const [lowRotation, setLowRotation] = useState<LowRotationProduct[]>([]);
+  const [topSellers, setTopSellers] = useState<TopSellerProduct[]>([]);
+  const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchProduct[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<(LowRotationProduct | SearchProduct | TopSellerProduct) | null>(null);
+  const [form, setForm] = useState<DiscountForm>({ discountType: "", discountValue: "" });
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [loadingLow, setLoadingLow] = useState(false);
+  const [loadingTop, setLoadingTop] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    loadProducts().catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar productos");
-    });
+    if (!token || !isPremium) return;
+    apiRequest<AlertConfig>("/alert-config", { token })
+      .then((config) => {
+        if (config?.threshold_days) setThreshold(config.threshold_days);
+      })
+      .catch(() => {});
+  }, [token, isPremium]);
+
+  useEffect(() => {
+    if (!token) return;
+    setLoadingLow(true);
+    apiRequest<LowRotationProduct[]>(
+      `/products/alerts/low-rotation?thresholdDays=${threshold}`,
+      { token }
+    )
+      .then(setLowRotation)
+      .catch(() => setLowRotation([]))
+      .finally(() => setLoadingLow(false));
+  }, [token, threshold]);
+
+  useEffect(() => {
+    if (!token) return;
+    setLoadingTop(true);
+    apiRequest<TopSellerProduct[]>("/products/top-sellers?days=30", { token })
+      .then(setTopSellers)
+      .catch(() => setTopSellers([]))
+      .finally(() => setLoadingTop(false));
   }, [token]);
 
   useEffect(() => {
+    if (!token || !search.trim()) {
+      setSearchResults([]);
+      return;
+    }
     const timeout = setTimeout(() => {
-      loadProducts(search).catch(console.error);
+      apiRequest<SearchProduct[]>(
+        `/products/search?q=${encodeURIComponent(search.trim())}&limit=10`,
+        { token }
+      )
+        .then(setSearchResults)
+        .catch(() => setSearchResults([]));
     }, 250);
     return () => clearTimeout(timeout);
-  }, [search]);
+  }, [token, search]);
 
-  const filteredProducts = useMemo(
-    () => products.filter((product) => product.status !== "inactivo"),
-    [products]
-  );
-  const suggestedProducts = useMemo(
-    () => filteredProducts.filter((product) => !product.has_active_discount && (product.is_low_rotation || product.is_near_expiry)),
-    [filteredProducts]
-  );
-  const activeDiscountProducts = useMemo(
-    () => filteredProducts.filter((product) => product.has_active_discount),
-    [filteredProducts]
-  );
-  const selectedProducts = useMemo(
-    () => filteredProducts.filter((product) => selectedIds.includes(product.id)),
-    [filteredProducts, selectedIds]
-  );
-
-  useEffect(() => {
-    if (skipFormSync.current) {
-      skipFormSync.current = false;
-      return;
-    }
-    if (selectedProducts.length !== 1) {
-      return;
-    }
-
-    setForm(productToDiscountForm(selectedProducts[0]));
-  }, [selectedProducts]);
-
-  async function applyDiscount(event: FormEvent) {
-    event.preventDefault();
-    if (!token || selectedIds.length === 0) return;
-
-    try {
-      setError("");
-      await apiRequest("/products/remate/bulk", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          product_ids: selectedIds,
-          discount_type: form.discount_type || null,
-          discount_value: form.discount_value === "" ? null : Number(form.discount_value),
-          discount_start: dateTimeLocalToIsoString(form.discount_start),
-          discount_end: dateTimeLocalToIsoString(form.discount_end)
-        })
-      });
-      setSelectedIds([]);
-      setForm(emptyDiscount);
-      await loadProducts(search);
-    } catch (submissionError) {
-      setError(submissionError instanceof Error ? submissionError.message : "No fue posible aplicar el remate");
-    }
-  }
-
-  async function clearDiscount(productId?: number) {
-    if (!token) return;
-
-    try {
-      setError("");
-      await apiRequest("/products/remate/bulk", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          product_ids: productId ? [productId] : selectedIds,
-          clear_discount: true
-        })
-      });
-      setSelectedIds([]);
-      await loadProducts(search);
-    } catch (clearError) {
-      setError(clearError instanceof Error ? clearError.message : "No fue posible limpiar el remate");
-    }
-  }
-
-  function toggleSelection(productId: number) {
-    setSelectedIds((current) =>
-      current.includes(productId) ? current.filter((id) => id !== productId) : [...current, productId]
-    );
-  }
-
-  function selectSuggestion(product: Product) {
-    skipFormSync.current = true;
-    setSelectedIds([product.id]);
-    const now = new Date();
-    const in14Days = new Date(now.getTime() + 14 * 86_400_000);
-    setForm({
-      discount_type: "percentage",
-      discount_value: "20",
-      discount_start: getMexicoCityDateTimeLocalValue(now.toISOString()),
-      discount_end: getMexicoCityDateTimeLocalValue(in14Days.toISOString()),
-    });
-    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  function selectProduct(product: LowRotationProduct | SearchProduct | TopSellerProduct) {
+    setSelectedProduct(product);
+    setForm({ discountType: "", discountValue: "" });
+    setError("");
+    setSuccess("");
   }
 
   function clearSelection() {
-    setSelectedIds([]);
-    setForm(emptyDiscount);
+    setSelectedProduct(null);
+    setForm({ discountType: "", discountValue: "" });
     setError("");
+    setSuccess("");
   }
+
+  async function applyDiscount(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !selectedProduct) return;
+
+    if (!form.discountType) {
+      setError("Selecciona un tipo de descuento");
+      return;
+    }
+    const value = Number(form.discountValue);
+    if (!value || value <= 0) {
+      setError("El valor del descuento debe ser mayor a 0");
+      return;
+    }
+    if (form.discountType === "percentage" && value > 100) {
+      setError("El porcentaje no puede superar 100%");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError("");
+      setSuccess("");
+      const now = new Date().toISOString();
+      await apiRequest("/products/remate/bulk", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          product_ids: [selectedProduct.id],
+          discount_type: form.discountType,
+          discount_value: value,
+          discount_start: now,
+          discount_end: null
+        })
+      });
+      setSuccess(`Remate aplicado a "${selectedProduct.name}"`);
+      setSelectedProduct(null);
+      setForm({ discountType: "", discountValue: "" });
+
+      apiRequest<LowRotationProduct[]>(
+        `/products/alerts/low-rotation?thresholdDays=${threshold}`,
+        { token }
+      ).then(setLowRotation).catch(() => {});
+      apiRequest<TopSellerProduct[]>("/products/top-sellers?days=30", { token })
+        .then(setTopSellers).catch(() => {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible aplicar el remate");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function badgeColor(daysSinceLastSale: number | null): string {
+    if (daysSinceLastSale === null) return "";
+    const doubleThreshold = threshold * 2;
+    const ratio = Math.min(daysSinceLastSale / doubleThreshold, 1);
+    if (ratio >= 0.75) return "var(--danger)";
+    if (ratio >= 0.5) return "var(--warning)";
+    return "rgba(255, 159, 67, 0.7)";
+  }
+
+  const selectedProductPrice = useMemo(() => {
+    if (!selectedProduct) return 0;
+    return "price" in selectedProduct ? selectedProduct.price : 0;
+  }, [selectedProduct]);
+
+  const previewPrice = useMemo(() => {
+    if (!selectedProduct || !form.discountType || !form.discountValue) return null;
+    const val = Number(form.discountValue);
+    if (!val || val <= 0) return null;
+    if (form.discountType === "percentage") {
+      return Math.max(selectedProductPrice - selectedProductPrice * (val / 100), 0);
+    }
+    return Math.max(selectedProductPrice - val, 0);
+  }, [selectedProduct, form, selectedProductPrice]);
 
   return (
     <section className="page-grid">
+      {error && <p className="error-text">{error}</p>}
+      {success && <p className="success-text">{success}</p>}
+
       <div className="page-grid two-columns">
+        {/* TOP 10 BAJA ROTACIÓN */}
         <div className="panel">
           <div className="panel-header">
             <div>
-              <h2>Sugerencias para remate</h2>
-              <p className="muted">Candidatos por baja rotacion sin ventas en los ultimos 21 dias o proximos a vencer.</p>
+              <h2>Baja rotacion / Vencimiento</h2>
+              <p className="muted">
+                Top 10 productos sin movimiento en {threshold} dias o proximos a vencer.
+                {isPremium && (
+                  <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.7 }}>
+                    (Configurable en Perfil → Alertas)
+                  </span>
+                )}
+              </p>
             </div>
           </div>
           <div className="table-wrap">
@@ -180,46 +220,91 @@ export function RematePage() {
               <thead>
                 <tr>
                   <th>Producto</th>
-                  <th>Motivo sugerido</th>
-                  <th>Precio base</th>
-                  <th>Referencia</th>
+                  <th>Stock</th>
+                  <th>Ultimo movimiento</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {suggestedProducts.map((product) => (
-                  <tr key={`suggested-${product.id}`}>
+                {loadingLow ? (
+                  <tr><td className="muted" colSpan={4}>Cargando...</td></tr>
+                ) : lowRotation.length === 0 ? (
+                  <tr><td className="muted" colSpan={4}>No hay productos con baja rotacion.</td></tr>
+                ) : lowRotation.map((product) => (
+                  <tr
+                    key={`lr-${product.id}`}
+                    onClick={() => selectProduct(product)}
+                    style={{
+                      cursor: "pointer",
+                      background: selectedProduct?.id === product.id ? "rgba(var(--accent-rgb), 0.12)" : undefined
+                    }}
+                  >
                     <td>
                       <strong>{product.name}</strong>
-                      <div className="muted">{product.supplier_name || product.category || "-"}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>{product.sku}</div>
+                    </td>
+                    <td>{product.stock}</td>
+                    <td>
+                      {product.expirationDate && new Date(product.expirationDate) <= new Date(Date.now() + 14 * 86_400_000) ? (
+                        <span style={{
+                          display: "inline-block",
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          background: "rgba(255, 123, 123, 0.16)",
+                          color: "var(--danger)"
+                        }}>
+                          Vence pronto
+                        </span>
+                      ) : null}
+                      {isPremium && product.daysSinceLastSale != null && product.daysSinceLastSale >= threshold ? (
+                        <span
+                          title="Configurable en Perfil → Alertas"
+                          style={{
+                            display: "inline-block",
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: `${badgeColor(product.daysSinceLastSale)}22`,
+                            color: badgeColor(product.daysSinceLastSale),
+                            marginLeft: product.expirationDate ? 4 : 0
+                          }}
+                        >
+                          {product.daysSinceLastSale} dias
+                        </span>
+                      ) : (
+                        <span className="muted" style={{ fontSize: 12 }}>
+                          {product.lastSaleDate
+                            ? new Date(product.lastSaleDate).toLocaleDateString("es-MX")
+                            : "Sin ventas"}
+                        </span>
+                      )}
                     </td>
                     <td>
-                      {product.is_low_rotation ? "Sin ventas en los ultimos 21 dias" : ""}
-                      {product.is_low_rotation && product.is_near_expiry ? " + " : ""}
-                      {product.is_near_expiry ? "Proximo a vencer" : ""}
-                    </td>
-                    <td>{currency(product.price)}</td>
-                    <td>{product.is_near_expiry ? shortDate(product.expires_at || null) : "Sin remate activo"}</td>
-                    <td>
-                      <button className="button ghost" onClick={() => selectSuggestion(product)} type="button">Aplicar remate</button>
+                      <button
+                        className="button ghost"
+                        onClick={(e) => { e.stopPropagation(); selectProduct(product); }}
+                        type="button"
+                        style={{ fontSize: 12 }}
+                      >
+                        Seleccionar
+                      </button>
                     </td>
                   </tr>
                 ))}
-                {suggestedProducts.length === 0 ? (
-                  <tr>
-                    <td className="muted" colSpan={5}>No hay sugerencias de remate en este momento.</td>
-                  </tr>
-                ) : null}
               </tbody>
             </table>
           </div>
         </div>
 
+        {/* TOP 10 MÁS VENDIDOS */}
         <div className="panel">
           <div className="panel-header">
             <div>
-              <h2>Remates activos</h2>
-              <p className="muted">Solo productos con remate o descuento vigente real.</p>
+              <h2>Mas vendidos</h2>
+              <p className="muted">Top 10 productos mas vendidos en los ultimos 30 dias.</p>
             </div>
           </div>
           <div className="table-wrap">
@@ -227,131 +312,167 @@ export function RematePage() {
               <thead>
                 <tr>
                   <th>Producto</th>
-                  <th>Precio base</th>
-                  <th>Precio vigente</th>
-                  <th>Vigencia</th>
+                  <th>Cantidad vendida</th>
+                  <th>Ingresos</th>
                 </tr>
               </thead>
               <tbody>
-                {activeDiscountProducts.map((product) => (
-                  <tr key={`active-discount-${product.id}`}>
-                    <td>
-                      <strong>{product.name}</strong>
-                      <div className="muted">{product.supplier_name || product.category || "-"}</div>
-                    </td>
-                    <td>{currency(product.price)}</td>
-                    <td>{currency(product.effective_price ?? product.price)}</td>
-                    <td>
-                      {product.discount_start || product.discount_end
-                        ? `${shortDateTime(product.discount_start || null)} - ${shortDateTime(product.discount_end || null)}`
-                        : "-"}
-                    </td>
+                {loadingTop ? (
+                  <tr><td className="muted" colSpan={3}>Cargando...</td></tr>
+                ) : topSellers.length === 0 ? (
+                  <tr><td className="muted" colSpan={3}>No hay datos de ventas recientes.</td></tr>
+                ) : topSellers.map((product) => (
+                  <tr
+                    key={`ts-${product.id}`}
+                    onClick={() => selectProduct(product)}
+                    style={{
+                      cursor: "pointer",
+                      background: selectedProduct?.id === product.id ? "rgba(var(--accent-rgb), 0.12)" : undefined
+                    }}
+                  >
+                    <td><strong>{product.name}</strong></td>
+                    <td>{product.quantitySold}</td>
+                    <td>{currency(product.revenue)}</td>
                   </tr>
                 ))}
-                {activeDiscountProducts.length === 0 ? (
-                  <tr>
-                    <td className="muted" colSpan={4}>No hay remates activos vigentes.</td>
-                  </tr>
-                ) : null}
               </tbody>
             </table>
           </div>
         </div>
       </div>
 
+      {/* BÚSQUEDA + FORMULARIO INLINE */}
       <div className="page-grid two-columns">
-      <div className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Catalogo para configurar remates</h2>
-            <p className="muted">Busca productos y selecciona los que quieras programar o limpiar.</p>
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Buscar producto</h2>
+              <p className="muted">Busca por nombre o SKU para aplicar remate.</p>
+            </div>
+            <input
+              className="search-input"
+              placeholder="Buscar producto por nombre o SKU..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
-          <input
-            className="search-input"
-            placeholder="Buscar producto"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
+          {search.trim() && (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>SKU</th>
+                    <th>Stock</th>
+                    <th>Precio</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {searchResults.length === 0 ? (
+                    <tr><td className="muted" colSpan={5}>Sin resultados.</td></tr>
+                  ) : searchResults.map((product) => (
+                    <tr
+                      key={`sr-${product.id}`}
+                      onClick={() => selectProduct(product)}
+                      style={{
+                        cursor: "pointer",
+                        background: selectedProduct?.id === product.id ? "rgba(var(--accent-rgb), 0.12)" : undefined
+                      }}
+                    >
+                      <td><strong>{product.name}</strong></td>
+                      <td className="muted">{product.sku}</td>
+                      <td>{product.stock}</td>
+                      <td>{currency(product.price)}</td>
+                      <td>
+                        <button
+                          className="button ghost"
+                          onClick={(e) => { e.stopPropagation(); selectProduct(product); }}
+                          type="button"
+                          style={{ fontSize: 12 }}
+                        >
+                          Seleccionar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-        {error ? <p className="error-text">{error}</p> : null}
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th></th>
-                <th>Producto</th>
-                <th>Precio base</th>
-                <th>Estado actual</th>
-                <th>Vigencia actual</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredProducts.map((product) => (
-                <tr key={product.id}>
-                  <td>
-                    <input
-                      checked={selectedIds.includes(product.id)}
-                      onChange={() => toggleSelection(product.id)}
-                      type="checkbox"
-                    />
-                  </td>
-                  <td>
-                    <strong>{product.name}</strong>
-                    <div className="muted">{product.supplier_name || product.category || "-"}</div>
-                  </td>
-                  <td>{currency(product.price)}</td>
-                  <td>{product.has_active_discount ? currency(product.effective_price ?? product.price) : "Sin remate activo"}</td>
-                  <td>
-                    {product.discount_start || product.discount_end
-                      ? `${shortDateTime(product.discount_start || null)} - ${shortDateTime(product.discount_end || null)}`
-                      : "-"}
-                  </td>
-                  <td>
-                    <button className="button ghost" onClick={() => clearDiscount(product.id)} type="button">Limpiar</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
-      <form ref={formRef} className="panel grid-form" onSubmit={applyDiscount}>
-        <div className="panel-header">
-          <div>
-            <h2>Aplicar remate</h2>
-            <p className="muted">
-              {selectedIds.length} productos seleccionados
-              {selectedProducts.length === 1 && selectedProducts[0].discount_type ? " | remate actual cargado para edicion" : ""}
-            </p>
+        {/* FORMULARIO DE APLICAR REMATE */}
+        <form className="panel grid-form" onSubmit={applyDiscount}>
+          <div className="panel-header">
+            <div>
+              <h2>Aplicar remate</h2>
+              <p className="muted">
+                {selectedProduct
+                  ? `Producto: ${selectedProduct.name}`
+                  : "Selecciona un producto de las listas o busqueda."}
+              </p>
+            </div>
           </div>
-        </div>
-        <label>
-          Tipo de remate
-          <select value={form.discount_type} onChange={(event) => setForm({ ...form, discount_type: event.target.value as DiscountForm["discount_type"] })}>
-            <option value="">Selecciona</option>
-            <option value="percentage">Porcentaje</option>
-            <option value="fixed">Fijo</option>
-          </select>
-        </label>
-        <label>
-          Valor de remate
-          <input type="number" min="0" step="0.01" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} />
-        </label>
-        <label>
-          Inicio (24h)
-          <input step="60" type="datetime-local" value={form.discount_start} onChange={(event) => setForm({ ...form, discount_start: event.target.value })} />
-        </label>
-        <label>
-          Fin (24h)
-          <input step="60" type="datetime-local" value={form.discount_end} onChange={(event) => setForm({ ...form, discount_end: event.target.value })} />
-        </label>
-        <div className="inline-actions">
-          <button className="button" disabled={!selectedIds.length} type="submit">Aplicar remate</button>
-          <button className="button ghost" disabled={!selectedIds.length && !form.discount_type && !form.discount_value && !form.discount_start && !form.discount_end} onClick={clearSelection} type="button">Limpiar seleccion</button>
-        </div>
-      </form>
+
+          {selectedProduct && (
+            <>
+              <div className="info-card">
+                <p><strong>{selectedProduct.name}</strong></p>
+                {selectedProductPrice > 0 && (
+                  <p className="muted">Precio actual: {currency(selectedProductPrice)}</p>
+                )}
+                {"stock" in selectedProduct && (
+                  <p className="muted">Stock: {(selectedProduct as any).stock}</p>
+                )}
+              </div>
+
+              <label>
+                Tipo de descuento
+                <select
+                  value={form.discountType}
+                  onChange={(e) => setForm({ ...form, discountType: e.target.value as DiscountForm["discountType"] })}
+                >
+                  <option value="">Selecciona</option>
+                  <option value="percentage">Porcentaje (%)</option>
+                  <option value="fixed">Monto fijo ($)</option>
+                </select>
+              </label>
+
+              <label>
+                Valor del descuento
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={form.discountType === "percentage" ? "Ej: 20" : "Ej: 50.00"}
+                  value={form.discountValue}
+                  onChange={(e) => setForm({ ...form, discountValue: e.target.value })}
+                />
+              </label>
+
+              {previewPrice !== null && selectedProductPrice > 0 && (
+                <div className="info-card" style={{ borderLeft: "3px solid var(--accent)" }}>
+                  <p style={{ fontSize: 13 }}>
+                    Precio con remate: <strong style={{ color: "var(--accent)" }}>{currency(previewPrice)}</strong>
+                    <span className="muted" style={{ marginLeft: 8, fontSize: 11 }}>
+                      (ahorro: {currency(selectedProductPrice - previewPrice)})
+                    </span>
+                  </p>
+                </div>
+              )}
+
+              <div className="inline-actions">
+                <button className="button" disabled={submitting || !form.discountType || !form.discountValue} type="submit">
+                  {submitting ? "Aplicando..." : "Aplicar remate"}
+                </button>
+                <button className="button ghost" onClick={clearSelection} type="button">
+                  Quitar seleccion
+                </button>
+              </div>
+            </>
+          )}
+        </form>
       </div>
     </section>
   );

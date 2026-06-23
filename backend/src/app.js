@@ -47,6 +47,7 @@ const tutorialRoutes = require("./routes/tutorialRoutes");
 const aiChatRoutes = require("./routes/aiChatRoutes");
 const grossProfitRoutes = require("./routes/grossProfitRoutes");
 const adminMetricsRoutes = require("./routes/adminMetricsRoutes");
+const alertConfigRoutes = require("./routes/alertConfigRoutes");
 const publicMenuRoutes = require("./routes/publicMenuRoutes");
 const cfdiRoutes = require("./routes/cfdiRoutes");
 
@@ -121,7 +122,8 @@ const routes = [
   { path: "/subscription", router: subscriptionRoutes, auth: true },
   { path: "/users", router: tutorialRoutes, auth: true },
   { path: "/ai-chat", router: aiChatRoutes, auth: true },
-  { path: "/reports/gross-profit", router: grossProfitRoutes, auth: true }
+  { path: "/reports/gross-profit", router: grossProfitRoutes, auth: true },
+  { path: "/alert-config", router: alertConfigRoutes, auth: true }
 ];
 
 routes.forEach((route) => {

@@ -38,6 +38,7 @@ export interface User {
     sales_reports: boolean;
     stock_alerts: boolean;
     whatsapp_agent: boolean;
+    low_rotation_alerts: boolean;
     max_branches: number;
   };
   support_session_id?: number;

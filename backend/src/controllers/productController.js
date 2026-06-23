@@ -262,6 +262,36 @@ const applyBulkDiscount = asyncHandler(async (req, res) => {
   res.json(await productService.applyBulkDiscount(req.body.product_ids, req.body, req.user));
 });
 
+const lowRotationValidation = [
+  query("thresholdDays").optional().isInt({ min: 7, max: 60 }),
+  validateRequest
+];
+
+const listLowRotation = asyncHandler(async (req, res) => {
+  const thresholdDays = req.query.thresholdDays || 21;
+  res.json(await productService.listLowRotationProducts(thresholdDays, req.user));
+});
+
+const topSellersValidation = [
+  query("days").optional().isInt({ min: 1, max: 365 }),
+  validateRequest
+];
+
+const listTopSellers = asyncHandler(async (req, res) => {
+  const days = req.query.days || 30;
+  res.json(await productService.listTopSellers(days, req.user));
+});
+
+const searchValidation = [
+  query("q").trim().notEmpty(),
+  query("limit").optional().isInt({ min: 1, max: 50 }),
+  validateRequest
+];
+
+const searchProducts = asyncHandler(async (req, res) => {
+  res.json(await productService.searchProducts(req.query.q, req.user, req.query.limit));
+});
+
 const exportProductsExcel = asyncHandler(async (req, res) => {
   const filters = {
     search: req.query.search || undefined,
@@ -323,5 +353,11 @@ module.exports = {
   deleteProduct,
   applyBulkDiscount,
   exportProductsExcel,
-  exportProductsPdf
+  exportProductsPdf,
+  lowRotationValidation,
+  listLowRotation,
+  topSellersValidation,
+  listTopSellers,
+  searchValidation,
+  searchProducts
 };
