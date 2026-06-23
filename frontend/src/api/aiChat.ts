@@ -1,9 +1,8 @@
 import { apiRequest } from "./client";
 import type { AiSession, AiSessionDetail, AiQuota, AiStreamChunk } from "../types/aiChat";
+import { API_BASE_URL } from "./config";
 
-const API_URL =
-  (import.meta as any).env.VITE_API_BASE_URL ||
-  "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api";
+const API_URL = API_BASE_URL;
 
 export async function apiFetchSessions(token: string): Promise<{ sessions: AiSession[]; quota: AiQuota | null }> {
   const data = await apiRequest<AiSession[] | { sessions: AiSession[]; quota?: AiQuota }>("/ai-chat/sessions", { token });

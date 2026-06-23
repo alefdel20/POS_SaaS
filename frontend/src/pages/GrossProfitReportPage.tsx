@@ -203,7 +203,7 @@ export function GrossProfitReportPage() {
                   <div style={{ fontWeight: 600, color: st.titleColor, marginBottom: 6 }}>
                     {st.label}
                   </div>
-                  <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                  <div style={{ fontSize: 13, lineHeight: 1.6, color: "#1f2937" }}>
                     <div>{s.product_count} producto{s.product_count !== 1 ? "s" : ""}</div>
                     <div>Ingresos: {formatMoney(s.revenue)}</div>
                     <div>Utilidad: {formatMoney(s.gross_profit)}</div>

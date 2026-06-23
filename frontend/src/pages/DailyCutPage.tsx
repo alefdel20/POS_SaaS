@@ -6,6 +6,7 @@ import { currency, dateLabel, shortDate } from "../utils/format";
 import { isCashierRole } from "../utils/roles";
 import { getMexicoCityDateInputValue } from "../utils/timezone";
 import { resolveBusinessVertical } from "../utils/navigation";
+import { API_BASE_URL } from "../api/config";
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 type FilterState = {
@@ -269,7 +270,7 @@ export function DailyCutPage() {
     try {
       setExporting(period);
       setError("");
-      const response = await fetch(`${(import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api"}/daily-cuts/export?period=${period}${buildQuery(filters).replace("?", "&")}`, {
+      const response = await fetch(`${API_BASE_URL}/daily-cuts/export?period=${period}${buildQuery(filters).replace("?", "&")}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!response.ok) {

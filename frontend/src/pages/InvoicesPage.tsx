@@ -5,7 +5,9 @@ import type { AdministrativeInvoice } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { canEditAdministrativeInvoices } from "../utils/roles";
 
-const API_URL = (import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api";
+import { API_BASE_URL } from "../api/config";
+
+const API_URL = API_BASE_URL;
 
 export function InvoicesPage() {
   const { token, user } = useAuth();

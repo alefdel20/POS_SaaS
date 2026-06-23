@@ -27,6 +27,7 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Credito y Cobranza", to: "/credit-collections", roles: "gerente", activeMatch: ["/credit-collections"] },
   { label: "Corte Diario", to: "/daily-cut", roles: "dailyCut", activeMatch: ["/daily-cut"] },
   { label: "Finanzas", to: "/finances", roles: "gerente", activeMatch: ["/finances"] },
+  { label: "Remates", to: "/remate", roles: "gerente", activeMatch: ["/remate"] },
   { label: "Facturas", to: "/invoices", roles: "invoices", activeMatch: ["/invoices"] },
   {
     label: "Recordatorios",

@@ -1,6 +1,7 @@
 import { type KeyboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest, apiDownload } from "../api/client";
+import { API_BASE_URL } from "../api/config";
 import { useAuth } from "../context/AuthContext";
 import type {
   PaginatedProductsResponse,
@@ -493,7 +494,7 @@ export function ProductsPage() {
   const searchFromQuery = searchParams.get("search") || "";
   const skuSuggestion = useMemo(() => buildSkuSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
   const barcodeSuggestion = useMemo(() => buildBarcodeSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
-  const apiBaseUrl = ((import.meta as any).env.VITE_API_BASE_URL || "http://pos-apis-chatbots-backen-kv6lbk-0befdc-31-97-214-24.traefik.me/api");
+  const apiBaseUrl = API_BASE_URL;
   const hasSuggestedSku = !form.sku.trim() && Boolean(skuSuggestion);
   const hasSuggestedBarcode = !form.barcode.trim() && Boolean(barcodeSuggestion);
   const showIepsField = canUseIeps(user?.pos_type);
