@@ -35,12 +35,22 @@ type AlertConfig = {
   persisted?: boolean;
 };
 
+type DiscountMode = "individual" | "package";
+
 type DiscountForm = {
   discountType: "percentage" | "fixed" | "";
   discountValue: string;
+  packageName: string;
 };
 
+type SelectableProduct = LowRotationProduct | SearchProduct | TopSellerProduct;
+
 const DEFAULT_THRESHOLD = 21;
+const EMPTY_FORM: DiscountForm = { discountType: "", discountValue: "", packageName: "" };
+
+function getProductPrice(p: SelectableProduct): number {
+  return "price" in p ? p.price : 0;
+}
 
 export function RematePage() {
   const { token, user } = useAuth();
@@ -51,8 +61,9 @@ export function RematePage() {
   const [topSellers, setTopSellers] = useState<TopSellerProduct[]>([]);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<SearchProduct[]>([]);
-  const [selectedProduct, setSelectedProduct] = useState<(LowRotationProduct | SearchProduct | TopSellerProduct) | null>(null);
-  const [form, setForm] = useState<DiscountForm>({ discountType: "", discountValue: "" });
+  const [selectedProducts, setSelectedProducts] = useState<SelectableProduct[]>([]);
+  const [discountMode, setDiscountMode] = useState<DiscountMode>("individual");
+  const [form, setForm] = useState<DiscountForm>(EMPTY_FORM);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loadingLow, setLoadingLow] = useState(false);
@@ -105,24 +116,71 @@ export function RematePage() {
     return () => clearTimeout(timeout);
   }, [token, search]);
 
-  function selectProduct(product: LowRotationProduct | SearchProduct | TopSellerProduct) {
-    setSelectedProduct(product);
-    setForm({ discountType: "", discountValue: "" });
+  // --- Selection helpers ---
+
+  function isSelected(id: number) {
+    return selectedProducts.some((p) => p.id === id);
+  }
+
+  function toggleSelectProduct(product: SelectableProduct) {
+    setSelectedProducts((prev) =>
+      prev.some((p) => p.id === product.id)
+        ? prev.filter((p) => p.id !== product.id)
+        : [...prev, product]
+    );
     setError("");
     setSuccess("");
   }
 
   function clearSelection() {
-    setSelectedProduct(null);
-    setForm({ discountType: "", discountValue: "" });
+    setSelectedProducts([]);
+    setForm(EMPTY_FORM);
+    setDiscountMode("individual");
     setSearch("");
     setError("");
     setSuccess("");
   }
 
+  // --- Price calculations ---
+
+  const totalPrice = useMemo(
+    () => selectedProducts.reduce((sum, p) => sum + getProductPrice(p), 0),
+    [selectedProducts]
+  );
+
+  const individualPrices = useMemo(() => {
+    if (!form.discountType || !form.discountValue || selectedProducts.length === 0) return null;
+    const val = Number(form.discountValue);
+    if (!val || val <= 0) return null;
+    return selectedProducts.map((p) => {
+      const price = getProductPrice(p);
+      const discount = form.discountType === "percentage"
+        ? price * (val / 100)
+        : val;
+      const final_ = Math.max(price - discount, 0);
+      return { id: p.id, name: p.name, price, discount: Math.min(discount, price), final: final_ };
+    });
+  }, [selectedProducts, form]);
+
+  const packagePrice = useMemo(() => {
+    if (!form.discountType || !form.discountValue || selectedProducts.length === 0) return null;
+    const val = Number(form.discountValue);
+    if (!val || val <= 0) return null;
+    const discount = form.discountType === "percentage"
+      ? totalPrice * (val / 100)
+      : val;
+    return {
+      totalOriginal: totalPrice,
+      discount: Math.min(discount, totalPrice),
+      totalFinal: Math.max(totalPrice - discount, 0)
+    };
+  }, [selectedProducts, form, totalPrice]);
+
+  // --- Submit ---
+
   async function applyDiscount(event: FormEvent) {
     event.preventDefault();
-    if (!token || !selectedProduct) return;
+    if (!token || selectedProducts.length === 0) return;
 
     if (!form.discountType) {
       setError("Selecciona un tipo de descuento");
@@ -137,26 +195,46 @@ export function RematePage() {
       setError("El porcentaje no puede superar 100%");
       return;
     }
+    if (discountMode === "individual" && form.discountType === "fixed") {
+      const tooHigh = selectedProducts.find((p) => getProductPrice(p) < value);
+      if (tooHigh) {
+        setError(`El descuento $${value} supera el precio de "${tooHigh.name}" (${currency(getProductPrice(tooHigh))})`);
+        return;
+      }
+    }
+    if (discountMode === "package" && form.discountType === "fixed" && value > totalPrice) {
+      setError("El descuento supera el precio total del paquete");
+      return;
+    }
 
     try {
       setSubmitting(true);
       setError("");
       setSuccess("");
       const now = new Date().toISOString();
+      const payload: Record<string, unknown> = {
+        product_ids: selectedProducts.map((p) => p.id),
+        discount_type: form.discountType,
+        discount_value: value,
+        discount_start: now,
+        discount_end: null
+      };
+      if (discountMode === "package") {
+        payload.is_package = true;
+        payload.package_name = form.packageName || `Paquete ${selectedProducts.length} productos`;
+      }
       await apiRequest("/products/remate/bulk", {
         method: "POST",
         token,
-        body: JSON.stringify({
-          product_ids: [selectedProduct.id],
-          discount_type: form.discountType,
-          discount_value: value,
-          discount_start: now,
-          discount_end: null
-        })
+        body: JSON.stringify(payload)
       });
-      setSuccess(`Remate aplicado a "${selectedProduct.name}"`);
-      setSelectedProduct(null);
-      setForm({ discountType: "", discountValue: "" });
+      const label = selectedProducts.length === 1
+        ? `"${selectedProducts[0].name}"`
+        : `${selectedProducts.length} productos`;
+      setSuccess(`Remate aplicado a ${label}`);
+      setSelectedProducts([]);
+      setForm(EMPTY_FORM);
+      setDiscountMode("individual");
 
       apiRequest<LowRotationProduct[]>(
         `/products/alerts/low-rotation?thresholdDays=${threshold}`,
@@ -180,20 +258,115 @@ export function RematePage() {
     return "rgba(255, 159, 67, 0.7)";
   }
 
-  const selectedProductPrice = useMemo(() => {
-    if (!selectedProduct) return 0;
-    return "price" in selectedProduct ? selectedProduct.price : 0;
-  }, [selectedProduct]);
+  // --- Render helpers for table rows ---
 
-  const previewPrice = useMemo(() => {
-    if (!selectedProduct || !form.discountType || !form.discountValue) return null;
-    const val = Number(form.discountValue);
-    if (!val || val <= 0) return null;
-    if (form.discountType === "percentage") {
-      return Math.max(selectedProductPrice - selectedProductPrice * (val / 100), 0);
-    }
-    return Math.max(selectedProductPrice - val, 0);
-  }, [selectedProduct, form, selectedProductPrice]);
+  function renderLowRotationRow(product: LowRotationProduct) {
+    const selected = isSelected(product.id);
+    return (
+      <tr
+        key={`lr-${product.id}`}
+        onClick={() => toggleSelectProduct(product)}
+        style={{
+          cursor: "pointer",
+          background: selected ? "rgba(var(--accent-rgb), 0.12)" : undefined
+        }}
+      >
+        <td style={{ width: 28 }}>
+          <input type="checkbox" checked={selected} readOnly style={{ pointerEvents: "none" }} />
+        </td>
+        <td>
+          <strong>{product.name}</strong>
+          <div className="muted" style={{ fontSize: 11 }}>{product.sku}</div>
+        </td>
+        <td>{product.stock}</td>
+        <td>
+          {product.expirationDate && new Date(product.expirationDate) <= new Date(Date.now() + 14 * 86_400_000) ? (
+            <span style={{
+              display: "inline-block",
+              padding: "2px 8px",
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 700,
+              background: "rgba(255, 123, 123, 0.16)",
+              color: "var(--danger)"
+            }}>
+              Vence pronto
+            </span>
+          ) : null}
+          {isPremium && product.daysSinceLastSale != null && product.daysSinceLastSale >= threshold ? (
+            <span
+              title="Configurable en Perfil → Alertas"
+              style={{
+                display: "inline-block",
+                padding: "2px 8px",
+                borderRadius: 4,
+                fontSize: 11,
+                fontWeight: 700,
+                background: `${badgeColor(product.daysSinceLastSale)}22`,
+                color: badgeColor(product.daysSinceLastSale),
+                marginLeft: product.expirationDate ? 4 : 0
+              }}
+            >
+              {product.daysSinceLastSale} dias
+            </span>
+          ) : (
+            <span className="muted" style={{ fontSize: 12 }}>
+              {product.lastSaleDate
+                ? new Date(product.lastSaleDate).toLocaleDateString("es-MX")
+                : "Sin ventas"}
+            </span>
+          )}
+        </td>
+      </tr>
+    );
+  }
+
+  function renderSearchRow(product: SearchProduct) {
+    const selected = isSelected(product.id);
+    return (
+      <tr
+        key={`sr-${product.id}`}
+        onClick={() => toggleSelectProduct(product)}
+        style={{
+          cursor: "pointer",
+          background: selected
+            ? "rgba(var(--accent-rgb), 0.12)"
+            : "rgba(var(--accent-rgb), 0.04)"
+        }}
+      >
+        <td style={{ width: 28 }}>
+          <input type="checkbox" checked={selected} readOnly style={{ pointerEvents: "none" }} />
+        </td>
+        <td>
+          <strong>{product.name}</strong>
+          <div className="muted" style={{ fontSize: 11 }}>{product.sku}</div>
+        </td>
+        <td>{product.stock}</td>
+        <td className="muted" style={{ fontSize: 12 }}>{currency(product.price)}</td>
+      </tr>
+    );
+  }
+
+  function renderTopSellerRow(product: TopSellerProduct) {
+    const selected = isSelected(product.id);
+    return (
+      <tr
+        key={`ts-${product.id}`}
+        onClick={() => toggleSelectProduct(product)}
+        style={{
+          cursor: "pointer",
+          background: selected ? "rgba(var(--accent-rgb), 0.12)" : undefined
+        }}
+      >
+        <td style={{ width: 28 }}>
+          <input type="checkbox" checked={selected} readOnly style={{ pointerEvents: "none" }} />
+        </td>
+        <td><strong>{product.name}</strong></td>
+        <td>{product.quantitySold}</td>
+        <td>{currency(product.revenue)}</td>
+      </tr>
+    );
+  }
 
   return (
     <section className="page-grid">
@@ -227,10 +400,10 @@ export function RematePage() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 28 }}></th>
                   <th>Producto</th>
                   <th>Stock</th>
                   <th>Ultimo movimiento</th>
-                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -238,70 +411,7 @@ export function RematePage() {
                   <tr><td className="muted" colSpan={4}>Cargando...</td></tr>
                 ) : lowRotation.length === 0 && !search.trim() ? (
                   <tr><td className="muted" colSpan={4}>No hay productos con baja rotacion.</td></tr>
-                ) : lowRotation.map((product) => (
-                  <tr
-                    key={`lr-${product.id}`}
-                    onClick={() => selectProduct(product)}
-                    style={{
-                      cursor: "pointer",
-                      background: selectedProduct?.id === product.id ? "rgba(var(--accent-rgb), 0.12)" : undefined
-                    }}
-                  >
-                    <td>
-                      <strong>{product.name}</strong>
-                      <div className="muted" style={{ fontSize: 11 }}>{product.sku}</div>
-                    </td>
-                    <td>{product.stock}</td>
-                    <td>
-                      {product.expirationDate && new Date(product.expirationDate) <= new Date(Date.now() + 14 * 86_400_000) ? (
-                        <span style={{
-                          display: "inline-block",
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          background: "rgba(255, 123, 123, 0.16)",
-                          color: "var(--danger)"
-                        }}>
-                          Vence pronto
-                        </span>
-                      ) : null}
-                      {isPremium && product.daysSinceLastSale != null && product.daysSinceLastSale >= threshold ? (
-                        <span
-                          title="Configurable en Perfil → Alertas"
-                          style={{
-                            display: "inline-block",
-                            padding: "2px 8px",
-                            borderRadius: 4,
-                            fontSize: 11,
-                            fontWeight: 700,
-                            background: `${badgeColor(product.daysSinceLastSale)}22`,
-                            color: badgeColor(product.daysSinceLastSale),
-                            marginLeft: product.expirationDate ? 4 : 0
-                          }}
-                        >
-                          {product.daysSinceLastSale} dias
-                        </span>
-                      ) : (
-                        <span className="muted" style={{ fontSize: 12 }}>
-                          {product.lastSaleDate
-                            ? new Date(product.lastSaleDate).toLocaleDateString("es-MX")
-                            : "Sin ventas"}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <button
-                        className="button ghost"
-                        onClick={(e) => { e.stopPropagation(); selectProduct(product); }}
-                        type="button"
-                        style={{ fontSize: 12 }}
-                      >
-                        Seleccionar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                ) : lowRotation.map(renderLowRotationRow)}
 
                 {searchResults.length > 0 && (
                   <>
@@ -318,35 +428,7 @@ export function RematePage() {
                         </div>
                       </td>
                     </tr>
-                    {searchResults.map((product) => (
-                      <tr
-                        key={`sr-${product.id}`}
-                        onClick={() => selectProduct(product)}
-                        style={{
-                          cursor: "pointer",
-                          background: selectedProduct?.id === product.id
-                            ? "rgba(var(--accent-rgb), 0.12)"
-                            : "rgba(var(--accent-rgb), 0.04)"
-                        }}
-                      >
-                        <td>
-                          <strong>{product.name}</strong>
-                          <div className="muted" style={{ fontSize: 11 }}>{product.sku}</div>
-                        </td>
-                        <td>{product.stock}</td>
-                        <td className="muted" style={{ fontSize: 12 }}>{currency(product.price)}</td>
-                        <td>
-                          <button
-                            className="button ghost"
-                            onClick={(e) => { e.stopPropagation(); selectProduct(product); }}
-                            type="button"
-                            style={{ fontSize: 12 }}
-                          >
-                            Seleccionar
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {searchResults.map(renderSearchRow)}
                   </>
                 )}
 
@@ -376,25 +458,91 @@ export function RematePage() {
             <div>
               <h2>Aplicar remate</h2>
               <p className="muted">
-                {selectedProduct
-                  ? `Producto: ${selectedProduct.name}`
-                  : "Selecciona un producto de las listas o busqueda."}
+                {selectedProducts.length > 0
+                  ? `${selectedProducts.length} ${selectedProducts.length === 1 ? "producto" : "productos"} seleccionados`
+                  : "Selecciona productos de las listas o busqueda."}
               </p>
             </div>
+            {selectedProducts.length > 0 && (
+              <button className="button ghost" onClick={clearSelection} type="button" style={{ fontSize: 11, whiteSpace: "nowrap" }}>
+                Limpiar todo
+              </button>
+            )}
           </div>
 
-          {selectedProduct ? (
+          {selectedProducts.length > 0 ? (
             <>
-              <div className="info-card">
-                <p><strong>{selectedProduct.name}</strong></p>
-                {selectedProductPrice > 0 && (
-                  <p className="muted">Precio actual: {currency(selectedProductPrice)}</p>
-                )}
-                {"stock" in selectedProduct && (
-                  <p className="muted">Stock: {(selectedProduct as SearchProduct | LowRotationProduct).stock}</p>
-                )}
+              {/* MINI CARRITO */}
+              <div className="info-card" style={{ borderLeft: "3px solid var(--accent)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <strong style={{ fontSize: 13 }}>{selectedProducts.length} {selectedProducts.length === 1 ? "producto" : "productos"}</strong>
+                  <span className="muted" style={{ fontSize: 12 }}>Total: {currency(totalPrice)}</span>
+                </div>
+                <div style={{ maxHeight: 120, overflowY: "auto" }}>
+                  {selectedProducts.map((p) => (
+                    <div key={p.id} style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      padding: "0.25rem 0",
+                      borderBottom: "1px solid var(--border)",
+                      fontSize: 12
+                    }}>
+                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                      <span className="muted" style={{ whiteSpace: "nowrap" }}>{currency(getProductPrice(p))}</span>
+                      <button
+                        className="button ghost"
+                        onClick={() => toggleSelectProduct(p)}
+                        type="button"
+                        style={{ fontSize: 11, padding: "2px 6px" }}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
+              {/* SELECTOR DE MODO */}
+              <fieldset style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "0.75rem 1rem" }}>
+                <legend style={{ fontSize: 13, fontWeight: 600, padding: "0 0.5rem" }}>Tipo de remate:</legend>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 6 }}>
+                  <input
+                    type="radio"
+                    name="discountMode"
+                    value="individual"
+                    checked={discountMode === "individual"}
+                    onChange={() => setDiscountMode("individual")}
+                  />
+                  Descuento individual a cada producto
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                  <input
+                    type="radio"
+                    name="discountMode"
+                    value="package"
+                    checked={discountMode === "package"}
+                    onChange={() => setDiscountMode("package")}
+                  />
+                  Paquete / Combo
+                </label>
+              </fieldset>
+
+              {/* NOMBRE PAQUETE (solo modo package) */}
+              {discountMode === "package" && (
+                <label>
+                  Nombre del paquete (opcional)
+                  <input
+                    type="text"
+                    placeholder={`Paquete ${selectedProducts.length} productos`}
+                    value={form.packageName}
+                    onChange={(e) => setForm({ ...form, packageName: e.target.value })}
+                  />
+                </label>
+              )}
+
+              {/* TIPO Y VALOR */}
               <label>
                 Tipo de descuento
                 <select
@@ -408,7 +556,7 @@ export function RematePage() {
               </label>
 
               <label>
-                Valor del descuento
+                {discountMode === "package" ? "Descuento sobre el total" : "Valor del descuento"}
                 <input
                   type="number"
                   min="0"
@@ -419,20 +567,90 @@ export function RematePage() {
                 />
               </label>
 
-              {previewPrice !== null && selectedProductPrice > 0 && (
-                <div className="info-card" style={{ borderLeft: "3px solid var(--accent)" }}>
-                  <p style={{ fontSize: 13 }}>
-                    Precio con remate: <strong style={{ color: "var(--accent)" }}>{currency(previewPrice)}</strong>
-                    <span className="muted" style={{ marginLeft: 8, fontSize: 11 }}>
-                      (ahorro: {currency(selectedProductPrice - previewPrice)})
-                    </span>
-                  </p>
+              {/* PREVIEW INDIVIDUAL */}
+              {discountMode === "individual" && individualPrices && (
+                <div className="info-card" style={{ borderLeft: "3px solid var(--accent)", padding: "0.5rem" }}>
+                  <div className="table-wrap">
+                    <table style={{ width: "100%", fontSize: 11 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: "left" }}>Producto</th>
+                          <th style={{ textAlign: "right" }}>Precio</th>
+                          <th style={{ textAlign: "right" }}>Desc.</th>
+                          <th style={{ textAlign: "right" }}>Final</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {individualPrices.map((p) => (
+                          <tr key={p.id}>
+                            <td>{p.name}</td>
+                            <td style={{ textAlign: "right" }}>{currency(p.price)}</td>
+                            <td style={{ textAlign: "right", color: "var(--danger)" }}>-{currency(p.discount)}</td>
+                            <td style={{ textAlign: "right" }}><strong>{currency(p.final)}</strong></td>
+                          </tr>
+                        ))}
+                        <tr style={{ borderTop: "2px solid var(--border)" }}>
+                          <td style={{ fontWeight: 600 }}>TOTAL</td>
+                          <td style={{ textAlign: "right", fontWeight: 600 }}>{currency(totalPrice)}</td>
+                          <td style={{ textAlign: "right", fontWeight: 600, color: "var(--danger)" }}>
+                            -{currency(individualPrices.reduce((s, p) => s + p.discount, 0))}
+                          </td>
+                          <td style={{ textAlign: "right", fontWeight: 600, color: "var(--accent)" }}>
+                            {currency(individualPrices.reduce((s, p) => s + p.final, 0))}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
+              {/* PREVIEW PAQUETE */}
+              {discountMode === "package" && packagePrice && (
+                <div className="info-card" style={{ borderLeft: "3px solid var(--accent)", padding: "0.5rem" }}>
+                  <div className="table-wrap">
+                    <table style={{ width: "100%", fontSize: 11 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: "left" }}>Producto</th>
+                          <th style={{ textAlign: "right" }}>Precio</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedProducts.map((p) => (
+                          <tr key={p.id}>
+                            <td>{p.name}</td>
+                            <td style={{ textAlign: "right" }}>{currency(getProductPrice(p))}</td>
+                          </tr>
+                        ))}
+                        <tr style={{ borderTop: "2px solid var(--border)" }}>
+                          <td style={{ fontWeight: 600 }}>Subtotal</td>
+                          <td style={{ textAlign: "right", fontWeight: 600 }}>{currency(packagePrice.totalOriginal)}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ color: "var(--danger)" }}>Descuento</td>
+                          <td style={{ textAlign: "right", color: "var(--danger)" }}>-{currency(packagePrice.discount)}</td>
+                        </tr>
+                        <tr style={{ background: "rgba(var(--accent-rgb), 0.08)" }}>
+                          <td style={{ fontWeight: 700 }}>Precio final del paquete</td>
+                          <td style={{ textAlign: "right", fontWeight: 700, color: "var(--accent)" }}>{currency(packagePrice.totalFinal)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* BOTÓN */}
               <div className="inline-actions">
-                <button className="button" disabled={submitting || !form.discountType || !form.discountValue} type="submit">
-                  {submitting ? "Aplicando..." : "Aplicar remate"}
+                <button
+                  className="button"
+                  disabled={submitting || selectedProducts.length === 0 || !form.discountType || !form.discountValue}
+                  type="submit"
+                >
+                  {submitting
+                    ? "Aplicando..."
+                    : `Aplicar remate a ${selectedProducts.length} ${selectedProducts.length === 1 ? "producto" : "productos"}`}
                 </button>
                 <button className="button ghost" onClick={clearSelection} type="button">
                   Quitar seleccion
@@ -461,10 +679,10 @@ export function RematePage() {
           <table>
             <thead>
               <tr>
+                <th style={{ width: 28 }}></th>
                 <th>Producto</th>
                 <th>Cantidad vendida</th>
                 <th>Ingresos</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -472,30 +690,7 @@ export function RematePage() {
                 <tr><td className="muted" colSpan={4}>Cargando...</td></tr>
               ) : topSellers.length === 0 ? (
                 <tr><td className="muted" colSpan={4}>No hay datos de ventas recientes.</td></tr>
-              ) : topSellers.map((product) => (
-                <tr
-                  key={`ts-${product.id}`}
-                  onClick={() => selectProduct(product)}
-                  style={{
-                    cursor: "pointer",
-                    background: selectedProduct?.id === product.id ? "rgba(var(--accent-rgb), 0.12)" : undefined
-                  }}
-                >
-                  <td><strong>{product.name}</strong></td>
-                  <td>{product.quantitySold}</td>
-                  <td>{currency(product.revenue)}</td>
-                  <td>
-                    <button
-                      className="button ghost"
-                      onClick={(e) => { e.stopPropagation(); selectProduct(product); }}
-                      type="button"
-                      style={{ fontSize: 12 }}
-                    >
-                      Seleccionar
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              ) : topSellers.map(renderTopSellerRow)}
             </tbody>
           </table>
         </div>
