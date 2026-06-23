@@ -2523,6 +2523,73 @@ async function searchProducts(query, actor, limit = 10) {
   }));
 }
 
+async function listActiveDiscounts(actor) {
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await pool.query(
+    `SELECT id, name, sku, price, discount_type, discount_value, discount_start, discount_end
+     FROM products
+     WHERE business_id = $1
+       AND is_active = TRUE
+       AND status = 'activo'
+       AND discount_type IS NOT NULL
+       AND discount_value IS NOT NULL
+       AND discount_start IS NOT NULL
+       AND (discount_end IS NULL OR discount_end >= NOW())
+       AND NOW() >= discount_start
+     ORDER BY discount_start DESC`,
+    [businessId]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    productId: r.id,
+    name: r.name,
+    sku: r.sku,
+    price: Number(r.price),
+    discountType: r.discount_type,
+    discountValue: Number(r.discount_value),
+    discountStart: r.discount_start,
+    discountEnd: r.discount_end
+  }));
+}
+
+async function updateDiscount(productId, payload, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const id = Number(productId);
+  if (!id) throw new ApiError(400, "Invalid product ID");
+  const discountFields = normalizeDiscountFields(payload);
+  if (!discountFields.discount_type || discountFields.discount_value === null) {
+    throw new ApiError(400, "Discount configuration is incomplete");
+  }
+  if (discountFields.discount_value < 0) throw new ApiError(400, "Discount value must be positive");
+  if (discountFields.discount_end && discountFields.discount_start && new Date(discountFields.discount_end) <= new Date(discountFields.discount_start)) {
+    throw new ApiError(400, "End date must be after start date");
+  }
+  const { rows } = await pool.query(
+    `UPDATE products
+     SET discount_type = $1, discount_value = $2, discount_start = $3, discount_end = $4, updated_at = NOW()
+     WHERE business_id = $5 AND id = $6
+     RETURNING id, name, discount_type, discount_value, discount_start, discount_end`,
+    [discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end, businessId, id]
+  );
+  if (rows.length === 0) throw new ApiError(404, "Product not found");
+  return rows[0];
+}
+
+async function cancelDiscount(productId, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const id = Number(productId);
+  if (!id) throw new ApiError(400, "Invalid product ID");
+  const { rows } = await pool.query(
+    `UPDATE products
+     SET discount_type = NULL, discount_value = NULL, discount_start = NULL, discount_end = NULL, updated_at = NOW()
+     WHERE business_id = $1 AND id = $2
+     RETURNING id, name`,
+    [businessId, id]
+  );
+  if (rows.length === 0) throw new ApiError(404, "Product not found");
+  return rows[0];
+}
+
 module.exports = {
   listProducts,
   getProductDetail,
@@ -2546,5 +2613,8 @@ module.exports = {
   exportProductsPdf,
   listLowRotationProducts,
   listTopSellers,
-  searchProducts
+  searchProducts,
+  listActiveDiscounts,
+  updateDiscount,
+  cancelDiscount
 };

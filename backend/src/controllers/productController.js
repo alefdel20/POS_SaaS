@@ -292,6 +292,27 @@ const searchProducts = asyncHandler(async (req, res) => {
   res.json(await productService.searchProducts(req.query.q, req.user, req.query.limit));
 });
 
+const listActiveDiscounts = asyncHandler(async (req, res) => {
+  res.json(await productService.listActiveDiscounts(req.user));
+});
+
+const updateDiscountValidation = [
+  param("id").isInt(),
+  body("discount_type").isIn(["percentage", "fixed"]),
+  body("discount_value").isFloat({ min: 0 }),
+  body("discount_start").isISO8601(),
+  body("discount_end").optional({ values: "falsy" }).isISO8601(),
+  validateRequest
+];
+
+const updateDiscount = asyncHandler(async (req, res) => {
+  res.json(await productService.updateDiscount(req.params.id, req.body, req.user));
+});
+
+const cancelDiscount = asyncHandler(async (req, res) => {
+  res.json(await productService.cancelDiscount(req.params.id, req.user));
+});
+
 const exportProductsExcel = asyncHandler(async (req, res) => {
   const filters = {
     search: req.query.search || undefined,
@@ -359,5 +380,9 @@ module.exports = {
   topSellersValidation,
   listTopSellers,
   searchValidation,
-  searchProducts
+  searchProducts,
+  listActiveDiscounts,
+  updateDiscountValidation,
+  updateDiscount,
+  cancelDiscount
 };

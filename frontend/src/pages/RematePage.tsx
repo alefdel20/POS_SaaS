@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { currency } from "../utils/format";
+import { dateTimeLocalToIsoString, getMexicoCityDateTimeLocalValue } from "../utils/timezone";
 
 type LowRotationProduct = {
   id: number;
@@ -14,19 +15,24 @@ type LowRotationProduct = {
   expirationDate: string | null;
 };
 
-type TopSellerProduct = {
-  id: number;
-  name: string;
-  quantitySold: number;
-  revenue: number;
-};
-
 type SearchProduct = {
   id: number;
   name: string;
   sku: string;
   stock: number;
   price: number;
+};
+
+type ActiveDiscount = {
+  id: number;
+  productId: number;
+  name: string;
+  sku: string;
+  price: number;
+  discountType: "percentage" | "fixed";
+  discountValue: number;
+  discountStart: string;
+  discountEnd: string | null;
 };
 
 type AlertConfig = {
@@ -41,15 +47,38 @@ type DiscountForm = {
   discountType: "percentage" | "fixed" | "";
   discountValue: string;
   packageName: string;
+  discountStart: string;
+  discountEnd: string;
 };
 
-type SelectableProduct = LowRotationProduct | SearchProduct | TopSellerProduct;
+type EditForm = {
+  discountType: "percentage" | "fixed" | "";
+  discountValue: string;
+  discountStart: string;
+  discountEnd: string;
+};
+
+type SelectableProduct = LowRotationProduct | SearchProduct | ActiveDiscount;
 
 const DEFAULT_THRESHOLD = 21;
-const EMPTY_FORM: DiscountForm = { discountType: "", discountValue: "", packageName: "" };
+
+function nowLocal(): string {
+  return getMexicoCityDateTimeLocalValue(new Date().toISOString());
+}
+
+function makeEmptyForm(): DiscountForm {
+  return { discountType: "", discountValue: "", packageName: "", discountStart: nowLocal(), discountEnd: "" };
+}
 
 function getProductPrice(p: SelectableProduct): number {
   return "price" in p ? p.price : 0;
+}
+
+function formatShortDateTime(iso: string | null): string {
+  if (!iso) return "Sin fin";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 export function RematePage() {
@@ -58,17 +87,25 @@ export function RematePage() {
 
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
   const [lowRotation, setLowRotation] = useState<LowRotationProduct[]>([]);
-  const [topSellers, setTopSellers] = useState<TopSellerProduct[]>([]);
+  const [activeDiscounts, setActiveDiscounts] = useState<ActiveDiscount[]>([]);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<SearchProduct[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<SelectableProduct[]>([]);
   const [discountMode, setDiscountMode] = useState<DiscountMode>("individual");
-  const [form, setForm] = useState<DiscountForm>(EMPTY_FORM);
+  const [form, setForm] = useState<DiscountForm>(makeEmptyForm);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loadingLow, setLoadingLow] = useState(false);
-  const [loadingTop, setLoadingTop] = useState(false);
+  const [loadingActive, setLoadingActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Edit modal state
+  const [editingDiscount, setEditingDiscount] = useState<ActiveDiscount | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>({ discountType: "", discountValue: "", discountStart: "", discountEnd: "" });
+  const [editError, setEditError] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  // --- Data loading ---
 
   useEffect(() => {
     if (!token || !isPremium) return;
@@ -91,13 +128,17 @@ export function RematePage() {
       .finally(() => setLoadingLow(false));
   }, [token, threshold]);
 
-  useEffect(() => {
+  function loadActiveDiscounts() {
     if (!token) return;
-    setLoadingTop(true);
-    apiRequest<TopSellerProduct[]>("/products/top-sellers?days=30", { token })
-      .then(setTopSellers)
-      .catch(() => setTopSellers([]))
-      .finally(() => setLoadingTop(false));
+    setLoadingActive(true);
+    apiRequest<ActiveDiscount[]>("/products/discounts/active", { token })
+      .then(setActiveDiscounts)
+      .catch(() => setActiveDiscounts([]))
+      .finally(() => setLoadingActive(false));
+  }
+
+  useEffect(() => {
+    loadActiveDiscounts();
   }, [token]);
 
   useEffect(() => {
@@ -134,7 +175,7 @@ export function RematePage() {
 
   function clearSelection() {
     setSelectedProducts([]);
-    setForm(EMPTY_FORM);
+    setForm(makeEmptyForm());
     setDiscountMode("individual");
     setSearch("");
     setError("");
@@ -176,7 +217,7 @@ export function RematePage() {
     };
   }, [selectedProducts, form, totalPrice]);
 
-  // --- Submit ---
+  // --- Apply new discount ---
 
   async function applyDiscount(event: FormEvent) {
     event.preventDefault();
@@ -195,6 +236,14 @@ export function RematePage() {
       setError("El porcentaje no puede superar 100%");
       return;
     }
+    if (!form.discountStart) {
+      setError("La fecha de inicio es requerida");
+      return;
+    }
+    if (form.discountEnd && form.discountEnd <= form.discountStart) {
+      setError("La fecha de fin debe ser posterior a la de inicio");
+      return;
+    }
     if (discountMode === "individual" && form.discountType === "fixed") {
       const tooHigh = selectedProducts.find((p) => getProductPrice(p) < value);
       if (tooHigh) {
@@ -211,13 +260,12 @@ export function RematePage() {
       setSubmitting(true);
       setError("");
       setSuccess("");
-      const now = new Date().toISOString();
       const payload: Record<string, unknown> = {
         product_ids: selectedProducts.map((p) => p.id),
         discount_type: form.discountType,
         discount_value: value,
-        discount_start: now,
-        discount_end: null
+        discount_start: dateTimeLocalToIsoString(form.discountStart),
+        discount_end: form.discountEnd ? dateTimeLocalToIsoString(form.discountEnd) : null
       };
       if (discountMode === "package") {
         payload.is_package = true;
@@ -233,21 +281,110 @@ export function RematePage() {
         : `${selectedProducts.length} productos`;
       setSuccess(`Remate aplicado a ${label}`);
       setSelectedProducts([]);
-      setForm(EMPTY_FORM);
+      setForm(makeEmptyForm());
       setDiscountMode("individual");
 
       apiRequest<LowRotationProduct[]>(
         `/products/alerts/low-rotation?thresholdDays=${threshold}`,
         { token }
       ).then(setLowRotation).catch(() => {});
-      apiRequest<TopSellerProduct[]>("/products/top-sellers?days=30", { token })
-        .then(setTopSellers).catch(() => {});
+      loadActiveDiscounts();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible aplicar el remate");
     } finally {
       setSubmitting(false);
     }
   }
+
+  // --- Cancel discount ---
+
+  async function cancelActiveDiscount(discount: ActiveDiscount) {
+    if (!token) return;
+    const confirmed = window.confirm(
+      `¿Cancelar remate de "${discount.name}"?\nEsta accion no se puede deshacer.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      await apiRequest(`/products/discounts/${discount.productId}`, {
+        method: "DELETE",
+        token
+      });
+      setSuccess(`Remate de "${discount.name}" cancelado`);
+      setSelectedProducts((prev) => prev.filter((p) => p.id !== discount.id));
+      loadActiveDiscounts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible cancelar el remate");
+    }
+  }
+
+  // --- Edit modal ---
+
+  function openEditModal(discount: ActiveDiscount) {
+    setEditingDiscount(discount);
+    setEditForm({
+      discountType: discount.discountType,
+      discountValue: String(discount.discountValue),
+      discountStart: getMexicoCityDateTimeLocalValue(discount.discountStart),
+      discountEnd: discount.discountEnd ? getMexicoCityDateTimeLocalValue(discount.discountEnd) : ""
+    });
+    setEditError("");
+  }
+
+  function closeEditModal() {
+    setEditingDiscount(null);
+    setEditError("");
+  }
+
+  async function saveDiscountChanges() {
+    if (!token || !editingDiscount) return;
+    if (!editForm.discountType) {
+      setEditError("Selecciona un tipo de descuento");
+      return;
+    }
+    const value = Number(editForm.discountValue);
+    if (!value || value <= 0) {
+      setEditError("El valor del descuento debe ser mayor a 0");
+      return;
+    }
+    if (editForm.discountType === "percentage" && value > 100) {
+      setEditError("El porcentaje no puede superar 100%");
+      return;
+    }
+    if (!editForm.discountStart) {
+      setEditError("La fecha de inicio es requerida");
+      return;
+    }
+    if (editForm.discountEnd && editForm.discountEnd <= editForm.discountStart) {
+      setEditError("La fecha de fin debe ser posterior a la de inicio");
+      return;
+    }
+
+    try {
+      setEditSubmitting(true);
+      setEditError("");
+      await apiRequest(`/products/discounts/${editingDiscount.productId}`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({
+          discount_type: editForm.discountType,
+          discount_value: value,
+          discount_start: dateTimeLocalToIsoString(editForm.discountStart),
+          discount_end: editForm.discountEnd ? dateTimeLocalToIsoString(editForm.discountEnd) : null
+        })
+      });
+      setSuccess(`Remate de "${editingDiscount.name}" actualizado`);
+      closeEditModal();
+      loadActiveDiscounts();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "No fue posible actualizar el remate");
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
+  // --- Badge color ---
 
   function badgeColor(daysSinceLastSale: number | null): string {
     if (daysSinceLastSale === null) return "";
@@ -258,7 +395,7 @@ export function RematePage() {
     return "rgba(255, 159, 67, 0.7)";
   }
 
-  // --- Render helpers for table rows ---
+  // --- Render helpers ---
 
   function renderLowRotationRow(product: LowRotationProduct) {
     const selected = isSelected(product.id);
@@ -347,12 +484,12 @@ export function RematePage() {
     );
   }
 
-  function renderTopSellerRow(product: TopSellerProduct) {
-    const selected = isSelected(product.id);
+  function renderActiveDiscountRow(discount: ActiveDiscount) {
+    const selected = isSelected(discount.id);
     return (
       <tr
-        key={`ts-${product.id}`}
-        onClick={() => toggleSelectProduct(product)}
+        key={`ad-${discount.id}`}
+        onClick={() => toggleSelectProduct(discount)}
         style={{
           cursor: "pointer",
           background: selected ? "rgba(var(--accent-rgb), 0.12)" : undefined
@@ -361,9 +498,33 @@ export function RematePage() {
         <td style={{ width: 28 }}>
           <input type="checkbox" checked={selected} readOnly style={{ pointerEvents: "none" }} />
         </td>
-        <td><strong>{product.name}</strong></td>
-        <td>{product.quantitySold}</td>
-        <td>{currency(product.revenue)}</td>
+        <td>
+          <strong>{discount.name}</strong>
+          <div className="muted" style={{ fontSize: 11 }}>{discount.sku}</div>
+        </td>
+        <td>{discount.discountType === "percentage" ? `${discount.discountValue}%` : currency(discount.discountValue)}</td>
+        <td style={{ fontSize: 12 }}>{formatShortDateTime(discount.discountStart)}</td>
+        <td style={{ fontSize: 12 }}>{formatShortDateTime(discount.discountEnd)}</td>
+        <td>
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            <button
+              className="button ghost"
+              onClick={(e) => { e.stopPropagation(); openEditModal(discount); }}
+              type="button"
+              style={{ fontSize: 11, padding: "2px 8px" }}
+            >
+              Editar
+            </button>
+            <button
+              className="button ghost"
+              onClick={(e) => { e.stopPropagation(); cancelActiveDiscount(discount); }}
+              type="button"
+              style={{ fontSize: 11, padding: "2px 8px", color: "var(--danger)" }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </td>
       </tr>
     );
   }
@@ -529,7 +690,6 @@ export function RematePage() {
                 </label>
               </fieldset>
 
-              {/* NOMBRE PAQUETE (solo modo package) */}
               {discountMode === "package" && (
                 <label>
                   Nombre del paquete (opcional)
@@ -542,7 +702,6 @@ export function RematePage() {
                 </label>
               )}
 
-              {/* TIPO Y VALOR */}
               <label>
                 Tipo de descuento
                 <select
@@ -564,6 +723,26 @@ export function RematePage() {
                   placeholder={form.discountType === "percentage" ? "Ej: 20" : "Ej: 50.00"}
                   value={form.discountValue}
                   onChange={(e) => setForm({ ...form, discountValue: e.target.value })}
+                />
+              </label>
+
+              <label>
+                Fecha y hora de inicio
+                <input
+                  type="datetime-local"
+                  step="60"
+                  value={form.discountStart}
+                  onChange={(e) => setForm({ ...form, discountStart: e.target.value })}
+                />
+              </label>
+
+              <label>
+                Fecha y hora de fin (opcional)
+                <input
+                  type="datetime-local"
+                  step="60"
+                  value={form.discountEnd}
+                  onChange={(e) => setForm({ ...form, discountEnd: e.target.value })}
                 />
               </label>
 
@@ -641,7 +820,6 @@ export function RematePage() {
                 </div>
               )}
 
-              {/* BOTÓN */}
               <div className="inline-actions">
                 <button
                   className="button"
@@ -667,12 +845,12 @@ export function RematePage() {
         </form>
       </div>
 
-      {/* ROW 2: Más vendidos (FULL WIDTH) */}
+      {/* ROW 2: Remates vigentes (FULL WIDTH) */}
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>Mas vendidos</h2>
-            <p className="muted">Top 10 productos mas vendidos en los ultimos 30 dias.</p>
+            <h2>Remates vigentes</h2>
+            <p className="muted">Productos con descuento activo. Puedes editar o cancelar cada remate.</p>
           </div>
         </div>
         <div className="table-wrap">
@@ -681,20 +859,102 @@ export function RematePage() {
               <tr>
                 <th style={{ width: 28 }}></th>
                 <th>Producto</th>
-                <th>Cantidad vendida</th>
-                <th>Ingresos</th>
+                <th>Descuento</th>
+                <th>Inicio</th>
+                <th>Fin</th>
+                <th style={{ width: 130 }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {loadingTop ? (
-                <tr><td className="muted" colSpan={4}>Cargando...</td></tr>
-              ) : topSellers.length === 0 ? (
-                <tr><td className="muted" colSpan={4}>No hay datos de ventas recientes.</td></tr>
-              ) : topSellers.map(renderTopSellerRow)}
+              {loadingActive ? (
+                <tr><td className="muted" colSpan={6}>Cargando...</td></tr>
+              ) : activeDiscounts.length === 0 ? (
+                <tr><td className="muted" colSpan={6}>No hay remates vigentes.</td></tr>
+              ) : activeDiscounts.map(renderActiveDiscountRow)}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* EDIT MODAL */}
+      {editingDiscount && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={(e) => { if (e.target === e.currentTarget) closeEditModal(); }}
+        >
+          <div className="modal-card" style={{ maxWidth: 480, width: "90vw" }}>
+            <div className="panel-header">
+              <div>
+                <h3 style={{ margin: 0 }}>Editar remate</h3>
+                <p className="muted" style={{ margin: 0 }}>{editingDiscount.name}</p>
+              </div>
+              <button className="button ghost" onClick={closeEditModal} type="button">Cerrar</button>
+            </div>
+
+            <div className="grid-form" style={{ padding: "1rem 0" }}>
+              {editError && <p className="error-text">{editError}</p>}
+
+              <label>
+                Tipo de descuento
+                <select
+                  value={editForm.discountType}
+                  onChange={(e) => setEditForm({ ...editForm, discountType: e.target.value as EditForm["discountType"] })}
+                >
+                  <option value="">Selecciona</option>
+                  <option value="percentage">Porcentaje (%)</option>
+                  <option value="fixed">Monto fijo ($)</option>
+                </select>
+              </label>
+
+              <label>
+                Valor del descuento
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editForm.discountValue}
+                  onChange={(e) => setEditForm({ ...editForm, discountValue: e.target.value })}
+                />
+              </label>
+
+              <label>
+                Fecha de inicio
+                <input
+                  type="datetime-local"
+                  step="60"
+                  value={editForm.discountStart}
+                  onChange={(e) => setEditForm({ ...editForm, discountStart: e.target.value })}
+                />
+              </label>
+
+              <label>
+                Fecha de fin (opcional)
+                <input
+                  type="datetime-local"
+                  step="60"
+                  value={editForm.discountEnd}
+                  onChange={(e) => setEditForm({ ...editForm, discountEnd: e.target.value })}
+                />
+              </label>
+
+              <div className="inline-actions">
+                <button
+                  className="button"
+                  onClick={saveDiscountChanges}
+                  disabled={editSubmitting}
+                  type="button"
+                >
+                  {editSubmitting ? "Guardando..." : "Guardar cambios"}
+                </button>
+                <button className="button ghost" onClick={closeEditModal} type="button">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

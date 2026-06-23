@@ -10,6 +10,9 @@ router.get("/", requireAuth, controller.listValidation, controller.listProducts)
 router.get("/alerts/low-rotation", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.lowRotationValidation, controller.listLowRotation);
 router.get("/top-sellers", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.topSellersValidation, controller.listTopSellers);
 router.get("/search", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.searchValidation, controller.searchProducts);
+router.get("/discounts/active", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.listActiveDiscounts);
+router.put("/discounts/:id", requireRole(["superusuario", "superadmin", "admin"]), controller.updateDiscountValidation, controller.updateDiscount);
+router.delete("/discounts/:id", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.cancelDiscount);
 router.get("/restock", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockValidation, controller.listRestockProducts);
 router.get("/restock-history", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockHistoryValidation, controller.listRestockHistory);
 router.get("/restock-history/metrics", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockHistoryValidation, controller.getRestockHistoryMetrics);
