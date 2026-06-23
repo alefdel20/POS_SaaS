@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { currency } from "../utils/format";
-import { dateTimeLocalToIsoString, getMexicoCityDateTimeLocalValue } from "../utils/timezone";
+import { getMexicoCityDateInputValue } from "../utils/timezone";
 
 type LowRotationProduct = {
   id: number;
@@ -61,24 +61,41 @@ type EditForm = {
 type SelectableProduct = LowRotationProduct | SearchProduct | ActiveDiscount;
 
 const DEFAULT_THRESHOLD = 21;
+const MX_OFFSET = "-06:00";
 
-function nowLocal(): string {
-  return getMexicoCityDateTimeLocalValue(new Date().toISOString());
+function todayDateString(): string {
+  return getMexicoCityDateInputValue(new Date());
+}
+
+function dateToStartIso(date: string): string {
+  return `${date}T00:00:00${MX_OFFSET}`;
+}
+
+function dateToEndIso(date: string): string {
+  return `${date}T23:59:59${MX_OFFSET}`;
+}
+
+function isoToDateString(iso: string): string {
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(iso);
+  if (match) return match[1];
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return getMexicoCityDateInputValue(d);
 }
 
 function makeEmptyForm(): DiscountForm {
-  return { discountType: "", discountValue: "", packageName: "", discountStart: nowLocal(), discountEnd: "" };
+  return { discountType: "", discountValue: "", packageName: "", discountStart: todayDateString(), discountEnd: "" };
 }
 
 function getProductPrice(p: SelectableProduct): number {
   return "price" in p ? p.price : 0;
 }
 
-function formatShortDateTime(iso: string | null): string {
+function formatShortDate(iso: string | null): string {
   if (!iso) return "Sin fin";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
 }
 
 export function RematePage() {
@@ -264,8 +281,8 @@ export function RematePage() {
         product_ids: selectedProducts.map((p) => p.id),
         discount_type: form.discountType,
         discount_value: value,
-        discount_start: dateTimeLocalToIsoString(form.discountStart),
-        discount_end: form.discountEnd ? dateTimeLocalToIsoString(form.discountEnd) : null
+        discount_start: dateToStartIso(form.discountStart),
+        discount_end: form.discountEnd ? dateToEndIso(form.discountEnd) : null
       };
       if (discountMode === "package") {
         payload.is_package = true;
@@ -326,8 +343,8 @@ export function RematePage() {
     setEditForm({
       discountType: discount.discountType,
       discountValue: String(discount.discountValue),
-      discountStart: getMexicoCityDateTimeLocalValue(discount.discountStart),
-      discountEnd: discount.discountEnd ? getMexicoCityDateTimeLocalValue(discount.discountEnd) : ""
+      discountStart: isoToDateString(discount.discountStart),
+      discountEnd: discount.discountEnd ? isoToDateString(discount.discountEnd) : ""
     });
     setEditError("");
   }
@@ -370,8 +387,8 @@ export function RematePage() {
         body: JSON.stringify({
           discount_type: editForm.discountType,
           discount_value: value,
-          discount_start: dateTimeLocalToIsoString(editForm.discountStart),
-          discount_end: editForm.discountEnd ? dateTimeLocalToIsoString(editForm.discountEnd) : null
+          discount_start: dateToStartIso(editForm.discountStart),
+          discount_end: editForm.discountEnd ? dateToEndIso(editForm.discountEnd) : null
         })
       });
       setSuccess(`Remate de "${editingDiscount.name}" actualizado`);
@@ -503,8 +520,8 @@ export function RematePage() {
           <div className="muted" style={{ fontSize: 11 }}>{discount.sku}</div>
         </td>
         <td>{discount.discountType === "percentage" ? `${discount.discountValue}%` : currency(discount.discountValue)}</td>
-        <td style={{ fontSize: 12 }}>{formatShortDateTime(discount.discountStart)}</td>
-        <td style={{ fontSize: 12 }}>{formatShortDateTime(discount.discountEnd)}</td>
+        <td style={{ fontSize: 12 }}>{formatShortDate(discount.discountStart)}</td>
+        <td style={{ fontSize: 12 }}>{formatShortDate(discount.discountEnd)}</td>
         <td>
           <div style={{ display: "flex", gap: "0.4rem" }}>
             <button
@@ -665,42 +682,11 @@ export function RematePage() {
                 </div>
               </div>
 
-              {/* SELECTOR DE MODO */}
-              <fieldset style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "0.75rem 1rem" }}>
-                <legend style={{ fontSize: 13, fontWeight: 600, padding: "0 0.5rem" }}>Tipo de remate:</legend>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 6 }}>
-                  <input
-                    type="radio"
-                    name="discountMode"
-                    value="individual"
-                    checked={discountMode === "individual"}
-                    onChange={() => setDiscountMode("individual")}
-                  />
-                  Descuento individual a cada producto
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input
-                    type="radio"
-                    name="discountMode"
-                    value="package"
-                    checked={discountMode === "package"}
-                    onChange={() => setDiscountMode("package")}
-                  />
-                  Paquete / Combo
-                </label>
-              </fieldset>
-
-              {discountMode === "package" && (
-                <label>
-                  Nombre del paquete (opcional)
-                  <input
-                    type="text"
-                    placeholder={`Paquete ${selectedProducts.length} productos`}
-                    value={form.packageName}
-                    onChange={(e) => setForm({ ...form, packageName: e.target.value })}
-                  />
-                </label>
-              )}
+              {/* TODO: Modo "Paquete/Combo" deshabilitado temporalmente (Jun 2026).
+                 Bug: el descuento se aplica a cada producto individualmente vía discount_* columns,
+                 por lo que el producto se ve con descuento aunque se venda fuera del combo.
+                 Rediseño pendiente: tabla product_kits independiente con SKU propio y descuento
+                 de stock en cascada (ver conversación Sprint 2.4, post-Puerto Escondido). */}
 
               <label>
                 Tipo de descuento
@@ -715,7 +701,7 @@ export function RematePage() {
               </label>
 
               <label>
-                {discountMode === "package" ? "Descuento sobre el total" : "Valor del descuento"}
+                Valor del descuento
                 <input
                   type="number"
                   min="0"
@@ -727,20 +713,18 @@ export function RematePage() {
               </label>
 
               <label>
-                Fecha y hora de inicio
+                Fecha de inicio
                 <input
-                  type="datetime-local"
-                  step="60"
+                  type="date"
                   value={form.discountStart}
                   onChange={(e) => setForm({ ...form, discountStart: e.target.value })}
                 />
               </label>
 
               <label>
-                Fecha y hora de fin (opcional)
+                Fecha de fin (opcional)
                 <input
-                  type="datetime-local"
-                  step="60"
+                  type="date"
                   value={form.discountEnd}
                   onChange={(e) => setForm({ ...form, discountEnd: e.target.value })}
                 />
@@ -784,41 +768,7 @@ export function RematePage() {
                 </div>
               )}
 
-              {/* PREVIEW PAQUETE */}
-              {discountMode === "package" && packagePrice && (
-                <div className="info-card" style={{ borderLeft: "3px solid var(--accent)", padding: "0.5rem" }}>
-                  <div className="table-wrap">
-                    <table style={{ width: "100%", fontSize: 11 }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: "left" }}>Producto</th>
-                          <th style={{ textAlign: "right" }}>Precio</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedProducts.map((p) => (
-                          <tr key={p.id}>
-                            <td>{p.name}</td>
-                            <td style={{ textAlign: "right" }}>{currency(getProductPrice(p))}</td>
-                          </tr>
-                        ))}
-                        <tr style={{ borderTop: "2px solid var(--border)" }}>
-                          <td style={{ fontWeight: 600 }}>Subtotal</td>
-                          <td style={{ textAlign: "right", fontWeight: 600 }}>{currency(packagePrice.totalOriginal)}</td>
-                        </tr>
-                        <tr>
-                          <td style={{ color: "var(--danger)" }}>Descuento</td>
-                          <td style={{ textAlign: "right", color: "var(--danger)" }}>-{currency(packagePrice.discount)}</td>
-                        </tr>
-                        <tr style={{ background: "rgba(var(--accent-rgb), 0.08)" }}>
-                          <td style={{ fontWeight: 700 }}>Precio final del paquete</td>
-                          <td style={{ textAlign: "right", fontWeight: 700, color: "var(--accent)" }}>{currency(packagePrice.totalFinal)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+              {/* PREVIEW PAQUETE — oculto temporalmente, ver TODO arriba */}
 
               <div className="inline-actions">
                 <button
@@ -921,8 +871,7 @@ export function RematePage() {
               <label>
                 Fecha de inicio
                 <input
-                  type="datetime-local"
-                  step="60"
+                  type="date"
                   value={editForm.discountStart}
                   onChange={(e) => setEditForm({ ...editForm, discountStart: e.target.value })}
                 />
@@ -931,8 +880,7 @@ export function RematePage() {
               <label>
                 Fecha de fin (opcional)
                 <input
-                  type="datetime-local"
-                  step="60"
+                  type="date"
                   value={editForm.discountEnd}
                   onChange={(e) => setEditForm({ ...editForm, discountEnd: e.target.value })}
                 />

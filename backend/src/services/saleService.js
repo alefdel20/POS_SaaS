@@ -73,11 +73,14 @@ function buildSaleAuditMetadata(actor, extra = {}) {
 }
 
 function computeDiscountedPrice(product) {
-  if (product.status !== "activo" || !product.discount_type || product.discount_value === null || !product.discount_start || !product.discount_end) return null;
+  if (product.status !== "activo" || !product.discount_type || product.discount_value === null || !product.discount_start) return null;
   const now = new Date();
   const start = new Date(product.discount_start);
-  const end = new Date(product.discount_end);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || now < start || now > end) return null;
+  if (Number.isNaN(start.getTime()) || now < start) return null;
+  if (product.discount_end) {
+    const end = new Date(product.discount_end);
+    if (Number.isNaN(end.getTime()) || now > end) return null;
+  }
   if (product.discount_type === "percentage") return roundToScale(Math.max(Number(product.price) - Number(product.price) * (Number(product.discount_value) / 100), 0), 5);
   if (product.discount_type === "fixed") return roundToScale(Math.max(Number(product.price) - Number(product.discount_value), 0), 5);
   return null;
