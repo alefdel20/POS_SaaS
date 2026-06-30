@@ -9,6 +9,7 @@ const { saveAuditLog } = require("./auditLogService");
 const { emitActorAutomationEvent } = require("./automationEventService");
 const { canUseCreditCollections } = require("../utils/business");
 const { findOrCreateClient } = require("./clientService");
+const { calculateKitPrice } = require("./kitService");
 
 const INTEGER_UNITS = new Set(["pieza", "caja"]);
 const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
@@ -84,6 +85,11 @@ function computeDiscountedPrice(product) {
   if (product.discount_type === "percentage") return roundToScale(Math.max(Number(product.price) - Number(product.price) * (Number(product.discount_value) / 100), 0), 5);
   if (product.discount_type === "fixed") return roundToScale(Math.max(Number(product.price) - Number(product.discount_value), 0), 5);
   return null;
+}
+
+function isOlderThan21Days(createdAt) {
+  if (!createdAt) return false;
+  return new Date(createdAt) <= new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);
 }
 
 function normalizeNumber(value) {
@@ -378,29 +384,36 @@ async function createSale(payload, user, branchId = null) {
       if (!prescriptionRows[0]) throw new ApiError(404, "Prescription not found");
       prescriptionSnapshot = prescriptionRows[0];
     }
-    const productIds = payload.items.map((item) => item.product_id);
-    const { rows: productRows } = await client.query(
-      `WITH sales_30 AS (
-         SELECT si.product_id, COALESCE(SUM(si.quantity), 0) AS recent_units_sold
-         FROM sale_items si
-         INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
-         WHERE s.business_id = $2
-           AND COALESCE(s.status, 'completed') <> 'cancelled'
-         GROUP BY si.product_id
-       )
-       SELECT products.*, COALESCE(sales_30.recent_units_sold, 0) AS recent_units_sold
-       FROM products
-       LEFT JOIN sales_30 ON sales_30.product_id = products.id
-       WHERE products.id = ANY($1::int[]) AND products.business_id = $2`,
-      [productIds, businessId]
-    );
+    const regularItems = payload.items.filter((item) => item.product_id && !item.kit_id);
+    const kitItems = payload.items.filter((item) => item.kit_id && !item.product_id);
+
+    const productIds = regularItems.map((item) => item.product_id).filter(Boolean);
+    const { rows: productRows } = productIds.length > 0
+      ? await client.query(
+          `WITH sales_21 AS (
+             SELECT si.product_id, COALESCE(SUM(si.quantity), 0) AS recent_units_sold
+             FROM sale_items si
+             INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
+             WHERE s.business_id = $2
+               AND COALESCE(s.status, 'completed') <> 'cancelled'
+               AND s.sale_date >= CURRENT_DATE - INTERVAL '21 days'
+             GROUP BY si.product_id
+           )
+           SELECT products.*, COALESCE(sales_21.recent_units_sold, 0) AS recent_units_sold
+           FROM products
+           LEFT JOIN sales_21 ON sales_21.product_id = products.id
+           WHERE products.id = ANY($1::int[]) AND products.business_id = $2`,
+          [productIds, businessId]
+        )
+      : { rows: [] };
     const productsMap = new Map(productRows.map((product) => [product.id, product]));
     const warnings = [];
     const normalizedItems = [];
     let total = 0;
     let totalCost = 0;
 
-    for (const item of payload.items) {
+    // --- Regular product items (unchanged flow) ---
+    for (const item of regularItems) {
       const product = productsMap.get(item.product_id);
       if (!product) throw new ApiError(404, `Product ${item.product_id} not found`);
       if (!product.is_active || product.status !== "activo") throw new ApiError(409, "Producto inactivo, contactar proveedor");
@@ -412,7 +425,7 @@ async function createSale(payload, user, branchId = null) {
       const activeDiscountPrice = computeDiscountedPrice(product);
       const effectivePrice = activeDiscountPrice !== null
         ? activeDiscountPrice
-        : product.liquidation_price !== null && (Number(product.recent_units_sold || 0) <= 2 || nearExpiry)
+        : product.liquidation_price !== null && ((Number(product.recent_units_sold || 0) === 0 && isOlderThan21Days(product.created_at)) || nearExpiry)
           ? product.liquidation_price
           : product.price;
       const unitPrice = normalizeMoneyValue(item.unit_price ?? effectivePrice, "Unit price");
@@ -420,7 +433,40 @@ async function createSale(payload, user, branchId = null) {
       const subtotal = multiplyMoney(unitPrice, quantity);
       total = roundToScale(total + subtotal, 5);
       totalCost = roundToScale(totalCost + multiplyMoney(unitCost, quantity), 5);
-      normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: unit, productName: product.name });
+      normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: unit, productName: product.name, kitId: null });
+    }
+
+    // --- Kit items ---
+    for (const item of kitItems) {
+      const kitId = Number(item.kit_id);
+      const quantity = Number(item.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new ApiError(400, "La cantidad del kit debe ser mayor a cero");
+      if (!Number.isInteger(quantity)) throw new ApiError(400, "La cantidad de un kit debe ser un número entero");
+
+      // Server-side price recalculation: never trust prices from the client for the same
+      // reason the existing flow uses buildEffectivePriceCase/computeDiscountedPrice —
+      // the frontend may be stale, manipulated, or racing with an in-flight discount change.
+      const unitPrice = await calculateKitPrice(businessId, kitId, client);
+      const subtotal = multiplyMoney(unitPrice, quantity);
+      total = roundToScale(total + subtotal, 5);
+      // Kit cost: sum of component costs fetched fresh from DB
+      const { rows: componentRows } = await client.query(
+        `SELECT p.cost_price, pki.quantity AS component_qty
+         FROM product_kit_items pki
+         INNER JOIN products p ON p.id = pki.product_id AND p.business_id = pki.business_id
+         WHERE pki.kit_id = $1 AND pki.business_id = $2`,
+        [kitId, businessId]
+      );
+      const unitCost = componentRows.reduce((acc, r) => acc + Number(r.cost_price || 0) * Number(r.component_qty), 0);
+      totalCost = roundToScale(totalCost + multiplyMoney(unitCost, quantity), 5);
+
+      const { rows: kitNameRows } = await client.query(
+        "SELECT name FROM product_kits WHERE id = $1 AND business_id = $2",
+        [kitId, businessId]
+      );
+      if (!kitNameRows[0]) throw new ApiError(404, `Kit ${kitId} not found`);
+
+      normalizedItems.push({ productId: null, kitId, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: "pieza", productName: kitNameRows[0].name });
     }
 
     const cartDiscountType = payload.cart_discount_type || null;
@@ -541,12 +587,34 @@ async function createSale(payload, user, branchId = null) {
     }
 
     for (const item of normalizedItems) {
-      await client.query(
-        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
-      );
-      await client.query("UPDATE products SET stock = stock - $1 WHERE id = $2 AND business_id = $3", [item.quantity, item.productId, businessId]);
+      if (item.kitId) {
+        // Kit sale: one sale_items row with kit_id, product_id NULL
+        await client.query(
+          `INSERT INTO sale_items (sale_id, kit_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
+           VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9)`,
+          [sale.id, item.kitId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
+        );
+        // Deduct stock from each component (negative allowed, same as individual products)
+        const { rows: kitComponentRows } = await client.query(
+          "SELECT product_id, quantity AS component_qty FROM product_kit_items WHERE kit_id = $1 AND business_id = $2",
+          [item.kitId, businessId]
+        );
+        for (const component of kitComponentRows) {
+          const deduct = multiplyMoney(Number(component.component_qty), item.quantity);
+          await client.query(
+            "UPDATE products SET stock = stock - $1 WHERE id = $2 AND business_id = $3",
+            [deduct, component.product_id, businessId]
+          );
+        }
+      } else {
+        // Regular product sale: unchanged flow
+        await client.query(
+          `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
+        );
+        await client.query("UPDATE products SET stock = stock - $1 WHERE id = $2 AND business_id = $3", [item.quantity, item.productId, businessId]);
+      }
     }
 
     if (requiresAdministrativeInvoice) {
@@ -601,7 +669,7 @@ async function createSale(payload, user, branchId = null) {
 
     await client.query("COMMIT");
     await recomputeDailyCut(sale.sale_date, user);
-    await ensureLowStockRemindersForProductIds(normalizedItems.map((item) => item.productId), user);
+    await ensureLowStockRemindersForProductIds(normalizedItems.map((item) => item.productId).filter(Boolean), user);
     await ensureAutomaticReminders(user);
 
     sale.requires_administrative_invoice = requiresAdministrativeInvoice;
