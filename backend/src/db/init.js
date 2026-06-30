@@ -147,6 +147,54 @@ async function ensureSchema(client) {
     "ALTER TABLE products ALTER COLUMN stock TYPE NUMERIC(12, 3)",
     "ALTER TABLE products ALTER COLUMN stock_minimo TYPE NUMERIC(12, 3)",
     "ALTER TABLE products ALTER COLUMN stock_maximo TYPE NUMERIC(12, 3)",
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'products_id_business_id_unique'
+          AND conrelid = 'products'::regclass
+      ) THEN
+        ALTER TABLE products
+        ADD CONSTRAINT products_id_business_id_unique
+        UNIQUE (id, business_id);
+      END IF;
+    END $$;
+    `,
+
+    // === KITS / COMBOS ===
+    `CREATE TABLE IF NOT EXISTS product_kits (
+      id           SERIAL NOT NULL,
+      business_id  INTEGER NOT NULL REFERENCES businesses(id),
+      sku          VARCHAR(100),
+      name         VARCHAR(255) NOT NULL,
+      description  TEXT,
+      price_mode   VARCHAR(20) NOT NULL DEFAULT 'fixed',
+      fixed_price  NUMERIC(12,2),
+      discount_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+      active       BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (id, business_id),
+      UNIQUE (sku, business_id),
+      CHECK (price_mode IN ('fixed', 'calculated')),
+      CHECK (fixed_price IS NOT NULL OR price_mode = 'calculated'),
+      CHECK (discount_pct >= 0 AND discount_pct <= 100)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS product_kit_items (
+      id          SERIAL PRIMARY KEY,
+      kit_id      INTEGER NOT NULL,
+      business_id INTEGER NOT NULL,
+      product_id  INTEGER NOT NULL,
+      quantity    NUMERIC(12,4) NOT NULL DEFAULT 1,
+      CHECK (quantity > 0),
+      FOREIGN KEY (kit_id, business_id) REFERENCES product_kits(id, business_id),
+      FOREIGN KEY (product_id, business_id) REFERENCES products(id, business_id),
+      UNIQUE (kit_id, product_id, business_id)
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_product_kit_items_kit_business ON product_kit_items(kit_id, business_id)",
 
     `CREATE TABLE IF NOT EXISTS product_categories (
       id SERIAL PRIMARY KEY,
@@ -283,6 +331,8 @@ async function ensureSchema(client) {
     "ALTER TABLE sale_items ALTER COLUMN unit_cost TYPE NUMERIC(12, 5)",
     "ALTER TABLE sale_items ALTER COLUMN subtotal TYPE NUMERIC(14, 5)",
     "ALTER TABLE sale_items ALTER COLUMN quantity TYPE NUMERIC(12, 3)",
+    // kit_id y product_id son mutuamente excluyentes: cuando se vende un kit, kit_id apunta al kit y product_id es NULL
+    "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS kit_id INTEGER",
 
     `CREATE TABLE IF NOT EXISTS returns (
       id              SERIAL PRIMARY KEY,
