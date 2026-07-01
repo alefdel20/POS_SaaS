@@ -217,13 +217,14 @@ async function listSales(filters = {}, actor) {
            ' ',
            COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza'),
            ' ',
-           p.name
+           COALESCE(p.name, pk.name, 'Producto eliminado')
          ),
          ', '
          ORDER BY si.id
        ) AS summary
        FROM sale_items si
-       INNER JOIN products p ON p.id = si.product_id AND p.business_id = si.business_id
+       LEFT JOIN products p ON p.id = si.product_id AND p.business_id = si.business_id
+       LEFT JOIN product_kits pk ON pk.id = si.kit_id AND pk.business_id = si.business_id
        WHERE si.sale_id = sales.id AND si.business_id = sales.business_id
      ) items_summary ON TRUE
      ${whereClause}
@@ -251,13 +252,14 @@ async function listRecentSales(actor) {
            ' ',
            COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza'),
            ' ',
-           p.name
+           COALESCE(p.name, pk.name, 'Producto eliminado')
          ),
          ', '
          ORDER BY si.id
        ) AS summary
        FROM sale_items si
-       INNER JOIN products p ON p.id = si.product_id AND p.business_id = si.business_id
+       LEFT JOIN products p ON p.id = si.product_id AND p.business_id = si.business_id
+       LEFT JOIN product_kits pk ON pk.id = si.kit_id AND pk.business_id = si.business_id
        WHERE si.sale_id = sales.id AND si.business_id = sales.business_id
      ) items_summary ON TRUE
      WHERE sales.business_id = $1
@@ -282,10 +284,11 @@ async function getSaleDetail(saleId, actor) {
   if (!sale) throw new ApiError(404, "Sale not found");
 
   const { rows: itemRows } = await pool.query(
-    `SELECT sale_items.id, sale_items.product_id, COALESCE(NULLIF(sale_items.product_name_snapshot, ''), products.name) AS product_name, products.sku, sale_items.quantity, sale_items.unit_price, sale_items.subtotal,
+    `SELECT sale_items.id, sale_items.product_id, COALESCE(NULLIF(sale_items.product_name_snapshot, ''), products.name, product_kits.name) AS product_name, products.sku, sale_items.quantity, sale_items.unit_price, sale_items.subtotal,
             COALESCE(sale_items.unidad_de_venta, products.unidad_de_venta, 'pieza') AS unidad_de_venta
      FROM sale_items
-     INNER JOIN products ON products.id = sale_items.product_id AND products.business_id = sale_items.business_id
+     LEFT JOIN products ON products.id = sale_items.product_id AND products.business_id = sale_items.business_id
+     LEFT JOIN product_kits ON product_kits.id = sale_items.kit_id AND product_kits.business_id = sale_items.business_id
      WHERE sale_items.sale_id = $1 AND sale_items.business_id = $2
      ORDER BY sale_items.id ASC`,
     [saleId, sale.business_id]
