@@ -687,8 +687,9 @@ td {
 .product-name-cell,
 .product-image-panel {
   display: flex;
-  align-items: center;
-  gap: 0.85rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.85rem;
 }
 
 .product-image-panel {
@@ -2004,6 +2005,7 @@ td {
 .sales-catalog-tabs {
   display: flex;
   gap: 0.5rem;
+  margin-top: 0.75rem;
   margin-bottom: 0.75rem;
 }
 
@@ -2045,6 +2047,10 @@ td {
   font-size: 0.8rem;
   color: var(--muted);
   list-style: none;
+}
+
+.sales-kit-search {
+  margin-bottom: 0.5rem;
 }
 
 .sales-kit-components li::before {

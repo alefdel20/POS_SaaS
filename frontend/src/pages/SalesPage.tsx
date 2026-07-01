@@ -1278,7 +1278,7 @@ export function SalesPage() {
         ) : (
           <>
             <input
-              className="search-input"
+              className="search-input sales-kit-search"
               placeholder="Buscar kits por nombre o SKU"
               value={kitSearch}
               onChange={(event) => setKitSearch(event.target.value)}
