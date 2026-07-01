@@ -1999,3 +1999,55 @@ td {
   justify-content: center;
   flex-shrink: 0;
 }
+
+/* Kit/Combo catalog tabs */
+.sales-catalog-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.sales-tab {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.sales-tab--active {
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 42%, #2f82ff));
+  color: var(--accent-contrast);
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.sales-kit-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 42%, #2f82ff));
+  color: var(--accent-contrast);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+  letter-spacing: 0.03em;
+}
+
+.sales-kit-components {
+  padding-left: 1rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  list-style: none;
+}
+
+.sales-kit-components li::before {
+  content: "↳ ";
+  opacity: 0.5;
+}

@@ -16,10 +16,48 @@ const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
 type SaleUnit = typeof SALE_UNITS[number];
 const AUTO_IEPS_CATEGORIES = new Set(["dulces", "refrescos", "botanas", "cigarros", "alcohol"]);
 
-interface CartItem {
+interface KitItem {
+  id: number;
+  product_id: number;
+  quantity: number;
+  product_name: string;
+  product_sku: string | null;
+  product_price: number;
+  product_cost: number;
+  product_status: string;
+  unidad_de_venta: string | null;
+}
+
+interface Kit {
+  id: number;
+  business_id: number;
+  sku: string | null;
+  name: string;
+  description: string | null;
+  price_mode: "fixed" | "calculated";
+  fixed_price: number | null;
+  discount_pct: number;
+  effective_price?: number | null;
+  active: boolean;
+  item_count?: number;
+  items?: KitItem[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface CartProductItem {
+  type: "product";
   product: Product;
   quantity: number;
 }
+
+interface CartKitItem {
+  type: "kit";
+  kit: Kit;
+  quantity: number;
+}
+
+type CartItem = CartProductItem | CartKitItem;
 
 interface QuickProductFormState {
   name: string;
@@ -161,6 +199,13 @@ function focusNextInputOnEnter(event: KeyboardEvent<HTMLElement>) {
   focusable[currentIndex + 1]?.focus();
 }
 
+function getKitEffectivePrice(kit: Kit): number {
+  if (kit.price_mode === "fixed") return Number(kit.fixed_price ?? 0);
+  if (!kit.items?.length) return 0;
+  const base = kit.items.reduce((acc, i) => acc + Number(i.product_price) * Number(i.quantity), 0);
+  return Math.round(base * (1 - Number(kit.discount_pct || 0) / 100) * 100) / 100;
+}
+
 export function SalesPage() {
   const { token, user } = useAuth();
   const location = useLocation();
@@ -214,6 +259,9 @@ export function SalesPage() {
   const [quickProductSaving, setQuickProductSaving] = useState(false);
   const [scannerFeedback, setScannerFeedback] = useState("");
   const [scannerSelectionId, setScannerSelectionId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<"products" | "kits">("products");
+  const [kits, setKits] = useState<Kit[]>([]);
+  const [kitSearch, setKitSearch] = useState("");
   const [prescriptionSeedId, setPrescriptionSeedId] = useState<number | null>(Number(searchParams.get("prescription_id") || 0) || null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const debtorSuggestionRequestRef = useRef(0);
@@ -275,6 +323,14 @@ export function SalesPage() {
     }
     const response = await apiRequest<Product[] | { items: Product[] }>(`/products?${params.toString()}`, { token });
     setProducts(Array.isArray(response) ? response : response.items);
+  }
+
+  async function loadKits(term = "") {
+    if (!token) return;
+    const params = new URLSearchParams({ activeOnly: "true" });
+    if (term.trim()) params.set("search", term.trim());
+    const response = await apiRequest<Kit[]>(`/kits?${params.toString()}`, { token });
+    setKits(Array.isArray(response) ? response : []);
   }
 
   async function loadRecentSales() {
@@ -427,6 +483,7 @@ export function SalesPage() {
     loadProducts().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el catálogo");
     });
+    loadKits().catch(() => undefined);
     loadRecentSales().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar las ventas recientes");
     });
@@ -458,6 +515,13 @@ export function SalesPage() {
     }, 250);
     return () => clearTimeout(delay);
   }, [catalogScope, search, token]);
+
+  useEffect(() => {
+    const delay = setTimeout(() => {
+      loadKits(kitSearch).catch(() => undefined);
+    }, 250);
+    return () => clearTimeout(delay);
+  }, [kitSearch, token]);
 
   useEffect(() => {
     if (paymentMethod !== "credit") {
@@ -506,7 +570,10 @@ export function SalesPage() {
   const [cartDiscountValue, setCartDiscountValue] = useState("");
 
   const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + Number(item.product.effective_price ?? item.product.price) * item.quantity, 0),
+    () => cart.reduce((sum, item) => {
+      if (item.type === "kit") return sum + getKitEffectivePrice(item.kit) * item.quantity;
+      return sum + Number(item.product.effective_price ?? item.product.price) * item.quantity;
+    }, 0),
     [cart]
   );
 
@@ -614,14 +681,51 @@ export function SalesPage() {
     const step = unit === "kg" || unit === "litro" ? 0.001 : 1;
 
     setCart((current) => {
-      const existing = current.find((item) => item.product.id === product.id);
+      const existing = current.find((item) => item.type === "product" && item.product.id === product.id);
       if (existing) {
         const updatedItem = { ...existing, quantity: roundQuantity(existing.quantity + step) };
-        return [updatedItem, ...current.filter((item) => item.product.id !== product.id)];
+        return [updatedItem, ...current.filter((item) => !(item.type === "product" && item.product.id === product.id))];
       }
-      return [{ product, quantity: step }, ...current];
+      return [{ type: "product" as const, product, quantity: step }, ...current];
     });
     setScannerSelectionId(product.id);
+  }
+
+  async function addKitToCart(kit: Kit) {
+    if (!token) return;
+    let fullKit = kit;
+    if (!kit.items) {
+      try {
+        fullKit = await apiRequest<Kit>(`/kits/${kit.id}`, { token });
+      } catch {
+        setError("No fue posible cargar los detalles del kit");
+        return;
+      }
+    }
+    setCart((current) => {
+      const existing = current.find((item) => item.type === "kit" && item.kit.id === fullKit.id);
+      if (existing) {
+        return current.map((item) =>
+          item.type === "kit" && item.kit.id === fullKit.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        );
+      }
+      return [{ type: "kit" as const, kit: fullKit, quantity: 1 }, ...current];
+    });
+  }
+
+  function updateKitQuantity(kitId: number, quantity: number) {
+    if (!Number.isFinite(quantity)) return;
+    if (quantity <= 0) {
+      setCart((current) => current.filter((item) => !(item.type === "kit" && item.kit.id === kitId)));
+      return;
+    }
+    setCart((current) =>
+      current.map((item) =>
+        item.type === "kit" && item.kit.id === kitId ? { ...item, quantity: Math.round(quantity) } : item
+      )
+    );
   }
 
   async function loadPrescriptionIntoCart(prescriptionId: number) {
@@ -633,7 +737,7 @@ export function SalesPage() {
     for (const item of prescription.items) {
       try {
         const product = await apiRequest<Product>(`/products/${item.product_id}`, { token });
-        seededCart.push({ product, quantity: 1 });
+        seededCart.push({ type: "product" as const, product, quantity: 1 });
       } catch {
         nextWarnings.push(`El producto recetado "${item.medication_name_snapshot}" ya no existe o no esta disponible.`);
       }
@@ -648,7 +752,8 @@ export function SalesPage() {
   }
 
   function openQuickAddModal() {
-    const suggestedCategory = cart[cart.length - 1]?.product.category || categories[0] || "";
+    const lastItem = cart[cart.length - 1];
+    const suggestedCategory = (lastItem?.type === "product" ? lastItem.product.category : null) || categories[0] || "";
     setQuickProductForm({
       ...emptyQuickProduct,
       name: search.trim(),
@@ -708,16 +813,17 @@ export function SalesPage() {
       return;
     }
     if (quantity <= 0) {
-      setCart((current) => current.filter((item) => item.product.id !== productId));
+      setCart((current) => current.filter((item) => !(item.type === "product" && item.product.id === productId)));
       return;
     }
     setCart((current) => {
-      const target = current.find((item) => item.product.id === productId);
-      const unit = getResolvedSaleUnit(target?.product.unidad_de_venta);
+      const target = current.find((item) => item.type === "product" && item.product.id === productId);
+      if (!target || target.type !== "product") return current;
+      const unit = getResolvedSaleUnit(target.product.unidad_de_venta);
       if ((unit === "pieza" || unit === "caja") && !Number.isInteger(quantity)) {
         return current;
       }
-      return current.map((item) => (item.product.id === productId ? { ...item, quantity: roundQuantity(quantity) } : item));
+      return current.map((item) => (item.type === "product" && item.product.id === productId ? { ...item, quantity: roundQuantity(quantity) } : item));
     });
   }
 
@@ -922,11 +1028,11 @@ export function SalesPage() {
           } : undefined,
           cart_discount_type: cartDiscountType || undefined,
           cart_discount_value: cartDiscountType ? Number(cartDiscountValue || 0) : undefined,
-          items: cart.map((item) => ({
-            product_id: item.product.id,
-            quantity: item.quantity,
-            unit_price: item.product.effective_price ?? item.product.price
-          }))
+          items: cart.map((item) =>
+            item.type === "kit"
+              ? { kit_id: item.kit.id, quantity: item.quantity }
+              : { product_id: item.product.id, quantity: item.quantity, unit_price: item.product.effective_price ?? item.product.price }
+          )
         })
       });
 
@@ -950,13 +1056,15 @@ export function SalesPage() {
               cfdi_use: invoiceData.cfdi_use || "G03",
               payment_form: paymentMethod === "cash" ? "01" : paymentMethod === "card" ? "04" : "03",
               total,
-              items: cart.map((item) => ({
-                description: item.product.name,
-                product_key: "01010101",
-                unit_key: "H87",
-                unit_price: item.product.effective_price ?? item.product.price,
-                quantity: item.quantity
-              }))
+              items: cart
+                .filter((item): item is CartProductItem => item.type === "product")
+                .map((item) => ({
+                  description: item.product.name,
+                  product_key: "01010101",
+                  unit_key: "H87",
+                  unit_price: item.product.effective_price ?? item.product.price,
+                  quantity: item.quantity
+                }))
             })
           });
         } catch (stampErr) {
@@ -997,13 +1105,15 @@ export function SalesPage() {
           cfdi_use: invoiceData.cfdi_use || "G03",
           payment_form: lastSale.payment_method === "cash" ? "01" : lastSale.payment_method === "card" ? "04" : "03",
           total: lastSale.total,
-          items: lastSaleItems.map((item) => ({
-            description: item.product.name,
-            product_key: "01010101",
-            unit_key: "H87",
-            unit_price: item.product.effective_price ?? item.product.price,
-            quantity: item.quantity
-          }))
+          items: lastSaleItems
+            .filter((item): item is CartProductItem => item.type === "product")
+            .map((item) => ({
+              description: item.product.name,
+              product_key: "01010101",
+              unit_key: "H87",
+              unit_price: item.product.effective_price ?? item.product.price,
+              quantity: item.quantity
+            }))
         })
       });
       setWarnings((prev) => [...prev, "Timbrado CFDI completado exitosamente."]);
@@ -1032,13 +1142,12 @@ export function SalesPage() {
       return;
     }
 
-    const itemsHtml = lastSaleItems.map((item) => `
-      <tr>
-        <td>${escapeHtml(item.product.name)}</td>
-        <td>${escapeHtml(formatSaleQuantity(item.quantity, item.product.unidad_de_venta))}</td>
-        <td>${escapeHtml(currency(item.product.effective_price ?? item.product.price))}</td>
-      </tr>
-    `).join("");
+    const itemsHtml = lastSaleItems.map((item) => {
+      if (item.type === "kit") {
+        return `<tr><td>${escapeHtml(item.kit.name)} (Kit)</td><td>${escapeHtml(String(item.quantity))} pieza</td><td>${escapeHtml(currency(getKitEffectivePrice(item.kit)))}</td></tr>`;
+      }
+      return `<tr><td>${escapeHtml(item.product.name)}</td><td>${escapeHtml(formatSaleQuantity(item.quantity, item.product.unidad_de_venta))}</td><td>${escapeHtml(currency(item.product.effective_price ?? item.product.price))}</td></tr>`;
+    }).join("");
 
     try {
       ticketWindow.document.write(`
@@ -1113,42 +1222,97 @@ export function SalesPage() {
         </div>
         {error ? <p className="error-text">{error}</p> : null}
         {scannerFeedback ? <p className="muted">{scannerFeedback}</p> : null}
-        <div className="product-grid">
-          {displayProducts.map((product) => (
-            <button
-              key={product.id}
-              className={`catalog-card ${scannerSelectionId === product.id ? "table-row-active" : ""}`}
-              disabled={Number(product.stock) <= 0 || product.status === "inactivo" || !product.is_active}
-              onClick={() => addToCart(product)}
-              type="button"
-            >
-              <div className="catalog-card-header">
-                {product.image_path ? (
-                  <img alt={product.name} className="catalog-thumb" src={resolveProductImageUrl(product.image_path) || ""} />
-                ) : (
-                  <div className="catalog-thumb catalog-thumb-placeholder" aria-hidden="true">IMG</div>
-                )}
-                <strong>{product.name}</strong>
-              </div>
-              {product.is_on_sale ? (
-                <div className="price-stack">
-                  <span className="price-original">{currency(product.price)}</span>
-                  <strong>{currency(product.effective_price ?? product.price)}</strong>
-                </div>
-              ) : (
-                <span>{currency(product.effective_price ?? product.price)}</span>
-              )}
-              <small>Stock: {formatSaleQuantity(Number(product.stock), product.unidad_de_venta)}</small>
-            </button>
-          ))}
-          {displayProducts.length === 0 && !scannerFeedback ? (
-            <div className="empty-state-card">
-              <p className="muted">
-                {search.trim() ? "No se encontraron coincidencias para esta busqueda." : "No hay productos activos para mostrar."}
-              </p>
-            </div>
-          ) : null}
+        <div className="sales-catalog-tabs">
+          <button
+            className={`sales-tab${activeTab === "products" ? " sales-tab--active" : ""}`}
+            onClick={() => setActiveTab("products")}
+            type="button"
+          >
+            Productos
+          </button>
+          <button
+            className={`sales-tab${activeTab === "kits" ? " sales-tab--active" : ""}`}
+            onClick={() => setActiveTab("kits")}
+            type="button"
+          >
+            Kits
+          </button>
         </div>
+        {activeTab === "products" ? (
+          <div className="product-grid">
+            {displayProducts.map((product) => (
+              <button
+                key={product.id}
+                className={`catalog-card ${scannerSelectionId === product.id ? "table-row-active" : ""}`}
+                disabled={Number(product.stock) <= 0 || product.status === "inactivo" || !product.is_active}
+                onClick={() => addToCart(product)}
+                type="button"
+              >
+                <div className="catalog-card-header">
+                  {product.image_path ? (
+                    <img alt={product.name} className="catalog-thumb" src={resolveProductImageUrl(product.image_path) || ""} />
+                  ) : (
+                    <div className="catalog-thumb catalog-thumb-placeholder" aria-hidden="true">IMG</div>
+                  )}
+                  <strong>{product.name}</strong>
+                </div>
+                {product.is_on_sale ? (
+                  <div className="price-stack">
+                    <span className="price-original">{currency(product.price)}</span>
+                    <strong>{currency(product.effective_price ?? product.price)}</strong>
+                  </div>
+                ) : (
+                  <span>{currency(product.effective_price ?? product.price)}</span>
+                )}
+                <small>Stock: {formatSaleQuantity(Number(product.stock), product.unidad_de_venta)}</small>
+              </button>
+            ))}
+            {displayProducts.length === 0 && !scannerFeedback ? (
+              <div className="empty-state-card">
+                <p className="muted">
+                  {search.trim() ? "No se encontraron coincidencias para esta busqueda." : "No hay productos activos para mostrar."}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <input
+              className="search-input"
+              placeholder="Buscar kits por nombre o SKU"
+              value={kitSearch}
+              onChange={(event) => setKitSearch(event.target.value)}
+            />
+            <div className="product-grid" style={{ marginTop: "0.75rem" }}>
+              {kits.map((kit) => (
+                <button
+                  key={kit.id}
+                  className="catalog-card"
+                  onClick={() => { addKitToCart(kit).catch(() => setError("No fue posible agregar el kit al carrito")); }}
+                  type="button"
+                >
+                  <div className="catalog-card-header">
+                    <strong>{kit.name}</strong>
+                    <span className="sales-kit-badge">KIT</span>
+                  </div>
+                  <span>
+                    {kit.effective_price != null
+                      ? currency(Number(kit.effective_price))
+                      : kit.price_mode === "fixed" && kit.fixed_price != null
+                        ? currency(Number(kit.fixed_price))
+                        : "—"}
+                  </span>
+                  {kit.item_count != null ? <small>{kit.item_count} componente{kit.item_count !== 1 ? "s" : ""}</small> : null}
+                </button>
+              ))}
+              {kits.length === 0 ? (
+                <div className="empty-state-card">
+                  <p className="muted">{kitSearch.trim() ? "No se encontraron kits para esta búsqueda." : "No hay kits activos."}</p>
+                </div>
+              ) : null}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="panel">
@@ -1237,42 +1401,87 @@ export function SalesPage() {
               </tr>
             </thead>
             <tbody>
-              {cart.map((item) => (
-                <tr key={item.product.id}>
-                  <td>
-                    <div className="cart-product-cell">
-                      <span>{item.product.name}</span>
-                      {item.product.is_on_sale ? <span className="offer-badge">Oferta | Remate</span> : null}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="quantity-control">
-                      <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity - (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)))} type="button">-</button>
-                      <input
-                        min="0"
-                        inputMode="decimal"
-                        step={getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? "0.001" : "1"}
-                        type="number"
-                        value={item.quantity}
-                        onChange={(event) => updateQuantity(item.product.id, Number(event.target.value))}
-                      />
-                      <span>{getResolvedSaleUnit(item.product.unidad_de_venta)}</span>
-                      <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity + (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)))} type="button">+</button>
-                    </div>
-                  </td>
-                  <td>
-                    {item.product.is_on_sale ? (
-                      <div className="price-stack">
-                        <span className="price-original">{currency(item.product.price)}</span>
-                        <strong>{currency(item.product.effective_price ?? item.product.price)}</strong>
+              {cart.map((item) => {
+                if (item.type === "kit") {
+                  const kitPrice = getKitEffectivePrice(item.kit);
+                  return (
+                    <Fragment key={`kit-${item.kit.id}`}>
+                      <tr>
+                        <td>
+                          <div className="cart-product-cell">
+                            <span>{item.kit.name}</span>
+                            <span className="sales-kit-badge">KIT</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="quantity-control">
+                            <button onClick={() => updateKitQuantity(item.kit.id, item.quantity - 1)} type="button">-</button>
+                            <input
+                              min="0"
+                              inputMode="numeric"
+                              step="1"
+                              type="number"
+                              value={item.quantity}
+                              onChange={(event) => updateKitQuantity(item.kit.id, Number(event.target.value))}
+                            />
+                            <span>pieza</span>
+                            <button onClick={() => updateKitQuantity(item.kit.id, item.quantity + 1)} type="button">+</button>
+                          </div>
+                        </td>
+                        <td>{currency(kitPrice)}</td>
+                        <td>{currency(kitPrice * item.quantity)}</td>
+                      </tr>
+                      {item.kit.items?.length ? (
+                        <tr>
+                          <td colSpan={4} style={{ paddingTop: 0 }}>
+                            <ul className="sales-kit-components">
+                              {item.kit.items.map((comp) => (
+                                <li key={comp.product_id}>{comp.product_name} × {comp.quantity * item.quantity}</li>
+                              ))}
+                            </ul>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                }
+                return (
+                  <tr key={item.product.id}>
+                    <td>
+                      <div className="cart-product-cell">
+                        <span>{item.product.name}</span>
+                        {item.product.is_on_sale ? <span className="offer-badge">Oferta | Remate</span> : null}
                       </div>
-                    ) : (
-                      currency(item.product.effective_price ?? item.product.price)
-                    )}
-                  </td>
-                  <td>{currency(Number(item.product.effective_price ?? item.product.price) * item.quantity)}</td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      <div className="quantity-control">
+                        <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity - (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)))} type="button">-</button>
+                        <input
+                          min="0"
+                          inputMode="decimal"
+                          step={getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? "0.001" : "1"}
+                          type="number"
+                          value={item.quantity}
+                          onChange={(event) => updateQuantity(item.product.id, Number(event.target.value))}
+                        />
+                        <span>{getResolvedSaleUnit(item.product.unidad_de_venta)}</span>
+                        <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity + (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)))} type="button">+</button>
+                      </div>
+                    </td>
+                    <td>
+                      {item.product.is_on_sale ? (
+                        <div className="price-stack">
+                          <span className="price-original">{currency(item.product.price)}</span>
+                          <strong>{currency(item.product.effective_price ?? item.product.price)}</strong>
+                        </div>
+                      ) : (
+                        currency(item.product.effective_price ?? item.product.price)
+                      )}
+                    </td>
+                    <td>{currency(Number(item.product.effective_price ?? item.product.price) * item.quantity)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1312,7 +1521,7 @@ export function SalesPage() {
                 <p>Beneficiario: {lastReceipt.bank_details.beneficiary || "-"}</p>
               </>
             ) : null}
-            {lastSaleItems.length ? <p>Productos: {lastSaleItems.map((item) => `${formatSaleQuantity(item.quantity, item.product.unidad_de_venta)} ${item.product.name}`).join(", ")}</p> : null}
+            {lastSaleItems.length ? <p>Productos: {lastSaleItems.map((item) => item.type === "kit" ? `${item.quantity} ${item.kit.name}` : `${formatSaleQuantity(item.quantity, item.product.unidad_de_venta)} ${item.product.name}`).join(", ")}</p> : null}
             {lastSale.payment_method === "credit" ? <p>Saldo pendiente: {currency(lastReceipt?.balance_due || 0)}</p> : null}
             {lastSale.sale_type === "invoice" && lastReceipt?.invoice_status ? <p>Estado factura: {lastReceipt.invoice_status}</p> : null}
             {lastSale.sale_type === "invoice" && lastReceipt?.stamp_status ? <p>Estado timbre: {lastReceipt.stamp_status}</p> : null}

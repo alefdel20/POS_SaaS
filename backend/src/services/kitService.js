@@ -256,7 +256,20 @@ async function listKits(businessId, { activeOnly = false, search = "" } = {}) {
 
   const { rows } = await pool.query(
     `SELECT pk.*,
-            COUNT(pki.id)::int AS item_count
+            COUNT(pki.id)::int AS item_count,
+            CASE
+              WHEN pk.price_mode = 'fixed' THEN pk.fixed_price
+              WHEN pk.price_mode = 'calculated' THEN (
+                SELECT ROUND(
+                  SUM(p.price * pki2.quantity) * (1 - pk.discount_pct / 100.0), -- precio base de componentes, sin descuentos activos
+                  2
+                )
+                FROM product_kit_items pki2
+                INNER JOIN products p ON p.id = pki2.product_id AND p.business_id = pki2.business_id
+                WHERE pki2.kit_id = pk.id AND pki2.business_id = pk.business_id
+              )
+              ELSE NULL
+            END AS effective_price
      FROM product_kits pk
      LEFT JOIN product_kit_items pki ON pki.kit_id = pk.id AND pki.business_id = pk.business_id
      ${whereClause}
@@ -265,7 +278,7 @@ async function listKits(businessId, { activeOnly = false, search = "" } = {}) {
     params
   );
 
-  return rows.map((r) => ({ ...mapKitRow(r), item_count: r.item_count }));
+  return rows.map((r) => ({ ...mapKitRow(r), item_count: r.item_count, effective_price: r.effective_price !== null ? Number(r.effective_price) : null }));
 }
 
 async function deleteKit(businessId, kitId) {
