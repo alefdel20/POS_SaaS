@@ -36,7 +36,22 @@ const createValidation = [
   body("invoice_data").optional().isObject(),
   body("prescription_id").optional({ values: "falsy" }).isInt(),
   body("items").isArray({ min: 1 }),
-  body("items.*.product_id").isInt(),
+  body("items.*.product_id").optional({ values: "falsy" }).isInt({ min: 1 }),
+  body("items.*.kit_id").optional({ values: "falsy" }).isInt({ min: 1 }),
+  body("items").custom((items) => {
+    if (!Array.isArray(items)) return true;
+    for (const item of items) {
+      const hasProduct = item.product_id !== undefined && item.product_id !== null && item.product_id !== "";
+      const hasKit = item.kit_id !== undefined && item.kit_id !== null && item.kit_id !== "";
+      if (!hasProduct && !hasKit) {
+        throw new Error("Cada item debe tener product_id o kit_id");
+      }
+      if (hasProduct && hasKit) {
+        throw new Error("Un item no puede tener product_id y kit_id al mismo tiempo");
+      }
+    }
+    return true;
+  }),
   body("items.*.quantity").isFloat({ gt: 0 }),
   body("items.*.unit_price").optional().isFloat({ min: 0, maxDecimalPlaces: 5 }),
   body("cart_discount_type").optional({ values: "falsy" }).isIn(["percentage", "fixed"]),
