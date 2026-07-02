@@ -4,6 +4,7 @@ const { getMexicoCityDate } = require("../utils/timezone");
 const { listRestockProducts } = require("./productService");
 const { normalizeRole } = require("../utils/roles");
 const { getProductUpdateRequestSummary } = require("./productUpdateRequestService");
+const { subjectTranslationJoin } = require("../utils/healthcareSubjectTranslation");
 
 const VALID_SALE_STATUS_SQL = "COALESCE(sales.status, 'completed') <> 'cancelled'";
 
@@ -141,6 +142,8 @@ async function getSummary(actor) {
     return summaryPayload;
   }
 
+  const preventiveEventsSubjectJoin = subjectTranslationJoin({ alias: "hpe" });
+
   const [appointmentsToday, recentPatients, duePreventive, recentPrescriptions, pendingClinicalReminders] = await Promise.all([
     pool.query(
       `SELECT ma.id, ma.appointment_date, ma.start_time, ma.area, p.name AS patient_name
@@ -164,12 +167,20 @@ async function getSummary(actor) {
       [businessId]
     ),
     pool.query(
-      `SELECT id, patient_id, event_type, product_name_snapshot, next_due_date
-       FROM medical_preventive_events
-       WHERE business_id = $1
-         AND status <> 'cancelled'
-         AND next_due_date >= $2::date
-       ORDER BY next_due_date ASC
+      // medical_preventive_events was cut over to healthcare.preventive_events
+      // (Fase 2) — patient_id here is translated back to public.patients.id via
+      // source_patient_id so this keeps returning the same shape the frontend
+      // type (DashboardSummary.clinical.upcoming_preventive_events) expects,
+      // even though nothing in the UI reads this field today.
+      `SELECT hpe.id, ${preventiveEventsSubjectJoin.sourcePatientIdExpr} AS patient_id, hpe.event_type,
+              COALESCE(hpe.metadata->>'product_name_snapshot', '') AS product_name_snapshot,
+              hpe.next_due_date
+       FROM healthcare.preventive_events hpe
+       ${preventiveEventsSubjectJoin.joins}
+       WHERE hpe.business_id = $1
+         AND hpe.status <> 'cancelled'
+         AND hpe.next_due_date >= $2::date
+       ORDER BY hpe.next_due_date ASC
        LIMIT 8`,
       [businessId, today]
     ),

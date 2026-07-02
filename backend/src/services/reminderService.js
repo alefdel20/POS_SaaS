@@ -1,5 +1,6 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
+const { subjectTranslationJoin } = require("../utils/healthcareSubjectTranslation");
 const { n8nWebhookUrl } = require("../config/env");
 const { getReminderContext } = require("./creditCollectionService");
 const { emitActorAutomationEvent } = require("./automationEventService");
@@ -657,14 +658,22 @@ async function ensureAutomaticReminders(actor) {
 
   await syncConsolidatedLowStockReminder(lowStockRows.rows, actor);
 
+  // medical_preventive_events was cut over to healthcare.preventive_events
+  // (Fase 2) — same translation dashboardService.js uses for its dashboard
+  // widget query.
+  const preventiveEventsSubjectJoin = subjectTranslationJoin({ alias: "hpe" });
+
   const [preventiveRows, appointmentRows] = await Promise.all([
     pool.query(
-      `SELECT mpe.id, mpe.patient_id, mpe.event_type, mpe.product_name_snapshot, mpe.next_due_date, p.name AS patient_name
-       FROM medical_preventive_events mpe
-       INNER JOIN patients p ON p.id = mpe.patient_id AND p.business_id = mpe.business_id
-       WHERE mpe.business_id = $1
-         AND mpe.status <> 'cancelled'
-         AND mpe.next_due_date BETWEEN $2::date AND $3::date`,
+      `SELECT hpe.id, hpe.source_event_id, ${preventiveEventsSubjectJoin.sourcePatientIdExpr} AS patient_id,
+              hpe.event_type, COALESCE(hpe.metadata->>'product_name_snapshot', '') AS product_name_snapshot,
+              hpe.next_due_date, p.name AS patient_name
+       FROM healthcare.preventive_events hpe
+       ${preventiveEventsSubjectJoin.joins}
+       INNER JOIN patients p ON p.id = ${preventiveEventsSubjectJoin.sourcePatientIdExpr} AND p.business_id = hpe.business_id
+       WHERE hpe.business_id = $1
+         AND hpe.status <> 'cancelled'
+         AND hpe.next_due_date BETWEEN $2::date AND $3::date`,
       [businessId, today, upcomingDate]
     ),
     pool.query(
@@ -680,15 +689,19 @@ async function ensureAutomaticReminders(actor) {
   ]);
 
   for (const event of preventiveRows.rows) {
+    // Must match the source_key healthcarePreventiveEventService.syncPreventiveReminder
+    // computes for the same event, or this cron creates a second, orphaned
+    // reminder instead of upserting the one the CRUD flow manages.
+    const legacyEventId = event.source_event_id || event.id;
     await upsertAutomaticReminder({
-      source_key: `auto:clinical:${businessId}:preventive:${event.id}`,
+      source_key: `auto:clinical:${businessId}:preventive:${legacyEventId}`,
       title: `${event.event_type === "vaccination" ? "Vacuna" : "Desparasitacion"} proxima: ${event.patient_name}`,
       notes: `${event.product_name_snapshot || "Evento preventivo"} programado para ${event.next_due_date}.`,
       due_date: event.next_due_date,
       reminder_type: event.event_type,
       category: "clinical",
       patient_id: event.patient_id,
-      metadata: { preventive_event_id: event.id, event_type: event.event_type }
+      metadata: { preventive_event_id: legacyEventId, event_type: event.event_type }
     }, actor);
   }
 

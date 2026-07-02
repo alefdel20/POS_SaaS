@@ -4,14 +4,15 @@ const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { saveAuditLog } = require("./auditLogService");
 const { resolveStoredBusinessAssetAbsolutePath } = require("../utils/businessAssets");
-const { upsertAutomaticReminder, removeAutomaticReminder, cancelAutomaticReminder } = require("./reminderService");
+const { upsertAutomaticReminder, cancelAutomaticReminder } = require("./reminderService");
 const { hidesAesthetics, usesHumanPatientsOnly } = require("../utils/business");
 const { normalizeRole } = require("../utils/roles");
-const {
-  normalizePrescriptionStatus,
-  normalizePreventiveEventStatus,
-  normalizePreventiveEventType
-} = require("../utils/domainEnums");
+const { normalizePrescriptionStatus } = require("../utils/domainEnums");
+// medical_preventive_events was cut over to healthcare.preventive_events (Fase 2
+// pilot) — listPreventiveEvents below now delegates to that service instead of
+// querying public.medical_preventive_events directly. See
+// healthcarePreventiveEventService.js for the write path (create/update/status).
+const healthcarePreventiveEventService = require("./healthcarePreventiveEventService");
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -81,11 +82,6 @@ function mapAppointment(row) {
     doctor_user_id: row.doctor_user_id ? Number(row.doctor_user_id) : null,
     is_active: Boolean(row.is_active)
   };
-}
-
-function mapPreventiveEvent(row) {
-  if (!row) return null;
-  return row;
 }
 
 function mapPrescriptionItem(row) {
@@ -240,21 +236,6 @@ async function getOwnedPrescription(id, actor, client = pool) {
   );
   const owned = rows[0];
   if (!owned) throw new ApiError(404, "Prescription not found");
-  return owned;
-}
-
-async function getOwnedPreventiveEvent(id, actor, client = pool) {
-  const businessId = requireActorBusinessId(actor);
-  const { rows } = await client.query(
-    `SELECT mpe.*,
-            p.name AS patient_name
-     FROM medical_preventive_events mpe
-     INNER JOIN patients p ON p.id = mpe.patient_id AND p.business_id = mpe.business_id
-     WHERE mpe.id = $1 AND mpe.business_id = $2`,
-    [id, businessId]
-  );
-  const owned = rows[0];
-  if (!owned) throw new ApiError(404, "Preventive event not found");
   return owned;
 }
 
@@ -472,31 +453,6 @@ function buildPatientPayload(payload = {}) {
     allergies: normalizeText(payload.allergies),
     notes: normalizeText(payload.notes),
     is_active: normalizeBooleanFlag(payload.is_active, true)
-  };
-}
-
-function buildPreventiveEventPayload(payload = {}) {
-  const patientId = Number(payload.patient_id);
-  const productId = payload.product_id ? Number(payload.product_id) : null;
-  const eventType = normalizePreventiveEventType(payload.event_type);
-  const productNameSnapshot = normalizeText(payload.product_name_snapshot);
-  const status = normalizePreventiveEventStatus(payload.status || "completed");
-
-  if (!Number.isInteger(patientId) || patientId <= 0) throw new ApiError(400, "Patient is required");
-  if (productId !== null && (!Number.isInteger(productId) || productId <= 0)) throw new ApiError(400, "Product is invalid");
-  if (!eventType) throw new ApiError(400, "Preventive event type is invalid");
-  if (!status) throw new ApiError(400, "Preventive event status is invalid");
-
-  return {
-    patient_id: patientId,
-    event_type: eventType,
-    product_id: productId,
-    product_name_snapshot: productNameSnapshot,
-    dose: normalizeNullableText(payload.dose || payload.application),
-    date_administered: normalizeDateValue(payload.date_administered),
-    next_due_date: normalizeDateValue(payload.next_due_date),
-    status,
-    notes: normalizeText(payload.notes)
   };
 }
 
@@ -1391,166 +1347,11 @@ async function setPrescriptionStatus(id, status, actor) {
   }
 }
 
-async function syncPreventiveReminder(event, actor, client = pool) {
-  if (!event.next_due_date || event.status === "cancelled") {
-    await removeAutomaticReminder(`auto:clinical:${requireActorBusinessId(actor)}:preventive:${event.id}`, actor, client);
-    return null;
-  }
-
-  return upsertAutomaticReminder({
-    source_key: `auto:clinical:${requireActorBusinessId(actor)}:preventive:${event.id}`,
-    title: `${event.event_type === "vaccination" ? "Vacuna" : "Desparasitacion"} proxima: ${event.patient_name || "Paciente"}`,
-    notes: `${event.product_name_snapshot || "Evento preventivo"} programado para ${event.next_due_date}.`,
-    due_date: event.next_due_date,
-    reminder_type: event.event_type,
-    category: "clinical",
-    patient_id: event.patient_id,
-    metadata: { preventive_event_id: event.id, event_type: event.event_type }
-  }, actor, { client });
-}
-
+// Thin delegation kept only because getPatientDetail/getClinicalHistory below
+// call this internally. The controller (medicalPreventiveEventController.js)
+// talks to healthcarePreventiveEventService directly, not through here.
 async function listPreventiveEvents(filters = {}, actor) {
-  const businessId = requireActorBusinessId(actor);
-  const params = [businessId];
-  const conditions = ["mpe.business_id = $1"];
-
-  if (filters.patient_id) {
-    params.push(Number(filters.patient_id));
-    conditions.push(`mpe.patient_id = $${params.length}`);
-  }
-
-  if (filters.event_type) {
-    const normalizedEventType = normalizePreventiveEventType(filters.event_type);
-    if (!normalizedEventType) {
-      throw new ApiError(400, "Preventive event type is invalid");
-    }
-    params.push(normalizedEventType);
-    conditions.push(`mpe.event_type = $${params.length}`);
-  }
-
-  const { rows } = await pool.query(
-    `SELECT mpe.*,
-            p.name AS patient_name,
-            c.name AS client_name
-     FROM medical_preventive_events mpe
-     INNER JOIN patients p ON p.id = mpe.patient_id AND p.business_id = mpe.business_id
-     LEFT JOIN clients c ON c.id = p.client_id AND c.business_id = mpe.business_id
-     WHERE ${conditions.join(" AND ")}
-     ORDER BY COALESCE(mpe.date_administered, mpe.next_due_date) DESC NULLS LAST, mpe.id DESC`,
-    params
-  );
-
-  return rows.map(mapPreventiveEvent);
-}
-
-async function createPreventiveEvent(payload, actor) {
-  const businessId = requireActorBusinessId(actor);
-  const data = buildPreventiveEventPayload(payload);
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-    await getOwnedPatient(data.patient_id, actor, client);
-    let productNameSnapshot = data.product_name_snapshot;
-    if (data.product_id) {
-      const { rows: productRows } = await client.query(
-        "SELECT id, name FROM products WHERE id = $1 AND business_id = $2",
-        [data.product_id, businessId]
-      );
-      if (!productRows[0]) throw new ApiError(404, "Product not found");
-      productNameSnapshot = productNameSnapshot || productRows[0].name;
-    }
-
-    const { rows } = await client.query(
-      `INSERT INTO medical_preventive_events (
-        business_id, patient_id, event_type, product_id, product_name_snapshot, dose, date_administered, next_due_date, status, notes, created_by, updated_by
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
-      RETURNING *`,
-      [businessId, data.patient_id, data.event_type, data.product_id, productNameSnapshot, data.dose, data.date_administered, data.next_due_date, data.status, data.notes, actor.id]
-    );
-
-    const event = { ...(await getOwnedPreventiveEvent(rows[0].id, actor, client)), product_name_snapshot: productNameSnapshot };
-    await syncPreventiveReminder(event, actor, client);
-    await saveAuditLog({
-      business_id: businessId,
-      usuario_id: actor.id,
-      modulo: "clinical",
-      accion: `create_${data.event_type}`,
-      entidad_tipo: "medical_preventive_event",
-      entidad_id: rows[0].id,
-      detalle_nuevo: { snapshot: event },
-      metadata: { patient_id: data.patient_id, event_type: data.event_type }
-    }, { client });
-
-    await client.query("COMMIT");
-    return mapPreventiveEvent(event);
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-async function updatePreventiveEvent(id, payload, actor) {
-  const current = mapPreventiveEvent(await getOwnedPreventiveEvent(id, actor));
-  const data = buildPreventiveEventPayload({ ...current, ...payload });
-  const businessId = requireActorBusinessId(actor);
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-    await getOwnedPatient(data.patient_id, actor, client);
-    let productNameSnapshot = data.product_name_snapshot || current.product_name_snapshot;
-    if (data.product_id) {
-      const { rows: productRows } = await client.query(
-        "SELECT id, name FROM products WHERE id = $1 AND business_id = $2",
-        [data.product_id, businessId]
-      );
-      if (!productRows[0]) throw new ApiError(404, "Product not found");
-      productNameSnapshot = data.product_name_snapshot || productRows[0].name;
-    }
-
-    await client.query(
-      `UPDATE medical_preventive_events
-       SET patient_id = $1,
-           event_type = $2,
-           product_id = $3,
-           product_name_snapshot = $4,
-           dose = $5,
-           date_administered = $6,
-           next_due_date = $7,
-           status = $8,
-           notes = $9,
-           updated_by = $10,
-           updated_at = NOW()
-       WHERE id = $11 AND business_id = $12`,
-      [data.patient_id, data.event_type, data.product_id, productNameSnapshot, data.dose, data.date_administered, data.next_due_date, data.status, data.notes, actor.id, id, businessId]
-    );
-
-    const event = await getOwnedPreventiveEvent(id, actor, client);
-    await syncPreventiveReminder(event, actor, client);
-    await saveAuditLog({
-      business_id: businessId,
-      usuario_id: actor.id,
-      modulo: "clinical",
-      accion: `update_${data.event_type}`,
-      entidad_tipo: "medical_preventive_event",
-      entidad_id: id,
-      detalle_anterior: { snapshot: current },
-      detalle_nuevo: { snapshot: event },
-      metadata: { patient_id: data.patient_id, event_type: data.event_type }
-    }, { client });
-
-    await client.query("COMMIT");
-    return mapPreventiveEvent(event);
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  return healthcarePreventiveEventService.listPreventiveEvents(filters, actor);
 }
 
 async function listAppointments(filters = {}, actor) {
@@ -2279,9 +2080,6 @@ module.exports = {
   updatePrescription,
   setPrescriptionStatus,
   exportPrescriptionPdf,
-  listPreventiveEvents,
-  createPreventiveEvent,
-  updatePreventiveEvent,
   listAppointments,
   listDoctors,
   getAppointmentDetail,

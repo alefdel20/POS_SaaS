@@ -1,7 +1,7 @@
 const { body, param, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
-const clinicalService = require("../services/clinicalService");
+const healthcarePreventiveEventService = require("../services/healthcarePreventiveEventService");
 const { PREVENTIVE_EVENT_STATUSES, PREVENTIVE_EVENT_TYPES } = require("../utils/domainEnums");
 
 const listValidation = [
@@ -28,23 +28,46 @@ const updateValidation = [
   ...createValidation
 ];
 
+const idValidation = [
+  param("id").isInt(),
+  validateRequest
+];
+
+const statusValidation = [
+  param("id").isInt(),
+  body("status").isIn(PREVENTIVE_EVENT_STATUSES),
+  validateRequest
+];
+
 const listPreventiveEvents = asyncHandler(async (req, res) => {
-  res.json(await clinicalService.listPreventiveEvents(req.query, req.user));
+  res.json(await healthcarePreventiveEventService.listPreventiveEvents(req.query, req.user));
+});
+
+const getPreventiveEventDetail = asyncHandler(async (req, res) => {
+  res.json(await healthcarePreventiveEventService.getPreventiveEventDetail(Number(req.params.id), req.user));
 });
 
 const createPreventiveEvent = asyncHandler(async (req, res) => {
-  res.status(201).json(await clinicalService.createPreventiveEvent(req.body, req.user));
+  res.status(201).json(await healthcarePreventiveEventService.createPreventiveEvent(req.body, req.user));
 });
 
 const updatePreventiveEvent = asyncHandler(async (req, res) => {
-  res.json(await clinicalService.updatePreventiveEvent(Number(req.params.id), req.body, req.user));
+  res.json(await healthcarePreventiveEventService.updatePreventiveEvent(Number(req.params.id), req.body, req.user));
+});
+
+const updatePreventiveEventStatus = asyncHandler(async (req, res) => {
+  res.json(await healthcarePreventiveEventService.setPreventiveEventStatus(Number(req.params.id), req.body.status, req.user));
 });
 
 module.exports = {
   listValidation,
   createValidation,
   updateValidation,
+  idValidation,
+  statusValidation,
   listPreventiveEvents,
+  getPreventiveEventDetail,
   createPreventiveEvent,
-  updatePreventiveEvent
+  updatePreventiveEvent,
+  updatePreventiveEventStatus
 };

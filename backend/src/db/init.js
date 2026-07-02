@@ -2271,7 +2271,11 @@ async function ensureHealthcareStructuralSync(client) {
     "ALTER TABLE healthcare.clinical_encounters ADD COLUMN IF NOT EXISTS owner_id BIGINT",
     "CREATE INDEX IF NOT EXISTS idx_healthcare_clinical_encounters_owner ON healthcare.clinical_encounters (business_id, owner_id)",
     "ALTER TABLE healthcare.prescriptions ADD COLUMN IF NOT EXISTS owner_id BIGINT",
-    "CREATE INDEX IF NOT EXISTS idx_healthcare_prescriptions_owner ON healthcare.prescriptions (business_id, owner_id)"
+    "CREATE INDEX IF NOT EXISTS idx_healthcare_prescriptions_owner ON healthcare.prescriptions (business_id, owner_id)",
+
+    // Migration 43 — healthcare.preventive_events.date_administered becomes
+    // nullable (a "scheduled" event has no application date yet, only next_due_date)
+    "ALTER TABLE healthcare.preventive_events ALTER COLUMN date_administered DROP NOT NULL"
   ]);
 
   // Migration 42 — backfill credit_limit/credit_days from metadata (saved there by
