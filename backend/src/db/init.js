@@ -2217,6 +2217,134 @@ async function ensureConstraints(client) {
   ]);
 }
 
+// Structural DDL for the healthcare vertical (schema itself created by
+// infra/postgres/14-healthcare-modular-expansion.sql and
+// infra/postgres/33-healthcare-appointments-preventive.sql, run manually via
+// docker exec/psql — NOT by this file). This function only replicates the
+// ALTER TABLE / CREATE INDEX changes applied by migrations 37-40 (data
+// backfill already run in staging), so that re-running ensureSchema against
+// the SAME database does not drift. Migrations 14/33/34/35/36 predate this
+// sync and are still not reflected in init.js — see commit notes for that gap.
+//
+// Everything here is gated on the healthcare schema already existing: on a
+// genuinely fresh/schema-less database (no environment currently boots this
+// way — staging and production both already have the healthcare schema —
+// but this keeps a clean bootstrap from hard-failing the single BEGIN/COMMIT
+// that wraps ensureDatabaseCompatibility) this function is a no-op instead of
+// throwing on the first ALTER TABLE against a table that does not exist yet.
+async function ensureHealthcareStructuralSync(client) {
+  const { rows } = await client.query(
+    "SELECT 1 FROM information_schema.schemata WHERE schema_name = 'healthcare'"
+  );
+
+  if (!rows.length) {
+    console.info("[DB-COMPAT] healthcare schema not present — skipping healthcare structural sync (migrations 37-40)");
+    return;
+  }
+
+  await run(client, [
+    // Migration 37 — public.appointments -> healthcare.appointments
+    "ALTER TABLE healthcare.appointments ADD COLUMN IF NOT EXISTS source_appointment_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_hc_appointments_source_appointment_id ON healthcare.appointments (source_appointment_id, business_id)",
+
+    // Migration 38 — public.medical_preventive_events -> healthcare.preventive_events
+    "ALTER TABLE healthcare.preventive_events ADD COLUMN IF NOT EXISTS source_event_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_hc_preventive_events_source_event_id ON healthcare.preventive_events (source_event_id, business_id)",
+
+    // Migration 39 — public.consultations -> healthcare.clinical_encounters / healthcare.veterinary_encounters
+    "ALTER TABLE healthcare.clinical_encounters ADD COLUMN IF NOT EXISTS source_consultation_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_hc_clinical_encounters_source_consultation_id ON healthcare.clinical_encounters (source_consultation_id, business_id)",
+    "ALTER TABLE healthcare.veterinary_encounters ADD COLUMN IF NOT EXISTS source_consultation_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_hc_veterinary_encounters_source_consultation_id ON healthcare.veterinary_encounters (source_consultation_id, business_id)",
+
+    // Migration 40 — public.medical_prescriptions / medical_prescription_items -> healthcare.prescriptions / prescription_items
+    "ALTER TABLE healthcare.prescriptions ADD COLUMN IF NOT EXISTS source_prescription_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_hc_prescriptions_source_prescription_id ON healthcare.prescriptions (source_prescription_id, business_id)",
+    "ALTER TABLE healthcare.prescription_items ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE healthcare.prescription_items ADD COLUMN IF NOT EXISTS source_prescription_item_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_hc_prescription_items_source_prescription_item_id ON healthcare.prescription_items (source_prescription_item_id, business_id)"
+  ]);
+
+  // Migration 39, section 1b — healthcare.appointments.resulting_encounter_id had
+  // a single FK pointing only at healthcare.veterinary_encounters (gap from
+  // migration 33; Postgres cannot express a polymorphic FK to either
+  // clinical_encounters or veterinary_encounters depending on subject_type).
+  // Drop that FK and replace it with a validation trigger. Body copied verbatim
+  // from infra/postgres/39-migrate-consultations-to-encounters.sql section 1b.
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_healthcare_appointments_encounter'
+          AND conrelid = 'healthcare.appointments'::regclass
+      ) THEN
+        ALTER TABLE healthcare.appointments
+          DROP CONSTRAINT fk_healthcare_appointments_encounter;
+      END IF;
+    END $$;
+    `
+  );
+
+  await execQuery(
+    client,
+    `
+    CREATE OR REPLACE FUNCTION healthcare.validate_appointment_resulting_encounter()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NEW.resulting_encounter_id IS NULL THEN
+        RETURN NEW;
+      END IF;
+
+      IF NEW.subject_type = 'human' THEN
+        IF NOT EXISTS (
+          SELECT 1 FROM healthcare.clinical_encounters
+          WHERE id = NEW.resulting_encounter_id AND business_id = NEW.business_id
+        ) THEN
+          RAISE EXCEPTION
+            'resulting_encounter_id % not found in healthcare.clinical_encounters for business_id % (appointment subject_type = human)',
+            NEW.resulting_encounter_id, NEW.business_id;
+        END IF;
+      ELSIF NEW.subject_type = 'pet' THEN
+        IF NOT EXISTS (
+          SELECT 1 FROM healthcare.veterinary_encounters
+          WHERE id = NEW.resulting_encounter_id AND business_id = NEW.business_id
+        ) THEN
+          RAISE EXCEPTION
+            'resulting_encounter_id % not found in healthcare.veterinary_encounters for business_id % (appointment subject_type = pet)',
+            NEW.resulting_encounter_id, NEW.business_id;
+        END IF;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$;
+    `
+  );
+
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgname = 'trg_appointments_validate_resulting_encounter'
+      ) THEN
+        CREATE TRIGGER trg_appointments_validate_resulting_encounter
+          BEFORE INSERT OR UPDATE OF resulting_encounter_id, subject_type ON healthcare.appointments
+          FOR EACH ROW
+          EXECUTE FUNCTION healthcare.validate_appointment_resulting_encounter();
+      END IF;
+    END $$;
+    `
+  );
+}
+
 async function ensureSupportUsers(client) {
   const { rows } = await execQuery(
     client,
@@ -2296,6 +2424,9 @@ async function ensureDatabaseCompatibility() {
 
     console.info("[DB-COMPAT] ensureConstraints");
     await ensureConstraints(client);
+
+    console.info("[DB-COMPAT] ensureHealthcareStructuralSync");
+    await ensureHealthcareStructuralSync(client);
 
     console.info("[DB-COMPAT] ensureSupportUsers");
     await ensureSupportUsers(client);
