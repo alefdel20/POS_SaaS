@@ -2221,7 +2221,7 @@ async function ensureConstraints(client) {
 // infra/postgres/14-healthcare-modular-expansion.sql and
 // infra/postgres/33-healthcare-appointments-preventive.sql, run manually via
 // docker exec/psql — NOT by this file). This function only replicates the
-// ALTER TABLE / CREATE INDEX changes applied by migrations 37-40 (data
+// ALTER TABLE / CREATE INDEX changes applied by migrations 37-40 and 42 (data
 // backfill already run in staging), so that re-running ensureSchema against
 // the SAME database does not drift. Migrations 14/33/34/35/36 predate this
 // sync and are still not reflected in init.js — see commit notes for that gap.
@@ -2262,8 +2262,66 @@ async function ensureHealthcareStructuralSync(client) {
     "CREATE INDEX IF NOT EXISTS idx_hc_prescriptions_source_prescription_id ON healthcare.prescriptions (source_prescription_id, business_id)",
     "ALTER TABLE healthcare.prescription_items ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
     "ALTER TABLE healthcare.prescription_items ADD COLUMN IF NOT EXISTS source_prescription_item_id INTEGER",
-    "CREATE INDEX IF NOT EXISTS idx_hc_prescription_items_source_prescription_item_id ON healthcare.prescription_items (source_prescription_item_id, business_id)"
+    "CREATE INDEX IF NOT EXISTS idx_hc_prescription_items_source_prescription_item_id ON healthcare.prescription_items (source_prescription_item_id, business_id)",
+
+    // Migration 42 — Fase 0 prep: credit_limit/credit_days real columns + owner_id
+    // (per-visit responsible party) on the human side of clinical_encounters/prescriptions
+    "ALTER TABLE healthcare.pet_owners ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(12,2) DEFAULT NULL",
+    "ALTER TABLE healthcare.pet_owners ADD COLUMN IF NOT EXISTS credit_days INTEGER DEFAULT 30",
+    "ALTER TABLE healthcare.clinical_encounters ADD COLUMN IF NOT EXISTS owner_id BIGINT",
+    "CREATE INDEX IF NOT EXISTS idx_healthcare_clinical_encounters_owner ON healthcare.clinical_encounters (business_id, owner_id)",
+    "ALTER TABLE healthcare.prescriptions ADD COLUMN IF NOT EXISTS owner_id BIGINT",
+    "CREATE INDEX IF NOT EXISTS idx_healthcare_prescriptions_owner ON healthcare.prescriptions (business_id, owner_id)"
   ]);
+
+  // Migration 42 — backfill credit_limit/credit_days from metadata (saved there by
+  // migration 34) and mark each row so a re-run does not clobber later manual edits.
+  // Body copied verbatim from infra/postgres/42-healthcare-schema-fase0-prep.sql section 1.
+  await execQuery(
+    client,
+    `
+    UPDATE healthcare.pet_owners
+    SET
+      credit_limit = NULLIF(metadata->>'credit_limit', '')::NUMERIC(12,2),
+      credit_days  = COALESCE(NULLIF(metadata->>'credit_days', '')::INTEGER, 30),
+      metadata     = metadata || jsonb_build_object('credit_backfilled_at', NOW()::text)
+    WHERE metadata ? 'credit_limit'
+      AND NOT (metadata ? 'credit_backfilled_at');
+    `
+  );
+
+  // Migration 42 — FK guards for the new owner_id columns. ADD CONSTRAINT has no
+  // IF NOT EXISTS form in Postgres, so this mirrors the DO $$ guard pattern already
+  // used for the migration 33/14 FK sections above.
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_healthcare_clinical_encounters_owner'
+          AND conrelid = 'healthcare.clinical_encounters'::regclass
+      ) THEN
+        ALTER TABLE healthcare.clinical_encounters
+          ADD CONSTRAINT fk_healthcare_clinical_encounters_owner
+          FOREIGN KEY (owner_id, business_id)
+          REFERENCES healthcare.pet_owners (id, business_id);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_healthcare_prescriptions_owner'
+          AND conrelid = 'healthcare.prescriptions'::regclass
+      ) THEN
+        ALTER TABLE healthcare.prescriptions
+          ADD CONSTRAINT fk_healthcare_prescriptions_owner
+          FOREIGN KEY (owner_id, business_id)
+          REFERENCES healthcare.pet_owners (id, business_id);
+      END IF;
+    END $$;
+    `
+  );
 
   // Migration 39, section 1b — healthcare.appointments.resulting_encounter_id had
   // a single FK pointing only at healthcare.veterinary_encounters (gap from

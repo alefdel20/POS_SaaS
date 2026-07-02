@@ -810,6 +810,7 @@ async function getPatientDetail(id, actor) {
     `SELECT
        p.id,
        p.business_id,
+       p.client_id,
        p.phone,
        p.name,
        p.species,
@@ -2095,7 +2096,7 @@ async function exportClinicalHistoryPdf(filters = {}, actor) {
   }
 
   const patient = await getPatientDetail(Number(history.filters.patient_id), actor);
-  const client = await getClientDetail(Number(patient.client_id), actor);
+  const client = patient.client_id ? await getClientDetail(Number(patient.client_id), actor) : null;
   const business = await getBusinessProfile(actor);
 
   const document = new PDFDocument({ margin: 36 });
@@ -2124,9 +2125,13 @@ async function exportClinicalHistoryPdf(filters = {}, actor) {
   }
   document.moveDown();
   document.text(`Paciente: ${patient.name}`);
-  document.text(`Cliente / Responsable: ${client.name}`);
-  document.text(`Telefono cliente: ${client.phone || "-"}`);
-  document.text(`Correo cliente: ${client.email || "-"}`);
+  if (client) {
+    document.text(`Cliente / Responsable: ${client.name}`);
+    document.text(`Telefono cliente: ${client.phone || "-"}`);
+    document.text(`Correo cliente: ${client.email || "-"}`);
+  } else {
+    document.text("Cliente / Responsable: Sin responsable asignado");
+  }
   if (patient.species || patient.breed) {
     document.text(`Especie / Raza: ${patient.species || "-"} / ${patient.breed || "-"}`);
   }
