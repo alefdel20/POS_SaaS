@@ -53,7 +53,8 @@
       "PowerShell(Test-NetConnection *)",
       "PowerShell(try { \\(Get-Command psql -ErrorAction Stop\\).Source } catch { \"psql not found\" }; try { \\(Get-Command pgcli -ErrorAction Stop\\).Source } catch { \"pgcli not found\" })",
       "PowerShell(try { \\(Get-Command ssh -ErrorAction Stop\\).Source } catch { \"ssh not found\" })",
-      "Bash(ssh *)"
+      "Bash(ssh *)",
+      "Bash(cp *)"
     ]
   }
 }
