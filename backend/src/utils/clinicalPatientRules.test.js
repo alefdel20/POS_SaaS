@@ -128,6 +128,76 @@ test("clinicalService.updatePatient: omitting species entirely never trips the g
   assert.ok(mock.calls.find((c) => /^UPDATE patients\b/i.test(c.sql.trim())));
 });
 
+// --- Fase 2: updatePatient/updateClient now sync the healthcare.* mirror too --
+
+test("clinicalService.updatePatient: syncs the healthcare.pets mirror after the UPDATE, inside the same transaction, before COMMIT", async () => {
+  const mock = createPatientsMock({
+    currentPatientRow: basePatientRow({ name: "Firulais", species: "Perro", breed: "Labrador" })
+  });
+  pool.query = mock.query;
+  pool.connect = mock.connect;
+
+  await clinicalService.updatePatient(900, { breed: "Labrador Retriever" }, ACTOR);
+
+  const beginIndex = mock.calls.findIndex((c) => /^BEGIN$/i.test(c.sql.trim()));
+  const updateIndex = mock.calls.findIndex((c) => /^UPDATE patients\b/i.test(c.sql.trim()));
+  const syncIndex = mock.calls.findIndex((c) => /^(UPDATE|INSERT INTO) healthcare\.pets\b/i.test(c.sql.replace(/\s+/g, " ").trim()));
+  const commitIndex = mock.calls.findIndex((c) => /^COMMIT$/i.test(c.sql.trim()));
+
+  assert.ok(beginIndex !== -1 && updateIndex !== -1 && syncIndex !== -1 && commitIndex !== -1);
+  assert.ok(beginIndex < updateIndex && updateIndex < syncIndex && syncIndex < commitIndex);
+});
+
+test("clinicalService.updatePatient: a human patient syncs healthcare.patients, never healthcare.pets", async () => {
+  const mock = createPatientsMock({
+    currentPatientRow: basePatientRow({ name: "Jose Perez", species: null })
+  });
+  pool.query = mock.query;
+  pool.connect = mock.connect;
+
+  await clinicalService.updatePatient(900, { phone: "5511112222" }, ACTOR);
+
+  assert.ok(mock.calls.find((c) => /^(UPDATE|INSERT INTO) healthcare\.patients\b/i.test(c.sql.replace(/\s+/g, " ").trim())));
+  assert.equal(mock.calls.find((c) => /^(UPDATE|INSERT INTO) healthcare\.pets\b/i.test(c.sql.replace(/\s+/g, " ").trim())), undefined);
+});
+
+function createClinicalClientMock({ currentClientRow }) {
+  const calls = [];
+  async function query(sqlText, params = []) {
+    const sql = String(sqlText);
+    calls.push({ sql, params });
+    const normalized = sql.replace(/\s+/g, " ").trim();
+
+    if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(normalized)) return { rows: [] };
+    if (/^SELECT \*\s*FROM clients/i.test(normalized)) return { rows: [currentClientRow] };
+    if (/^UPDATE clients\b/i.test(normalized)) {
+      const [name, email, phone, tax_id, address, notes, is_active, updated_by] = params;
+      return { rows: [{ ...currentClientRow, name, email, phone, tax_id, address, notes, is_active, updated_by }] };
+    }
+    if (/^INSERT INTO audit_logs\b/i.test(normalized)) return { rows: [{ id: 9999 }] };
+    return { rows: [] };
+  }
+  return { calls, query, connect: async () => ({ query, release: () => {} }) };
+}
+
+test("clinicalService.updateClient: syncs the healthcare.pet_owners mirror after the UPDATE, inside the same transaction, before COMMIT", async () => {
+  const mock = createClinicalClientMock({
+    currentClientRow: { id: 55, business_id: 7, name: "Ana Reyes", email: null, phone: null, tax_id: null, address: "", notes: "", is_active: true }
+  });
+  pool.query = mock.query;
+  pool.connect = mock.connect;
+
+  await clinicalService.updateClient(55, { name: "Ana Reyes Gomez" }, ACTOR);
+
+  const beginIndex = mock.calls.findIndex((c) => /^BEGIN$/i.test(c.sql.trim()));
+  const updateIndex = mock.calls.findIndex((c) => /^UPDATE clients\b/i.test(c.sql.trim()));
+  const syncIndex = mock.calls.findIndex((c) => /^(UPDATE|INSERT INTO) healthcare\.pet_owners\b/i.test(c.sql.replace(/\s+/g, " ").trim()));
+  const commitIndex = mock.calls.findIndex((c) => /^COMMIT$/i.test(c.sql.trim()));
+
+  assert.ok(beginIndex !== -1 && updateIndex !== -1 && syncIndex !== -1 && commitIndex !== -1);
+  assert.ok(beginIndex < updateIndex && updateIndex < syncIndex && syncIndex < commitIndex);
+});
+
 // --- clients soft-delete unification (deleted_at -> is_active) --------------
 
 test("clientService.softDeleteClient: sets is_active = FALSE alongside deleted_at", async () => {
@@ -213,23 +283,79 @@ test("clientService.findOrCreateClient: an is_active = FALSE client is never mat
   assert.match(selectCall.sql, /is_active\s*=\s*TRUE/i);
 });
 
-test("clientService.updateClient: passing is_active reactivates; omitting it preserves the current value via COALESCE", async () => {
+// clientService.updateClient runs inside a transaction as of Fase 2 (so the
+// healthcare.pet_owners sync below can roll back together with the UPDATE) —
+// the mock needs pool.connect now, not just pool.query.
+function createCatalogClientUpdateMock({ updatedRow }) {
   const calls = [];
   async function query(sqlText, params = []) {
-    calls.push({ sql: String(sqlText), params });
-    if (/^UPDATE clients\b/i.test(String(sqlText).replace(/\s+/g, " ").trim())) {
-      return { rows: [{ id: 55, is_active: true }] };
+    const sql = String(sqlText);
+    calls.push({ sql, params });
+    const normalized = sql.replace(/\s+/g, " ").trim();
+    if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(normalized)) return { rows: [] };
+    if (/^UPDATE clients\b/i.test(normalized)) {
+      return { rows: [{ ...updatedRow, name: params[0], phone: params[1], email: params[2], notes: params[3], is_active: params[4] ?? updatedRow.is_active }] };
+    }
+    if (/^UPDATE healthcare\.pet_owners\b/i.test(normalized)) {
+      return { rows: [] }; // no existing mirror -> forces the auto-heal INSERT branch
+    }
+    if (/^INSERT INTO healthcare\.pet_owners\b/i.test(normalized)) {
+      return { rows: [{ id: 8001 }] };
     }
     return { rows: [] };
   }
-  pool.query = query;
+  return { calls, query, connect: async () => ({ query, release: () => {} }) };
+}
+
+test("clientService.updateClient: passing is_active reactivates; omitting it preserves the current value via COALESCE", async () => {
+  const mock = createCatalogClientUpdateMock({ updatedRow: { id: 55, business_id: 7, is_active: true, credit_limit: null, credit_days: 30 } });
+  pool.connect = mock.connect;
 
   await clientService.updateClient(7, 55, { name: "Ana", phone: "555", email: null, notes: "", is_active: true });
-  let updateCall = calls.find((c) => /^UPDATE clients\b/i.test(c.sql.trim()));
+  let updateCall = mock.calls.find((c) => /^UPDATE clients\b/i.test(c.sql.trim()));
   assert.equal(updateCall.params[4], true, "explicit is_active: true must be passed through, not null");
 
-  calls.length = 0;
+  mock.calls.length = 0;
   await clientService.updateClient(7, 55, { name: "Ana", phone: "555", email: null, notes: "" });
-  updateCall = calls.find((c) => /^UPDATE clients\b/i.test(c.sql.trim()));
+  updateCall = mock.calls.find((c) => /^UPDATE clients\b/i.test(c.sql.trim()));
   assert.equal(updateCall.params[4], null, "omitted is_active must pass null so COALESCE preserves the existing value");
+});
+
+test("clientService.updateClient: runs inside a transaction and syncs the healthcare.pet_owners mirror after the UPDATE, before COMMIT", async () => {
+  const mock = createCatalogClientUpdateMock({ updatedRow: { id: 55, business_id: 7, is_active: true, credit_limit: null, credit_days: 30 } });
+  pool.connect = mock.connect;
+
+  await clientService.updateClient(7, 55, { name: "Ana Reyes", phone: "555", email: null, notes: "" }, { id: 9 });
+
+  const beginIndex = mock.calls.findIndex((c) => /^BEGIN$/i.test(c.sql.trim()));
+  const updateIndex = mock.calls.findIndex((c) => /^UPDATE clients\b/i.test(c.sql.trim()));
+  const syncIndex = mock.calls.findIndex((c) => /^(UPDATE|INSERT INTO) healthcare\.pet_owners\b/i.test(c.sql.replace(/\s+/g, " ").trim()));
+  const commitIndex = mock.calls.findIndex((c) => /^COMMIT$/i.test(c.sql.trim()));
+
+  assert.ok(beginIndex !== -1 && updateIndex !== -1 && syncIndex !== -1 && commitIndex !== -1);
+  assert.ok(beginIndex < updateIndex && updateIndex < syncIndex && syncIndex < commitIndex);
+});
+
+test("clientService.updateClient: client not found rolls back and never reaches the healthcare sync", async () => {
+  const calls = [];
+  async function query(sqlText) {
+    const sql = String(sqlText);
+    calls.push(sql);
+    const normalized = sql.replace(/\s+/g, " ").trim();
+    if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(normalized)) return { rows: [] };
+    if (/^UPDATE clients\b/i.test(normalized)) return { rows: [] }; // no matching client
+    return { rows: [] };
+  }
+  pool.connect = async () => ({ query, release: () => {} });
+
+  await assert.rejects(
+    () => clientService.updateClient(7, 999, { name: "Nadie", phone: "", email: null, notes: "" }),
+    (err) => {
+      assert.equal(err.statusCode, 404);
+      return true;
+    }
+  );
+
+  assert.ok(calls.some((c) => /^ROLLBACK$/i.test(c.trim())));
+  assert.equal(calls.find((c) => /pet_owners/i.test(c)), undefined, "must not attempt the mirror sync when the client update found nothing");
 });

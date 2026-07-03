@@ -13,10 +13,17 @@ const { normalizePrescriptionStatus } = require("../utils/domainEnums");
 // querying public.medical_preventive_events directly. See
 // healthcarePreventiveEventService.js for the write path (create/update/status).
 const healthcarePreventiveEventService = require("./healthcarePreventiveEventService");
-// Fix (2026): mirrors every newly-created patient/client into healthcare.* in
-// the same transaction — see healthcareSubjectTranslation.js for why. Create
-// only; updatePatient/updateClient below deliberately do not call these.
-const { syncPatientToHealthcare, syncClientToHealthcare, isHumanSpecies } = require("../utils/healthcareSubjectTranslation");
+// Fix (2026): mirrors every created/updated patient/client into healthcare.*
+// in the same transaction — see healthcareSubjectTranslation.js for why, and
+// for why an update against a never-synced legacy row auto-heals via INSERT
+// instead of throwing.
+const {
+  syncPatientToHealthcare,
+  syncPatientToHealthcareOnUpdate,
+  syncClientToHealthcare,
+  syncClientToHealthcareOnUpdate,
+  isHumanSpecies
+} = require("../utils/healthcareSubjectTranslation");
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -527,6 +534,88 @@ function buildAppointmentPayload(payload = {}) {
   };
 }
 
+// Read-model overlays for the Fase 2 /patients + /clients cutover: mirror
+// coverage is NOT 100% (patients/clients created before the create-sync fix
+// and never edited since stay unmirrored until their next write), so public.
+// patients/public.clients stays the driving FROM table — a LEFT JOIN, never
+// INNER — and every overlaid column falls back to the public.* value via
+// COALESCE when the mirror row doesn't exist. When it does exist, the
+// healthcare.* value wins even if it's an empty string/blank — an existing
+// mirror is kept current by syncPatientToHealthcare(OnUpdate)/
+// syncClientToHealthcare(OnUpdate) on every create/update, so an empty value
+// there reflects the real current state, not a fallback trigger.
+//
+// consultation_count/appointment_count/patient_count deliberately do NOT
+// come from these joins — they stay sourced from the live public.consultations/
+// public.appointments/public.medical_prescriptions tables below, since the
+// healthcare.* counterparts are backfill-only and would go stale silently.
+const PATIENT_MIRROR_JOIN = `
+     LEFT JOIN healthcare.patients hcp
+       ON hcp.source_patient_id = p.id
+      AND hcp.business_id = p.business_id
+     LEFT JOIN healthcare.pets hcpet
+       ON hcpet.source_patient_id = p.id
+      AND hcpet.business_id = p.business_id`;
+
+// hcp (healthcare.patients, human side) has no direct breed/weight/notes
+// columns — those live in hcp.metadata (see buildHumanPatientMirrorFields in
+// healthcareSubjectTranslation.js) — and no direct phone column on hcpet
+// (healthcare.pets, pet side) for the same reason (phone_snapshot in
+// hcpet.metadata). name is recomposed from first_name+last_name on the human
+// side, direct column on the pet side.
+//
+// sex is NOT passed through raw. healthcare.patients/healthcare.pets.sex is
+// the normalized enum (NULL|'female'|'male'|'intersex'|'unspecified' — see
+// normalizeHealthcareSex in healthcareSubjectTranslation.js), but the
+// /patients edit form (frontend/src/pages/PatientsPage.tsx) is a controlled
+// <select> hardcoded to the three literal legacy strings it always wrote to
+// public.patients.sex — "Masculino"/"Femenino"/"Otro" — and does not
+// recognize the enum tokens. Serving "male" to that <select> would silently
+// fail to match any <option> (blank/unselected) instead of the correct
+// label, for every patient that now has a mirror (an increasing share, since
+// Fase 2 syncs on every create AND edit). legacySexCase translates the enum
+// back to the legacy label at this read-model boundary only — the enum stays
+// the source of truth inside healthcare.* for Fases 3-6 (which don't have
+// this frontend constraint); this mapping is a display/back-compat shim for
+// the current frontend, not a permanent design choice.
+function legacySexCase(column) {
+  return `CASE ${column} WHEN 'male' THEN 'Masculino' WHEN 'female' THEN 'Femenino' WHEN 'intersex' THEN 'Otro' ELSE NULL END`;
+}
+
+const PATIENT_MIRROR_FIELDS = `
+       COALESCE(NULLIF(TRIM(CONCAT_WS(' ', hcp.first_name, hcp.last_name)), ''), hcpet.name, p.name) AS name,
+       COALESCE(hcp.phone, hcpet.metadata->>'phone_snapshot', p.phone) AS phone,
+       COALESCE(hcpet.breed, hcp.metadata->>'breed_snapshot', p.breed) AS breed,
+       COALESCE(${legacySexCase("hcp.sex")}, ${legacySexCase("hcpet.sex")}, p.sex) AS sex,
+       COALESCE(hcp.birth_date, hcpet.birth_date, p.birth_date) AS birth_date,
+       COALESCE(hcpet.weight_kg, NULLIF(hcp.metadata->>'weight_kg', '')::numeric, p.weight) AS weight,
+       COALESCE(hcp.allergies_summary, hcpet.allergies_summary, p.allergies) AS allergies,
+       COALESCE(hcpet.notes, hcp.metadata->>'notes_snapshot', p.notes) AS notes`;
+
+// Every hcp.*/hcpet.* column referenced above (directly or via ->>) has to be
+// listed here — GROUP BY p.id alone only covers p.*, Postgres has no way to
+// know hcp/hcpet are functionally dependent on p.id (same convention already
+// used by getOwnedConsultation's "GROUP BY mc.id, p.name, c.name" above).
+const PATIENT_MIRROR_GROUP_BY = `
+       hcp.first_name, hcp.last_name, hcp.phone, hcp.sex, hcp.birth_date, hcp.metadata, hcp.allergies_summary,
+       hcpet.name, hcpet.breed, hcpet.sex, hcpet.birth_date, hcpet.weight_kg, hcpet.allergies_summary, hcpet.notes`;
+
+const CLIENT_MIRROR_JOIN = `
+     LEFT JOIN healthcare.pet_owners hpo
+       ON hpo.client_id = c.id
+      AND hpo.business_id = c.business_id`;
+
+const CLIENT_MIRROR_FIELDS = `
+       COALESCE(NULLIF(TRIM(CONCAT_WS(' ', hpo.first_name, hpo.last_name)), ''), c.name) AS name,
+       COALESCE(hpo.email, c.email) AS email,
+       COALESCE(hpo.phone, c.phone) AS phone,
+       COALESCE(hpo.tax_id, c.tax_id) AS tax_id,
+       COALESCE(hpo.address, c.address) AS address,
+       COALESCE(hpo.notes, c.notes) AS notes`;
+
+const CLIENT_MIRROR_GROUP_BY = `
+       hpo.first_name, hpo.last_name, hpo.email, hpo.phone, hpo.tax_id, hpo.address, hpo.notes`;
+
 async function listClients(search = "", actor) {
   const businessId = requireActorBusinessId(actor);
   const term = normalizeText(search);
@@ -546,18 +635,14 @@ async function listClients(search = "", actor) {
     `SELECT
        c.id,
        c.business_id,
-       c.name,
-       c.email,
-       c.phone,
-       c.tax_id,
-       c.address,
-       c.notes,
+${CLIENT_MIRROR_FIELDS},
        c.is_active,
        c.created_at,
        c.updated_at,
        COUNT(DISTINCT p.id)::int AS patient_count,
        COUNT(DISTINCT mc.id)::int AS consultation_count
      FROM clients c
+${CLIENT_MIRROR_JOIN}
      LEFT JOIN patients p
        ON p.client_id = c.id
       AND p.business_id = c.business_id
@@ -567,8 +652,9 @@ async function listClients(search = "", actor) {
       AND mc.business_id = c.business_id
       AND mc.is_active = TRUE
      WHERE ${conditions.join(" AND ")}
-     GROUP BY c.id
-     ORDER BY c.is_active DESC, c.name ASC`,
+     GROUP BY c.id,
+${CLIENT_MIRROR_GROUP_BY}
+     ORDER BY c.is_active DESC, name ASC`,
     params
   );
 
@@ -579,25 +665,47 @@ async function getClientDetail(id, actor) {
   const businessId = requireActorBusinessId(actor);
   const client = mapClient(await getOwnedClient(id, actor));
 
+  const { rows: detailRows } = await pool.query(
+    `SELECT
+       c.id,
+       c.business_id,
+${CLIENT_MIRROR_FIELDS},
+       c.is_active,
+       c.created_at,
+       c.updated_at,
+       COUNT(DISTINCT p.id)::int AS patient_count,
+       COUNT(DISTINCT mc.id)::int AS consultation_count
+     FROM clients c
+${CLIENT_MIRROR_JOIN}
+     LEFT JOIN patients p
+       ON p.client_id = c.id
+      AND p.business_id = c.business_id
+      AND p.is_active = TRUE
+     LEFT JOIN consultations mc
+       ON mc.client_id = c.id
+      AND mc.business_id = c.business_id
+      AND mc.is_active = TRUE
+     WHERE c.id = $1 AND c.business_id = $2
+     GROUP BY c.id,
+${CLIENT_MIRROR_GROUP_BY}`,
+    [id, businessId]
+  );
+  const detail = mapClient(detailRows[0]) || client;
+
   const { rows: patientRows } = await pool.query(
     `SELECT
        p.id,
        p.business_id,
        p.client_id,
-       p.name,
+${PATIENT_MIRROR_FIELDS},
        p.species,
-       p.breed,
-       p.sex,
-       p.birth_date,
-       p.weight,
-       p.allergies,
-       p.notes,
        p.is_active,
        p.created_at,
        p.updated_at,
        COUNT(DISTINCT mc.id)::int AS consultation_count,
        COUNT(DISTINCT ma.id)::int AS appointment_count
      FROM patients p
+${PATIENT_MIRROR_JOIN}
      LEFT JOIN consultations mc
        ON mc.patient_id = p.id
       AND mc.business_id = p.business_id
@@ -608,13 +716,14 @@ async function getClientDetail(id, actor) {
       AND ma.is_active = TRUE
      WHERE p.client_id = $1
        AND p.business_id = $2
-     GROUP BY p.id
-     ORDER BY p.is_active DESC, p.name ASC`,
+     GROUP BY p.id,
+${PATIENT_MIRROR_GROUP_BY}
+     ORDER BY p.is_active DESC, name ASC`,
     [id, businessId]
   );
 
   return {
-    ...client,
+    ...detail,
     patients: patientRows.map(mapPatient)
   };
 }
@@ -658,12 +767,6 @@ async function createClient(payload, actor) {
   }
 }
 
-// Deliberately does NOT call syncClientToHealthcare — this fix only mirrors
-// rows at creation time so new patients/clients stop being invisible to
-// healthcare.* (see healthcareSubjectTranslation.js). Keeping an already-
-// mirrored healthcare.pet_owners row updated after the fact is a full
-// dual-write problem, not a point fix, and Fase 2 (the real /clients cutover)
-// replaces this whole mechanism rather than growing it here.
 async function updateClient(id, payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const current = mapClient(await getOwnedClient(id, actor));
@@ -687,6 +790,8 @@ async function updateClient(id, payload, actor) {
        RETURNING *`,
       [data.name, data.email, data.phone, data.tax_id, data.address, data.notes, data.is_active, actor.id, id, businessId]
     );
+
+    await syncClientToHealthcareOnUpdate(rows[0], actor, client);
 
     await saveAuditLog({
       business_id: businessId,
@@ -739,21 +844,15 @@ async function listPatients(filters = {}, actor) {
     `SELECT
        p.id,
        p.business_id,
-       p.phone,
-       p.name,
+${PATIENT_MIRROR_FIELDS},
        p.species,
-       p.breed,
-       p.sex,
-       p.birth_date,
-       p.weight,
-       p.allergies,
-       p.notes,
        p.is_active,
        p.created_at,
        p.updated_at,
        COUNT(DISTINCT mc.id)::int AS consultation_count,
        COUNT(DISTINCT ma.id)::int AS appointment_count
      FROM patients p
+${PATIENT_MIRROR_JOIN}
      LEFT JOIN consultations mc
        ON mc.patient_id = p.id
       AND mc.business_id = p.business_id
@@ -763,8 +862,9 @@ async function listPatients(filters = {}, actor) {
       AND ma.business_id = p.business_id
       AND ma.is_active = TRUE
      WHERE ${conditions.join(" AND ")}
-     GROUP BY p.id
-     ORDER BY p.is_active DESC, p.name ASC`,
+     GROUP BY p.id,
+${PATIENT_MIRROR_GROUP_BY}
+     ORDER BY p.is_active DESC, name ASC`,
     params
   );
 
@@ -779,21 +879,15 @@ async function getPatientDetail(id, actor) {
        p.id,
        p.business_id,
        p.client_id,
-       p.phone,
-       p.name,
+${PATIENT_MIRROR_FIELDS},
        p.species,
-       p.breed,
-       p.sex,
-       p.birth_date,
-       p.weight,
-       p.allergies,
-       p.notes,
        p.is_active,
        p.created_at,
        p.updated_at,
        COUNT(DISTINCT mc.id)::int AS consultation_count,
        COUNT(DISTINCT ma.id)::int AS appointment_count
      FROM patients p
+${PATIENT_MIRROR_JOIN}
      LEFT JOIN consultations mc
        ON mc.patient_id = p.id
       AND mc.business_id = p.business_id
@@ -803,7 +897,8 @@ async function getPatientDetail(id, actor) {
       AND ma.business_id = p.business_id
       AND ma.is_active = TRUE
      WHERE p.id = $1 AND p.business_id = $2
-     GROUP BY p.id`,
+     GROUP BY p.id,
+${PATIENT_MIRROR_GROUP_BY}`,
     [id, businessId]
   );
 
@@ -891,9 +986,6 @@ async function createPatient(payload, actor) {
   }
 }
 
-// Deliberately does NOT call syncPatientToHealthcare — same reasoning as
-// updateClient above: creation-time sync only, not a dual-write. See the
-// comment there.
 async function updatePatient(id, payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const current = mapPatient(await getOwnedPatient(id, actor));
@@ -936,6 +1028,8 @@ async function updatePatient(id, payload, actor) {
        RETURNING *`,
       [data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id, id, businessId]
     );
+
+    await syncPatientToHealthcareOnUpdate(rows[0], actor, client);
 
     await saveAuditLog({
       business_id: businessId,

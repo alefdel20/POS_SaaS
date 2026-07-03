@@ -26,7 +26,7 @@ const findOrCreateClient = asyncHandler(async (req, res) => {
 const updateClient = asyncHandler(async (req, res) => {
   const businessId = requireActorBusinessId(req.user);
   const clientId = Number(req.params.clientId);
-  const updated = await clientService.updateClient(businessId, clientId, req.body);
+  const updated = await clientService.updateClient(businessId, clientId, req.body, req.user);
   res.json(updated);
 });
 
@@ -48,11 +48,14 @@ const getClientBalance = asyncHandler(async (req, res) => {
   const clientId = Number(req.params.id);
   const { rows } = await pool.query(
     `SELECT
-       c.credit_limit,
-       c.credit_days,
+       COALESCE(hpo.credit_limit, c.credit_limit) AS credit_limit,
+       COALESCE(hpo.credit_days, c.credit_days)   AS credit_days,
        COALESCE(SUM(s.balance_due), 0)                    AS deuda_total,
        COUNT(CASE WHEN s.balance_due > 0 THEN 1 END)::int AS ventas_pendientes
      FROM clients c
+     LEFT JOIN healthcare.pet_owners hpo
+       ON hpo.client_id   = c.id
+      AND hpo.business_id = c.business_id
      LEFT JOIN sales s
        ON s.client_id     = c.id
       AND s.business_id   = c.business_id
@@ -60,7 +63,7 @@ const getClientBalance = asyncHandler(async (req, res) => {
       AND s.payment_method = 'credit'
      WHERE c.id          = $1
        AND c.business_id = $2
-     GROUP BY c.id`,
+     GROUP BY c.id, hpo.credit_limit, hpo.credit_days`,
     [clientId, businessId]
   );
   if (!rows[0]) return res.status(404).json({ message: "Client not found" });
