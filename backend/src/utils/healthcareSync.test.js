@@ -21,6 +21,8 @@ const {
   syncPatientToHealthcareOnUpdate,
   syncClientToHealthcare,
   syncClientToHealthcareOnUpdate,
+  syncAppointmentToHealthcare,
+  syncAppointmentToHealthcareOnUpdate,
   truncateHealthcareName,
   clampPetWeightKg,
   HEALTHCARE_NAME_MAX_LENGTH,
@@ -444,6 +446,170 @@ test("syncClientToHealthcareOnUpdate: no existing mirror auto-heals via INSERT",
 
   assert.ok(findCall(mockClient.calls, /^UPDATE healthcare\.pet_owners\b/i), "the UPDATE must still be attempted first");
   assert.ok(findCall(mockClient.calls, /^INSERT INTO healthcare\.pet_owners\b/i), "must fall back to INSERT for the legacy gap");
+});
+
+// --- syncAppointmentToHealthcare / syncAppointmentToHealthcareOnUpdate (Fase 3, step 1) --
+
+// Standalone mock, same style as createUpsertMockClient above: exercises
+// resolveHealthcareSubject's own queries (against patients/healthcare.patients/
+// healthcare.pets) plus the new healthcare.pet_owners owner lookup and the
+// healthcare.appointments INSERT/UPDATE, without going through
+// clinicalService's transaction wiring.
+function createAppointmentSyncMockClient({
+  publicPatientRow,
+  healthcarePatientId = null,
+  healthcarePetId = null,
+  petOwnerId = null,
+  existingAppointmentMirror = false
+}) {
+  const calls = [];
+  async function query(sqlText, params = []) {
+    const sql = String(sqlText);
+    calls.push({ sql, params });
+    const normalized = sql.replace(/\s+/g, " ").trim();
+
+    if (/^SELECT id, species FROM patients\b/i.test(normalized)) {
+      return { rows: publicPatientRow ? [publicPatientRow] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.patients WHERE source_patient_id\b/i.test(normalized)) {
+      return { rows: healthcarePatientId ? [{ id: healthcarePatientId }] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.pets WHERE source_patient_id\b/i.test(normalized)) {
+      return { rows: healthcarePetId ? [{ id: healthcarePetId }] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.pet_owners WHERE client_id\b/i.test(normalized)) {
+      return { rows: petOwnerId ? [{ id: petOwnerId }] : [] };
+    }
+    if (/^UPDATE healthcare\.appointments\b/i.test(normalized)) {
+      return { rows: existingAppointmentMirror ? [{ id: 9000 }] : [] };
+    }
+    if (/^INSERT INTO healthcare\.appointments\b/i.test(normalized)) {
+      return { rows: [{ id: 9001 }] };
+    }
+    return { rows: [] };
+  }
+  return { calls, query };
+}
+
+function basicPublicAppointmentRow(overrides = {}) {
+  return {
+    id: 700, business_id: 7, patient_id: 900, client_id: null, doctor_user_id: null,
+    area: "CLINICA", specialty: null, appointment_date: "2026-01-10", start_time: "10:00:00",
+    end_time: "10:30:00", status: "scheduled", notes: "", is_active: true, created_by: 42,
+    ...overrides
+  };
+}
+
+test("syncAppointmentToHealthcare: human appointment with an existing patient mirror inserts subject_type='human', owner_id never touched, area lowercased", async () => {
+  const mockClient = createAppointmentSyncMockClient({
+    publicPatientRow: { id: 900, species: null }, // blank species -> human
+    healthcarePatientId: 5000
+  });
+  const publicAppointmentRow = basicPublicAppointmentRow({ patient_id: 900 });
+
+  const result = await syncAppointmentToHealthcare(publicAppointmentRow, { id: 42 }, mockClient);
+
+  assert.ok(result);
+  const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.appointments\b/i);
+  assert.ok(insertCall);
+  const [businessId, sourceAppointmentId, subjectType, patientId, petId, ownerId, , area] = insertCall.params;
+  assert.equal(businessId, 7);
+  assert.equal(sourceAppointmentId, 700);
+  assert.equal(subjectType, "human");
+  assert.equal(patientId, 5000);
+  assert.equal(petId, null);
+  assert.equal(ownerId, null, "owner_id must never be set for subject_type = human (CHECK forbids it)");
+  assert.equal(area, "clinica");
+  // must never even attempt a pet_owners lookup for a human appointment
+  assert.equal(findCall(mockClient.calls, /^SELECT id FROM healthcare\.pet_owners\b/i), undefined);
+});
+
+test("syncAppointmentToHealthcare: pet appointment with client_id resolves owner_id via healthcare.pet_owners, area lowercased (ESTETICA)", async () => {
+  const mockClient = createAppointmentSyncMockClient({
+    publicPatientRow: { id: 901, species: "Perro" },
+    healthcarePetId: 6000,
+    petOwnerId: 7000
+  });
+  const publicAppointmentRow = basicPublicAppointmentRow({
+    id: 701, patient_id: 901, client_id: 55, doctor_user_id: 10, area: "ESTETICA", specialty: "Grooming"
+  });
+
+  await syncAppointmentToHealthcare(publicAppointmentRow, { id: 42 }, mockClient);
+
+  const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.appointments\b/i);
+  const [, , subjectType, patientId, petId, ownerId, practitionerUserId, area] = insertCall.params;
+  assert.equal(subjectType, "pet");
+  assert.equal(patientId, null);
+  assert.equal(petId, 6000);
+  assert.equal(ownerId, 7000);
+  assert.equal(practitionerUserId, 10);
+  assert.equal(area, "estetica");
+});
+
+test("syncAppointmentToHealthcare: pet appointment without client_id resolves owner_id to NULL without throwing (rescued-animal case)", async () => {
+  const mockClient = createAppointmentSyncMockClient({
+    publicPatientRow: { id: 902, species: "Gato" },
+    healthcarePetId: 6001
+  });
+  const publicAppointmentRow = basicPublicAppointmentRow({ id: 702, patient_id: 902, client_id: null });
+
+  const result = await syncAppointmentToHealthcare(publicAppointmentRow, { id: 42 }, mockClient);
+
+  assert.ok(result);
+  const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.appointments\b/i);
+  const [, , , , , ownerId] = insertCall.params;
+  assert.equal(ownerId, null);
+  // no client_id at all -> must never even attempt the pet_owners lookup
+  assert.equal(findCall(mockClient.calls, /^SELECT id FROM healthcare\.pet_owners\b/i), undefined);
+});
+
+test("syncAppointmentToHealthcare: patient without a healthcare.* mirror yet throws 409 instead of silently skipping the appointment mirror", async () => {
+  const mockClient = createAppointmentSyncMockClient({
+    publicPatientRow: { id: 903, species: null } // human, but no healthcarePatientId provided -> no mirror yet
+  });
+  const publicAppointmentRow = basicPublicAppointmentRow({ id: 703, patient_id: 903 });
+
+  await assert.rejects(
+    () => syncAppointmentToHealthcare(publicAppointmentRow, { id: 42 }, mockClient),
+    (err) => {
+      assert.equal(err.statusCode, 409);
+      return true;
+    }
+  );
+
+  assert.equal(
+    findCall(mockClient.calls, /^INSERT INTO healthcare\.appointments\b/i),
+    undefined,
+    "must never insert an appointment mirror pointing at a subject that doesn't exist yet — silently skipping would repeat the Fase 1 preventive-events bug"
+  );
+});
+
+test("syncAppointmentToHealthcareOnUpdate: existing mirror runs UPDATE, not INSERT", async () => {
+  const mockClient = createAppointmentSyncMockClient({
+    publicPatientRow: { id: 900, species: null },
+    healthcarePatientId: 5000,
+    existingAppointmentMirror: true
+  });
+  const publicAppointmentRow = basicPublicAppointmentRow({ patient_id: 900, updated_by: 42 });
+
+  await syncAppointmentToHealthcareOnUpdate(publicAppointmentRow, { id: 42 }, mockClient);
+
+  assert.ok(findCall(mockClient.calls, /^UPDATE healthcare\.appointments\b/i));
+  assert.equal(findCall(mockClient.calls, /^INSERT INTO healthcare\.appointments\b/i), undefined);
+});
+
+test("syncAppointmentToHealthcareOnUpdate: no existing mirror auto-heals via INSERT", async () => {
+  const mockClient = createAppointmentSyncMockClient({
+    publicPatientRow: { id: 900, species: null },
+    healthcarePatientId: 5000,
+    existingAppointmentMirror: false
+  });
+  const publicAppointmentRow = basicPublicAppointmentRow({ patient_id: 900, updated_by: 42 });
+
+  await syncAppointmentToHealthcareOnUpdate(publicAppointmentRow, { id: 42 }, mockClient);
+
+  assert.ok(findCall(mockClient.calls, /^UPDATE healthcare\.appointments\b/i), "the UPDATE must still be attempted first");
+  assert.ok(findCall(mockClient.calls, /^INSERT INTO healthcare\.appointments\b/i), "must fall back to INSERT for the legacy gap");
 });
 
 // --- clinicalService.createPatient / createClient (end-to-end via mocked pool.connect) --

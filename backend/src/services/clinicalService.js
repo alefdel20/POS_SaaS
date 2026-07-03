@@ -22,6 +22,8 @@ const {
   syncPatientToHealthcareOnUpdate,
   syncClientToHealthcare,
   syncClientToHealthcareOnUpdate,
+  syncAppointmentToHealthcare,
+  syncAppointmentToHealthcareOnUpdate,
   isHumanSpecies
 } = require("../utils/healthcareSubjectTranslation");
 
@@ -1665,6 +1667,17 @@ async function createAppointment(payload, actor) {
         actor.id
       ]
     );
+
+    // Fase 3 (step 1): mirror into healthcare.appointments. Auto-heal the
+    // patient's OWN mirror first — a never-touched legacy patient has no
+    // healthcare.patients/healthcare.pets row yet, and resolveHealthcareSubject
+    // (called inside syncAppointmentToHealthcare) would otherwise 409 on it,
+    // reintroducing the exact Fase 1 preventive-events bug for appointments
+    // instead. `patient` here is the same full public.patients row already
+    // fetched above, before resolvedClientId was computed.
+    await syncPatientToHealthcareOnUpdate(patient, actor, client);
+    await syncAppointmentToHealthcare(rows[0], actor, client);
+
     const appointment = await getOwnedAppointment(rows[0].id, actor, client);
     await syncAppointmentReminder(appointment, actor, client);
 
@@ -1776,6 +1789,12 @@ async function updateAppointment(id, payload, actor) {
         businessId
       ]
     );
+
+    // Fase 3 (step 1): keep the healthcare.appointments mirror in sync — same
+    // auto-heal-the-patient-first reasoning as createAppointment above.
+    await syncPatientToHealthcareOnUpdate(patient, actor, client);
+    await syncAppointmentToHealthcareOnUpdate(rows[0], actor, client);
+
     const appointment = await getOwnedAppointment(id, actor, client);
     await syncAppointmentReminder(appointment, actor, client);
 

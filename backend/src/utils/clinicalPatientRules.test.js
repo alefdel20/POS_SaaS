@@ -377,8 +377,17 @@ test("clientService.updateClient: client not found rolls back and never reaches 
 // behavior (insert succeeds with client_id NULL) and pin the still-required
 // case (a resolvable client_id keeps working unchanged).
 
-function createAppointmentMock({ patientRow, existingClientRow = null }) {
+// hasHealthcareMirror controls whether resolveHealthcareSubject (called
+// inside syncAppointmentToHealthcare/OnUpdate, Fase 3) finds an existing
+// healthcare.patients/healthcare.pets row for patientRow. Stateful on
+// purpose: when it starts false (a never-touched legacy patient), the mock
+// flips it to true the moment the auto-heal INSERT actually runs — same as a
+// real INSERT would make a subsequent SELECT find the row. This is what lets
+// a test assert "the auto-heal really did unblock the appointment sync",
+// rather than the mock just always agreeing with itself.
+function createAppointmentMock({ patientRow, existingClientRow = null, hasHealthcareMirror = true }) {
   const calls = [];
+  let mirrorExists = hasHealthcareMirror;
   async function query(sqlText, params = []) {
     const sql = String(sqlText);
     calls.push({ sql, params });
@@ -387,6 +396,24 @@ function createAppointmentMock({ patientRow, existingClientRow = null }) {
     if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(normalized)) return { rows: [] };
     if (/^SELECT pg_advisory_xact_lock/i.test(normalized)) return { rows: [] };
     if (/^SELECT p\.\* FROM patients p/i.test(normalized)) return { rows: [patientRow] };
+    // resolveHealthcareSubject's own existence check (distinct from getOwnedPatient's "SELECT p.*" above)
+    if (/^SELECT id, species FROM patients\b/i.test(normalized)) return { rows: [patientRow] };
+    if (/^SELECT id FROM healthcare\.patients WHERE source_patient_id\b/i.test(normalized)) {
+      return { rows: mirrorExists ? [{ id: 5000 }] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.pets WHERE source_patient_id\b/i.test(normalized)) {
+      return { rows: mirrorExists ? [{ id: 6000 }] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.pet_owners WHERE client_id\b/i.test(normalized)) return { rows: [] };
+    if (/^UPDATE healthcare\.(patients|pets)\b/i.test(normalized)) {
+      return { rows: mirrorExists ? [{ id: 5000 }] : [] };
+    }
+    if (/^INSERT INTO healthcare\.(patients|pets)\b/i.test(normalized)) {
+      mirrorExists = true; // the auto-heal insert just created the row
+      return { rows: [{ id: 5000 }] };
+    }
+    if (/^UPDATE healthcare\.appointments\b/i.test(normalized)) return { rows: [] };
+    if (/^INSERT INTO healthcare\.appointments\b/i.test(normalized)) return { rows: [{ id: 9001 }] };
     if (/^SELECT \*\s*FROM clients\b/i.test(normalized)) return { rows: existingClientRow ? [existingClientRow] : [] };
     if (/^SELECT id FROM appointments\b/i.test(normalized)) return { rows: [] }; // no overlap
     if (/^INSERT INTO appointments\b/i.test(normalized)) {
@@ -396,6 +423,16 @@ function createAppointmentMock({ patientRow, existingClientRow = null }) {
           id: 5001, business_id: businessId, patient_id, client_id, appointment_date,
           start_time, end_time, doctor_user_id, area, specialty, status, notes,
           is_active, created_by, updated_by: created_by
+        }]
+      };
+    }
+    if (/^UPDATE appointments\b/i.test(normalized)) {
+      const [patient_id, client_id, doctor_user_id, appointment_date, start_time, end_time, area, specialty, status, notes, is_active, updated_by, id, businessId] = params;
+      return {
+        rows: [{
+          id, business_id: businessId, patient_id, client_id, doctor_user_id,
+          appointment_date, start_time, end_time, area, specialty, status, notes,
+          is_active, updated_by
         }]
       };
     }
@@ -535,6 +572,45 @@ test("clinicalService.listAppointments: query LEFT (never INNER) JOINs clients, 
   assert.equal(result.items.length, 1, "an appointment with no client must not disappear from the agenda");
   assert.equal(result.items[0].client_id, null);
   assert.equal(result.items[0].client_name, null);
+});
+
+// --- Fase 3 (step 1): createAppointment/updateAppointment auto-heal the ----
+// patient's healthcare.* mirror before syncing the appointment mirror -------
+//
+// A patient created before the Fase 2 sync existed (or simply never edited
+// since) has no healthcare.patients/healthcare.pets row yet.
+// resolveHealthcareSubject (called inside syncAppointmentToHealthcare) would
+// 409 on that — the design decision here is to auto-heal by running
+// syncPatientToHealthcareOnUpdate on the current patient row FIRST, in the
+// same transaction, so the appointment sync that follows always finds a
+// resolvable subject. This is the end-to-end version of the unit tests
+// already in healthcareSync.test.js — it exercises the real call ordering
+// inside clinicalService.createAppointment, not the sync functions directly.
+
+test("clinicalService.createAppointment: a patient with no healthcare.* mirror yet gets auto-healed before the appointment mirror syncs — no 409, no silent skip", async () => {
+  const mock = createAppointmentMock({
+    patientRow: { id: 900, business_id: 7, client_id: null, name: "Firulais", species: null, is_active: true },
+    hasHealthcareMirror: false
+  });
+  pool.query = mock.query;
+  pool.connect = mock.connect;
+
+  const created = await clinicalService.createAppointment(basicAppointmentPayload({ patient_id: 900 }), APPOINTMENT_ACTOR);
+
+  assert.ok(created, "createAppointment must succeed instead of throwing 409 for a legacy unmirrored patient");
+
+  const appointmentsInsertIndex = mock.calls.findIndex((c) => /^INSERT INTO appointments\b/i.test(c.sql.trim()));
+  const patientMirrorInsertIndex = mock.calls.findIndex((c) => /^INSERT INTO healthcare\.(patients|pets)\b/i.test(c.sql.replace(/\s+/g, " ").trim()));
+  const appointmentMirrorInsertIndex = mock.calls.findIndex((c) => /^INSERT INTO healthcare\.appointments\b/i.test(c.sql.replace(/\s+/g, " ").trim()));
+  const commitIndex = mock.calls.findIndex((c) => /^COMMIT$/i.test(c.sql.trim()));
+
+  assert.ok(
+    appointmentsInsertIndex !== -1 && patientMirrorInsertIndex !== -1 && appointmentMirrorInsertIndex !== -1 && commitIndex !== -1,
+    "expected all three inserts (public.appointments, the auto-healed patient mirror, the appointment mirror) plus COMMIT to have run"
+  );
+  assert.ok(appointmentsInsertIndex < patientMirrorInsertIndex, "the public.appointments INSERT must happen before the patient auto-heal");
+  assert.ok(patientMirrorInsertIndex < appointmentMirrorInsertIndex, "the patient mirror must be auto-healed BEFORE the appointment mirror sync runs, or resolveHealthcareSubject inside it would 409");
+  assert.ok(appointmentMirrorInsertIndex < commitIndex, "the appointment mirror sync must happen inside the same transaction, before COMMIT");
 });
 
 // --- Bug fix: GET /patients must expose client_id (listPatients was missing it) --

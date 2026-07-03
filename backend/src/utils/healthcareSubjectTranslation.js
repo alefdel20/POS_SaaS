@@ -616,6 +616,204 @@ async function syncClientToHealthcareOnUpdate(publicClientRow, actor, client = p
   return insertClientMirror(fields, businessId, publicClientRow.id, actorId, client);
 }
 
+// ---------------------------------------------------------------------------
+// healthcare.appointments mirror (Fase 3, step 1: sync-on-create/update only —
+// listAppointments/getAppointmentDetail keep reading exclusively from
+// public.appointments until step 2)
+// ---------------------------------------------------------------------------
+
+// public.appointments.area is 'CLINICA'/'ESTETICA'; healthcare.appointments.area
+// is CHECK-constrained to the lowercase 'clinica'/'estetica'. buildAppointmentPayload
+// (clinicalService.js) already restricts area to those two exact uppercase
+// values before an appointment can even be created/updated, so the fallback
+// (defensive lowercase of whatever came in, never NULL) should never actually
+// engage — it exists only because healthcare.appointments.area is NOT NULL, so
+// this must never resolve to null/undefined.
+const HEALTHCARE_APPOINTMENT_AREA_MAP = { CLINICA: "clinica", ESTETICA: "estetica" };
+
+function normalizeHealthcareAppointmentArea(area) {
+  const upper = String(area || "").trim().toUpperCase();
+  return HEALTHCARE_APPOINTMENT_AREA_MAP[upper] || String(area || "").trim().toLowerCase();
+}
+
+// owner_id on healthcare.appointments only applies to subject_type = 'pet'
+// (the CHECK appointments_subject_fk_check forbids it for 'human' outright —
+// same hole already documented for healthcare.patients: a human's payer/
+// responsible party has nowhere structured to live yet). Resolved from
+// public.appointments.client_id (nullable since migration 46 — a rescued
+// animal pending adoption has no client at all yet) via
+// healthcare.pet_owners.client_id. No client_id, or no matching pet_owners
+// row yet (client not synced), both resolve to NULL — never an error, this is
+// exactly the same "optional owner" state migration 46 made legitimate.
+async function resolveAppointmentOwnerId(clientId, businessId, client) {
+  if (!clientId) return null;
+  const { rows } = await client.query(
+    "SELECT id FROM healthcare.pet_owners WHERE client_id = $1 AND business_id = $2",
+    [clientId, businessId]
+  );
+  return rows[0]?.id ?? null;
+}
+
+// Resolves the subject (human vs pet, via resolveHealthcareSubject) and the
+// pet-side owner_id, then builds every other mirrored column. Callers
+// (syncAppointmentToHealthcare/OnUpdate below) are expected to have already
+// guaranteed the patient's own healthcare.patients/healthcare.pets mirror
+// exists — see the auto-heal call in clinicalService.js's createAppointment/
+// updateAppointment, which runs syncPatientToHealthcareOnUpdate on the
+// current patient row right before this. Without that guarantee,
+// resolveHealthcareSubject below throws 409 for a never-touched legacy
+// patient — intentionally NOT swallowed here: silently skipping the
+// appointment mirror instead would recreate the exact invisible-gap bug Fase
+// 1 already had for preventive events, just for a different table.
+async function buildAppointmentMirrorFields(publicAppointmentRow, syncSource, client) {
+  const businessId = publicAppointmentRow.business_id;
+  const subject = await resolveHealthcareSubject(publicAppointmentRow.patient_id, businessId, client);
+  const ownerId = subject.subjectType === "pet"
+    ? await resolveAppointmentOwnerId(publicAppointmentRow.client_id, businessId, client)
+    : null;
+
+  const metadata = stripNullish({
+    sync_source: syncSource,
+    synced_at: new Date().toISOString()
+  });
+
+  return {
+    subjectType: subject.subjectType,
+    patientId: subject.patientId,
+    petId: subject.petId,
+    ownerId,
+    practitionerUserId: publicAppointmentRow.doctor_user_id || null,
+    area: normalizeHealthcareAppointmentArea(publicAppointmentRow.area),
+    specialty: publicAppointmentRow.specialty || null,
+    appointmentDate: publicAppointmentRow.appointment_date,
+    startTime: publicAppointmentRow.start_time,
+    endTime: publicAppointmentRow.end_time,
+    status: publicAppointmentRow.status,
+    notes: publicAppointmentRow.notes ? String(publicAppointmentRow.notes).trim() : "",
+    metadataJson: JSON.stringify(metadata),
+    isActive: publicAppointmentRow.is_active !== false
+  };
+}
+
+// reason has no public.appointments equivalent (migration 37 inserts '' for
+// the same reason) — always ''. resulting_encounter_id is deliberately never
+// set here — Fase 4 territory (consultations/encounters cutover), left NULL.
+async function insertAppointmentMirror(fields, businessId, sourceAppointmentId, actorId, client) {
+  const { rows } = await client.query(
+    `INSERT INTO healthcare.appointments (
+       business_id, source_appointment_id, subject_type, patient_id, pet_id, owner_id,
+       practitioner_user_id, area, specialty, appointment_date, start_time, end_time,
+       status, reason, notes, resulting_encounter_id, metadata, is_active,
+       created_by, updated_by
+     )
+     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '', $14, NULL::BIGINT, $15::jsonb, $16, $17, $17
+     WHERE NOT EXISTS (
+       SELECT 1 FROM healthcare.appointments ha
+       WHERE ha.source_appointment_id = $2 AND ha.business_id = $1
+     )
+     RETURNING id`,
+    [
+      businessId,
+      sourceAppointmentId,
+      fields.subjectType,
+      fields.patientId,
+      fields.petId,
+      fields.ownerId,
+      fields.practitionerUserId,
+      fields.area,
+      fields.specialty,
+      fields.appointmentDate,
+      fields.startTime,
+      fields.endTime,
+      fields.status,
+      fields.notes,
+      fields.metadataJson,
+      fields.isActive,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+async function updateAppointmentMirror(fields, businessId, sourceAppointmentId, actorId, client) {
+  const { rows } = await client.query(
+    `UPDATE healthcare.appointments
+     SET subject_type = $3,
+         patient_id = $4,
+         pet_id = $5,
+         owner_id = $6,
+         practitioner_user_id = $7,
+         area = $8,
+         specialty = $9,
+         appointment_date = $10,
+         start_time = $11,
+         end_time = $12,
+         status = $13,
+         notes = $14,
+         metadata = $15::jsonb,
+         is_active = $16,
+         updated_by = $17,
+         updated_at = NOW()
+     WHERE source_appointment_id = $2 AND business_id = $1
+     RETURNING id`,
+    [
+      businessId,
+      sourceAppointmentId,
+      fields.subjectType,
+      fields.patientId,
+      fields.petId,
+      fields.ownerId,
+      fields.practitionerUserId,
+      fields.area,
+      fields.specialty,
+      fields.appointmentDate,
+      fields.startTime,
+      fields.endTime,
+      fields.status,
+      fields.notes,
+      fields.metadataJson,
+      fields.isActive,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Mirrors a just-inserted public.appointments row into healthcare.appointments.
+ * Must run on the same `client`/transaction as the public.appointments INSERT,
+ * same atomicity guarantee as syncPatientToHealthcare. The caller must have
+ * already guaranteed the referenced patient's own mirror exists (see the
+ * block comment on buildAppointmentMirrorFields above) — this function does
+ * NOT auto-heal the patient side itself, only the appointment side.
+ *
+ * Idempotent by (source_appointment_id, business_id), same NOT EXISTS pattern
+ * as every other Fase 2/3 create-sync.
+ */
+async function syncAppointmentToHealthcare(publicAppointmentRow, actor, client = pool) {
+  const businessId = publicAppointmentRow.business_id;
+  const sourceAppointmentId = publicAppointmentRow.id;
+  const actorId = publicAppointmentRow.created_by ?? actor?.id ?? null;
+  const fields = await buildAppointmentMirrorFields(publicAppointmentRow, "appointment_create_sync", client);
+  return insertAppointmentMirror(fields, businessId, sourceAppointmentId, actorId, client);
+}
+
+/**
+ * Update-time counterpart to syncAppointmentToHealthcare. UPDATEs the
+ * existing mirror row; if none exists yet (legacy appointment, never synced),
+ * falls back to the same INSERT ... WHERE NOT EXISTS the create path uses —
+ * same upsert-or-auto-heal-insert shape as syncPatientToHealthcareOnUpdate.
+ */
+async function syncAppointmentToHealthcareOnUpdate(publicAppointmentRow, actor, client = pool) {
+  const businessId = publicAppointmentRow.business_id;
+  const sourceAppointmentId = publicAppointmentRow.id;
+  const actorId = publicAppointmentRow.updated_by ?? actor?.id ?? null;
+  const fields = await buildAppointmentMirrorFields(publicAppointmentRow, "appointment_update_sync", client);
+  const updated = await updateAppointmentMirror(fields, businessId, sourceAppointmentId, actorId, client);
+  if (updated) return updated;
+  return insertAppointmentMirror(fields, businessId, sourceAppointmentId, actorId, client);
+}
+
 module.exports = {
   resolveHealthcareSubject,
   subjectTranslationJoin,
@@ -623,6 +821,8 @@ module.exports = {
   syncPatientToHealthcareOnUpdate,
   syncClientToHealthcare,
   syncClientToHealthcareOnUpdate,
+  syncAppointmentToHealthcare,
+  syncAppointmentToHealthcareOnUpdate,
   // shared human/pet discriminator — also used by clinicalService.updatePatient
   // to block a species change that would flip which healthcare.* table a
   // patient's mirror belongs to (see the species-immutability guard there)
