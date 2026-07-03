@@ -97,6 +97,37 @@ function mapAppointment(row) {
   };
 }
 
+// Fase 3 (step 2): LEFT JOIN healthcare.appointments — infrastructure only,
+// no visible value changes today. Unlike the Fase 2 patient/client overlay,
+// healthcare.appointments has nothing richer than public.appointments worth
+// surfacing yet: reason is unused, area/status/doctor are already correct
+// here, resulting_encounter_id has zero live write traffic (Fase 4
+// territory). ha.id is selected (as healthcare_appointment_id) purely so a
+// future caller — Fase 4, writing resulting_encounter_id — can tell whether
+// the mirror exists without a second round trip; it isn't meant to be relied
+// on by the frontend today, just carried through mapAppointment's spread
+// like any other passthrough column.
+//
+// Never INNER — mirror coverage isn't 100% (an appointment that predates the
+// sync-on-create/update fix from Fase 3 step 1, or one whose patient had no
+// mirror at write time, only gets one on its next edit), same rule as every
+// other healthcare.* overlay since Fase 2: a missing mirror must never make
+// the appointment disappear from the agenda or 404 on detail.
+//
+// source_appointment_id only has a plain (non-unique) index
+// (idx_hc_appointments_source_appointment_id, migration 37) — there is no
+// DB-level guarantee against a duplicate mirror row per appointment, only
+// the application-level `WHERE NOT EXISTS` guard in
+// syncAppointmentToHealthcare(OnUpdate). This is the exact same residual risk
+// profile patients/pets/pet_owners already carry since Fase 2 (also
+// non-unique indexes only) — not a new gap introduced by this step, and not
+// fixed here either; flagging it again because it's the kind of thing that's
+// easy to forget was already accepted once.
+const APPOINTMENT_MIRROR_JOIN = `
+     LEFT JOIN healthcare.appointments ha
+       ON ha.source_appointment_id = ma.id
+      AND ha.business_id = ma.business_id`;
+
 function mapPrescriptionItem(row) {
   if (!row) return null;
   return {
@@ -219,11 +250,13 @@ async function getOwnedAppointment(id, actor, client = pool) {
             p.name AS patient_name,
             c.name AS client_name,
             u.full_name AS doctor_name,
-            u.specialty
+            u.specialty,
+            ha.id AS healthcare_appointment_id
      FROM appointments ma
      INNER JOIN patients p ON p.id = ma.patient_id AND p.business_id = ma.business_id
      LEFT JOIN clients c ON c.id = ma.client_id AND c.business_id = ma.business_id
      LEFT JOIN users u ON u.id = ma.doctor_user_id AND u.business_id = ma.business_id
+${APPOINTMENT_MIRROR_JOIN}
      WHERE ma.id = $1 AND ma.business_id = $2`,
     [id, businessId]
   );
@@ -1551,11 +1584,13 @@ async function listAppointments(filters = {}, actor) {
          p.breed,
          c.name AS client_name,
          u.full_name AS doctor_name,
-         COALESCE(NULLIF(ma.specialty, ''), NULLIF(u.specialty, ''), NULL) AS specialty
+         COALESCE(NULLIF(ma.specialty, ''), NULLIF(u.specialty, ''), NULL) AS specialty,
+         ha.id AS healthcare_appointment_id
        FROM appointments ma
        INNER JOIN patients p ON p.id = ma.patient_id AND p.business_id = ma.business_id
        LEFT JOIN clients c ON c.id = ma.client_id AND c.business_id = ma.business_id
        LEFT JOIN users u ON u.id = ma.doctor_user_id AND u.business_id = ma.business_id
+${APPOINTMENT_MIRROR_JOIN}
        WHERE ${conditions.join(" AND ")}
        ORDER BY ma.appointment_date ASC, ma.start_time ASC, ma.area ASC, ma.id ASC`,
       params

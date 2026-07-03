@@ -574,6 +574,71 @@ test("clinicalService.listAppointments: query LEFT (never INNER) JOINs clients, 
   assert.equal(result.items[0].client_name, null);
 });
 
+// --- Fase 3 (step 2): LEFT JOIN healthcare.appointments — pure infrastructure,
+// no visible response value should change ------------------------------------
+//
+// Unlike the Fase 2 patient/client overlay, healthcare.appointments has
+// nothing richer than public.appointments worth surfacing yet — this join
+// only adds `healthcare_appointment_id` (for Fase 4's future use) and must
+// never alter any other field. Also confirms the same LEFT-never-INNER rule:
+// an appointment that predates the sync-on-create/update fix (Fase 3 step 1)
+// has no mirror yet and must not disappear or crash.
+
+test("clinicalService.getAppointmentDetail: LEFT (never INNER) JOINs healthcare.appointments; a fully-mirrored appointment's other fields are byte-identical to before this change", async () => {
+  let capturedSql = "";
+  const canonicalRow = {
+    id: 5001, business_id: 7, patient_id: 900, client_id: 55,
+    patient_name: "Firulais", client_name: "Ana Reyes", doctor_name: "Dr. Gomez", specialty: "Cirugia",
+    appointment_date: "2026-01-10", start_time: "10:00:00", end_time: "10:30:00",
+    area: "CLINICA", status: "scheduled", notes: "Revision", is_active: true, doctor_user_id: 10
+  };
+  pool.query = async (sqlText) => {
+    capturedSql = String(sqlText).replace(/\s+/g, " ");
+    // healthcare_appointment_id populated -> simulates a fully-synced mirror
+    return { rows: [{ ...canonicalRow, healthcare_appointment_id: 9001 }] };
+  };
+
+  const detail = await clinicalService.getAppointmentDetail(5001, { id: 1, business_id: 7 });
+
+  assert.match(capturedSql, /LEFT JOIN healthcare\.appointments ha\s+ON ha\.source_appointment_id = ma\.id\s+AND ha\.business_id = ma\.business_id/i);
+  assert.doesNotMatch(capturedSql, /INNER JOIN healthcare\.appointments/i);
+  for (const [key, value] of Object.entries(canonicalRow)) {
+    if (key === "doctor_user_id" || key === "is_active") continue; // mapAppointment casts these — checked separately
+    assert.equal(detail[key], value, `field "${key}" must be unchanged by the healthcare.appointments overlay`);
+  }
+  assert.equal(detail.doctor_user_id, 10);
+  assert.equal(detail.is_active, true);
+  assert.equal(detail.healthcare_appointment_id, 9001, "the mirror's own id should be carried through for Fase 4's future use");
+});
+
+test("clinicalService.listAppointments: LEFT (never INNER) JOINs healthcare.appointments; an appointment without a mirror yet is unchanged and not duplicated", async () => {
+  let capturedSql = "";
+  const canonicalRow = {
+    id: 5002, business_id: 7, patient_id: 901, client_id: 56,
+    patient_name: "Rocky", species: "Perro", breed: "Labrador", client_name: "Luis Perez",
+    doctor_name: "Dr. Gomez", specialty: "Dermatologia", appointment_date: "2026-01-11",
+    start_time: "11:00:00", end_time: "11:30:00", area: "ESTETICA", status: "confirmed",
+    notes: "Bath", is_active: true, doctor_user_id: 10
+  };
+  pool.query = async (sqlText) => {
+    capturedSql = String(sqlText).replace(/\s+/g, " ");
+    // healthcare_appointment_id entirely absent -> simulates no mirror yet
+    // (the LEFT JOIN found nothing, exactly like a legacy never-edited row)
+    return { rows: [{ ...canonicalRow }] };
+  };
+
+  const result = await clinicalService.listAppointments({ date: "2026-01-11" }, { id: 1, business_id: 7 });
+
+  assert.match(capturedSql, /LEFT JOIN healthcare\.appointments ha\s+ON ha\.source_appointment_id = ma\.id\s+AND ha\.business_id = ma\.business_id/i);
+  assert.doesNotMatch(capturedSql, /INNER JOIN healthcare\.appointments/i);
+  assert.equal(result.items.length, 1, "no fan-out: one row in must produce exactly one item out, and a mirror-less appointment must not disappear");
+  for (const [key, value] of Object.entries(canonicalRow)) {
+    if (key === "doctor_user_id" || key === "is_active") continue;
+    assert.equal(result.items[0][key], value, `field "${key}" must be unchanged by the healthcare.appointments overlay`);
+  }
+  assert.equal(result.items[0].healthcare_appointment_id, undefined, "no mirror yet -> healthcare_appointment_id must be null/undefined, never invented");
+});
+
 // --- Fase 3 (step 1): createAppointment/updateAppointment auto-heal the ----
 // patient's healthcare.* mirror before syncing the appointment mirror -------
 //
