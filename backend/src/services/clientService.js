@@ -1,5 +1,11 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
+// Fix (2026): mirrors every genuinely-new client into healthcare.pet_owners —
+// see healthcareSubjectTranslation.js for why. Only called on the real INSERT
+// branch below, never on the "found existing" branch or the 23505 race-retry
+// branch — findOrCreateClient's whole point is that those two don't create
+// anything new to mirror.
+const { syncClientToHealthcare } = require("../utils/healthcareSubjectTranslation");
 
 function normalizeName(value) {
   return String(value || "").trim().toLowerCase();
@@ -45,9 +51,16 @@ async function findOrCreateClient(businessId, { name, phone, email }, dbClient =
        RETURNING *`,
       [businessId, trimmedName, trimmedPhone, email || null]
     );
+    await syncClientToHealthcare(rows[0], null, conn);
     return rows[0] || null;
   } catch (err) {
-    if (err.code === "23505") {
+    // Narrowed to the exact unique index this retry exists for: a 23505 from
+    // syncClientToHealthcare above (e.g. a genuinely unexpected constraint hit
+    // on healthcare.pet_owners) must NOT be swallowed here and reinterpreted
+    // as "the client row already existed" — it needs to propagate so the
+    // caller's transaction (or this INSERT, for callers without one) fails
+    // loudly instead of leaving a public.clients row without its mirror.
+    if (err.code === "23505" && err.constraint === "clients_business_name_phone_uq") {
       const { rows: retry } = await conn.query(
         `SELECT * FROM clients
          WHERE business_id = $1

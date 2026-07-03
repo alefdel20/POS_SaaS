@@ -2275,7 +2275,19 @@ async function ensureHealthcareStructuralSync(client) {
 
     // Migration 43 — healthcare.preventive_events.date_administered becomes
     // nullable (a "scheduled" event has no application date yet, only next_due_date)
-    "ALTER TABLE healthcare.preventive_events ALTER COLUMN date_administered DROP NOT NULL"
+    "ALTER TABLE healthcare.preventive_events ALTER COLUMN date_administered DROP NOT NULL",
+
+    // Migration 44 — healthcare.pets.owner_id becomes nullable. patients.client_id
+    // stopped being captured on patient creation since commit 6db95fc ("replace
+    // client link with phone field on patients", 2026-04-23); the owner/payer for
+    // a pet is now resolved per visit, same as it already was for the human side
+    // (migration 42). owner_id NOT NULL blocked every pet created since that
+    // commit from ever getting a healthcare.pets mirror row (migration 36's
+    // INNER JOIN against pet_owners requires a resolved owner_id), which is why
+    // resolveHealthcareSubject returns 409 for any patient created after that
+    // date. See healthcareSubjectTranslation.js (syncPatientToHealthcare) for the
+    // create-time sync this unblocks.
+    "ALTER TABLE healthcare.pets ALTER COLUMN owner_id DROP NOT NULL"
   ]);
 
   // Migration 42 — backfill credit_limit/credit_days from metadata (saved there by

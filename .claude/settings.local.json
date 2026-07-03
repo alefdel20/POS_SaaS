@@ -56,7 +56,9 @@
       "Bash(ssh *)",
       "Bash(cp *)",
       "Artifact",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(psql --version)",
+      "Bash(timeout 5 bash -c \"cat < /dev/null > /dev/tcp/31.97.214.24/5432\")"
     ]
   }
 }

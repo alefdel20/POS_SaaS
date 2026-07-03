@@ -13,6 +13,10 @@ const { normalizePrescriptionStatus } = require("../utils/domainEnums");
 // querying public.medical_preventive_events directly. See
 // healthcarePreventiveEventService.js for the write path (create/update/status).
 const healthcarePreventiveEventService = require("./healthcarePreventiveEventService");
+// Fix (2026): mirrors every newly-created patient/client into healthcare.* in
+// the same transaction — see healthcareSubjectTranslation.js for why. Create
+// only; updatePatient/updateClient below deliberately do not call these.
+const { syncPatientToHealthcare, syncClientToHealthcare } = require("../utils/healthcareSubjectTranslation");
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -631,6 +635,8 @@ async function createClient(payload, actor) {
       [businessId, data.name, data.email, data.phone, data.tax_id, data.address, data.notes, data.is_active, actor.id]
     );
 
+    await syncClientToHealthcare(rows[0], actor, client);
+
     await saveAuditLog({
       business_id: businessId,
       usuario_id: actor.id,
@@ -652,6 +658,12 @@ async function createClient(payload, actor) {
   }
 }
 
+// Deliberately does NOT call syncClientToHealthcare — this fix only mirrors
+// rows at creation time so new patients/clients stop being invisible to
+// healthcare.* (see healthcareSubjectTranslation.js). Keeping an already-
+// mirrored healthcare.pet_owners row updated after the fact is a full
+// dual-write problem, not a point fix, and Fase 2 (the real /clients cutover)
+// replaces this whole mechanism rather than growing it here.
 async function updateClient(id, payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const current = mapClient(await getOwnedClient(id, actor));
@@ -856,6 +868,8 @@ async function createPatient(payload, actor) {
       [businessId, data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id]
     );
 
+    await syncPatientToHealthcare(rows[0], actor, client);
+
     await saveAuditLog({
       business_id: businessId,
       usuario_id: actor.id,
@@ -877,6 +891,9 @@ async function createPatient(payload, actor) {
   }
 }
 
+// Deliberately does NOT call syncPatientToHealthcare — same reasoning as
+// updateClient above: creation-time sync only, not a dual-write. See the
+// comment there.
 async function updatePatient(id, payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const current = mapPatient(await getOwnedPatient(id, actor));
