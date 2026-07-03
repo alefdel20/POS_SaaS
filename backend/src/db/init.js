@@ -2241,6 +2241,24 @@ async function ensureClientSoftDeleteReconciliation(client) {
   ]);
 }
 
+// Migration 46 — public.appointments.client_id becomes nullable. Business
+// decision: a rescued animal without a resolved owner/responsible party yet
+// still needs to be able to receive care and have appointments scheduled.
+// Same shape as migration 44 (healthcare.pets.owner_id -> nullable): a
+// responsible party that isn't fixed at record-creation time, resolved later.
+// The FK fk_appointments_client is untouched — Postgres never evaluates a
+// simple FK when the column is NULL, so it keeps validating normally whenever
+// client_id does carry a value. See infra/postgres/46-appointments-client-
+// optional.sql for the full investigation notes (no CHECK/unique index on
+// this column, no billing/report depends on it, dashboardService.js and
+// reminderService.js never JOIN clients for appointments at all).
+// Idempotent — DROP NOT NULL on an already-nullable column is a no-op.
+async function ensureAppointmentsClientOptional(client) {
+  await run(client, [
+    "ALTER TABLE appointments ALTER COLUMN client_id DROP NOT NULL"
+  ]);
+}
+
 // Structural DDL for the healthcare vertical (schema itself created by
 // infra/postgres/14-healthcare-modular-expansion.sql and
 // infra/postgres/33-healthcare-appointments-preventive.sql, run manually via
@@ -2525,6 +2543,9 @@ async function ensureDatabaseCompatibility() {
 
     console.info("[DB-COMPAT] ensureClientSoftDeleteReconciliation");
     await ensureClientSoftDeleteReconciliation(client);
+
+    console.info("[DB-COMPAT] ensureAppointmentsClientOptional");
+    await ensureAppointmentsClientOptional(client);
 
     console.info("[DB-COMPAT] ensureHealthcareStructuralSync");
     await ensureHealthcareStructuralSync(client);

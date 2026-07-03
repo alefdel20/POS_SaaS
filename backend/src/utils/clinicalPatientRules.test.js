@@ -360,7 +360,7 @@ test("clientService.updateClient: client not found rolls back and never reaches 
   assert.equal(calls.find((c) => /pet_owners/i.test(c)), undefined, "must not attempt the mirror sync when the client update found nothing");
 });
 
-// --- Bug fix: appointment create/update for a patient with client_id NULL ---
+// --- appointments.client_id is optional (migration 46) ----------------------
 //
 // patients.client_id stopped being written after commit 6db95fc ("replace
 // client link with phone field on patients") — the /patients list never
@@ -369,9 +369,13 @@ test("clientService.updateClient: client not found rolls back and never reaches 
 // `Number(patient.client_id)`. When that's NULL in the DB, Number(null) = 0,
 // which used to sail past validateClinicalRelationship's falsy check (0 is
 // falsy, so it just skipped validating the client) straight into the INSERT,
-// crashing with a raw FK violation instead of a clean 400. These tests pin
-// resolveAppointmentClientId's guard against a regression back to that
-// silent-then-crash behavior.
+// crashing with a raw FK violation. A prior fix made that throw a clean 400
+// instead — but the product decision now is that a patient with no linked
+// client (e.g. a rescued animal still pending adoption) is a VALID state that
+// must still be able to get an appointment. resolveOptionalAppointmentClientId
+// resolves to explicit NULL instead of throwing; these tests cover the new
+// behavior (insert succeeds with client_id NULL) and pin the still-required
+// case (a resolvable client_id keeps working unchanged).
 
 function createAppointmentMock({ patientRow, existingClientRow = null }) {
   const calls = [];
@@ -430,43 +434,34 @@ function basicAppointmentPayload(overrides = {}) {
   };
 }
 
-test("clinicalService.createAppointment: patient with client_id NULL throws a clean 400, never reaches the INSERT (no raw FK violation)", async () => {
+test("clinicalService.createAppointment: patient with no resolvable client_id (NULL) now succeeds, inserting client_id = NULL", async () => {
   const mock = createAppointmentMock({
     patientRow: { id: 900, business_id: 7, client_id: null, name: "Firulais", species: "Perro", is_active: true }
   });
   pool.query = mock.query;
   pool.connect = mock.connect;
 
-  await assert.rejects(
-    () => clinicalService.createAppointment(basicAppointmentPayload({ patient_id: 900 }), APPOINTMENT_ACTOR),
-    (err) => {
-      assert.equal(err.statusCode, 400);
-      assert.match(err.message, /cliente\/responsable vinculado/i);
-      return true;
-    }
-  );
+  const created = await clinicalService.createAppointment(basicAppointmentPayload({ patient_id: 900 }), APPOINTMENT_ACTOR);
 
-  assert.equal(mock.calls.find((c) => /^INSERT INTO appointments\b/i.test(c.sql.trim())), undefined, "must never reach the INSERT with a bogus client_id");
-  assert.ok(mock.calls.some((c) => /^ROLLBACK$/i.test(c.sql.trim())));
+  const insertCall = mock.calls.find((c) => /^INSERT INTO appointments\b/i.test(c.sql.trim()));
+  assert.ok(insertCall, "expected the INSERT to actually run — a patient with no client is a valid state now");
+  assert.equal(insertCall.params[2], null, "client_id must be inserted as explicit NULL, not 0/NaN");
+  assert.equal(created.client_id, null);
+  assert.ok(mock.calls.some((c) => /^COMMIT$/i.test(c.sql.trim())));
 });
 
-test("clinicalService.updateAppointment: patient with client_id NULL also throws a clean 400 (same guard as create)", async () => {
+test("clinicalService.updateAppointment: patient with no resolvable client_id (NULL) also succeeds, updating client_id to NULL", async () => {
   const mock = createAppointmentMock({
     patientRow: { id: 900, business_id: 7, client_id: null, name: "Firulais", species: "Perro", is_active: true }
   });
   pool.query = mock.query;
   pool.connect = mock.connect;
 
-  await assert.rejects(
-    () => clinicalService.updateAppointment(5001, basicAppointmentPayload({ patient_id: 900 }), APPOINTMENT_ACTOR),
-    (err) => {
-      assert.equal(err.statusCode, 400);
-      assert.match(err.message, /cliente\/responsable vinculado/i);
-      return true;
-    }
-  );
+  await clinicalService.updateAppointment(5001, basicAppointmentPayload({ patient_id: 900 }), APPOINTMENT_ACTOR);
 
-  assert.equal(mock.calls.find((c) => /^UPDATE appointments\b/i.test(c.sql.trim())), undefined, "must never reach the UPDATE with a bogus client_id");
+  const updateCall = mock.calls.find((c) => /^UPDATE appointments\b/i.test(c.sql.trim()));
+  assert.ok(updateCall, "expected the UPDATE to actually run");
+  assert.equal(updateCall.params[1], null, "client_id must be updated to explicit NULL, not 0/NaN");
 });
 
 test("clinicalService.createAppointment: patient with a resolvable client_id (fallback from patient.client_id) still creates the appointment exactly as before", async () => {
@@ -486,6 +481,60 @@ test("clinicalService.createAppointment: patient with a resolvable client_id (fa
   const insertCall = mock.calls.find((c) => /^INSERT INTO appointments\b/i.test(c.sql.trim()));
   assert.ok(insertCall, "expected the appointment to actually be inserted");
   assert.equal(insertCall.params[2], 55, "resolved client_id must be the patient's own client_id (fallback)");
+});
+
+// --- getOwnedAppointment/listAppointments must tolerate client_id NULL ------
+//
+// Both queries used to INNER JOIN clients — with client_id nullable, an INNER
+// JOIN silently drops the row entirely (404 on detail, invisible in the
+// agenda) instead of just showing an empty "Responsable". Both are now LEFT
+// JOIN; these tests pin the join type and confirm a NULL-client_id row still
+// comes back mapped, not dropped.
+
+test("clinicalService.getAppointmentDetail: query LEFT (never INNER) JOINs clients, and an appointment with client_id NULL still resolves instead of 404ing", async () => {
+  let capturedSql = "";
+  pool.query = async (sqlText) => {
+    capturedSql = String(sqlText).replace(/\s+/g, " ");
+    return {
+      rows: [{
+        id: 5001, business_id: 7, patient_id: 900, client_id: null,
+        patient_name: "Firulais", client_name: null, doctor_name: null, specialty: null,
+        appointment_date: "2026-01-10", start_time: "10:00:00", end_time: "10:30:00",
+        area: "CLINICA", status: "scheduled", notes: "", is_active: true, doctor_user_id: null
+      }]
+    };
+  };
+
+  const detail = await clinicalService.getAppointmentDetail(5001, { id: 1, business_id: 7 });
+
+  assert.match(capturedSql, /LEFT JOIN clients c ON c\.id = ma\.client_id/i);
+  assert.doesNotMatch(capturedSql, /INNER JOIN clients/i);
+  assert.equal(detail.client_id, null);
+  assert.equal(detail.client_name, null);
+});
+
+test("clinicalService.listAppointments: query LEFT (never INNER) JOINs clients, and an appointment with client_id NULL still appears in the list (not dropped)", async () => {
+  let capturedSql = "";
+  pool.query = async (sqlText) => {
+    capturedSql = String(sqlText).replace(/\s+/g, " ");
+    return {
+      rows: [{
+        id: 5001, business_id: 7, patient_id: 900, client_id: null,
+        patient_name: "Firulais", species: "Perro", breed: null, client_name: null,
+        doctor_name: null, specialty: null, appointment_date: "2026-01-10",
+        start_time: "10:00:00", end_time: "10:30:00", area: "CLINICA",
+        status: "scheduled", notes: "", is_active: true, doctor_user_id: null
+      }]
+    };
+  };
+
+  const result = await clinicalService.listAppointments({ date: "2026-01-10" }, { id: 1, business_id: 7 });
+
+  assert.match(capturedSql, /LEFT JOIN clients c ON c\.id = ma\.client_id/i);
+  assert.doesNotMatch(capturedSql, /INNER JOIN clients/i);
+  assert.equal(result.items.length, 1, "an appointment with no client must not disappear from the agenda");
+  assert.equal(result.items[0].client_id, null);
+  assert.equal(result.items[0].client_name, null);
 });
 
 // --- Bug fix: GET /patients must expose client_id (listPatients was missing it) --

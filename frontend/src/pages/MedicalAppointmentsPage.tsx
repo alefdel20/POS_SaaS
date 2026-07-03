@@ -435,7 +435,7 @@ export function MedicalAppointmentsPage() {
           </datalist>
           <label>
             Responsable
-            <input disabled value={patients.find((patient) => String(patient.id) === form.patient_id)?.client_name || ""} />
+            <input disabled value={form.patient_id ? (patients.find((patient) => String(patient.id) === form.patient_id)?.client_name || "Sin responsable") : ""} />
           </label>
           <label>
             Fecha
@@ -500,7 +500,7 @@ export function MedicalAppointmentsPage() {
         {detail ? (
           <div className="info-card">
             <p><strong>Paciente:</strong> {detail.patient_name}</p>
-            <p><strong>Responsable:</strong> {detail.client_name}</p>
+            <p><strong>Responsable:</strong> {detail.client_name || "Sin responsable"}</p>
             <p><strong>Fecha:</strong> {shortDate(detail.appointment_date)}</p>
             <p><strong>Horario:</strong> {detail.start_time.slice(0, 5)} - {detail.end_time.slice(0, 5)}</p>
             <p><strong>Area:</strong> {detail.area}</p>

@@ -617,9 +617,9 @@ export interface ClinicalAppointment {
   id: number;
   business_id: number;
   patient_id: number;
-  client_id: number;
+  client_id: number | null;
   patient_name: string;
-  client_name: string;
+  client_name: string | null;
   doctor_user_id?: number | null;
   doctor_name?: string | null;
   species?: string | null;

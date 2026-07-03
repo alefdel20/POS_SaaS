@@ -220,7 +220,7 @@ async function getOwnedAppointment(id, actor, client = pool) {
             u.specialty
      FROM appointments ma
      INNER JOIN patients p ON p.id = ma.patient_id AND p.business_id = ma.business_id
-     INNER JOIN clients c ON c.id = ma.client_id AND c.business_id = ma.business_id
+     LEFT JOIN clients c ON c.id = ma.client_id AND c.business_id = ma.business_id
      LEFT JOIN users u ON u.id = ma.doctor_user_id AND u.business_id = ma.business_id
      WHERE ma.id = $1 AND ma.business_id = $2`,
     [id, businessId]
@@ -1552,7 +1552,7 @@ async function listAppointments(filters = {}, actor) {
          COALESCE(NULLIF(ma.specialty, ''), NULLIF(u.specialty, ''), NULL) AS specialty
        FROM appointments ma
        INNER JOIN patients p ON p.id = ma.patient_id AND p.business_id = ma.business_id
-       INNER JOIN clients c ON c.id = ma.client_id AND c.business_id = ma.business_id
+       LEFT JOIN clients c ON c.id = ma.client_id AND c.business_id = ma.business_id
        LEFT JOIN users u ON u.id = ma.doctor_user_id AND u.business_id = ma.business_id
        WHERE ${conditions.join(" AND ")}
        ORDER BY ma.appointment_date ASC, ma.start_time ASC, ma.area ASC, ma.id ASC`,
@@ -1576,23 +1576,24 @@ async function getAppointmentDetail(id, actor) {
   return mapAppointment(await getOwnedAppointment(id, actor));
 }
 
-// Bug fix (2026): the /patients list never exposed client_id (see
-// listPatients/getPatientDetail below), so the appointment form always sends
-// client_id: null and this falls back to the patient's own client_id. Patients
-// created after commit 6db95fc ("replace client link with phone field on
-// patients") can have client_id = NULL in the DB — Number(null) is 0, a
-// falsy-looking-but-not-actually-checked value that used to sail past
-// validateClinicalRelationship's `clientId ? ... : null` guard (0 is falsy,
-// so the guard just skipped the check instead of rejecting it) and hit the
-// INSERT raw, crashing with an opaque FK violation (fk_appointments_client,
-// Postgres 23503, uncaught by isSchemaError) instead of a clean 400.
-// Centralized so createAppointment/updateAppointment fail the same clean way.
-function resolveAppointmentClientId(data, patient) {
+// appointments.client_id is optional as of migration 46 — a rescued animal
+// without a resolved owner/responsible party yet still needs to be able to
+// receive care and have appointments scheduled. data.client_id already comes
+// validated by buildAppointmentPayload (either null or a positive integer);
+// if it's not given, this falls back to the patient's own client_id (the
+// historical convenience the appointment form relies on — see the /patients
+// list gap noted below). Number(null) is 0 when patient.client_id is also
+// NULL (e.g. patients created after commit 6db95fc, "replace client link
+// with phone field on patients", which stopped capturing client_id at
+// creation) — `resolved || null` turns that into an explicit NULL instead of
+// the bogus 0 that used to crash the INSERT with a raw FK violation before
+// this function existed. A NULL client_id is now a legitimate business state,
+// not an error — renamed from resolveAppointmentClientId (which used to throw
+// ApiError(400, ...) here) to make that "resolve-or-null, never reject"
+// contract explicit at the call site.
+function resolveOptionalAppointmentClientId(data, patient) {
   const resolved = data.client_id || Number(patient.client_id);
-  if (!resolved) {
-    throw new ApiError(400, "Este paciente no tiene un cliente/responsable vinculado. Vincula un responsable antes de agendar una cita.");
-  }
-  return resolved;
+  return resolved || null;
 }
 
 async function createAppointment(payload, actor) {
@@ -1604,7 +1605,7 @@ async function createAppointment(payload, actor) {
   try {
     await client.query("BEGIN");
     const patient = await getOwnedPatient(data.patient_id, actor, client);
-    const resolvedClientId = resolveAppointmentClientId(data, patient);
+    const resolvedClientId = resolveOptionalAppointmentClientId(data, patient);
     if (hidesAesthetics(actor?.pos_type) && data.area === "ESTETICA") {
       throw new ApiError(409, "Invalid appointment area");
     }
@@ -1702,7 +1703,7 @@ async function updateAppointment(id, payload, actor) {
   try {
     await client.query("BEGIN");
     const patient = await getOwnedPatient(data.patient_id, actor, client);
-    const resolvedClientId = resolveAppointmentClientId(data, patient);
+    const resolvedClientId = resolveOptionalAppointmentClientId(data, patient);
     if (hidesAesthetics(actor?.pos_type) && data.area === "ESTETICA") {
       throw new ApiError(409, "Invalid appointment area");
     }
