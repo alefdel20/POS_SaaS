@@ -197,7 +197,7 @@ export function MedicalAppointmentsPage() {
     const selectedPatient = patients.find((patient) => String(patient.id) === form.patient_id);
     if (selectedPatient) {
       setPatientSearch(buildPatientSearchLabel(selectedPatient));
-      setForm((current) => ({ ...current, client_id: String(selectedPatient.client_id) }));
+      setForm((current) => ({ ...current, client_id: selectedPatient.client_id ? String(selectedPatient.client_id) : "" }));
     }
   }, [form.patient_id, patients]);
 
@@ -232,7 +232,7 @@ export function MedicalAppointmentsPage() {
     setForm((current) => ({
       ...current,
       patient_id: matchedPatient ? String(matchedPatient.id) : "",
-      client_id: matchedPatient ? String(matchedPatient.client_id) : ""
+      client_id: matchedPatient?.client_id ? String(matchedPatient.client_id) : ""
     }));
   }
 

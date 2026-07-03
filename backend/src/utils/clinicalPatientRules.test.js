@@ -359,3 +359,153 @@ test("clientService.updateClient: client not found rolls back and never reaches 
   assert.ok(calls.some((c) => /^ROLLBACK$/i.test(c.trim())));
   assert.equal(calls.find((c) => /pet_owners/i.test(c)), undefined, "must not attempt the mirror sync when the client update found nothing");
 });
+
+// --- Bug fix: appointment create/update for a patient with client_id NULL ---
+//
+// patients.client_id stopped being written after commit 6db95fc ("replace
+// client link with phone field on patients") — the /patients list never
+// exposed client_id either, so the appointment form always ended up sending
+// client_id: null and createAppointment/updateAppointment fell back to
+// `Number(patient.client_id)`. When that's NULL in the DB, Number(null) = 0,
+// which used to sail past validateClinicalRelationship's falsy check (0 is
+// falsy, so it just skipped validating the client) straight into the INSERT,
+// crashing with a raw FK violation instead of a clean 400. These tests pin
+// resolveAppointmentClientId's guard against a regression back to that
+// silent-then-crash behavior.
+
+function createAppointmentMock({ patientRow, existingClientRow = null }) {
+  const calls = [];
+  async function query(sqlText, params = []) {
+    const sql = String(sqlText);
+    calls.push({ sql, params });
+    const normalized = sql.replace(/\s+/g, " ").trim();
+
+    if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(normalized)) return { rows: [] };
+    if (/^SELECT pg_advisory_xact_lock/i.test(normalized)) return { rows: [] };
+    if (/^SELECT p\.\* FROM patients p/i.test(normalized)) return { rows: [patientRow] };
+    if (/^SELECT \*\s*FROM clients\b/i.test(normalized)) return { rows: existingClientRow ? [existingClientRow] : [] };
+    if (/^SELECT id FROM appointments\b/i.test(normalized)) return { rows: [] }; // no overlap
+    if (/^INSERT INTO appointments\b/i.test(normalized)) {
+      const [businessId, patient_id, client_id, appointment_date, start_time, end_time, doctor_user_id, area, specialty, status, notes, is_active, created_by] = params;
+      return {
+        rows: [{
+          id: 5001, business_id: businessId, patient_id, client_id, appointment_date,
+          start_time, end_time, doctor_user_id, area, specialty, status, notes,
+          is_active, created_by, updated_by: created_by
+        }]
+      };
+    }
+    if (/^SELECT ma\.\*/i.test(normalized)) {
+      // getOwnedAppointment (post-insert re-fetch, also used by updateAppointment's "current" fetch)
+      return {
+        rows: [{
+          id: 5001, business_id: patientRow.business_id, patient_id: patientRow.id,
+          client_id: existingClientRow?.id || patientRow.client_id, patient_name: patientRow.name,
+          client_name: existingClientRow?.name || null, doctor_name: null, specialty: null,
+          appointment_date: "2026-01-10", start_time: "10:00:00", end_time: "10:30:00",
+          area: "CLINICA", status: "scheduled", notes: "", is_active: true, doctor_user_id: null
+        }]
+      };
+    }
+    if (/^SELECT \* FROM reminders\b/i.test(normalized)) return { rows: [] };
+    if (/^INSERT INTO reminders\b/i.test(normalized)) return { rows: [{ id: 1 }] };
+    if (/^UPDATE reminders\b/i.test(normalized)) return { rows: [{ id: 1 }] };
+    if (/^INSERT INTO audit_logs\b/i.test(normalized)) return { rows: [{ id: 9999 }] };
+    return { rows: [] };
+  }
+  return { calls, query, connect: async () => ({ query, release: () => {} }) };
+}
+
+const APPOINTMENT_ACTOR = { id: 42, business_id: 7, role: "clinico", pos_type: "Veterinaria" };
+
+function basicAppointmentPayload(overrides = {}) {
+  return {
+    patient_id: 900,
+    area: "CLINICA",
+    status: "scheduled",
+    appointment_date: "2026-01-10",
+    start_time: "10:00",
+    end_time: "10:30",
+    ...overrides
+  };
+}
+
+test("clinicalService.createAppointment: patient with client_id NULL throws a clean 400, never reaches the INSERT (no raw FK violation)", async () => {
+  const mock = createAppointmentMock({
+    patientRow: { id: 900, business_id: 7, client_id: null, name: "Firulais", species: "Perro", is_active: true }
+  });
+  pool.query = mock.query;
+  pool.connect = mock.connect;
+
+  await assert.rejects(
+    () => clinicalService.createAppointment(basicAppointmentPayload({ patient_id: 900 }), APPOINTMENT_ACTOR),
+    (err) => {
+      assert.equal(err.statusCode, 400);
+      assert.match(err.message, /cliente\/responsable vinculado/i);
+      return true;
+    }
+  );
+
+  assert.equal(mock.calls.find((c) => /^INSERT INTO appointments\b/i.test(c.sql.trim())), undefined, "must never reach the INSERT with a bogus client_id");
+  assert.ok(mock.calls.some((c) => /^ROLLBACK$/i.test(c.sql.trim())));
+});
+
+test("clinicalService.updateAppointment: patient with client_id NULL also throws a clean 400 (same guard as create)", async () => {
+  const mock = createAppointmentMock({
+    patientRow: { id: 900, business_id: 7, client_id: null, name: "Firulais", species: "Perro", is_active: true }
+  });
+  pool.query = mock.query;
+  pool.connect = mock.connect;
+
+  await assert.rejects(
+    () => clinicalService.updateAppointment(5001, basicAppointmentPayload({ patient_id: 900 }), APPOINTMENT_ACTOR),
+    (err) => {
+      assert.equal(err.statusCode, 400);
+      assert.match(err.message, /cliente\/responsable vinculado/i);
+      return true;
+    }
+  );
+
+  assert.equal(mock.calls.find((c) => /^UPDATE appointments\b/i.test(c.sql.trim())), undefined, "must never reach the UPDATE with a bogus client_id");
+});
+
+test("clinicalService.createAppointment: patient with a resolvable client_id (fallback from patient.client_id) still creates the appointment exactly as before", async () => {
+  const mock = createAppointmentMock({
+    patientRow: { id: 901, business_id: 7, client_id: 55, name: "Rocky", species: "Perro", is_active: true },
+    existingClientRow: { id: 55, business_id: 7, name: "Cliente Test", is_active: true }
+  });
+  pool.query = mock.query;
+  pool.connect = mock.connect;
+
+  // client_id intentionally omitted from the payload — this is exactly what
+  // the (now-fixed) frontend bug used to send; the fallback to the patient's
+  // own client_id must still resolve and succeed unchanged.
+  const created = await clinicalService.createAppointment(basicAppointmentPayload({ patient_id: 901 }), APPOINTMENT_ACTOR);
+
+  assert.ok(created);
+  const insertCall = mock.calls.find((c) => /^INSERT INTO appointments\b/i.test(c.sql.trim()));
+  assert.ok(insertCall, "expected the appointment to actually be inserted");
+  assert.equal(insertCall.params[2], 55, "resolved client_id must be the patient's own client_id (fallback)");
+});
+
+// --- Bug fix: GET /patients must expose client_id (listPatients was missing it) --
+
+test("clinicalService.listPatients: SELECT includes p.client_id and the mapped response carries it", async () => {
+  let capturedSql = "";
+  pool.query = async (sqlText) => {
+    capturedSql = String(sqlText).replace(/\s+/g, " ");
+    return {
+      rows: [{
+        id: 900, business_id: 7, client_id: 55, name: "Firulais", phone: null,
+        breed: null, sex: null, birth_date: null, weight: null, allergies: "",
+        notes: "", species: "Perro", is_active: true, created_at: new Date(),
+        updated_at: new Date(), consultation_count: 0, appointment_count: 0
+      }]
+    };
+  };
+
+  const [patient] = await clinicalService.listPatients({}, { id: 1, business_id: 7 });
+
+  assert.match(capturedSql, /SELECT\s+p\.id,\s*p\.business_id,\s*p\.client_id/i);
+  assert.equal(patient.client_id, 55);
+});

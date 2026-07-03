@@ -844,6 +844,7 @@ async function listPatients(filters = {}, actor) {
     `SELECT
        p.id,
        p.business_id,
+       p.client_id,
 ${PATIENT_MIRROR_FIELDS},
        p.species,
        p.is_active,
@@ -1575,6 +1576,25 @@ async function getAppointmentDetail(id, actor) {
   return mapAppointment(await getOwnedAppointment(id, actor));
 }
 
+// Bug fix (2026): the /patients list never exposed client_id (see
+// listPatients/getPatientDetail below), so the appointment form always sends
+// client_id: null and this falls back to the patient's own client_id. Patients
+// created after commit 6db95fc ("replace client link with phone field on
+// patients") can have client_id = NULL in the DB — Number(null) is 0, a
+// falsy-looking-but-not-actually-checked value that used to sail past
+// validateClinicalRelationship's `clientId ? ... : null` guard (0 is falsy,
+// so the guard just skipped the check instead of rejecting it) and hit the
+// INSERT raw, crashing with an opaque FK violation (fk_appointments_client,
+// Postgres 23503, uncaught by isSchemaError) instead of a clean 400.
+// Centralized so createAppointment/updateAppointment fail the same clean way.
+function resolveAppointmentClientId(data, patient) {
+  const resolved = data.client_id || Number(patient.client_id);
+  if (!resolved) {
+    throw new ApiError(400, "Este paciente no tiene un cliente/responsable vinculado. Vincula un responsable antes de agendar una cita.");
+  }
+  return resolved;
+}
+
 async function createAppointment(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const data = buildAppointmentPayload(payload);
@@ -1584,7 +1604,7 @@ async function createAppointment(payload, actor) {
   try {
     await client.query("BEGIN");
     const patient = await getOwnedPatient(data.patient_id, actor, client);
-    const resolvedClientId = data.client_id || Number(patient.client_id);
+    const resolvedClientId = resolveAppointmentClientId(data, patient);
     if (hidesAesthetics(actor?.pos_type) && data.area === "ESTETICA") {
       throw new ApiError(409, "Invalid appointment area");
     }
@@ -1682,7 +1702,7 @@ async function updateAppointment(id, payload, actor) {
   try {
     await client.query("BEGIN");
     const patient = await getOwnedPatient(data.patient_id, actor, client);
-    const resolvedClientId = data.client_id || Number(patient.client_id);
+    const resolvedClientId = resolveAppointmentClientId(data, patient);
     if (hidesAesthetics(actor?.pos_type) && data.area === "ESTETICA") {
       throw new ApiError(409, "Invalid appointment area");
     }
