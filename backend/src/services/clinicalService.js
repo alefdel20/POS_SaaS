@@ -598,7 +598,7 @@ const PATIENT_MIRROR_FIELDS = `
 // used by getOwnedConsultation's "GROUP BY mc.id, p.name, c.name" above).
 const PATIENT_MIRROR_GROUP_BY = `
        hcp.first_name, hcp.last_name, hcp.phone, hcp.sex, hcp.birth_date, hcp.metadata, hcp.allergies_summary,
-       hcpet.name, hcpet.breed, hcpet.sex, hcpet.birth_date, hcpet.weight_kg, hcpet.allergies_summary, hcpet.notes`;
+       hcpet.name, hcpet.breed, hcpet.sex, hcpet.birth_date, hcpet.weight_kg, hcpet.allergies_summary, hcpet.notes, hcpet.metadata`;
 
 const CLIENT_MIRROR_JOIN = `
      LEFT JOIN healthcare.pet_owners hpo

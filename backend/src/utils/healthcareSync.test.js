@@ -671,6 +671,62 @@ test("clinicalService.getClientDetail: patient_count/consultation_count are prop
   assert.equal(detail.consultation_count, 9);
 });
 
+// Regression: staging smoke test hit "column hcpet.metadata must appear in
+// the GROUP BY clause or be used in an aggregate function" on GET /clients/:id
+// for a client with a pet — PATIENT_MIRROR_FIELDS' phone fallback reads
+// hcpet.metadata->>'phone_snapshot', but PATIENT_MIRROR_GROUP_BY only listed
+// hcp.metadata, not hcpet.metadata. This mock can't run real Postgres GROUP BY
+// validation, so it can't fail the way staging did — the SQL-text assertion
+// below is what actually pins the fix; the resolves-without-throwing/data
+// assertions cover the "getClientDetail must return 200 with data" half.
+test("clinicalService.getClientDetail: a client with a pet that has a healthcare.pets mirror resolves (GROUP BY includes hcpet.metadata, not just hcp.metadata)", async () => {
+  let nestedPatientsSql = "";
+  pool.query = async (sqlText) => {
+    const normalized = String(sqlText).replace(/\s+/g, " ").trim();
+    if (/^SELECT \*\s*FROM clients/i.test(normalized)) {
+      return { rows: [{ id: 40, business_id: 7, name: "Dueña de Firulais", is_active: true }] };
+    }
+    if (/FROM clients c/i.test(normalized)) {
+      return {
+        rows: [{
+          id: 40, business_id: 7, name: "Dueña de Firulais", email: null, phone: null,
+          tax_id: null, address: "", notes: "", is_active: true,
+          created_at: new Date(), updated_at: new Date(),
+          patient_count: 1, consultation_count: 0
+        }]
+      };
+    }
+    if (/FROM patients p/i.test(normalized)) {
+      nestedPatientsSql = normalized;
+      // Simulates a pet with a healthcare.pets mirror whose phone came back
+      // via the metadata->>'phone_snapshot' fallback (the exact path that
+      // crashed in staging before hcpet.metadata was added to the GROUP BY).
+      return {
+        rows: [{
+          id: 41, business_id: 7, client_id: 40, name: "Firulais", phone: "5544332211",
+          breed: "Labrador", sex: "Masculino", birth_date: null, weight: 24.5,
+          allergies: "", notes: "", species: "Perro", is_active: true,
+          created_at: new Date(), updated_at: new Date(),
+          consultation_count: 0, appointment_count: 0
+        }]
+      };
+    }
+    return { rows: [] };
+  };
+
+  const detail = await clinicalService.getClientDetail(40, { id: 1, business_id: 7 });
+
+  assert.equal(detail.patients.length, 1, "getClientDetail must resolve with data, not throw, for a client with a mirrored pet");
+  assert.equal(detail.patients[0].name, "Firulais");
+  assert.equal(detail.patients[0].phone, "5544332211");
+  assert.match(nestedPatientsSql, /hcpet\.metadata->>'phone_snapshot'/i, "sanity check: this query really does read hcpet.metadata");
+  assert.match(
+    nestedPatientsSql,
+    /group by p\.id,\s*hcp\.first_name,[^)]*hcpet\.metadata/i,
+    "hcpet.metadata must be listed in the GROUP BY alongside every other hcp.*/hcpet.* column PATIENT_MIRROR_FIELDS reads"
+  );
+});
+
 test("clientService.listClients (catalog): LEFT JOINs healthcare.pet_owners with credit_limit/credit_days fallback", async () => {
   let capturedSql = "";
   pool.query = async (sqlText) => {
