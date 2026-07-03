@@ -247,7 +247,14 @@ async function syncHumanPatientMirror(row, businessId, sourcePatientId, actorId,
 
 async function syncPetMirror(row, businessId, sourcePatientId, actorId, client) {
   const sex = normalizeHealthcareSex(row.sex, PET_SEX_TOKENS);
+  // healthcare.pets has no phone column (a pet's phone belongs to its owner
+  // conceptually) — but public.patients.phone is captured directly on the
+  // patient regardless of species (since commit 6db95fc removed the client
+  // link in favor of a phone field), so it has to go somewhere or it's
+  // silently lost. Preserved in metadata, same as breed/weight/notes were
+  // already being preserved for the human side.
   const metadata = stripNullish({
+    phone_snapshot: row.phone ? String(row.phone).trim() : null,
     sync_source: "patient_create_sync",
     synced_at: new Date().toISOString()
   });
@@ -373,6 +380,10 @@ module.exports = {
   subjectTranslationJoin,
   syncPatientToHealthcare,
   syncClientToHealthcare,
+  // shared human/pet discriminator — also used by clinicalService.updatePatient
+  // to block a species change that would flip which healthcare.* table a
+  // patient's mirror belongs to (see the species-immutability guard there)
+  isHumanSpecies,
   // exported for unit testing only
   splitPersonName,
   normalizeHealthcareSex,

@@ -16,7 +16,7 @@ const healthcarePreventiveEventService = require("./healthcarePreventiveEventSer
 // Fix (2026): mirrors every newly-created patient/client into healthcare.* in
 // the same transaction — see healthcareSubjectTranslation.js for why. Create
 // only; updatePatient/updateClient below deliberately do not call these.
-const { syncPatientToHealthcare, syncClientToHealthcare } = require("../utils/healthcareSubjectTranslation");
+const { syncPatientToHealthcare, syncClientToHealthcare, isHumanSpecies } = require("../utils/healthcareSubjectTranslation");
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -898,6 +898,22 @@ async function updatePatient(id, payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const current = mapPatient(await getOwnedPatient(id, actor));
   const data = buildPatientPayload({ ...current, ...payload });
+
+  // Species is immutable after creation. A patient's healthcare.* mirror
+  // lives in either healthcare.patients (human) or healthcare.pets (mascota)
+  // — which one is decided once, at createPatient/syncPatientToHealthcare
+  // time. Flipping sides here would mean moving the mirror row between two
+  // tables with different, incompatible column sets (no owner_id on
+  // healthcare.patients, no blood_type/occupation/emergency_contact_* on
+  // healthcare.pets), which updatePatient does not attempt — it only ever
+  // updates the existing public.patients row and never touches healthcare.*
+  // (see the comment above this function). Only the blank-vs-non-blank "side"
+  // is checked, not the exact text — "Perro" -> "Canino" is still the pet
+  // side and stays allowed.
+  if (isHumanSpecies(current.species) !== isHumanSpecies(data.species)) {
+    throw new ApiError(400, "No se puede cambiar la especie de un paciente despues de creado (humano <-> mascota). Si te equivocaste al registrar el paciente, crea uno nuevo con la especie correcta.");
+  }
+
   const client = await pool.connect();
 
   try {

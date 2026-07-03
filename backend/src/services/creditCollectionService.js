@@ -287,7 +287,7 @@ async function listDebtorSuggestions(actor, search = "") {
          OR COALESCE(sales.customer_phone, '') ILIKE $2
        )
        AND COALESCE(sales.customer_name, '') <> ''
-       AND (c.id IS NULL OR c.deleted_at IS NULL)
+       AND (c.id IS NULL OR c.is_active = TRUE)
      GROUP BY sales.customer_name, sales.customer_phone
      ORDER BY MAX(sales.sale_date) DESC, sales.customer_name ASC
      LIMIT 8`,

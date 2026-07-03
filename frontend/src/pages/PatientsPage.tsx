@@ -329,7 +329,13 @@ export function PatientsPage() {
             <>
               <label>
                 Especie
-                <input value={form.species} onChange={(event) => setForm({ ...form, species: event.target.value })} />
+                <input
+                  value={form.species}
+                  onChange={(event) => setForm({ ...form, species: event.target.value })}
+                  disabled={mode === "edit"}
+                  title={mode === "edit" ? "La especie no se puede cambiar después de creado el paciente" : undefined}
+                />
+                {mode === "edit" ? <span className="muted">No se puede cambiar después de creado.</span> : null}
               </label>
               <label>
                 Raza

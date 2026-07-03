@@ -656,6 +656,11 @@ async function ensureSchema(client) {
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(12,2) DEFAULT NULL",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS credit_days INTEGER DEFAULT 30",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL",
+    // NOTE: this predicate (deleted_at IS NULL) is historical/pre-migration-45.
+    // ensureClientSoftDeleteReconciliation below drops and recreates this same
+    // index with WHERE is_active = TRUE on every boot — is_active is the real
+    // source of truth now. Left as-is here (not rewritten) to match this
+    // codebase's convention of not editing historical ensureSchema lines.
     "CREATE UNIQUE INDEX IF NOT EXISTS clients_business_name_phone_uq ON clients (business_id, LOWER(TRIM(name)), COALESCE(LOWER(TRIM(phone)), '')) WHERE deleted_at IS NULL",
 
     `CREATE TABLE IF NOT EXISTS patients (
@@ -2217,6 +2222,25 @@ async function ensureConstraints(client) {
   ]);
 }
 
+// Migration 45 — public.clients soft-delete unification. is_active becomes
+// the operational source of truth for "is this client alive" everywhere
+// (clientService.js, creditCollectionService.js); deleted_at stays as a
+// historical/audit-only column, not dropped, not filtered on anymore. See
+// infra/postgres/45-clients-unify-soft-delete.sql for the full rationale on
+// why reconciling existing data this way is safe (no restore endpoint exists
+// anywhere in the backend, no other module treats deleted_at as terminal).
+// Idempotent — a second run touches zero rows once reconciled, and the
+// DROP+CREATE INDEX pair is a no-op churn once the predicate matches.
+async function ensureClientSoftDeleteReconciliation(client) {
+  await run(client, [
+    "UPDATE clients SET is_active = FALSE WHERE deleted_at IS NOT NULL AND is_active = TRUE",
+    "DROP INDEX IF EXISTS clients_business_name_phone_uq",
+    `CREATE UNIQUE INDEX IF NOT EXISTS clients_business_name_phone_uq
+     ON clients (business_id, LOWER(TRIM(name)), COALESCE(LOWER(TRIM(phone)), ''))
+     WHERE is_active = TRUE`
+  ]);
+}
+
 // Structural DDL for the healthcare vertical (schema itself created by
 // infra/postgres/14-healthcare-modular-expansion.sql and
 // infra/postgres/33-healthcare-appointments-preventive.sql, run manually via
@@ -2498,6 +2522,9 @@ async function ensureDatabaseCompatibility() {
 
     console.info("[DB-COMPAT] ensureConstraints");
     await ensureConstraints(client);
+
+    console.info("[DB-COMPAT] ensureClientSoftDeleteReconciliation");
+    await ensureClientSoftDeleteReconciliation(client);
 
     console.info("[DB-COMPAT] ensureHealthcareStructuralSync");
     await ensureHealthcareStructuralSync(client);

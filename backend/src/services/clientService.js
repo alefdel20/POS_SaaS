@@ -34,7 +34,7 @@ async function findOrCreateClient(businessId, { name, phone, email }, dbClient =
      WHERE business_id = $1
        AND LOWER(TRIM(name)) = $2
        AND COALESCE(LOWER(TRIM(phone)), '') = $3
-       AND deleted_at IS NULL
+       AND is_active = TRUE
      LIMIT 1`,
     [businessId, nName, nPhone]
   );
@@ -66,7 +66,7 @@ async function findOrCreateClient(businessId, { name, phone, email }, dbClient =
          WHERE business_id = $1
            AND LOWER(TRIM(name)) = $2
            AND COALESCE(LOWER(TRIM(phone)), '') = $3
-           AND deleted_at IS NULL
+           AND is_active = TRUE
          LIMIT 1`,
         [businessId, nName, nPhone]
       );
@@ -80,8 +80,11 @@ async function listClients(businessId, { search, includeDeleted } = {}) {
   const conditions = ["business_id = $1"];
   const values = [businessId];
 
+  // includeDeleted/include_deleted is the existing query-param name (kept as-is
+  // for API compatibility) — what changed is which column decides "alive":
+  // is_active, not deleted_at (see infra/postgres/45-clients-unify-soft-delete.sql).
   if (!includeDeleted) {
-    conditions.push("deleted_at IS NULL");
+    conditions.push("is_active = TRUE");
   }
 
   if (search) {
@@ -96,16 +99,27 @@ async function listClients(businessId, { search, includeDeleted } = {}) {
   return rows;
 }
 
-async function updateClient(businessId, clientId, { name, phone, email, notes }) {
+// PUT is a full-replace, not a merge-patch (unset fields go blank/null) — same
+// contract as before this change. is_active is the one exception: passing it
+// reactivates/deactivates the client; omitting it preserves whatever is
+// already in the row (COALESCE against the existing column), so a plain
+// name/phone edit never accidentally flips is_active. No row-level is_active
+// filter in the WHERE clause on purpose — this is also how a soft-deleted
+// client gets reactivated (PUT with is_active: true), per
+// infra/postgres/45-clients-unify-soft-delete.sql.
+async function updateClient(businessId, clientId, { name, phone, email, notes, is_active }) {
   const trimmedName = String(name || "").trim();
   if (!trimmedName) throw new ApiError(400, "Client name is required");
+  const nextIsActive = is_active === undefined ? null : Boolean(is_active);
 
   const { rows } = await pool.query(
     `UPDATE clients
-     SET name = $1, phone = $2, email = $3, notes = $4, updated_at = NOW()
-     WHERE id = $5 AND business_id = $6 AND deleted_at IS NULL
+     SET name = $1, phone = $2, email = $3, notes = $4,
+         is_active = COALESCE($5, is_active),
+         updated_at = NOW()
+     WHERE id = $6 AND business_id = $7
      RETURNING *`,
-    [trimmedName, String(phone || "").trim() || null, email || null, notes || "", clientId, businessId]
+    [trimmedName, String(phone || "").trim() || null, email || null, notes || "", nextIsActive, clientId, businessId]
   );
 
   if (!rows[0]) throw new ApiError(404, "Client not found");
@@ -126,9 +140,14 @@ async function softDeleteClient(businessId, clientId) {
     throw new ApiError(400, "No se puede eliminar un cliente con deuda activa");
   }
 
+  // Both columns set on purpose: is_active = FALSE is the operational source
+  // of truth going forward (everything that decides "is this client alive"
+  // reads is_active now); deleted_at stays as a historical/audit marker of
+  // when this happened, not cleared on reactivation. See
+  // infra/postgres/45-clients-unify-soft-delete.sql.
   const { rows } = await pool.query(
-    `UPDATE clients SET deleted_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND business_id = $2 AND deleted_at IS NULL
+    `UPDATE clients SET deleted_at = NOW(), is_active = FALSE, updated_at = NOW()
+     WHERE id = $1 AND business_id = $2 AND is_active = TRUE
      RETURNING id`,
     [clientId, businessId]
   );
@@ -161,7 +180,7 @@ async function backfillClientsFromSales(businessId) {
        WHERE business_id = $1
          AND LOWER(TRIM(name)) = $2
          AND COALESCE(LOWER(TRIM(phone)), '') = $3
-         AND deleted_at IS NULL
+         AND is_active = TRUE
        LIMIT 1`,
       [businessId, nName, nPhone]
     );

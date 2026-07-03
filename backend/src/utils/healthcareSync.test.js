@@ -221,6 +221,38 @@ test("syncPatientToHealthcare: pet inserts into healthcare.pets with owner_id NU
   assert.equal(findCall(mockClient.calls, /INSERT INTO healthcare\.patients\b/i), undefined);
 });
 
+test("syncPatientToHealthcare: pet phone is preserved in metadata.phone_snapshot (no direct column on healthcare.pets)", async () => {
+  const mockClient = createMockClient();
+  const publicPatientRow = {
+    id: 902, business_id: 7, name: "Rocky", species: "Perro",
+    breed: null, sex: null, birth_date: null, phone: "  5544332211  ",
+    weight: null, allergies: "", notes: "", is_active: true, created_by: 42
+  };
+
+  await syncPatientToHealthcare(publicPatientRow, { id: 42 }, mockClient);
+
+  const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.pets\b/i);
+  const [, , , , , , , , , , metadataJson] = insertCall.params;
+  const metadata = JSON.parse(metadataJson);
+  assert.equal(metadata.phone_snapshot, "5544332211");
+});
+
+test("syncPatientToHealthcare: pet with no phone omits phone_snapshot from metadata entirely", async () => {
+  const mockClient = createMockClient();
+  const publicPatientRow = {
+    id: 903, business_id: 7, name: "Michi", species: "Gato",
+    breed: null, sex: null, birth_date: null, phone: null,
+    weight: null, allergies: "", notes: "", is_active: true, created_by: 42
+  };
+
+  await syncPatientToHealthcare(publicPatientRow, { id: 42 }, mockClient);
+
+  const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.pets\b/i);
+  const [, , , , , , , , , , metadataJson] = insertCall.params;
+  const metadata = JSON.parse(metadataJson);
+  assert.equal(Object.prototype.hasOwnProperty.call(metadata, "phone_snapshot"), false);
+});
+
 test("syncPatientToHealthcare: oversized single-word human name is truncated and preserved in metadata", async () => {
   const mockClient = createMockClient();
   const oversizedFirstName = "A".repeat(135); // no space -> first_name only, last_name stays ''
