@@ -13,7 +13,14 @@ const listValidation = [
 
 const createValidation = [
   body("patient_id").isInt(),
-  body("client_id").isInt(),
+  // client_id is optional as of migration 47 — a patient attended before a
+  // responsible party is resolved is a valid state, same criterion already
+  // applied to appointments.client_id (migration 46).
+  body("client_id").optional({ values: "falsy" }).isInt(),
+  // appointment_id is optional — declares which appointment this consultation
+  // resulted from, if any (migration 47). No heuristics: omitted means the
+  // consultation stays unlinked, same as a walk-in.
+  body("appointment_id").optional({ values: "falsy" }).isInt(),
   body("consultation_date").optional({ values: "falsy" }).isISO8601(),
   body("fecha").optional({ values: "falsy" }).isISO8601(),
   body("motivo_consulta").trim().notEmpty(),

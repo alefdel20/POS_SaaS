@@ -23,6 +23,9 @@ const {
   syncClientToHealthcareOnUpdate,
   syncAppointmentToHealthcare,
   syncAppointmentToHealthcareOnUpdate,
+  syncConsultationToHealthcare,
+  syncConsultationToHealthcareOnUpdate,
+  linkAppointmentResultingEncounter,
   truncateHealthcareName,
   clampPetWeightKg,
   HEALTHCARE_NAME_MAX_LENGTH,
@@ -905,4 +908,348 @@ test("clientService.listClients (catalog): LEFT JOINs healthcare.pet_owners with
   assert.match(capturedSql, /LEFT JOIN healthcare\.pet_owners hpo\s+ON hpo\.client_id\s*=\s*c\.id/i);
   assert.match(capturedSql, /COALESCE\(hpo\.credit_limit, c\.credit_limit\)/i);
   assert.match(capturedSql, /COALESCE\(hpo\.credit_days, c\.credit_days\)/i);
+});
+
+// --- syncConsultationToHealthcare / syncConsultationToHealthcareOnUpdate (Fase 4) --
+
+function createConsultationSyncMockClient({
+  publicPatientRow,
+  healthcarePatientId = null,
+  healthcarePetId = null,
+  publicClientRow = null,
+  existingPetOwnerMirror = false,
+  petOwnerId = null,
+  existingClinicalEncounterMirror = false,
+  existingVeterinaryEncounterMirror = false
+}) {
+  const calls = [];
+  async function query(sqlText, params = []) {
+    const sql = String(sqlText);
+    calls.push({ sql, params });
+    const normalized = sql.replace(/\s+/g, " ").trim();
+
+    if (/^SELECT id, species FROM patients\b/i.test(normalized)) {
+      return { rows: publicPatientRow ? [publicPatientRow] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.patients WHERE source_patient_id\b/i.test(normalized)) {
+      return { rows: healthcarePatientId ? [{ id: healthcarePatientId }] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.pets WHERE source_patient_id\b/i.test(normalized)) {
+      return { rows: healthcarePetId ? [{ id: healthcarePetId }] : [] };
+    }
+    if (/^SELECT \* FROM clients WHERE id\b/i.test(normalized)) {
+      return { rows: publicClientRow ? [publicClientRow] : [] };
+    }
+    if (/^UPDATE healthcare\.pet_owners\b/i.test(normalized)) {
+      return { rows: existingPetOwnerMirror ? [{ id: 8000 }] : [] };
+    }
+    if (/^INSERT INTO healthcare\.pet_owners\b/i.test(normalized)) {
+      return { rows: [{ id: 8001 }] };
+    }
+    if (/^SELECT id FROM healthcare\.pet_owners WHERE client_id\b/i.test(normalized)) {
+      return { rows: petOwnerId ? [{ id: petOwnerId }] : [] };
+    }
+    if (/^UPDATE healthcare\.clinical_encounters\b/i.test(normalized)) {
+      return { rows: existingClinicalEncounterMirror ? [{ id: 9100 }] : [] };
+    }
+    if (/^INSERT INTO healthcare\.clinical_encounters\b/i.test(normalized)) {
+      return { rows: [{ id: 9101 }] };
+    }
+    if (/^UPDATE healthcare\.veterinary_encounters\b/i.test(normalized)) {
+      return { rows: existingVeterinaryEncounterMirror ? [{ id: 9200 }] : [] };
+    }
+    if (/^INSERT INTO healthcare\.veterinary_encounters\b/i.test(normalized)) {
+      return { rows: [{ id: 9201 }] };
+    }
+    return { rows: [] };
+  }
+  return { calls, query };
+}
+
+function basicPublicConsultationRow(overrides = {}) {
+  return {
+    id: 800, business_id: 7, patient_id: 900, client_id: null, appointment_id: null,
+    consultation_date: "2026-01-10T10:00:00.000Z", motivo_consulta: "Chequeo",
+    diagnostico: "Sano", tratamiento: "Ninguno", notas: "", is_active: true, created_by: 42,
+    ...overrides
+  };
+}
+
+test("syncConsultationToHealthcare: human consultation with an existing patient mirror inserts into clinical_encounters, owner_id null (no client_id)", async () => {
+  const mockClient = createConsultationSyncMockClient({
+    publicPatientRow: { id: 900, species: null }, // blank species -> human
+    healthcarePatientId: 5000
+  });
+  const publicConsultationRow = basicPublicConsultationRow({ patient_id: 900 });
+
+  const result = await syncConsultationToHealthcare(publicConsultationRow, { id: 42 }, mockClient);
+
+  assert.equal(result.subjectType, "human");
+  assert.ok(result.encounter);
+  const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.clinical_encounters\b/i);
+  assert.ok(insertCall, "expected an INSERT INTO healthcare.clinical_encounters call");
+  const [businessId, sourceConsultationId, patientId, ownerId] = insertCall.params;
+  assert.equal(businessId, 7);
+  assert.equal(sourceConsultationId, 800);
+  assert.equal(patientId, 5000);
+  assert.equal(ownerId, null);
+  assert.equal(findCall(mockClient.calls, /INSERT INTO healthcare\.veterinary_encounters\b/i), undefined);
+});
+
+test("syncConsultationToHealthcare: pet consultation with a resolvable client auto-heals healthcare.pet_owners first, then populates owner_id", async () => {
+  const mockClient = createConsultationSyncMockClient({
+    publicPatientRow: { id: 901, species: "Perro" },
+    healthcarePetId: 6000,
+    publicClientRow: {
+      id: 55, business_id: 7, name: "Responsable", phone: null, email: null,
+      address: "", tax_id: null, notes: "", is_active: true, updated_by: 42,
+      credit_limit: null, credit_days: 30
+    },
+    petOwnerId: 7000
+  });
+  const publicConsultationRow = basicPublicConsultationRow({ id: 801, patient_id: 901, client_id: 55 });
+
+  const result = await syncConsultationToHealthcare(publicConsultationRow, { id: 42 }, mockClient);
+
+  assert.equal(result.subjectType, "pet");
+  assert.ok(result.encounter);
+  assert.ok(
+    findCall(mockClient.calls, /^UPDATE healthcare\.pet_owners\b/i),
+    "expected the client's own healthcare.pet_owners mirror to be auto-healed before resolving owner_id"
+  );
+  const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.veterinary_encounters\b/i);
+  assert.ok(insertCall);
+  const [, , petId, ownerId] = insertCall.params;
+  assert.equal(petId, 6000);
+  assert.equal(ownerId, 7000);
+});
+
+test("syncConsultationToHealthcare: pet consultation with no client_id still inserts into veterinary_encounters, with owner_id NULL (migration 48)", async () => {
+  const mockClient = createConsultationSyncMockClient({
+    publicPatientRow: { id: 902, species: "Gato" },
+    healthcarePetId: 6001
+  });
+  const publicConsultationRow = basicPublicConsultationRow({ id: 802, patient_id: 902, client_id: null });
+
+  const result = await syncConsultationToHealthcare(publicConsultationRow, { id: 42 }, mockClient);
+
+  assert.equal(result.subjectType, "pet");
+  assert.ok(result.encounter, "a mirror row must always be created now, even with no resolvable owner");
+  const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.veterinary_encounters\b/i);
+  assert.ok(insertCall, "expected an INSERT INTO healthcare.veterinary_encounters call — no more silent skip");
+  const [, , petId, ownerId] = insertCall.params;
+  assert.equal(petId, 6001);
+  assert.equal(ownerId, null, "owner_id is NULL, not a blocked/skipped insert");
+  // no client_id at all -> must never even attempt the client/pet_owners lookups
+  assert.equal(findCall(mockClient.calls, /^SELECT \* FROM clients\b/i), undefined);
+});
+
+test("syncConsultationToHealthcareOnUpdate: pet consultation with an existing mirror (owner_id NULL) resolves owner_id via COALESCE once a client_id is added, without a fallback INSERT", async () => {
+  const mockClient = createConsultationSyncMockClient({
+    publicPatientRow: { id: 902, species: "Gato" },
+    healthcarePetId: 6001,
+    publicClientRow: {
+      id: 56, business_id: 7, name: "Nuevo Responsable", phone: null, email: null,
+      address: "", tax_id: null, notes: "", is_active: true, updated_by: 42,
+      credit_limit: null, credit_days: 30
+    },
+    petOwnerId: 7001,
+    existingVeterinaryEncounterMirror: true
+  });
+  const publicConsultationRow = basicPublicConsultationRow({ id: 802, patient_id: 902, client_id: 56, updated_by: 42 });
+
+  const result = await syncConsultationToHealthcareOnUpdate(publicConsultationRow, { id: 42 }, mockClient);
+
+  assert.ok(result.encounter);
+  const updateCall = findCall(mockClient.calls, /^UPDATE healthcare\.veterinary_encounters\b/i);
+  assert.ok(updateCall, "the mirror created at create-time (owner_id NULL) must be updated, not re-inserted");
+  assert.match(updateCall.sql.replace(/\s+/g, " "), /owner_id\s*=\s*COALESCE\(\$4, owner_id\)/i);
+  const [, , , ownerId] = updateCall.params;
+  assert.equal(ownerId, 7001);
+  assert.equal(
+    findCall(mockClient.calls, /^INSERT INTO healthcare\.veterinary_encounters\b/i),
+    undefined,
+    "an existing mirror (even with owner_id NULL) must never be re-inserted"
+  );
+});
+
+test("syncConsultationToHealthcareOnUpdate: legacy pet consultation with no mirror at all still auto-heals via INSERT", async () => {
+  const mockClient = createConsultationSyncMockClient({
+    publicPatientRow: { id: 903, species: "Perico" },
+    healthcarePetId: 6002,
+    existingVeterinaryEncounterMirror: false
+  });
+  const publicConsultationRow = basicPublicConsultationRow({ id: 803, patient_id: 903, client_id: null, updated_by: 42 });
+
+  const result = await syncConsultationToHealthcareOnUpdate(publicConsultationRow, { id: 42 }, mockClient);
+
+  assert.ok(result.encounter);
+  assert.ok(findCall(mockClient.calls, /^UPDATE healthcare\.veterinary_encounters\b/i), "UPDATE must still be attempted first");
+  assert.ok(findCall(mockClient.calls, /^INSERT INTO healthcare\.veterinary_encounters\b/i), "falls back to INSERT for a legacy consultation with no mirror yet");
+});
+
+// --- linkAppointmentResultingEncounter (Fase 4) ------------------------------
+
+function createLinkMockClient({ publicAppointmentRow, existingAppointmentMirrorId = null }) {
+  const calls = [];
+  async function query(sqlText, params = []) {
+    const sql = String(sqlText);
+    calls.push({ sql, params });
+    const normalized = sql.replace(/\s+/g, " ").trim();
+
+    if (/^SELECT \* FROM appointments WHERE id\b/i.test(normalized)) {
+      return { rows: publicAppointmentRow ? [publicAppointmentRow] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.appointments WHERE source_appointment_id\b/i.test(normalized)) {
+      return { rows: existingAppointmentMirrorId ? [{ id: existingAppointmentMirrorId }] : [] };
+    }
+    if (/^UPDATE healthcare\.appointments SET resulting_encounter_id\b/i.test(normalized)) {
+      return { rows: [] };
+    }
+    return { rows: [] };
+  }
+  return { calls, query };
+}
+
+test("linkAppointmentResultingEncounter: existing appointment mirror gets resulting_encounter_id updated directly, no auto-heal attempted", async () => {
+  const mockClient = createLinkMockClient({
+    publicAppointmentRow: { id: 700, business_id: 7, patient_id: 900 },
+    existingAppointmentMirrorId: 9000
+  });
+
+  const result = await linkAppointmentResultingEncounter({
+    appointmentId: 700, businessId: 7, encounterId: 9101, actor: { id: 42 }, client: mockClient
+  });
+
+  assert.equal(result, 9000);
+  const updateCall = findCall(mockClient.calls, /^UPDATE healthcare\.appointments SET resulting_encounter_id\b/i);
+  assert.ok(updateCall);
+  const [appointmentMirrorId, businessId, encounterId] = updateCall.params;
+  assert.equal(appointmentMirrorId, 9000);
+  assert.equal(businessId, 7);
+  assert.equal(encounterId, 9101);
+  assert.equal(findCall(mockClient.calls, /^INSERT INTO healthcare\.appointments\b/i), undefined, "must not auto-heal when a mirror already exists");
+});
+
+test("linkAppointmentResultingEncounter: no appointmentId is a no-op — no queries issued, resulting_encounter_id untouched", async () => {
+  const mockClient = createLinkMockClient({ publicAppointmentRow: null });
+
+  const result = await linkAppointmentResultingEncounter({
+    appointmentId: null, businessId: 7, encounterId: 9101, actor: { id: 42 }, client: mockClient
+  });
+
+  assert.equal(result, null);
+  assert.equal(mockClient.calls.length, 0, "declaring no appointment_id must not touch healthcare.appointments at all");
+});
+
+function createLinkAutoHealMockClient({ publicAppointmentRow, publicPatientRow, healthcarePatientId = null, healthcarePetId = null }) {
+  const calls = [];
+  let mirrorCreated = false;
+  async function query(sqlText, params = []) {
+    const sql = String(sqlText);
+    calls.push({ sql, params });
+    const normalized = sql.replace(/\s+/g, " ").trim();
+
+    if (/^SELECT \* FROM appointments WHERE id\b/i.test(normalized)) {
+      return { rows: publicAppointmentRow ? [publicAppointmentRow] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.appointments WHERE source_appointment_id\b/i.test(normalized)) {
+      return { rows: mirrorCreated ? [{ id: 9050 }] : [] };
+    }
+    if (/^SELECT id, species FROM patients\b/i.test(normalized)) {
+      return { rows: publicPatientRow ? [publicPatientRow] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.patients WHERE source_patient_id\b/i.test(normalized)) {
+      return { rows: healthcarePatientId ? [{ id: healthcarePatientId }] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.pets WHERE source_patient_id\b/i.test(normalized)) {
+      return { rows: healthcarePetId ? [{ id: healthcarePetId }] : [] };
+    }
+    if (/^SELECT id FROM healthcare\.pet_owners WHERE client_id\b/i.test(normalized)) {
+      return { rows: [] };
+    }
+    if (/^UPDATE healthcare\.appointments\b/i.test(normalized) && !/resulting_encounter_id/i.test(normalized)) {
+      return { rows: [] }; // syncAppointmentToHealthcareOnUpdate's own UPDATE attempt -> no existing row yet
+    }
+    if (/^INSERT INTO healthcare\.appointments\b/i.test(normalized)) {
+      mirrorCreated = true;
+      return { rows: [{ id: 9050 }] };
+    }
+    if (/^UPDATE healthcare\.appointments SET resulting_encounter_id\b/i.test(normalized)) {
+      return { rows: [] };
+    }
+    return { rows: [] };
+  }
+  return { calls, query };
+}
+
+test("linkAppointmentResultingEncounter: no existing appointment mirror auto-heals it via syncAppointmentToHealthcareOnUpdate before linking", async () => {
+  const mockClient = createLinkAutoHealMockClient({
+    publicAppointmentRow: {
+      id: 701, business_id: 7, patient_id: 900, client_id: null, doctor_user_id: null,
+      area: "CLINICA", specialty: null, appointment_date: "2026-01-10", start_time: "10:00:00",
+      end_time: "10:30:00", status: "scheduled", notes: "", is_active: true, updated_by: 42
+    },
+    publicPatientRow: { id: 900, species: null },
+    healthcarePatientId: 5000
+  });
+
+  const result = await linkAppointmentResultingEncounter({
+    appointmentId: 701, businessId: 7, encounterId: 9101, actor: { id: 42 }, client: mockClient
+  });
+
+  assert.equal(result, 9050);
+  assert.ok(
+    findCall(mockClient.calls, /^INSERT INTO healthcare\.appointments\b/i),
+    "expected the missing appointment mirror to be auto-healed"
+  );
+  const finalUpdate = findCall(mockClient.calls, /^UPDATE healthcare\.appointments SET resulting_encounter_id\b/i);
+  assert.ok(finalUpdate);
+  assert.equal(finalUpdate.params[0], 9050);
+});
+
+// --- clinicalService: consultations LEFT JOIN clients (Fase 4) --------------
+//
+// public.consultations stays the driving table (LEFT JOIN, never INNER) so a
+// consultation with no client_id (migration 47) never disappears from a list
+// or a detail lookup — same rule as every other public.*/healthcare.* overlay
+// since Fase 2.
+
+test("clinicalService.listConsultations: LEFT (never INNER) JOINs clients, a consultation with no client_id still comes back", async () => {
+  let capturedSql = "";
+  pool.query = async (sqlText) => {
+    capturedSql = String(sqlText).replace(/\s+/g, " ");
+    return { rows: [{ id: 1, patient_id: 900, client_id: null, is_active: true, prescription_count: 0, has_prescription: false }] };
+  };
+
+  const result = await clinicalService.listConsultations({}, { id: 1, business_id: 7 });
+
+  assert.match(capturedSql, /LEFT JOIN clients c ON c\.id = mc\.client_id AND c\.business_id = mc\.business_id/i);
+  assert.doesNotMatch(capturedSql, /INNER JOIN clients/i);
+  assert.equal(result.length, 1, "a consultation with no client must not disappear from the list");
+});
+
+test("clinicalService.getClinicalHistory: LEFT JOINs clients so a consultation without a client still appears in the timeline", async () => {
+  let capturedSql = "";
+  pool.query = async (sqlText) => {
+    const normalized = String(sqlText).replace(/\s+/g, " ");
+    if (/FROM consultations mc/i.test(normalized)) {
+      capturedSql = normalized;
+      return {
+        rows: [{
+          id: 2, patient_id: 900, client_id: null, consultation_date: "2026-01-10",
+          motivo_consulta: "x", diagnostico: "y", tratamiento: "z", notas: "",
+          prescription_count: 0, has_prescription: false
+        }]
+      };
+    }
+    return { rows: [] };
+  };
+  healthcarePreventiveEventService.listPreventiveEvents = async () => [];
+
+  const history = await clinicalService.getClinicalHistory({ patient_id: 900 }, { id: 1, business_id: 7 });
+
+  assert.match(capturedSql, /LEFT JOIN clients c ON c\.id = mc\.client_id/i);
+  assert.doesNotMatch(capturedSql, /INNER JOIN clients/i);
+  assert.equal(history.timeline.length, 1, "a consultation with no client must still appear in the clinical history timeline");
 });

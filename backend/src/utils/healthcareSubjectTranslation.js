@@ -814,6 +814,354 @@ async function syncAppointmentToHealthcareOnUpdate(publicAppointmentRow, actor, 
   return insertAppointmentMirror(fields, businessId, sourceAppointmentId, actorId, client);
 }
 
+// ---------------------------------------------------------------------------
+// healthcare.clinical_encounters / healthcare.veterinary_encounters mirror
+// (Fase 4: consultations)
+// ---------------------------------------------------------------------------
+
+// Auto-heals the client's own healthcare.pet_owners mirror (if a client_id was
+// given) before resolving owner_id from it, then returns that owner_id (or
+// null if there is no client_id at all). This is the human-and-pet-shared
+// half of the resolution; the pet-only NOT NULL constraint is handled by the
+// caller (insertVeterinaryEncounterMirror), not here.
+//
+// Unlike buildAppointmentMirrorFields (which only resolves owner_id, never
+// touches the client's own mirror — appointments has no reason to, the client
+// sync already runs elsewhere), a consultation's sync is the only place that
+// guarantees healthcare.pet_owners exists before the pet-side INSERT. This
+// keeps owner_id as fresh as possible even though, since migration 48,
+// healthcare.veterinary_encounters.owner_id is nullable and an unresolved
+// owner_id no longer blocks the mirror insert (see
+// insertVeterinaryEncounterMirror below) — the auto-heal still matters
+// because a client_id that IS present but whose pet_owners mirror is stale/
+// missing should still resolve to a real owner_id whenever possible, not NULL
+// by omission.
+async function ensureClientMirrorAndResolveOwnerId(clientId, businessId, actor, client) {
+  if (!clientId) return null;
+  const { rows } = await client.query(
+    "SELECT * FROM clients WHERE id = $1 AND business_id = $2",
+    [clientId, businessId]
+  );
+  const publicClientRow = rows[0];
+  if (!publicClientRow) return null;
+  await syncClientToHealthcareOnUpdate(publicClientRow, actor, client);
+  return resolveAppointmentOwnerId(clientId, businessId, client);
+}
+
+// Resolves the subject (human vs pet, via resolveHealthcareSubject) and
+// owner_id (shared by both sides — healthcare.clinical_encounters.owner_id
+// was added by migration 42 as the human-side "responsible party per visit",
+// mirroring healthcare.veterinary_encounters.owner_id; both are resolved the
+// same way here), then builds every other mirrored column. Callers
+// (syncConsultationToHealthcare/OnUpdate below) are expected to have already
+// guaranteed the patient's own healthcare.patients/healthcare.pets mirror
+// exists — same contract as buildAppointmentMirrorFields.
+//
+// public.consultations has no doctor/clinician column at all (confirmed
+// against infra/postgres/12-clinical-vertical.sql and the migration 39
+// backfill notes) — clinician_user_id/veterinarian_user_id are therefore
+// always NULL from this sync. Migration 39's one-time backfill populated them
+// via a same-patient/same-date heuristic against a matched appointment; that
+// heuristic is deliberately NOT reproduced for live per-row sync (same
+// reasoning as not backfilling resulting_encounter_id by heuristic — see the
+// appointment_id handling in linkAppointmentResultingEncounter below). If an
+// appointment_id is supplied and that appointment has a practitioner, a
+// future phase could copy it across explicitly; out of scope here.
+async function buildConsultationMirrorFields(publicConsultationRow, syncSource, actor, client) {
+  const businessId = publicConsultationRow.business_id;
+  const subject = await resolveHealthcareSubject(publicConsultationRow.patient_id, businessId, client);
+  const ownerId = await ensureClientMirrorAndResolveOwnerId(publicConsultationRow.client_id, businessId, actor, client);
+
+  const metadata = stripNullish({
+    notes_snapshot: publicConsultationRow.notas ? String(publicConsultationRow.notas).trim() : null,
+    sync_source: syncSource,
+    synced_at: new Date().toISOString()
+  });
+
+  return {
+    subjectType: subject.subjectType,
+    patientId: subject.patientId,
+    petId: subject.petId,
+    ownerId,
+    reasonForVisit: publicConsultationRow.motivo_consulta || "",
+    assessment: publicConsultationRow.diagnostico || "",
+    plan: publicConsultationRow.tratamiento || "",
+    startedAt: publicConsultationRow.consultation_date,
+    metadataJson: JSON.stringify(metadata),
+    isActive: publicConsultationRow.is_active !== false
+  };
+}
+
+async function insertClinicalEncounterMirror(fields, businessId, sourceConsultationId, actorId, client) {
+  const { rows } = await client.query(
+    `INSERT INTO healthcare.clinical_encounters (
+       business_id, source_consultation_id, patient_id, owner_id, clinician_user_id,
+       encounter_type, encounter_status, started_at, reason_for_visit, assessment_summary,
+       plan_summary, metadata, is_active, created_by, updated_by
+     )
+     SELECT $1, $2, $3, $4, NULL, 'consultation', 'completed', $5, $6, $7, $8, $9::jsonb, $10, $11, $11
+     WHERE NOT EXISTS (
+       SELECT 1 FROM healthcare.clinical_encounters hce
+       WHERE hce.source_consultation_id = $2 AND hce.business_id = $1
+     )
+     RETURNING id`,
+    [
+      businessId,
+      sourceConsultationId,
+      fields.patientId,
+      fields.ownerId,
+      fields.startedAt,
+      fields.reasonForVisit,
+      fields.assessment,
+      fields.plan,
+      fields.metadataJson,
+      fields.isActive,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+// owner_id is nullable on healthcare.clinical_encounters (migration 42), so a
+// plain overwrite is correct here: removing the consultation's client_id on
+// edit should clear owner_id too, reflecting current reality — same semantics
+// as resolveAppointmentOwnerId already has for healthcare.appointments.
+async function updateClinicalEncounterMirror(fields, businessId, sourceConsultationId, actorId, client) {
+  const { rows } = await client.query(
+    `UPDATE healthcare.clinical_encounters
+     SET patient_id = $3,
+         owner_id = $4,
+         started_at = $5,
+         reason_for_visit = $6,
+         assessment_summary = $7,
+         plan_summary = $8,
+         metadata = $9::jsonb,
+         is_active = $10,
+         updated_by = $11,
+         updated_at = NOW()
+     WHERE source_consultation_id = $2 AND business_id = $1
+     RETURNING id`,
+    [
+      businessId,
+      sourceConsultationId,
+      fields.patientId,
+      fields.ownerId,
+      fields.startedAt,
+      fields.reasonForVisit,
+      fields.assessment,
+      fields.plan,
+      fields.metadataJson,
+      fields.isActive,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+// healthcare.veterinary_encounters.owner_id is nullable as of migration 48
+// (previously NOT NULL, which forced this function to SKIP the insert
+// entirely whenever ownerId could not be resolved — see git history for that
+// original decision). Now it always inserts: ownerId resolve-or-null, exactly
+// the same shape buildAppointmentMirrorFields/resolveAppointmentOwnerId
+// already use for healthcare.appointments.owner_id. A pet consultation with
+// no resolvable client therefore gets its mirror immediately, with owner_id
+// NULL, instead of waiting for a future edit to supply one.
+async function insertVeterinaryEncounterMirror(fields, businessId, sourceConsultationId, actorId, client) {
+  const { rows } = await client.query(
+    `INSERT INTO healthcare.veterinary_encounters (
+       business_id, source_consultation_id, pet_id, owner_id, veterinarian_user_id,
+       encounter_type, encounter_status, encounter_date, chief_complaint, assessment,
+       plan, metadata, is_active, created_by, updated_by
+     )
+     SELECT $1, $2, $3, $4, NULL, 'consultation', 'completed', $5, $6, $7, $8, $9::jsonb, $10, $11, $11
+     WHERE NOT EXISTS (
+       SELECT 1 FROM healthcare.veterinary_encounters hve
+       WHERE hve.source_consultation_id = $2 AND hve.business_id = $1
+     )
+     RETURNING id`,
+    [
+      businessId,
+      sourceConsultationId,
+      fields.petId,
+      fields.ownerId,
+      fields.startedAt,
+      fields.reasonForVisit,
+      fields.assessment,
+      fields.plan,
+      fields.metadataJson,
+      fields.isActive,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+// owner_id uses COALESCE($4, owner_id) rather than a plain overwrite — unlike
+// the human side, this column is NOT NULL, so a resolved-to-null ownerId on
+// this update pass (client_id removed, or never set) must never attempt to
+// clear a previously-set owner_id; it leaves whatever value is already there
+// untouched instead. This is an intentional asymmetry with
+// updateClinicalEncounterMirror (documented there too): once a
+// veterinary_encounters mirror has an owner, it can never be unset through
+// this sync, only replaced by resolving a new one.
+async function updateVeterinaryEncounterMirror(fields, businessId, sourceConsultationId, actorId, client) {
+  const { rows } = await client.query(
+    `UPDATE healthcare.veterinary_encounters
+     SET pet_id = $3,
+         owner_id = COALESCE($4, owner_id),
+         encounter_date = $5,
+         chief_complaint = $6,
+         assessment = $7,
+         plan = $8,
+         metadata = $9::jsonb,
+         is_active = $10,
+         updated_by = $11,
+         updated_at = NOW()
+     WHERE source_consultation_id = $2 AND business_id = $1
+     RETURNING id`,
+    [
+      businessId,
+      sourceConsultationId,
+      fields.petId,
+      fields.ownerId,
+      fields.startedAt,
+      fields.reasonForVisit,
+      fields.assessment,
+      fields.plan,
+      fields.metadataJson,
+      fields.isActive,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Mirrors a just-inserted public.consultations row into
+ * healthcare.clinical_encounters (human) or healthcare.veterinary_encounters
+ * (pet). Must run on the same `client`/transaction as the public.consultations
+ * INSERT it follows, same atomicity guarantee as syncPatientToHealthcare/
+ * syncAppointmentToHealthcare. The caller must have already guaranteed the
+ * referenced patient's own mirror exists (see buildConsultationMirrorFields'
+ * comment) — this function does not auto-heal the patient side itself.
+ *
+ * Returns { subjectType, encounter } where encounter is always the mirror row
+ * ({ id }) — as of migration 48, healthcare.veterinary_encounters.owner_id is
+ * nullable, so the pet side always gets an encounter too (owner_id resolved
+ * or NULL, see insertVeterinaryEncounterMirror). Callers use `encounter` to
+ * decide whether there is anything to link a resulting appointment to.
+ *
+ * Idempotent by (source_consultation_id, business_id), same NOT EXISTS
+ * pattern as every other Fase 2/3/4 create-sync.
+ */
+async function syncConsultationToHealthcare(publicConsultationRow, actor, client = pool) {
+  const businessId = publicConsultationRow.business_id;
+  const sourceConsultationId = publicConsultationRow.id;
+  const actorId = publicConsultationRow.created_by ?? actor?.id ?? null;
+  const fields = await buildConsultationMirrorFields(publicConsultationRow, "consultation_create_sync", actor, client);
+
+  if (fields.subjectType === "human") {
+    return { subjectType: "human", encounter: await insertClinicalEncounterMirror(fields, businessId, sourceConsultationId, actorId, client) };
+  }
+  return { subjectType: "pet", encounter: await insertVeterinaryEncounterMirror(fields, businessId, sourceConsultationId, actorId, client) };
+}
+
+/**
+ * Update-time counterpart to syncConsultationToHealthcare. UPDATEs the
+ * existing mirror row; if none exists yet (a legacy consultation never
+ * synced — every consultation synced after migration 48 always has one,
+ * pet side included) falls back to the same INSERT ... WHERE NOT EXISTS the
+ * create path uses, same upsert-or-auto-heal-insert shape as every other
+ * *OnUpdate sync in this file.
+ *
+ * KNOWN LIMITATION (flagged, not fixed here): if a consultation's patient_id
+ * is edited to point at a patient of the OTHER species (human -> pet or vice
+ * versa — structurally possible since updateConsultation does not forbid it,
+ * unlike updatePatient's own species-immutability guard), this function only
+ * ever targets the table matching the CURRENT resolved subject; a stale
+ * mirror row left behind in the other table is not moved or deleted. This is
+ * an accepted edge case, not a supported workflow today (the edit form's
+ * patient dropdown does not prevent picking a different-species patient), and
+ * out of scope for this change.
+ */
+async function syncConsultationToHealthcareOnUpdate(publicConsultationRow, actor, client = pool) {
+  const businessId = publicConsultationRow.business_id;
+  const sourceConsultationId = publicConsultationRow.id;
+  const actorId = publicConsultationRow.updated_by ?? actor?.id ?? null;
+  const fields = await buildConsultationMirrorFields(publicConsultationRow, "consultation_update_sync", actor, client);
+
+  if (fields.subjectType === "human") {
+    const updated = await updateClinicalEncounterMirror(fields, businessId, sourceConsultationId, actorId, client);
+    if (updated) return { subjectType: "human", encounter: updated };
+    return { subjectType: "human", encounter: await insertClinicalEncounterMirror(fields, businessId, sourceConsultationId, actorId, client) };
+  }
+
+  const updated = await updateVeterinaryEncounterMirror(fields, businessId, sourceConsultationId, actorId, client);
+  if (updated) return { subjectType: "pet", encounter: updated };
+  return { subjectType: "pet", encounter: await insertVeterinaryEncounterMirror(fields, businessId, sourceConsultationId, actorId, client) };
+}
+
+/**
+ * Fase 4: when a consultation declares appointment_id, links the matching
+ * healthcare.appointments row's resulting_encounter_id to the encounter this
+ * sync just wrote. No heuristics — the link is only ever made from an
+ * explicit appointment_id on the consultation itself (see migration 47);
+ * unlike migration 39's one-time backfill, a live sync has no ambiguity-safe
+ * way to guess which appointment a consultation resulted from.
+ *
+ * DECISION (flagged for review): if the appointment's own healthcare.appointments
+ * mirror does not exist yet (legacy appointment, never synced), this
+ * auto-heals it via syncAppointmentToHealthcareOnUpdate before linking, rather
+ * than leaving the encounter unlinked. This is safe specifically because the
+ * caller (clinicalService) has already validated that the appointment belongs
+ * to the SAME patient as the consultation (validateConsultationAppointmentLink)
+ * — so the patient/pet mirror resolveHealthcareSubject needs has already been
+ * guaranteed by this same transaction's own patient auto-heal call, and
+ * cannot 409.
+ *
+ * The trigger trg_appointments_validate_resulting_encounter (migration 39)
+ * still enforces subject_type match at the DB level (clinical_encounters for
+ * human, veterinary_encounters for pet) — by construction by the time this
+ * runs the consultation's resolved subject and the appointment's subject_type
+ * always agree (same patient_id, species is immutable), so that trigger
+ * should never actually fire here; it stays in place as a correctness
+ * backstop, not routine behavior.
+ */
+async function linkAppointmentResultingEncounter({ appointmentId, businessId, encounterId, actor, client }) {
+  if (!appointmentId || !encounterId) return null;
+
+  const { rows: appointmentRows } = await client.query(
+    "SELECT * FROM appointments WHERE id = $1 AND business_id = $2",
+    [appointmentId, businessId]
+  );
+  const publicAppointmentRow = appointmentRows[0];
+  if (!publicAppointmentRow) return null;
+
+  let mirrorRows = (await client.query(
+    "SELECT id FROM healthcare.appointments WHERE source_appointment_id = $1 AND business_id = $2",
+    [appointmentId, businessId]
+  )).rows;
+
+  if (!mirrorRows[0]) {
+    await syncAppointmentToHealthcareOnUpdate(publicAppointmentRow, actor, client);
+    mirrorRows = (await client.query(
+      "SELECT id FROM healthcare.appointments WHERE source_appointment_id = $1 AND business_id = $2",
+      [appointmentId, businessId]
+    )).rows;
+  }
+
+  const appointmentMirror = mirrorRows[0];
+  if (!appointmentMirror) return null;
+
+  await client.query(
+    `UPDATE healthcare.appointments
+     SET resulting_encounter_id = $3, updated_at = NOW()
+     WHERE id = $1 AND business_id = $2`,
+    [appointmentMirror.id, businessId, encounterId]
+  );
+  return appointmentMirror.id;
+}
+
 module.exports = {
   resolveHealthcareSubject,
   subjectTranslationJoin,
@@ -823,6 +1171,9 @@ module.exports = {
   syncClientToHealthcareOnUpdate,
   syncAppointmentToHealthcare,
   syncAppointmentToHealthcareOnUpdate,
+  syncConsultationToHealthcare,
+  syncConsultationToHealthcareOnUpdate,
+  linkAppointmentResultingEncounter,
   // shared human/pet discriminator — also used by clinicalService.updatePatient
   // to block a species change that would flip which healthcare.* table a
   // patient's mirror belongs to (see the species-immutability guard there)

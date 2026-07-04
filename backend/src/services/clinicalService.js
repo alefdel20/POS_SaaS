@@ -24,6 +24,9 @@ const {
   syncClientToHealthcareOnUpdate,
   syncAppointmentToHealthcare,
   syncAppointmentToHealthcareOnUpdate,
+  syncConsultationToHealthcare,
+  syncConsultationToHealthcareOnUpdate,
+  linkAppointmentResultingEncounter,
   isHumanSpecies
 } = require("../utils/healthcareSubjectTranslation");
 
@@ -232,7 +235,7 @@ async function getOwnedConsultation(id, actor, client = pool) {
             BOOL_OR(mp.id IS NOT NULL) AS has_prescription
      FROM consultations mc
      INNER JOIN patients p ON p.id = mc.patient_id AND p.business_id = mc.business_id
-     INNER JOIN clients c ON c.id = mc.client_id AND c.business_id = mc.business_id
+     LEFT JOIN clients c ON c.id = mc.client_id AND c.business_id = mc.business_id
      LEFT JOIN medical_prescriptions mp ON mp.consultation_id = mc.id AND mp.business_id = mc.business_id
      WHERE mc.id = $1 AND mc.business_id = $2
      GROUP BY mc.id, p.name, c.name`,
@@ -298,6 +301,26 @@ async function validateClinicalRelationship({ patientId, clientId, actor, client
   }
 
   return { patient, client: ownedClient };
+}
+
+// Fase 4: validates an optional consultation.appointment_id — same pattern
+// already used by createPrescription/updatePrescription for consultation_id
+// (existence + same-patient check). No heuristics: the appointment must exist
+// in this business and belong to the same patient as the consultation, or the
+// link is rejected outright rather than silently guessed.
+async function validateConsultationAppointmentLink({ appointmentId, patientId, actor, client = pool }) {
+  if (!appointmentId) return null;
+  const businessId = requireActorBusinessId(actor);
+  const { rows } = await client.query(
+    "SELECT id, patient_id FROM appointments WHERE id = $1 AND business_id = $2",
+    [appointmentId, businessId]
+  );
+  const appointment = rows[0];
+  if (!appointment) throw new ApiError(404, "Appointment not found");
+  if (Number(appointment.patient_id) !== Number(patientId)) {
+    throw new ApiError(409, "Appointment does not belong to the selected patient");
+  }
+  return appointment;
 }
 
 async function getPrescriptionItems(prescriptionId, actor, client = pool) {
@@ -504,7 +527,16 @@ function buildPatientPayload(payload = {}) {
 
 function buildConsultationPayload(payload = {}) {
   const patientId = Number(payload.patient_id);
-  const clientId = Number(payload.client_id);
+  // client_id is optional as of migration 47 — same resolve-or-null shape as
+  // buildAppointmentPayload's client_id (migration 46). The frontend today
+  // still auto-fills it from the selected patient's own client_id and never
+  // exposes an editable field, so this mostly matters for a patient that has
+  // no client_id of its own (rescued animal / patient created without one).
+  const clientId = payload.client_id === undefined || payload.client_id === null || payload.client_id === "" ? null : Number(payload.client_id);
+  // appointment_id is optional — declares which appointment this consultation
+  // resulted from, if any. No heuristics (see Fase 4 investigation notes):
+  // omitted or null means the consultation is not linked to any appointment.
+  const appointmentId = payload.appointment_id === undefined || payload.appointment_id === null || payload.appointment_id === "" ? null : Number(payload.appointment_id);
   const consultationDate = normalizeText(payload.consultation_date || payload.fecha);
   const motivoConsulta = normalizeText(payload.motivo_consulta);
   const diagnostico = normalizeText(payload.diagnostico);
@@ -512,7 +544,8 @@ function buildConsultationPayload(payload = {}) {
   const notas = normalizeText(payload.notas || payload.notes);
 
   if (!Number.isInteger(patientId) || patientId <= 0) throw new ApiError(400, "Patient is required");
-  if (!Number.isInteger(clientId) || clientId <= 0) throw new ApiError(400, "Client is required");
+  if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) throw new ApiError(400, "Client is invalid");
+  if (appointmentId !== null && (!Number.isInteger(appointmentId) || appointmentId <= 0)) throw new ApiError(400, "Appointment is invalid");
   if (!consultationDate) throw new ApiError(400, "Consultation date is required");
   if (!motivoConsulta) throw new ApiError(400, "Consultation reason is required");
   if (!diagnostico) throw new ApiError(400, "Diagnosis is required");
@@ -521,6 +554,7 @@ function buildConsultationPayload(payload = {}) {
   return {
     patient_id: patientId,
     client_id: clientId,
+    appointment_id: appointmentId,
     consultation_date: consultationDate,
     motivo_consulta: motivoConsulta,
     diagnostico,
@@ -1136,7 +1170,7 @@ async function listConsultations(filters = {}, actor) {
        BOOL_OR(mp.id IS NOT NULL) AS has_prescription
      FROM consultations mc
      INNER JOIN patients p ON p.id = mc.patient_id AND p.business_id = mc.business_id
-     INNER JOIN clients c ON c.id = mc.client_id AND c.business_id = mc.business_id
+     LEFT JOIN clients c ON c.id = mc.client_id AND c.business_id = mc.business_id
      LEFT JOIN medical_prescriptions mp ON mp.consultation_id = mc.id AND mp.business_id = mc.business_id
      WHERE ${conditions.join(" AND ")}
      GROUP BY mc.id, p.name, p.species, p.breed, c.name
@@ -1158,18 +1192,21 @@ async function createConsultation(payload, actor) {
 
   try {
     await client.query("BEGIN");
-    await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
+    const { patient } = await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
+    await validateConsultationAppointmentLink({ appointmentId: data.appointment_id, patientId: data.patient_id, actor, client });
+
     const { rows } = await client.query(
       `INSERT INTO consultations (
-        business_id, patient_id, client_id, consultation_date, motivo_consulta,
+        business_id, patient_id, client_id, appointment_id, consultation_date, motivo_consulta,
         diagnostico, tratamiento, notas, is_active, created_by, updated_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
       RETURNING *`,
       [
         businessId,
         data.patient_id,
         data.client_id,
+        data.appointment_id,
         data.consultation_date,
         data.motivo_consulta,
         data.diagnostico,
@@ -1180,19 +1217,39 @@ async function createConsultation(payload, actor) {
       ]
     );
 
+    const consultationRow = rows[0];
+
+    // Fase 4: mirror into healthcare.clinical_encounters/veterinary_encounters.
+    // Auto-heal the patient's OWN mirror first — same reasoning as
+    // createAppointment (a never-touched legacy patient has no
+    // healthcare.patients/healthcare.pets row yet, and resolveHealthcareSubject
+    // inside syncConsultationToHealthcare would otherwise 409 on it).
+    await syncPatientToHealthcareOnUpdate(patient, actor, client);
+    const syncResult = await syncConsultationToHealthcare(consultationRow, actor, client);
+
+    if (data.appointment_id && syncResult.encounter) {
+      await linkAppointmentResultingEncounter({
+        appointmentId: data.appointment_id,
+        businessId,
+        encounterId: syncResult.encounter.id,
+        actor,
+        client
+      });
+    }
+
     await saveAuditLog({
       business_id: businessId,
       usuario_id: actor.id,
       modulo: "clinical",
       accion: "create_consultation",
       entidad_tipo: "consultation",
-      entidad_id: rows[0].id,
-      detalle_nuevo: { snapshot: mapConsultation(rows[0]) },
+      entidad_id: consultationRow.id,
+      detalle_nuevo: { snapshot: mapConsultation(consultationRow) },
       metadata: {}
     }, { client });
 
     await client.query("COMMIT");
-    return mapConsultation(rows[0]);
+    return mapConsultation(consultationRow);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -1209,24 +1266,28 @@ async function updateConsultation(id, payload, actor) {
 
   try {
     await client.query("BEGIN");
-    await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
+    const { patient } = await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
+    await validateConsultationAppointmentLink({ appointmentId: data.appointment_id, patientId: data.patient_id, actor, client });
+
     const { rows } = await client.query(
       `UPDATE consultations
        SET patient_id = $1,
            client_id = $2,
-           consultation_date = $3,
-           motivo_consulta = $4,
-           diagnostico = $5,
-           tratamiento = $6,
-           notas = $7,
-           is_active = $8,
-           updated_by = $9,
+           appointment_id = $3,
+           consultation_date = $4,
+           motivo_consulta = $5,
+           diagnostico = $6,
+           tratamiento = $7,
+           notas = $8,
+           is_active = $9,
+           updated_by = $10,
            updated_at = NOW()
-       WHERE id = $10 AND business_id = $11
+       WHERE id = $11 AND business_id = $12
        RETURNING *`,
       [
         data.patient_id,
         data.client_id,
+        data.appointment_id,
         data.consultation_date,
         data.motivo_consulta,
         data.diagnostico,
@@ -1239,6 +1300,24 @@ async function updateConsultation(id, payload, actor) {
       ]
     );
 
+    const consultationRow = rows[0];
+
+    // Fase 4: keep the healthcare.clinical_encounters/veterinary_encounters
+    // mirror in sync — same auto-heal-the-patient-first reasoning as
+    // updateAppointment above.
+    await syncPatientToHealthcareOnUpdate(patient, actor, client);
+    const syncResult = await syncConsultationToHealthcareOnUpdate(consultationRow, actor, client);
+
+    if (data.appointment_id && syncResult.encounter) {
+      await linkAppointmentResultingEncounter({
+        appointmentId: data.appointment_id,
+        businessId,
+        encounterId: syncResult.encounter.id,
+        actor,
+        client
+      });
+    }
+
     await saveAuditLog({
       business_id: businessId,
       usuario_id: actor.id,
@@ -1247,12 +1326,12 @@ async function updateConsultation(id, payload, actor) {
       entidad_tipo: "consultation",
       entidad_id: id,
       detalle_anterior: { snapshot: current },
-      detalle_nuevo: { snapshot: mapConsultation(rows[0]) },
+      detalle_nuevo: { snapshot: mapConsultation(consultationRow) },
       metadata: {}
     }, { client });
 
     await client.query("COMMIT");
-    return mapConsultation(rows[0]);
+    return mapConsultation(consultationRow);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -1905,7 +1984,7 @@ async function getClinicalHistory(filters = {}, actor) {
        BOOL_OR(mp.id IS NOT NULL) AS has_prescription
      FROM consultations mc
      INNER JOIN patients p ON p.id = mc.patient_id AND p.business_id = mc.business_id
-     INNER JOIN clients c ON c.id = mc.client_id AND c.business_id = mc.business_id
+     LEFT JOIN clients c ON c.id = mc.client_id AND c.business_id = mc.business_id
      LEFT JOIN medical_prescriptions mp ON mp.consultation_id = mc.id AND mp.business_id = mc.business_id
      WHERE ${conditions.join(" AND ")}
      GROUP BY mc.id, p.name, p.species, p.breed, c.name, c.phone, c.email

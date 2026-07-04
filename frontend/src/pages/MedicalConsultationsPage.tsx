@@ -337,7 +337,10 @@ export function MedicalConsultationsPage() {
         body: JSON.stringify({
           ...form,
           patient_id: Number(form.patient_id),
-          client_id: Number(form.client_id)
+          // client_id is optional as of migration 47 — a patient with no
+          // client_id of its own (rescued animal / patient created without
+          // one) leaves form.client_id as "", which must become null, not 0.
+          client_id: form.client_id ? Number(form.client_id) : null
         })
       });
       setInfo(mode === "edit" ? "Consulta actualizada" : "Consulta guardada y agregada al historial");

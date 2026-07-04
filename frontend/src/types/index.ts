@@ -596,9 +596,10 @@ export interface ClinicalConsultation {
   id: number;
   business_id: number;
   patient_id: number;
-  client_id: number;
+  client_id: number | null;
+  appointment_id?: number | null;
   patient_name: string;
-  client_name: string;
+  client_name: string | null;
   species?: string | null;
   breed?: string | null;
   consultation_date: string;

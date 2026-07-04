@@ -2259,6 +2259,28 @@ async function ensureAppointmentsClientOptional(client) {
   ]);
 }
 
+// Migration 47 — Fase 4 schema prep for public.consultations: (a) client_id
+// becomes nullable, same product decision/mechanics as migration 46 for
+// appointments.client_id (a patient attended before a responsible party is
+// resolved is a valid state — consultations never got this fix when 46 shipped
+// for appointments). (b) appointment_id is added so a consultation can
+// explicitly declare which appointment it resulted from — deliberately NOT
+// backfilled by heuristic (see migration 39's same-patient/same-date heuristic,
+// which only ever existed as a one-time backfill reconciliation because no FK
+// ever linked appointments and consultations at all); for live writes an
+// explicit, caller-declared link is the only non-ambiguous option. See
+// infra/postgres/47-consultations-schema-fase4-prep.sql for the full
+// investigation notes.
+// Idempotent — DROP NOT NULL on an already-nullable column and
+// ADD COLUMN IF NOT EXISTS are both no-ops on a second run.
+async function ensureConsultationsSchemaFase4Prep(client) {
+  await run(client, [
+    "ALTER TABLE consultations ALTER COLUMN client_id DROP NOT NULL",
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS appointment_id INTEGER REFERENCES appointments(id)",
+    "CREATE INDEX IF NOT EXISTS idx_consultations_appointment_id ON consultations (business_id, appointment_id)"
+  ]);
+}
+
 // Structural DDL for the healthcare vertical (schema itself created by
 // infra/postgres/14-healthcare-modular-expansion.sql and
 // infra/postgres/33-healthcare-appointments-preventive.sql, run manually via
@@ -2329,7 +2351,19 @@ async function ensureHealthcareStructuralSync(client) {
     // resolveHealthcareSubject returns 409 for any patient created after that
     // date. See healthcareSubjectTranslation.js (syncPatientToHealthcare) for the
     // create-time sync this unblocks.
-    "ALTER TABLE healthcare.pets ALTER COLUMN owner_id DROP NOT NULL"
+    "ALTER TABLE healthcare.pets ALTER COLUMN owner_id DROP NOT NULL",
+
+    // Migration 48 — healthcare.veterinary_encounters.owner_id becomes
+    // nullable. Fase 4's consultation sync resolves owner_id from the
+    // consultation's client_id (optional since migration 47) via
+    // healthcare.pet_owners; until this migration, NOT NULL forced
+    // insertVeterinaryEncounterMirror to skip the mirror insert entirely
+    // whenever owner_id could not be resolved. Reviewed every CONSTRAINT on
+    // this table first (see infra/postgres/48-healthcare-veterinary-
+    // encounters-owner-nullable.sql) — no CHECK references owner_id (unlike
+    // healthcare.appointments' appointments_subject_fk_check), only a plain
+    // FK, which Postgres never evaluates when the column is NULL.
+    "ALTER TABLE healthcare.veterinary_encounters ALTER COLUMN owner_id DROP NOT NULL"
   ]);
 
   // Migration 42 — backfill credit_limit/credit_days from metadata (saved there by
@@ -2546,6 +2580,9 @@ async function ensureDatabaseCompatibility() {
 
     console.info("[DB-COMPAT] ensureAppointmentsClientOptional");
     await ensureAppointmentsClientOptional(client);
+
+    console.info("[DB-COMPAT] ensureConsultationsSchemaFase4Prep");
+    await ensureConsultationsSchemaFase4Prep(client);
 
     console.info("[DB-COMPAT] ensureHealthcareStructuralSync");
     await ensureHealthcareStructuralSync(client);
