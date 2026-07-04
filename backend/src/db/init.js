@@ -873,6 +873,31 @@ async function ensureSchema(client) {
     "ALTER TABLE sale_prescription_links ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
     "ALTER TABLE sale_prescription_links ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
 
+    // Migration 49 — Fase 5 Parte B: sale_prescription_item_links. Unlike
+    // sale_prescription_links (whole sale <-> whole prescription),
+    // this links one sale_item to one medical_prescription_item with the
+    // quantity dispensed on that line. References medical_prescription_items
+    // (public), not healthcare.prescription_items — same convention
+    // sale_prescription_links already uses for prescription_id, since
+    // saleService.js writes to public.* as the master; the translation to
+    // healthcare.dispensing_logs happens separately, at write time, via
+    // source_prescription_item_id (see healthcareSubjectTranslation.js).
+    `CREATE TABLE IF NOT EXISTS sale_prescription_item_links (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      sale_item_id INTEGER NOT NULL,
+      prescription_item_id BIGINT NOT NULL,
+      quantity_dispensed NUMERIC(12, 3) NOT NULL,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE sale_prescription_item_links ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE sale_prescription_item_links ADD COLUMN IF NOT EXISTS sale_item_id INTEGER",
+    "ALTER TABLE sale_prescription_item_links ADD COLUMN IF NOT EXISTS prescription_item_id BIGINT",
+    "ALTER TABLE sale_prescription_item_links ADD COLUMN IF NOT EXISTS quantity_dispensed NUMERIC(12, 3)",
+    "ALTER TABLE sale_prescription_item_links ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE sale_prescription_item_links ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
     `CREATE TABLE IF NOT EXISTS reports (
       id SERIAL PRIMARY KEY,
       report_type VARCHAR(60) NOT NULL,
@@ -1922,6 +1947,43 @@ async function ensureConstraints(client) {
         ADD CONSTRAINT fk_sale_prescription_links_sale
         FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE;
       END IF;
+
+      -- Migration 49 — Fase 5 Parte B: sale_prescription_item_links FKs.
+      -- prescription_item_id references medical_prescription_items(id)
+      -- (public), same convention as fk_sale_prescription_links_prescription
+      -- above referencing medical_prescriptions(id), not the healthcare.*
+      -- mirror.
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_sale_prescription_item_links_sale_item'
+          AND conrelid = 'sale_prescription_item_links'::regclass
+      ) THEN
+        ALTER TABLE sale_prescription_item_links
+        ADD CONSTRAINT fk_sale_prescription_item_links_sale_item
+        FOREIGN KEY (sale_item_id) REFERENCES sale_items(id) ON DELETE CASCADE;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_sale_prescription_item_links_prescription_item'
+          AND conrelid = 'sale_prescription_item_links'::regclass
+      ) THEN
+        ALTER TABLE sale_prescription_item_links
+        ADD CONSTRAINT fk_sale_prescription_item_links_prescription_item
+        FOREIGN KEY (prescription_item_id) REFERENCES medical_prescription_items(id) ON DELETE CASCADE;
+      END IF;
+
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'sale_prescription_item_links_qty_check'
+          AND conrelid = 'sale_prescription_item_links'::regclass
+      ) THEN
+        ALTER TABLE sale_prescription_item_links DROP CONSTRAINT sale_prescription_item_links_qty_check;
+      END IF;
+
+      ALTER TABLE sale_prescription_item_links
+      ADD CONSTRAINT sale_prescription_item_links_qty_check CHECK (quantity_dispensed > 0);
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$;
     `
@@ -2141,6 +2203,8 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_medical_preventive_events_business_due_date ON medical_preventive_events(business_id, next_due_date)",
     "CREATE INDEX IF NOT EXISTS idx_sale_prescription_links_prescription_id ON sale_prescription_links(prescription_id)",
     "CREATE INDEX IF NOT EXISTS idx_sale_prescription_links_sale_id ON sale_prescription_links(sale_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sale_prescription_item_links_sale_item_id ON sale_prescription_item_links(sale_item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sale_prescription_item_links_prescription_item_id ON sale_prescription_item_links(prescription_item_id)",
     "CREATE INDEX IF NOT EXISTS idx_consultations_business_client_date ON consultations(business_id, client_id, consultation_date DESC)",
     "CREATE INDEX IF NOT EXISTS idx_appointments_business_date_area ON appointments(business_id, appointment_date, area, start_time, end_time)",
     "CREATE INDEX IF NOT EXISTS idx_appointments_business_patient_date ON appointments(business_id, patient_id, appointment_date DESC)",
@@ -2363,7 +2427,19 @@ async function ensureHealthcareStructuralSync(client) {
     // encounters-owner-nullable.sql) — no CHECK references owner_id (unlike
     // healthcare.appointments' appointments_subject_fk_check), only a plain
     // FK, which Postgres never evaluates when the column is NULL.
-    "ALTER TABLE healthcare.veterinary_encounters ALTER COLUMN owner_id DROP NOT NULL"
+    "ALTER TABLE healthcare.veterinary_encounters ALTER COLUMN owner_id DROP NOT NULL",
+
+    // Migration 50 — Fase 5 Parte B: healthcare.dispensing_logs.batch_id
+    // becomes nullable. saleService.js starts writing real dispensing_logs
+    // rows when a sale_item declares prescription_item_id, but no batch/lot
+    // ledger exists yet (migration 41) — batch_id NOT NULL would block every
+    // such INSERT. Same pattern as migrations 44/48: no CHECK references
+    // batch_id, only the plain FK fk_healthcare_dispensing_logs_batch, which
+    // Postgres never evaluates when the column is NULL.
+    // view_libro_antibioticos already LEFT JOINs healthcare.inventory_batches
+    // via dl.batch_id (migration 14), so it already tolerates NULL without
+    // any change to the view itself.
+    "ALTER TABLE healthcare.dispensing_logs ALTER COLUMN batch_id DROP NOT NULL"
   ]);
 
   // Migration 42 — backfill credit_limit/credit_days from metadata (saved there by

@@ -10,6 +10,15 @@ const { emitActorAutomationEvent } = require("./automationEventService");
 const { canUseCreditCollections } = require("../utils/business");
 const { findOrCreateClient } = require("./clientService");
 const { calculateKitPrice } = require("./kitService");
+// Fase 5, Parte B: dispensacion. syncPrescriptionToHealthcareOnUpdate is
+// reused here (not a new function) purely as an auto-heal — see
+// recordHealthcareDispensingLog below — for the rare case a prescription's
+// healthcare.prescriptions/prescription_items mirror doesn't exist yet
+// (e.g. a prescription created before Fase 5 Parte A shipped and never
+// edited since). resolveHealthcareSubject resolves the dispensing_logs
+// subject_type/patient_id/pet_id, same translation every other healthcare.*
+// write already goes through.
+const { syncPrescriptionToHealthcareOnUpdate, resolveHealthcareSubject } = require("../utils/healthcareSubjectTranslation");
 
 const INTEGER_UNITS = new Set(["pieza", "caja"]);
 const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
@@ -361,6 +370,94 @@ async function getSalesTrends(period, actor) {
   return { period: selected.label, items: rows.map((row) => ({ ...row, position: Number(row.position), units_sold: Number(row.units_sold), revenue: Number(row.revenue) })) };
 }
 
+// Fase 5, Parte B: writes the public.* side of dispensacion —
+// sale_prescription_item_links, keyed to medical_prescription_items (public),
+// same convention sale_prescription_links already uses for prescription_id
+// (public.* stays the master; healthcare.* is the mirror, translated
+// separately below). Runs inside the sale's own transaction, so a dispensing
+// failure rolls back the whole sale, same as every other write in createSale.
+async function recordPrescriptionItemDispensing({ prescriptionItemId, saleItemId, saleId, productId, quantity, businessId, actor, client }) {
+  const { rows: itemRows } = await client.query(
+    `SELECT mpi.*, mp.patient_id, mp.status AS prescription_status
+     FROM medical_prescription_items mpi
+     INNER JOIN medical_prescriptions mp ON mp.id = mpi.prescription_id AND mp.business_id = $2
+     WHERE mpi.id = $1`,
+    [prescriptionItemId, businessId]
+  );
+  const prescriptionItem = itemRows[0];
+  if (!prescriptionItem) throw new ApiError(404, "Prescription item not found");
+  if (Number(prescriptionItem.product_id) !== Number(productId)) {
+    throw new ApiError(409, "El producto de la venta no coincide con el medicamento recetado");
+  }
+  if (prescriptionItem.prescription_status !== "issued") {
+    throw new ApiError(409, "Solo se puede dispensar de una receta emitida");
+  }
+
+  await client.query(
+    `INSERT INTO sale_prescription_item_links (business_id, sale_item_id, prescription_item_id, quantity_dispensed, created_by)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [businessId, saleItemId, prescriptionItemId, quantity, actor.id]
+  );
+
+  await recordHealthcareDispensingLog({ prescriptionItem, saleId, quantity, businessId, actor, client });
+}
+
+// Fase 5, Parte B: writes the healthcare.* side — healthcare.dispensing_logs.
+// batch_id is always NULL (migration 50 — no batch/lot ledger exists yet, see
+// migration 41); this is forward-only, no historical backfill (same
+// migration). Resolves the healthcare.prescriptions/prescription_items
+// mirror via source_prescription_item_id; if it doesn't exist yet (a
+// prescription that predates Fase 5 Parte A's live sync and was never edited
+// since), auto-heals it via syncPrescriptionToHealthcareOnUpdate — same
+// resolve-then-auto-heal-if-missing shape linkAppointmentResultingEncounter
+// already uses, rather than silently skipping (which the rest of this
+// codebase already treats as a bug pattern to avoid, see
+// healthcareSubjectTranslation.js). If the mirror still can't be resolved
+// (prescription itself no longer exists — should not happen given the FK
+// above), the public sale_prescription_item_links row above still stands;
+// this function simply returns without writing to dispensing_logs.
+async function recordHealthcareDispensingLog({ prescriptionItem, saleId, quantity, businessId, actor, client }) {
+  let itemMirrorRows = (await client.query(
+    `SELECT id, prescription_id FROM healthcare.prescription_items
+     WHERE source_prescription_item_id = $1 AND business_id = $2`,
+    [prescriptionItem.id, businessId]
+  )).rows;
+
+  if (!itemMirrorRows[0]) {
+    const { rows: fullPrescriptionRows } = await client.query(
+      "SELECT * FROM medical_prescriptions WHERE id = $1 AND business_id = $2",
+      [prescriptionItem.prescription_id, businessId]
+    );
+    const fullPrescriptionRow = fullPrescriptionRows[0];
+    if (fullPrescriptionRow) {
+      await syncPrescriptionToHealthcareOnUpdate(fullPrescriptionRow, actor, client);
+      itemMirrorRows = (await client.query(
+        `SELECT id, prescription_id FROM healthcare.prescription_items
+         WHERE source_prescription_item_id = $1 AND business_id = $2`,
+        [prescriptionItem.id, businessId]
+      )).rows;
+    }
+  }
+
+  const itemMirror = itemMirrorRows[0];
+  if (!itemMirror) return;
+
+  const subject = await resolveHealthcareSubject(prescriptionItem.patient_id, businessId, client);
+
+  await client.query(
+    `INSERT INTO healthcare.dispensing_logs (
+       business_id, prescription_id, prescription_item_id, sale_id, product_id,
+       batch_id, subject_type, patient_id, pet_id, dispensed_quantity,
+       dispensed_by_user_id, requires_prescription, status, created_by, updated_by
+     )
+     VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, TRUE, 'dispensed', $10, $10)`,
+    [
+      businessId, itemMirror.prescription_id, itemMirror.id, saleId, prescriptionItem.product_id,
+      subject.subjectType, subject.patientId, subject.petId, quantity, actor.id
+    ]
+  );
+}
+
 async function createSale(payload, user, branchId = null) {
   if (!payload.items?.length) throw new ApiError(400, "Sale requires at least one item");
   if (payload.payment_method === "credit" && !canUseCreditCollections(user?.pos_type)) throw new ApiError(409, "Credit sales are not available for this business type");
@@ -436,7 +533,19 @@ async function createSale(payload, user, branchId = null) {
       const subtotal = multiplyMoney(unitPrice, quantity);
       total = roundToScale(total + subtotal, 5);
       totalCost = roundToScale(totalCost + multiplyMoney(unitCost, quantity), 5);
-      normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: unit, productName: product.name, kitId: null });
+
+      // Fase 5, Parte B: opt-in per line — a regular sale never sets this, so
+      // it never changes behavior. Only present when the frontend explicitly
+      // attaches this line to a prescribed medication (dispensacion).
+      let prescriptionItemId = null;
+      if (item.prescription_item_id !== undefined && item.prescription_item_id !== null && item.prescription_item_id !== "") {
+        prescriptionItemId = Number(item.prescription_item_id);
+        if (!Number.isInteger(prescriptionItemId) || prescriptionItemId <= 0) {
+          throw new ApiError(400, "Prescription item is invalid");
+        }
+      }
+
+      normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: unit, productName: product.name, kitId: null, prescriptionItemId });
     }
 
     // --- Kit items ---
@@ -469,7 +578,9 @@ async function createSale(payload, user, branchId = null) {
       );
       if (!kitNameRows[0]) throw new ApiError(404, `Kit ${kitId} not found`);
 
-      normalizedItems.push({ productId: null, kitId, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: "pieza", productName: kitNameRows[0].name });
+      // Kits never support prescription_item_id — a kit bundles several
+      // products, it doesn't map cleanly to one prescribed medication line.
+      normalizedItems.push({ productId: null, kitId, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: "pieza", productName: kitNameRows[0].name, prescriptionItemId: null });
     }
 
     const cartDiscountType = payload.cart_discount_type || null;
@@ -610,13 +721,31 @@ async function createSale(payload, user, branchId = null) {
           );
         }
       } else {
-        // Regular product sale: unchanged flow
-        await client.query(
+        // Regular product sale: unchanged flow, only RETURNING id added so
+        // dispensacion (below) can link this exact sale_item.
+        const { rows: saleItemRows } = await client.query(
           `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING id`,
           [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
         );
         await client.query("UPDATE products SET stock = stock - $1 WHERE id = $2 AND business_id = $3", [item.quantity, item.productId, businessId]);
+
+        // Fase 5, Parte B: dispensacion — opt-in per line, only runs when the
+        // sale_item explicitly declared prescription_item_id. A normal sale
+        // never sets this and never reaches this branch.
+        if (item.prescriptionItemId) {
+          await recordPrescriptionItemDispensing({
+            prescriptionItemId: item.prescriptionItemId,
+            saleItemId: saleItemRows[0].id,
+            saleId: sale.id,
+            productId: item.productId,
+            quantity: item.quantity,
+            businessId,
+            actor: user,
+            client
+          });
+        }
       }
     }
 
@@ -839,4 +968,9 @@ async function getRecentProductsByUser(userId, businessId, limit = 9) {
   return result.rows;
 }
 
-module.exports = { listSales, listRecentSales, getSaleDetail, getSalesTrends, createSale, cancelSale, buildValidSaleStatusClause, getRecentProductsByUser };
+module.exports = {
+  listSales, listRecentSales, getSaleDetail, getSalesTrends, createSale, cancelSale,
+  buildValidSaleStatusClause, getRecentProductsByUser,
+  // exported for unit testing only (Fase 5, Parte B — dispensacion)
+  recordPrescriptionItemDispensing
+};

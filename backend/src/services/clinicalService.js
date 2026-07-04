@@ -27,6 +27,8 @@ const {
   syncConsultationToHealthcare,
   syncConsultationToHealthcareOnUpdate,
   linkAppointmentResultingEncounter,
+  syncPrescriptionToHealthcare,
+  syncPrescriptionToHealthcareOnUpdate,
   isHumanSpecies
 } = require("../utils/healthcareSubjectTranslation");
 
@@ -135,7 +137,13 @@ function mapPrescriptionItem(row) {
   if (!row) return null;
   return {
     ...row,
-    stock_snapshot: row.stock_snapshot === null || row.stock_snapshot === undefined ? null : Number(row.stock_snapshot)
+    stock_snapshot: row.stock_snapshot === null || row.stock_snapshot === undefined ? null : Number(row.stock_snapshot),
+    // Fase 5, Parte B: computed live from sale_prescription_item_links, NOT
+    // read from healthcare.prescription_items.dispensed_quantity (that column
+    // is a Parte A snapshot, always 0 — see syncPrescriptionItemsToHealthcare).
+    // This is the source of truth assertNoDispensedPrescriptionItemsRemoved
+    // below relies on to block editing/removing an already-dispensed item.
+    dispensed_quantity: Number(row.dispensed_quantity || 0)
   };
 }
 
@@ -326,7 +334,12 @@ async function validateConsultationAppointmentLink({ appointmentId, patientId, a
 async function getPrescriptionItems(prescriptionId, actor, client = pool) {
   const businessId = requireActorBusinessId(actor);
   const { rows } = await client.query(
-    `SELECT mpi.*
+    `SELECT mpi.*,
+            COALESCE((
+              SELECT SUM(spil.quantity_dispensed)
+              FROM sale_prescription_item_links spil
+              WHERE spil.prescription_item_id = mpi.id AND spil.business_id = $2
+            ), 0) AS dispensed_quantity
      FROM medical_prescription_items mpi
      INNER JOIN medical_prescriptions mp ON mp.id = mpi.prescription_id AND mp.business_id = $2
      WHERE mpi.prescription_id = $1
@@ -334,6 +347,51 @@ async function getPrescriptionItems(prescriptionId, actor, client = pool) {
     [prescriptionId, businessId]
   );
   return rows.map(mapPrescriptionItem);
+}
+
+// Fase 5, Parte B: a prescription_item that already has real dispensed
+// quantity (sale_prescription_item_links) must not be silently deleted or
+// altered by updatePrescription's delete-and-reinsert cycle (see Parte A's
+// comment on syncPrescriptionItemsToHealthcare for why that cycle exists at
+// all — medical_prescription_items has no per-item update identity of its
+// own). The incoming payload never carries the existing item's id
+// (buildPrescriptionPayload only ever normalizes product_id/dose/frequency/
+// duration/route_of_administration/notes/presentation_snapshot), so the only
+// way to tell whether a dispensed item "survived" the edit is by content
+// match against the incoming array — a multiset match (each dispensed item
+// consumes exactly one matching incoming candidate, then that candidate can't
+// satisfy a second dispensed item) so two dispensed items with identical
+// content can't both be covered by a single surviving line.
+function assertNoDispensedPrescriptionItemsRemoved(currentItems, incomingItems) {
+  const dispensedItems = (currentItems || []).filter((item) => Number(item.dispensed_quantity || 0) > 0);
+  if (!dispensedItems.length) return;
+
+  const candidates = (incomingItems || []).map((item) => ({
+    product_id: Number(item.product_id),
+    dose: item.dose || null,
+    frequency: item.frequency || null,
+    duration: item.duration || null,
+    route_of_administration: item.route_of_administration || null,
+    consumed: false
+  }));
+
+  for (const dispensedItem of dispensedItems) {
+    const matchIndex = candidates.findIndex((candidate) =>
+      !candidate.consumed &&
+      candidate.product_id === Number(dispensedItem.product_id) &&
+      candidate.dose === (dispensedItem.dose || null) &&
+      candidate.frequency === (dispensedItem.frequency || null) &&
+      candidate.duration === (dispensedItem.duration || null) &&
+      candidate.route_of_administration === (dispensedItem.route_of_administration || null)
+    );
+    if (matchIndex === -1) {
+      throw new ApiError(
+        409,
+        `No se puede modificar ni eliminar "${dispensedItem.medication_name_snapshot || `producto ${dispensedItem.product_id}`}" porque ya tiene ${Number(dispensedItem.dispensed_quantity)} unidad(es) dispensada(s) en una venta. Puede agregar medicamentos nuevos a la receta, pero este debe permanecer sin cambios.`
+      );
+    }
+    candidates[matchIndex].consumed = true;
+  }
 }
 
 async function getPrescriptionSaleLinks(prescriptionId, actor, client = pool) {
@@ -1452,6 +1510,14 @@ async function createPrescription(payload, actor) {
       );
     }
 
+    // Fase 5: mirror into healthcare.prescriptions/healthcare.prescription_items.
+    // Auto-heal the patient's own mirror first — same reasoning as
+    // createConsultation (a never-touched legacy patient has no
+    // healthcare.patients/healthcare.pets row yet, and resolveHealthcareSubject
+    // inside syncPrescriptionToHealthcare would otherwise 409 on it).
+    await syncPatientToHealthcareOnUpdate(patient, actor, client);
+    await syncPrescriptionToHealthcare(prescription, actor, client);
+
     await saveAuditLog({
       business_id: businessId,
       usuario_id: actor.id,
@@ -1476,12 +1542,17 @@ async function createPrescription(payload, actor) {
 async function updatePrescription(id, payload, actor) {
   const current = await getPrescriptionDetail(id, actor);
   const data = buildPrescriptionPayload({ ...current, ...payload });
+  // Fase 5, Parte B: run before any write (and before BEGIN) — updatePrescription
+  // always DELETEs every medical_prescription_items row and reinserts the
+  // incoming set (see the DELETE below), so this must catch an omitted/altered
+  // dispensed item before that DELETE ever runs, not after.
+  assertNoDispensedPrescriptionItemsRemoved(current.items, data.items);
   const businessId = requireActorBusinessId(actor);
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    await getOwnedPatient(data.patient_id, actor, client);
+    const patient = await getOwnedPatient(data.patient_id, actor, client);
     if (data.consultation_id) {
       const consultation = await getOwnedConsultation(data.consultation_id, actor, client);
       if (Number(consultation.patient_id) !== Number(data.patient_id)) {
@@ -1525,6 +1596,14 @@ async function updatePrescription(id, payload, actor) {
       );
     }
 
+    const prescriptionRow = rows[0];
+
+    // Fase 5: keep the healthcare.prescriptions/healthcare.prescription_items
+    // mirror in sync — same auto-heal-the-patient-first reasoning as
+    // updateConsultation.
+    await syncPatientToHealthcareOnUpdate(patient, actor, client);
+    await syncPrescriptionToHealthcareOnUpdate(prescriptionRow, actor, client);
+
     await saveAuditLog({
       business_id: businessId,
       usuario_id: actor.id,
@@ -1533,7 +1612,7 @@ async function updatePrescription(id, payload, actor) {
       entidad_tipo: "medical_prescription",
       entidad_id: id,
       detalle_anterior: { snapshot: current },
-      detalle_nuevo: { snapshot: { ...rows[0], items: resolvedItems } },
+      detalle_nuevo: { snapshot: { ...prescriptionRow, items: resolvedItems } },
       metadata: { consultation_id: data.consultation_id }
     }, { client });
 
@@ -1558,14 +1637,24 @@ async function setPrescriptionStatus(id, status, actor) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query(
+    const { rows } = await client.query(
       `UPDATE medical_prescriptions
        SET status = $1,
            updated_by = $2,
            updated_at = NOW()
-       WHERE id = $3 AND business_id = $4`,
+       WHERE id = $3 AND business_id = $4
+       RETURNING *`,
       [nextStatus, actor.id, id, businessId]
     );
+
+    // Fase 5: this status-only path bypasses updatePrescription entirely, but
+    // healthcare.prescriptions.issue_status must still track it — otherwise a
+    // prescription cancelled here would keep showing its old issue_status in
+    // the mirror until the next full edit. See the KNOWN LIMITATION comment
+    // on updatePrescriptionMirror (healthcareSubjectTranslation.js) for why
+    // issue_status itself is not yet safe to also drive from a future
+    // dispensing feature.
+    await syncPrescriptionToHealthcareOnUpdate(rows[0], actor, client);
 
     await saveAuditLog({
       business_id: businessId,

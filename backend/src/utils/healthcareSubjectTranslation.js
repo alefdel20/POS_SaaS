@@ -1162,6 +1162,326 @@ async function linkAppointmentResultingEncounter({ appointmentId, businessId, en
   return appointmentMirror.id;
 }
 
+// ---------------------------------------------------------------------------
+// healthcare.prescriptions / healthcare.prescription_items mirror (Fase 5)
+// ---------------------------------------------------------------------------
+
+// Same resolution migration 40's one-time backfill already used for
+// clinical_encounter_id/veterinary_encounter_id: consultation_id ->
+// consultations.source_consultation_id -> the encounter mirror matching the
+// prescription's own subject_type. Returns both NULL when consultation_id is
+// NULL (a walk-in/standalone prescription — consultation_id is nullable on
+// medical_prescriptions, ON DELETE SET NULL) or when the consultation exists
+// but its own encounter mirror doesn't (legacy consultation never synced) —
+// this is an optional enrichment, not a hard dependency for the prescription
+// row itself, same as migration 40 documented. No auto-heal is attempted here
+// (unlike the patient/pet mirror): clinicalService already validates
+// consultation_id via getOwnedConsultation before this runs, so the
+// consultation itself is guaranteed to exist; its encounter mirror simply may
+// not exist yet, which is fine to leave NULL rather than force-create.
+async function resolvePrescriptionEncounterId(subjectType, consultationId, businessId, client) {
+  if (!consultationId) {
+    return { clinicalEncounterId: null, veterinaryEncounterId: null };
+  }
+  if (subjectType === "human") {
+    const { rows } = await client.query(
+      "SELECT id FROM healthcare.clinical_encounters WHERE source_consultation_id = $1 AND business_id = $2",
+      [consultationId, businessId]
+    );
+    return { clinicalEncounterId: rows[0]?.id ?? null, veterinaryEncounterId: null };
+  }
+  const { rows } = await client.query(
+    "SELECT id FROM healthcare.veterinary_encounters WHERE source_consultation_id = $1 AND business_id = $2",
+    [consultationId, businessId]
+  );
+  return { clinicalEncounterId: null, veterinaryEncounterId: rows[0]?.id ?? null };
+}
+
+// dose/route/frequency/duration truncation: source columns are VARCHAR(160),
+// destination healthcare.prescription_items columns are VARCHAR(120) (see
+// migration 40's header comment). Same LEFT(x,120) + metadata.original_x
+// preservation pattern migration 40 uses, kept separate from
+// truncateHealthcareName (that one is specifically for person names and is
+// unit-tested against that contract) to avoid conflating the two call sites.
+const PRESCRIPTION_ITEM_FIELD_MAX_LENGTH = 120;
+
+function truncatePrescriptionItemField(value) {
+  const text = String(value || "");
+  if (text.length <= PRESCRIPTION_ITEM_FIELD_MAX_LENGTH) {
+    return { value: text || null, original: null };
+  }
+  return { value: text.slice(0, PRESCRIPTION_ITEM_FIELD_MAX_LENGTH), original: text };
+}
+
+// Resolves the subject (human vs pet, via resolveHealthcareSubject) and the
+// optional encounter link, then builds every other mirrored column. Callers
+// (syncPrescriptionToHealthcare/OnUpdate below) are expected to have already
+// guaranteed the patient's own healthcare.patients/healthcare.pets mirror
+// exists — same contract as buildConsultationMirrorFields.
+async function buildPrescriptionMirrorFields(publicPrescriptionRow, syncSource, client) {
+  const businessId = publicPrescriptionRow.business_id;
+  const subject = await resolveHealthcareSubject(publicPrescriptionRow.patient_id, businessId, client);
+  const { clinicalEncounterId, veterinaryEncounterId } = await resolvePrescriptionEncounterId(
+    subject.subjectType,
+    publicPrescriptionRow.consultation_id,
+    businessId,
+    client
+  );
+
+  const metadata = stripNullish({
+    ...(publicPrescriptionRow.metadata || {}),
+    sync_source: syncSource,
+    synced_at: new Date().toISOString()
+  });
+
+  return {
+    subjectType: subject.subjectType,
+    patientId: subject.patientId,
+    petId: subject.petId,
+    clinicalEncounterId,
+    veterinaryEncounterId,
+    prescriberUserId: publicPrescriptionRow.doctor_user_id || null,
+    prescriptionDate: publicPrescriptionRow.created_at,
+    indicationsGeneral: publicPrescriptionRow.indications || "",
+    diagnosisSummary: publicPrescriptionRow.diagnosis || "",
+    issueStatus: publicPrescriptionRow.status,
+    metadataJson: JSON.stringify(metadata)
+  };
+}
+
+// document_folio_id/valid_until have no source equivalent (same as migration
+// 40: NULL, no folio system / no expiry existed historically).
+// regulatory_scope is fixed 'standard' — cross-referencing
+// medication_catalog.is_antibiotic/is_controlled_substance per item is out of
+// scope here, same call migration 40 made. status (row status) is always
+// 'active': public.medical_prescriptions has no equivalent to
+// 'corrected'/'entered_in_error', those are healthcare-specific manual
+// correction states this sync never touches.
+async function insertPrescriptionMirror(fields, businessId, sourcePrescriptionId, actorId, client) {
+  const { rows } = await client.query(
+    `INSERT INTO healthcare.prescriptions (
+       business_id, source_prescription_id, subject_type, patient_id, pet_id,
+       clinical_encounter_id, veterinary_encounter_id, prescriber_user_id,
+       document_folio_id, prescription_date, valid_until, indications_general,
+       diagnosis_summary, issue_status, regulatory_scope, metadata, status,
+       is_active, created_by, updated_by
+     )
+     SELECT $1, $2, $3, $4, $5, $6, $7, $8, NULL::BIGINT, $9, NULL::TIMESTAMPTZ, $10, $11, $12, 'standard', $13::jsonb, 'active', TRUE, $14, $14
+     WHERE NOT EXISTS (
+       SELECT 1 FROM healthcare.prescriptions hpr
+       WHERE hpr.source_prescription_id = $2 AND hpr.business_id = $1
+     )
+     RETURNING id`,
+    [
+      businessId,
+      sourcePrescriptionId,
+      fields.subjectType,
+      fields.patientId,
+      fields.petId,
+      fields.clinicalEncounterId,
+      fields.veterinaryEncounterId,
+      fields.prescriberUserId,
+      fields.prescriptionDate,
+      fields.indicationsGeneral,
+      fields.diagnosisSummary,
+      fields.issueStatus,
+      fields.metadataJson,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+// KNOWN LIMITATION (flagged, not fixed here): issue_status is overwritten
+// unconditionally on every update-sync run, mirroring the source's status 1:1
+// (source CHECK 'draft'/'issued'/'cancelled' is a strict subset of the
+// destination's, see migration 40's own reasoning for the create path). If/
+// when a future dispensing feature starts setting issue_status to
+// 'partially_dispensed'/'fully_dispensed' on this same row, ANY unrelated
+// edit to the prescription (e.g. fixing a typo in diagnosis, which runs
+// through updatePrescription -> this function) would silently revert that
+// dispensing-derived state back to 'draft'/'issued'/'cancelled'. Not a live
+// bug today — dispensing does not write to issue_status yet, so those two
+// values are never actually produced — but must be revisited before it does.
+async function updatePrescriptionMirror(fields, businessId, sourcePrescriptionId, actorId, client) {
+  const { rows } = await client.query(
+    `UPDATE healthcare.prescriptions
+     SET subject_type = $3,
+         patient_id = $4,
+         pet_id = $5,
+         clinical_encounter_id = $6,
+         veterinary_encounter_id = $7,
+         prescriber_user_id = $8,
+         prescription_date = $9,
+         indications_general = $10,
+         diagnosis_summary = $11,
+         issue_status = $12,
+         metadata = $13::jsonb,
+         updated_by = $14,
+         updated_at = NOW()
+     WHERE source_prescription_id = $2 AND business_id = $1
+     RETURNING id`,
+    [
+      businessId,
+      sourcePrescriptionId,
+      fields.subjectType,
+      fields.patientId,
+      fields.petId,
+      fields.clinicalEncounterId,
+      fields.veterinaryEncounterId,
+      fields.prescriberUserId,
+      fields.prescriptionDate,
+      fields.indicationsGeneral,
+      fields.diagnosisSummary,
+      fields.issueStatus,
+      fields.metadataJson,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+// Unlike patients/appointments/consultations, medical_prescription_items has
+// no update identity of its own: clinicalService.updatePrescription always
+// DELETEs every item row for a prescription_id and re-INSERTs the current set
+// with brand-new ids (there is no "edit item 42" — only "replace all items").
+// Mirroring that here with a per-item UPDATE-first/INSERT-fallback (the
+// pattern every other *OnUpdate helper in this file uses) would leave
+// orphaned healthcare.prescription_items rows behind on every edit, pointing
+// at public item ids that no longer exist. Instead this always deletes every
+// existing healthcare.prescription_items row for this prescription mirror,
+// then inserts the current set fresh, keyed by source_prescription_item_id —
+// this matches the source's own delete-and-recreate semantics exactly, rather
+// than pretending a stable per-item identity exists to update against. Safe
+// to call on create too (the DELETE simply matches zero rows).
+//
+// prescribed_quantity is always 1 with metadata.assumed=true — confirmed
+// against the live schema (infra/postgres/15-clinical-prescriptions-phase2.sql
+// and backend/src/db/init.js): medical_prescription_items has no quantity
+// column at all (only dose/frequency/duration/route/notes/stock_snapshot), so
+// there is no real value to carry across; same fallback migration 40 uses.
+// dispensed_quantity is always 0 — dispensing is not wired into any write
+// path yet (see migration 41).
+async function syncPrescriptionItemsToHealthcare(prescriptionMirrorId, businessId, publicPrescriptionRow, actorId, client) {
+  await client.query(
+    "DELETE FROM healthcare.prescription_items WHERE prescription_id = $1 AND business_id = $2",
+    [prescriptionMirrorId, businessId]
+  );
+
+  const { rows: items } = await client.query(
+    "SELECT * FROM medical_prescription_items WHERE prescription_id = $1 ORDER BY id ASC",
+    [publicPrescriptionRow.id]
+  );
+
+  const itemStatus = publicPrescriptionRow.status === "cancelled" ? "cancelled" : "active";
+  let lineNumber = 0;
+
+  for (const item of items) {
+    lineNumber += 1;
+
+    const { rows: catalogRows } = await client.query(
+      "SELECT id FROM healthcare.medication_catalog WHERE product_id = $1 AND business_id = $2",
+      [item.product_id, businessId]
+    );
+    const medicationCatalogId = catalogRows[0]?.id ?? null;
+
+    const dose = truncatePrescriptionItemField(item.dose);
+    const route = truncatePrescriptionItemField(item.route_of_administration);
+    const frequency = truncatePrescriptionItemField(item.frequency);
+    const duration = truncatePrescriptionItemField(item.duration);
+
+    const metadata = stripNullish({
+      assumed: true,
+      original_dose: dose.original,
+      original_frequency: frequency.original,
+      original_duration: duration.original,
+      original_route: route.original,
+      medication_name_snapshot: item.medication_name_snapshot || null,
+      presentation_snapshot: item.presentation_snapshot || null,
+      stock_snapshot: item.stock_snapshot ?? null
+    });
+
+    await client.query(
+      `INSERT INTO healthcare.prescription_items (
+         business_id, source_prescription_item_id, prescription_id, product_id,
+         medication_catalog_id, line_number, item_type, prescribed_quantity,
+         dispensed_quantity, dose, route, frequency, duration, instructions,
+         substitution_allowed, requires_batch_tracking, status, metadata,
+         created_by, updated_by, created_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, 'medication', 1, 0, $7, $8, $9, $10, $11, FALSE, FALSE, $12, $13::jsonb, $14, $14, $15, $15)`,
+      [
+        businessId,
+        item.id,
+        prescriptionMirrorId,
+        item.product_id,
+        medicationCatalogId,
+        lineNumber,
+        dose.value,
+        route.value,
+        frequency.value,
+        duration.value,
+        item.notes || "",
+        itemStatus,
+        JSON.stringify(metadata),
+        actorId,
+        item.created_at
+      ]
+    );
+  }
+}
+
+/**
+ * Mirrors a just-inserted public.medical_prescriptions row (plus its current
+ * medical_prescription_items) into healthcare.prescriptions/
+ * healthcare.prescription_items. Must run on the same `client`/transaction as
+ * the public.medical_prescriptions INSERT (and its items INSERTs) it follows,
+ * same atomicity guarantee as syncConsultationToHealthcare. The caller must
+ * have already guaranteed the referenced patient's own mirror exists (see
+ * buildPrescriptionMirrorFields' comment) — this function does not auto-heal
+ * the patient side itself.
+ *
+ * Idempotent by (source_prescription_id, business_id) for the header row,
+ * same NOT EXISTS pattern as every other Fase 2/3/4/5 create-sync. Items are
+ * always deleted-and-reinserted (see syncPrescriptionItemsToHealthcare), so
+ * this is safe to call more than once for the same prescription without
+ * duplicating item rows.
+ */
+async function syncPrescriptionToHealthcare(publicPrescriptionRow, actor, client = pool) {
+  const businessId = publicPrescriptionRow.business_id;
+  const sourcePrescriptionId = publicPrescriptionRow.id;
+  const actorId = publicPrescriptionRow.created_by ?? actor?.id ?? null;
+  const fields = await buildPrescriptionMirrorFields(publicPrescriptionRow, "prescription_create_sync", client);
+  const mirror = await insertPrescriptionMirror(fields, businessId, sourcePrescriptionId, actorId, client);
+  if (mirror) {
+    await syncPrescriptionItemsToHealthcare(mirror.id, businessId, publicPrescriptionRow, actorId, client);
+  }
+  return mirror;
+}
+
+/**
+ * Update-time counterpart to syncPrescriptionToHealthcare. UPDATEs the
+ * existing mirror row; if none exists yet (legacy prescription, never synced)
+ * falls back to the same INSERT ... WHERE NOT EXISTS the create path uses —
+ * same upsert-or-auto-heal-insert shape as every other *OnUpdate sync in this
+ * file. Items are always resynced (delete-and-reinsert) regardless of which
+ * branch the header row took.
+ */
+async function syncPrescriptionToHealthcareOnUpdate(publicPrescriptionRow, actor, client = pool) {
+  const businessId = publicPrescriptionRow.business_id;
+  const sourcePrescriptionId = publicPrescriptionRow.id;
+  const actorId = publicPrescriptionRow.updated_by ?? actor?.id ?? null;
+  const fields = await buildPrescriptionMirrorFields(publicPrescriptionRow, "prescription_update_sync", client);
+  let mirror = await updatePrescriptionMirror(fields, businessId, sourcePrescriptionId, actorId, client);
+  if (!mirror) {
+    mirror = await insertPrescriptionMirror(fields, businessId, sourcePrescriptionId, actorId, client);
+  }
+  if (mirror) {
+    await syncPrescriptionItemsToHealthcare(mirror.id, businessId, publicPrescriptionRow, actorId, client);
+  }
+  return mirror;
+}
+
 module.exports = {
   resolveHealthcareSubject,
   subjectTranslationJoin,
@@ -1174,6 +1494,8 @@ module.exports = {
   syncConsultationToHealthcare,
   syncConsultationToHealthcareOnUpdate,
   linkAppointmentResultingEncounter,
+  syncPrescriptionToHealthcare,
+  syncPrescriptionToHealthcareOnUpdate,
   // shared human/pet discriminator — also used by clinicalService.updatePatient
   // to block a species change that would flip which healthcare.* table a
   // patient's mirror belongs to (see the species-immutability guard there)
@@ -1183,8 +1505,10 @@ module.exports = {
   normalizeHealthcareSex,
   truncateHealthcareName,
   clampPetWeightKg,
+  truncatePrescriptionItemField,
   HUMAN_SEX_TOKENS,
   PET_SEX_TOKENS,
   HEALTHCARE_NAME_MAX_LENGTH,
-  MAX_PET_WEIGHT_KG
+  MAX_PET_WEIGHT_KG,
+  PRESCRIPTION_ITEM_FIELD_MAX_LENGTH
 };
