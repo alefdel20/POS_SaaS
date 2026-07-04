@@ -2,9 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiDownload, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalConsultation, ClinicalPatientSummary, MedicalPrescription, Product } from "../types";
+import type { ClinicalAppointment, ClinicalConsultation, ClinicalPatientSummary, MedicalPrescription, Product } from "../types";
 import { PRESCRIPTION_STATUSES } from "../utils/domainEnums";
-import { shortDateTime } from "../utils/format";
+import { formatDate, shortDateTime } from "../utils/format";
 import { getConsultationModeFromPath } from "../utils/navigation";
 import { showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
 import { canAccessSales } from "../utils/roles";
@@ -12,12 +12,35 @@ import { canAccessSales } from "../utils/roles";
 type ConsultationFormState = {
   patient_id: string;
   client_id: string;
+  appointment_id: string;
   consultation_date: string;
   motivo_consulta: string;
   diagnostico: string;
   tratamiento: string;
   notas: string;
 };
+
+// Appointments a consultation could plausibly have originated from: excludes
+// cancelled/no_show (linking a consultation to a visit that never happened
+// makes no sense) but deliberately keeps scheduled/confirmed alongside
+// completed — the appointment's own status is not auto-advanced when a
+// consultation is registered against it, so it is very often still
+// "scheduled"/"confirmed" at the moment the consultation is saved, not yet
+// "completed".
+const ORIGIN_APPOINTMENT_STATUSES: ClinicalAppointment["status"][] = ["scheduled", "confirmed", "completed"];
+
+const APPOINTMENT_STATUS_LABELS: Record<ClinicalAppointment["status"], string> = {
+  scheduled: "Programada",
+  confirmed: "Confirmada",
+  completed: "Completada",
+  cancelled: "Cancelada",
+  no_show: "No asistio"
+};
+
+function formatOriginAppointmentOption(appointment: ClinicalAppointment) {
+  const time = (appointment.start_time || "").slice(0, 5);
+  return `${formatDate(appointment.appointment_date)} ${time} - ${appointment.area} (${APPOINTMENT_STATUS_LABELS[appointment.status]})`;
+}
 
 type PrescriptionItemForm = {
   product_id: number;
@@ -41,6 +64,7 @@ type PrescriptionFormState = {
 const emptyForm: ConsultationFormState = {
   patient_id: "",
   client_id: "",
+  appointment_id: "",
   consultation_date: "",
   motivo_consulta: "",
   diagnostico: "",
@@ -59,6 +83,7 @@ function consultationToForm(consultation: ClinicalConsultation | null): Consulta
   return {
     patient_id: consultation?.patient_id ? String(consultation.patient_id) : "",
     client_id: consultation?.client_id ? String(consultation.client_id) : "",
+    appointment_id: consultation?.appointment_id ? String(consultation.appointment_id) : "",
     consultation_date: consultation?.consultation_date ? consultation.consultation_date.slice(0, 16) : "",
     motivo_consulta: consultation?.motivo_consulta || "",
     diagnostico: consultation?.diagnostico || "",
@@ -120,6 +145,8 @@ export function MedicalConsultationsPage() {
   const consultationMode = getConsultationModeFromPath(location.pathname);
   const [consultations, setConsultations] = useState<ClinicalConsultation[]>([]);
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
+  const [patientAppointments, setPatientAppointments] = useState<ClinicalAppointment[]>([]);
+  const [originAppointment, setOriginAppointment] = useState<ClinicalAppointment | null>(null);
   const [medications, setMedications] = useState<Product[]>([]);
   const [medicationSearch, setMedicationSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -144,6 +171,33 @@ export function MedicalConsultationsPage() {
     if (!token) return;
     const response = await apiRequest<ClinicalPatientSummary[]>("/patients?active=true", { token });
     setPatients(response);
+  }
+
+  // GET /medical-appointments defaults to TODAY's appointments when no date
+  // filter is given (see listAppointments in clinicalService.js) — date_from
+  // set far in the past is what turns it into "every appointment this
+  // patient has ever had", which is what the "cita de origen" selector needs.
+  async function loadPatientAppointments(patientId: string) {
+    if (!token || !patientId) {
+      setPatientAppointments([]);
+      return;
+    }
+    const params = new URLSearchParams({ patient_id: patientId, date_from: "2000-01-01" });
+    const response = await apiRequest<{ date: string; items: ClinicalAppointment[] }>(`/medical-appointments?${params.toString()}`, { token });
+    setPatientAppointments(
+      response.items
+        .filter((appointment) => ORIGIN_APPOINTMENT_STATUSES.includes(appointment.status))
+        .sort((left, right) => `${right.appointment_date}${right.start_time}`.localeCompare(`${left.appointment_date}${left.start_time}`))
+    );
+  }
+
+  async function loadOriginAppointment(appointmentId: number | null) {
+    if (!token || !appointmentId) {
+      setOriginAppointment(null);
+      return;
+    }
+    const response = await apiRequest<ClinicalAppointment>(`/medical-appointments/${appointmentId}`, { token });
+    setOriginAppointment(response);
   }
 
   async function loadConsultations(term = "") {
@@ -241,6 +295,18 @@ export function MedicalConsultationsPage() {
     }
   }, [form.patient_id, patients]);
 
+  useEffect(() => {
+    loadPatientAppointments(form.patient_id).catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar las citas del paciente");
+    });
+  }, [form.patient_id, token]);
+
+  useEffect(() => {
+    loadOriginAppointment(detail?.appointment_id ?? null).catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar la cita de origen");
+    });
+  }, [detail?.appointment_id, token]);
+
   function resetFeedback() {
     setError("");
     setInfo("");
@@ -268,7 +334,10 @@ export function MedicalConsultationsPage() {
     setForm((current) => ({
       ...current,
       patient_id: patientId,
-      client_id: matchedPatient ? String(matchedPatient.client_id) : ""
+      client_id: matchedPatient ? String(matchedPatient.client_id) : "",
+      // a previously chosen origin appointment belonged to the old patient —
+      // it cannot carry over to a different one
+      appointment_id: patientId === current.patient_id ? current.appointment_id : ""
     }));
   }
 
@@ -340,7 +409,10 @@ export function MedicalConsultationsPage() {
           // client_id is optional as of migration 47 — a patient with no
           // client_id of its own (rescued animal / patient created without
           // one) leaves form.client_id as "", which must become null, not 0.
-          client_id: form.client_id ? Number(form.client_id) : null
+          client_id: form.client_id ? Number(form.client_id) : null,
+          // appointment_id is optional — "Sin cita de origen" leaves
+          // form.appointment_id as "", which must become null, same pattern.
+          appointment_id: form.appointment_id ? Number(form.appointment_id) : null
         })
       });
       setInfo(mode === "edit" ? "Consulta actualizada" : "Consulta guardada y agregada al historial");
@@ -539,6 +611,20 @@ export function MedicalConsultationsPage() {
               <p><strong>Nacimiento:</strong> {selectedPatient.birth_date || "-"}</p>
             </div>
           ) : null}
+          {selectedPatient ? (
+            <label>
+              Cita de origen
+              <select value={form.appointment_id} onChange={(event) => setForm({ ...form, appointment_id: event.target.value })}>
+                <option value="">Sin cita de origen (consulta directa)</option>
+                {patientAppointments.map((appointment) => (
+                  <option key={appointment.id} value={appointment.id}>{formatOriginAppointmentOption(appointment)}</option>
+                ))}
+                {form.appointment_id && !patientAppointments.some((appointment) => String(appointment.id) === form.appointment_id) ? (
+                  <option value={form.appointment_id}>Cita ya vinculada (fuera de los filtros mostrados)</option>
+                ) : null}
+              </select>
+            </label>
+          ) : null}
           <label>
             Fecha *
             <input type="datetime-local" value={form.consultation_date} onChange={(event) => setForm({ ...form, consultation_date: event.target.value })} />
@@ -631,6 +717,14 @@ export function MedicalConsultationsPage() {
               <p><strong>Diagnostico:</strong> {detail.diagnostico}</p>
               <p><strong>Tratamiento:</strong> {detail.tratamiento}</p>
               <p><strong>Receta asociada:</strong> {detail.has_prescription ? `Si, ${detail.prescription_count || 0} item(s)` : "No"}</p>
+              {detail.appointment_id ? (
+                <p>
+                  <strong>Cita de origen:</strong>{" "}
+                  {originAppointment
+                    ? `Originada de la cita del ${formatDate(originAppointment.appointment_date)} ${(originAppointment.start_time || "").slice(0, 5)}`
+                    : "Originada de una cita"}
+                </p>
+              ) : null}
               <div className="inline-actions">
                 <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver historial</button>
                 <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver paciente</button>
