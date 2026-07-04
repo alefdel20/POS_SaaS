@@ -2439,8 +2439,141 @@ async function ensureHealthcareStructuralSync(client) {
     // view_libro_antibioticos already LEFT JOINs healthcare.inventory_batches
     // via dl.batch_id (migration 14), so it already tolerates NULL without
     // any change to the view itself.
-    "ALTER TABLE healthcare.dispensing_logs ALTER COLUMN batch_id DROP NOT NULL"
+    "ALTER TABLE healthcare.dispensing_logs ALTER COLUMN batch_id DROP NOT NULL",
+
+    // Migration 51 — Fase 6: healthcare.reminders, mirror of ONLY the
+    // public.reminders rows with category = 'clinical'. Reminders with
+    // category = 'administrative' (stock bajo, gastos, prestamos de dueno,
+    // gastos fijos, pagos de suscripcion) never reach this table — the guard
+    // lives in healthcareSubjectTranslation.js (syncReminderToHealthcare/
+    // OnUpdate return null immediately when category !== 'clinical'), not in
+    // a CHECK here, since this table is never supposed to see a non-clinical
+    // row at all. patient_id is nullable on public.reminders (a clinical
+    // reminder is not always tied to one specific patient), so subject_type/
+    // patient_id/pet_id are nullable here too — see
+    // healthcare_reminders_subject_check in migration 51's own file for the
+    // explicit "no subject" branch, unlike healthcare.prescriptions/
+    // appointments where a subject is always required.
+    `CREATE TABLE IF NOT EXISTS healthcare.reminders (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      source_reminder_id INTEGER NOT NULL,
+      subject_type VARCHAR(10),
+      patient_id BIGINT,
+      pet_id BIGINT,
+      reminder_type VARCHAR(40) NOT NULL DEFAULT 'general',
+      title VARCHAR(180) NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      due_date DATE,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by INTEGER REFERENCES users(id),
+      updated_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS source_reminder_id INTEGER",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS subject_type VARCHAR(10)",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS patient_id BIGINT",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS pet_id BIGINT",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS reminder_type VARCHAR(40) NOT NULL DEFAULT 'general'",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS title VARCHAR(180) NOT NULL DEFAULT ''",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS due_date DATE",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+    "ALTER TABLE healthcare.reminders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+    "CREATE INDEX IF NOT EXISTS idx_hc_reminders_source_reminder_id ON healthcare.reminders (source_reminder_id, business_id)",
+    "CREATE INDEX IF NOT EXISTS idx_hc_reminders_business_status_due_date ON healthcare.reminders (business_id, status, due_date)",
+    "CREATE INDEX IF NOT EXISTS idx_hc_reminders_patient_id ON healthcare.reminders (patient_id)",
+    "CREATE INDEX IF NOT EXISTS idx_hc_reminders_pet_id ON healthcare.reminders (pet_id)"
   ]);
+
+  // Migration 51 — healthcare.reminders constraints. Runs here (inside
+  // ensureHealthcareStructuralSync, guarded by the "healthcare schema
+  // present" check at the top of this function), not inside
+  // ensureConstraints — that function runs BEFORE this one (see call order
+  // in ensureDatabaseCompatibility), so a 'healthcare.reminders'::regclass
+  // cast there would throw "relation does not exist" on any database where
+  // this table hasn't been created yet, and that error is not a
+  // duplicate_object, so the EXCEPTION handler in ensureConstraints would not
+  // catch it — it would abort init entirely.
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'healthcare_reminders_status_check'
+          AND conrelid = 'healthcare.reminders'::regclass
+      ) THEN
+        ALTER TABLE healthcare.reminders DROP CONSTRAINT healthcare_reminders_status_check;
+      END IF;
+
+      ALTER TABLE healthcare.reminders
+      ADD CONSTRAINT healthcare_reminders_status_check
+      CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled'));
+
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'healthcare_reminders_subject_check'
+          AND conrelid = 'healthcare.reminders'::regclass
+      ) THEN
+        ALTER TABLE healthcare.reminders DROP CONSTRAINT healthcare_reminders_subject_check;
+      END IF;
+
+      -- Unlike healthcare.prescriptions/appointments (subject always
+      -- required), a clinical reminder may have no patient at all
+      -- (patient_id nullable on public.reminders) — the "no subject" case is
+      -- a first-class valid state here, not an unresolved gap.
+      ALTER TABLE healthcare.reminders
+      ADD CONSTRAINT healthcare_reminders_subject_check
+      CHECK (
+        (subject_type IS NULL AND patient_id IS NULL AND pet_id IS NULL)
+        OR
+        (subject_type = 'human' AND patient_id IS NOT NULL AND pet_id IS NULL)
+        OR
+        (subject_type = 'pet' AND pet_id IS NOT NULL AND patient_id IS NULL)
+      );
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_healthcare_reminders_source_reminder'
+          AND conrelid = 'healthcare.reminders'::regclass
+      ) THEN
+        ALTER TABLE healthcare.reminders
+        ADD CONSTRAINT fk_healthcare_reminders_source_reminder
+        FOREIGN KEY (source_reminder_id) REFERENCES reminders(id) ON DELETE CASCADE;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_healthcare_reminders_patient'
+          AND conrelid = 'healthcare.reminders'::regclass
+      ) THEN
+        ALTER TABLE healthcare.reminders
+        ADD CONSTRAINT fk_healthcare_reminders_patient
+        FOREIGN KEY (patient_id) REFERENCES healthcare.patients(id) ON DELETE CASCADE;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_healthcare_reminders_pet'
+          AND conrelid = 'healthcare.reminders'::regclass
+      ) THEN
+        ALTER TABLE healthcare.reminders
+        ADD CONSTRAINT fk_healthcare_reminders_pet
+        FOREIGN KEY (pet_id) REFERENCES healthcare.pets(id) ON DELETE CASCADE;
+      END IF;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$;
+    `
+  );
 
   // Migration 42 — backfill credit_limit/credit_days from metadata (saved there by
   // migration 34) and mark each row so a re-run does not clobber later manual edits.

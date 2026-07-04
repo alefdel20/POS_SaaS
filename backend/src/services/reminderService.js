@@ -1,6 +1,10 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
-const { subjectTranslationJoin } = require("../utils/healthcareSubjectTranslation");
+const {
+  subjectTranslationJoin,
+  syncReminderToHealthcare,
+  syncReminderToHealthcareOnUpdate
+} = require("../utils/healthcareSubjectTranslation");
 const { n8nWebhookUrl } = require("../config/env");
 const { getReminderContext } = require("./creditCollectionService");
 const { emitActorAutomationEvent } = require("./automationEventService");
@@ -434,73 +438,113 @@ async function createReminder(payload, actor) {
   const nextIsCompleted = nextStatus === "completed";
   const metadata = extractReminderMeta(payload);
   const nextDueDate = payload.due_date || toCalendarDate(payload.start_date) || null;
-  await assertReminderPatientAccess(payload.patient_id, businessId);
-  const { rows } = await pool.query(
-    `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-     RETURNING *`,
-    [String(payload.title || "").trim(), String(payload.notes || "").trim(), nextStatus, nextDueDate, payload.source_key || null, payload.assigned_to || null, payload.created_by, nextIsCompleted, businessId, payload.reminder_type || "general", category, payload.patient_id || null, JSON.stringify(metadata)]
-  );
-  await saveAuditLog({
-    business_id: businessId,
-    usuario_id: actor?.id || null,
-    modulo: "reminders",
-    accion: category === "clinical" ? "create_clinical_reminder" : "create_reminder",
-    entidad_tipo: "reminder",
-    entidad_id: rows[0].id,
-    detalle_nuevo: { snapshot: rows[0] },
-    metadata: { category, patient_id: payload.patient_id || null }
-  }, { strict: false });
-  return rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await assertReminderPatientAccess(payload.patient_id, businessId, client);
+    const { rows } = await client.query(
+      `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING *`,
+      [String(payload.title || "").trim(), String(payload.notes || "").trim(), nextStatus, nextDueDate, payload.source_key || null, payload.assigned_to || null, payload.created_by, nextIsCompleted, businessId, payload.reminder_type || "general", category, payload.patient_id || null, JSON.stringify(metadata)]
+    );
+    // Fase 6: mirror into healthcare.reminders — no-op when category isn't
+    // 'clinical' (see syncReminderToHealthcare's guard).
+    await syncReminderToHealthcare(rows[0], actor, client);
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor?.id || null,
+      modulo: "reminders",
+      accion: category === "clinical" ? "create_clinical_reminder" : "create_reminder",
+      entidad_tipo: "reminder",
+      entidad_id: rows[0].id,
+      detalle_nuevo: { snapshot: rows[0] },
+      metadata: { category, patient_id: payload.patient_id || null }
+    }, { client, strict: false });
+    await client.query("COMMIT");
+    return rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function updateReminder(id, payload, actor) {
   const businessId = getBusinessId(actor);
-  const { rows: existingRows } = await pool.query("SELECT * FROM reminders WHERE id = $1 AND business_id = $2", [id, businessId]);
-  const current = existingRows[0];
-  if (!current) throw new ApiError(404, "Reminder not found");
-  const nextCategory = normalizeReminderCategory(payload.category) || normalizeReminderCategory(current.category) || "administrative";
-  const nextStatus = normalizeReminderStatus(payload.status) || normalizeReminderStatus(current.status) || "pending";
-  const nextIsCompleted = nextStatus === "completed";
-  const metadata = extractReminderMeta(payload, current.metadata || {});
-  const nextDueDate = payload.due_date !== undefined
-    ? payload.due_date
-    : (payload.start_date !== undefined ? toCalendarDate(payload.start_date) : current.due_date);
-  assertClinicalReminderAccess({ category: nextCategory }, actor);
-  await assertReminderPatientAccess(payload.patient_id ?? current.patient_id, businessId);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: existingRows } = await client.query("SELECT * FROM reminders WHERE id = $1 AND business_id = $2", [id, businessId]);
+    const current = existingRows[0];
+    if (!current) throw new ApiError(404, "Reminder not found");
+    const nextCategory = normalizeReminderCategory(payload.category) || normalizeReminderCategory(current.category) || "administrative";
+    const nextStatus = normalizeReminderStatus(payload.status) || normalizeReminderStatus(current.status) || "pending";
+    const nextIsCompleted = nextStatus === "completed";
+    const metadata = extractReminderMeta(payload, current.metadata || {});
+    const nextDueDate = payload.due_date !== undefined
+      ? payload.due_date
+      : (payload.start_date !== undefined ? toCalendarDate(payload.start_date) : current.due_date);
+    assertClinicalReminderAccess({ category: nextCategory }, actor);
+    await assertReminderPatientAccess(payload.patient_id ?? current.patient_id, businessId, client);
 
-  const { rows } = await pool.query(
-    `UPDATE reminders
-     SET title = $1, notes = $2, status = $3, due_date = $4, assigned_to = $5, is_completed = $6, source_key = $7, reminder_type = $8, category = $9, patient_id = $10, metadata = $11, updated_at = NOW()
-     WHERE id = $12 AND business_id = $13
-     RETURNING *`,
-    [String(payload.title ?? current.title ?? "").trim(), String(payload.notes ?? current.notes ?? "").trim(), nextStatus, nextDueDate, payload.assigned_to ?? current.assigned_to, nextIsCompleted, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, nextCategory, payload.patient_id ?? current.patient_id, JSON.stringify(metadata), id, businessId]
-  );
-  await saveAuditLog({
-    business_id: businessId,
-    usuario_id: actor?.id || null,
-    modulo: "reminders",
-    accion: nextCategory === "clinical" ? "update_clinical_reminder" : "update_reminder",
-    entidad_tipo: "reminder",
-    entidad_id: id,
-    detalle_anterior: { snapshot: current },
-    detalle_nuevo: { snapshot: rows[0] },
-    metadata: { category: nextCategory, patient_id: payload.patient_id ?? current.patient_id ?? null }
-  }, { strict: false });
-  return rows[0];
+    const { rows } = await client.query(
+      `UPDATE reminders
+       SET title = $1, notes = $2, status = $3, due_date = $4, assigned_to = $5, is_completed = $6, source_key = $7, reminder_type = $8, category = $9, patient_id = $10, metadata = $11, updated_at = NOW()
+       WHERE id = $12 AND business_id = $13
+       RETURNING *`,
+      [String(payload.title ?? current.title ?? "").trim(), String(payload.notes ?? current.notes ?? "").trim(), nextStatus, nextDueDate, payload.assigned_to ?? current.assigned_to, nextIsCompleted, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, nextCategory, payload.patient_id ?? current.patient_id, JSON.stringify(metadata), id, businessId]
+    );
+    // Fase 6: keep the healthcare.reminders mirror in sync — no-op when
+    // nextCategory isn't 'clinical' (see syncReminderToHealthcareOnUpdate's
+    // guard).
+    await syncReminderToHealthcareOnUpdate(rows[0], actor, client);
+    await saveAuditLog({
+      business_id: businessId,
+      usuario_id: actor?.id || null,
+      modulo: "reminders",
+      accion: nextCategory === "clinical" ? "update_clinical_reminder" : "update_reminder",
+      entidad_tipo: "reminder",
+      entidad_id: id,
+      detalle_anterior: { snapshot: current },
+      detalle_nuevo: { snapshot: rows[0] },
+      metadata: { category: nextCategory, patient_id: payload.patient_id ?? current.patient_id ?? null }
+    }, { client, strict: false });
+    await client.query("COMMIT");
+    return rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function completeReminder(id, actor) {
   const businessId = getBusinessId(actor);
-  const { rows } = await pool.query(
-    `UPDATE reminders
-     SET is_completed = TRUE, status = 'completed', updated_at = NOW()
-     WHERE id = $1 AND business_id = $2
-     RETURNING *`,
-    [id, businessId]
-  );
-  if (!rows[0]) throw new ApiError(404, "Reminder not found");
-  return rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `UPDATE reminders
+       SET is_completed = TRUE, status = 'completed', updated_at = NOW()
+       WHERE id = $1 AND business_id = $2
+       RETURNING *`,
+      [id, businessId]
+    );
+    if (!rows[0]) throw new ApiError(404, "Reminder not found");
+    // Fase 6: keep the healthcare.reminders mirror in sync — no-op when the
+    // reminder isn't 'clinical' (see syncReminderToHealthcareOnUpdate's guard).
+    await syncReminderToHealthcareOnUpdate(rows[0], actor, client);
+    await client.query("COMMIT");
+    return rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function deleteReminder(id, actor) {
@@ -546,6 +590,12 @@ async function upsertSystemReminder(payload, options = {}) {
         businessId
       ]
     );
+    // Fase 6: keep the healthcare.reminders mirror in sync — no-op when
+    // category isn't 'clinical' (see syncReminderToHealthcareOnUpdate's
+    // guard). No actor available at this layer (upsertAutomaticReminder
+    // never threads one through) — created_by/updated_by on this path are
+    // always NULL anyway, same as the raw INSERT/UPDATE above.
+    await syncReminderToHealthcareOnUpdate(rows[0], null, client);
     return rows[0];
   }
   const { rows } = await client.query(
@@ -566,6 +616,7 @@ async function upsertSystemReminder(payload, options = {}) {
       JSON.stringify(payload.metadata || {})
     ]
   );
+  await syncReminderToHealthcare(rows[0], null, client);
   return rows[0];
 }
 
@@ -583,15 +634,24 @@ async function removeAutomaticReminder(sourceKey, actor, client = pool) {
 async function cancelAutomaticReminder(sourceKey, actor, client = pool) {
   const businessId = getBusinessId(actor);
   console.info("[REMINDERS] Cancelling automatic reminder", { businessId, sourceKey });
-  await client.query(
+  const { rows } = await client.query(
     `UPDATE reminders
      SET status = 'cancelled',
          is_completed = TRUE,
          updated_at = NOW()
      WHERE business_id = $1
-       AND source_key = $2`,
+       AND source_key = $2
+     RETURNING *`,
     [businessId, sourceKey]
   );
+  if (rows[0]) {
+    // Fase 6: keep the healthcare.reminders mirror in sync — no-op when the
+    // reminder isn't 'clinical' (see syncReminderToHealthcareOnUpdate's
+    // guard). This is the path syncAppointmentReminder uses to cancel the
+    // mirror of an appointment-derived reminder when the appointment itself
+    // is cancelled/completed/no-show.
+    await syncReminderToHealthcareOnUpdate(rows[0], actor, client);
+  }
 }
 
 async function removeLegacyLowStockReminders(businessId) {

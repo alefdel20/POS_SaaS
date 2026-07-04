@@ -1482,6 +1482,212 @@ async function syncPrescriptionToHealthcareOnUpdate(publicPrescriptionRow, actor
   return mirror;
 }
 
+// ---------------------------------------------------------------------------
+// healthcare.reminders mirror (Fase 6) — CLINICAL REMINDERS ONLY
+// ---------------------------------------------------------------------------
+//
+// public.reminders mixes clinical reminders (category = 'clinical': proxima
+// cita, vacuna/desparasitacion pendiente) with purely administrative/finance
+// reminders (category = 'administrative': stock bajo, gastos, prestamos de
+// dueno, gastos fijos, pagos de suscripcion — see reminderService.js
+// reminder_type 'finance_expense'/'finance_owner_loan'/'finance_fixed_expense',
+// all category = 'administrative'). healthcare.reminders mirrors ONLY the
+// clinical ones. A finance/administrative reminder must never reach this
+// table, never get auto-healed, never be read from here — see migration 51
+// (infra/postgres/51-healthcare-reminders.sql) for the full rationale.
+//
+// The guard below is deliberately the FIRST thing both sync functions do:
+// any reminder whose category isn't literally 'clinical' returns null
+// immediately, before touching the database at all. This makes it obvious
+// at a glance that a finance/subscription reminder can never produce a
+// healthcare.reminders row, no matter which caller invokes these.
+function isClinicalReminder(publicReminderRow) {
+  return publicReminderRow?.category === "clinical";
+}
+
+// patient_id is nullable on public.reminders — a clinical reminder is not
+// always tied to one specific patient (e.g. a general clinic reminder).
+// Unlike buildPrescriptionMirrorFields, this never auto-heals or resolves a
+// subject when patient_id is absent — it simply mirrors "no subject" as-is
+// (see healthcare_reminders_subject_check in migration 51, which explicitly
+// allows subject_type/patient_id/pet_id all NULL together).
+async function buildReminderMirrorFields(publicReminderRow, syncSource, client) {
+  const businessId = publicReminderRow.business_id;
+  const subject = publicReminderRow.patient_id
+    ? await resolveHealthcareSubject(publicReminderRow.patient_id, businessId, client)
+    : { subjectType: null, patientId: null, petId: null };
+
+  const metadata = stripNullish({
+    ...(publicReminderRow.metadata || {}),
+    sync_source: syncSource,
+    synced_at: new Date().toISOString()
+  });
+
+  return {
+    subjectType: subject.subjectType,
+    patientId: subject.patientId,
+    petId: subject.petId,
+    reminderType: publicReminderRow.reminder_type || "general",
+    title: publicReminderRow.title || "",
+    notes: publicReminderRow.notes || "",
+    dueDate: publicReminderRow.due_date || null,
+    status: publicReminderRow.status || "pending",
+    metadataJson: JSON.stringify(metadata)
+  };
+}
+
+async function insertReminderMirror(fields, businessId, sourceReminderId, actorId, client) {
+  const { rows } = await client.query(
+    `INSERT INTO healthcare.reminders (
+       business_id, source_reminder_id, subject_type, patient_id, pet_id,
+       reminder_type, title, notes, due_date, status, metadata,
+       created_by, updated_by
+     )
+     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $12
+     WHERE NOT EXISTS (
+       SELECT 1 FROM healthcare.reminders hr
+       WHERE hr.source_reminder_id = $2 AND hr.business_id = $1
+     )
+     RETURNING id`,
+    [
+      businessId,
+      sourceReminderId,
+      fields.subjectType,
+      fields.patientId,
+      fields.petId,
+      fields.reminderType,
+      fields.title,
+      fields.notes,
+      fields.dueDate,
+      fields.status,
+      fields.metadataJson,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+async function updateReminderMirror(fields, businessId, sourceReminderId, actorId, client) {
+  const { rows } = await client.query(
+    `UPDATE healthcare.reminders
+     SET subject_type = $3,
+         patient_id = $4,
+         pet_id = $5,
+         reminder_type = $6,
+         title = $7,
+         notes = $8,
+         due_date = $9,
+         status = $10,
+         metadata = $11::jsonb,
+         updated_by = $12,
+         updated_at = NOW()
+     WHERE source_reminder_id = $2 AND business_id = $1
+     RETURNING id`,
+    [
+      businessId,
+      sourceReminderId,
+      fields.subjectType,
+      fields.patientId,
+      fields.petId,
+      fields.reminderType,
+      fields.title,
+      fields.notes,
+      fields.dueDate,
+      fields.status,
+      fields.metadataJson,
+      actorId
+    ]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Mirrors a just-inserted public.reminders row into healthcare.reminders —
+ * but only when category === 'clinical' (see isClinicalReminder above); any
+ * other category is a deliberate no-op, returning null without touching the
+ * database. Must run on the same `client`/transaction as the public.reminders
+ * INSERT it follows, same atomicity guarantee as every other Fase 2-5 sync.
+ *
+ * Auto-heals the patient's own healthcare.patients/healthcare.pets mirror
+ * first when the reminder has a patient_id — same reasoning as
+ * createPrescription: a never-touched legacy patient has no mirror row yet,
+ * and resolveHealthcareSubject (inside buildReminderMirrorFields) would
+ * otherwise 409 on it. Unlike clinicalService.js callers, reminderService.js
+ * does not already have the full patient row in hand at this point, so this
+ * fetches it directly rather than requiring every caller to pass it in.
+ *
+ * Idempotent by (source_reminder_id, business_id), same NOT EXISTS pattern as
+ * every other Fase 2-5 create-sync.
+ */
+async function syncReminderToHealthcare(publicReminderRow, actor, client = pool) {
+  if (!isClinicalReminder(publicReminderRow)) {
+    return null;
+  }
+
+  const businessId = publicReminderRow.business_id;
+  const sourceReminderId = publicReminderRow.id;
+  const actorId = publicReminderRow.created_by ?? actor?.id ?? null;
+
+  if (publicReminderRow.patient_id) {
+    const { rows: patientRows } = await client.query(
+      "SELECT * FROM patients WHERE id = $1 AND business_id = $2",
+      [publicReminderRow.patient_id, businessId]
+    );
+    const patient = patientRows[0];
+    if (patient) {
+      await syncPatientToHealthcareOnUpdate(patient, actor, client);
+    }
+  }
+
+  const fields = await buildReminderMirrorFields(publicReminderRow, "reminder_create_sync", client);
+  return insertReminderMirror(fields, businessId, sourceReminderId, actorId, client);
+}
+
+/**
+ * Update-time counterpart to syncReminderToHealthcare. Same
+ * update-or-auto-heal-insert shape as every other *OnUpdate sync in this
+ * file: UPDATEs the existing mirror row; if none exists yet (legacy reminder,
+ * never synced, or a reminder that just flipped from 'administrative' to
+ * 'clinical') falls back to the same INSERT ... WHERE NOT EXISTS the create
+ * path uses.
+ *
+ * KNOWN LIMITATION (flagged, not fixed here): if a reminder flips FROM
+ * 'clinical' TO 'administrative', this returns null immediately (via
+ * isClinicalReminder) and the existing healthcare.reminders row — if one was
+ * already created while it was still clinical — is left behind untouched,
+ * now describing a reminder that public.reminders no longer classifies as
+ * clinical. Category flips are expected to be rare (assertClinicalReminderAccess
+ * in reminderService.js already gates who may even set category to
+ * 'clinical'); revisit if that assumption stops holding.
+ */
+async function syncReminderToHealthcareOnUpdate(publicReminderRow, actor, client = pool) {
+  if (!isClinicalReminder(publicReminderRow)) {
+    return null;
+  }
+
+  const businessId = publicReminderRow.business_id;
+  const sourceReminderId = publicReminderRow.id;
+  const actorId = publicReminderRow.updated_by ?? actor?.id ?? null;
+
+  if (publicReminderRow.patient_id) {
+    const { rows: patientRows } = await client.query(
+      "SELECT * FROM patients WHERE id = $1 AND business_id = $2",
+      [publicReminderRow.patient_id, businessId]
+    );
+    const patient = patientRows[0];
+    if (patient) {
+      await syncPatientToHealthcareOnUpdate(patient, actor, client);
+    }
+  }
+
+  const fields = await buildReminderMirrorFields(publicReminderRow, "reminder_update_sync", client);
+  let mirror = await updateReminderMirror(fields, businessId, sourceReminderId, actorId, client);
+  if (!mirror) {
+    mirror = await insertReminderMirror(fields, businessId, sourceReminderId, actorId, client);
+  }
+  return mirror;
+}
+
 module.exports = {
   resolveHealthcareSubject,
   subjectTranslationJoin,
@@ -1496,6 +1702,8 @@ module.exports = {
   linkAppointmentResultingEncounter,
   syncPrescriptionToHealthcare,
   syncPrescriptionToHealthcareOnUpdate,
+  syncReminderToHealthcare,
+  syncReminderToHealthcareOnUpdate,
   // shared human/pet discriminator — also used by clinicalService.updatePatient
   // to block a species change that would flip which healthcare.* table a
   // patient's mirror belongs to (see the species-immutability guard there)

@@ -1,4 +1,5 @@
 const pool = require("../db/pool");
+const { syncReminderToHealthcare } = require("./healthcareSubjectTranslation");
 
 const TOOLS = [
   {
@@ -247,25 +248,52 @@ async function getSupplierInfo(args, businessId) {
 }
 
 async function createReminder(args, businessId, userId) {
-  const { rows } = await pool.query(
-    `INSERT INTO reminders
-       (title, notes, status, due_date, business_id, reminder_type, category, is_completed, created_by, metadata)
-     VALUES ($1, $2, 'pending', $3, $4, 'manual', $5, FALSE, $6, '{}'::jsonb)
-     RETURNING id, title, due_date`,
-    [
-      String(args.title || "").trim(),
-      String(args.notes || "").trim(),
-      args.due_date || null,
-      Number(businessId),
-      String(args.category || "").toLowerCase().includes("clinical") ? "clinical" : "administrative",
-      userId || null
-    ]
-  );
-  return {
-    id: rows[0].id,
-    title: rows[0].title,
-    due_date: rows[0].due_date
-  };
+  // Fase 6 follow-up: this AI-tool path writes directly to public.reminders
+  // and never went through reminderService.createReminder, so it never got
+  // the healthcare.reminders sync added there — same silent-gap pattern
+  // already found once in Fase 1. Wrapped in a transaction (it wasn't one
+  // before) for the same reason reminderService.createReminder was wrapped:
+  // the mirror sync must commit/rollback atomically with the reminders
+  // INSERT, not as a separate, best-effort follow-up call.
+  //
+  // The tool's own parameter schema (see the createReminder TOOLS entry
+  // above) has no patient_id property — the AI assistant can never attach a
+  // patient to a reminder it creates — so syncReminderToHealthcare's
+  // auto-heal/resolveHealthcareSubject path never runs here; every mirror
+  // row produced by this function is the "no subject" case.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const category = String(args.category || "").toLowerCase().includes("clinical") ? "clinical" : "administrative";
+    const { rows } = await client.query(
+      `INSERT INTO reminders
+         (title, notes, status, due_date, business_id, reminder_type, category, is_completed, created_by, metadata)
+       VALUES ($1, $2, 'pending', $3, $4, 'manual', $5, FALSE, $6, '{}'::jsonb)
+       RETURNING *`,
+      [
+        String(args.title || "").trim(),
+        String(args.notes || "").trim(),
+        args.due_date || null,
+        Number(businessId),
+        category,
+        userId || null
+      ]
+    );
+    // No-op automatically when category !== 'clinical' (see
+    // syncReminderToHealthcare's guard in healthcareSubjectTranslation.js).
+    await syncReminderToHealthcare(rows[0], { id: userId || null }, client);
+    await client.query("COMMIT");
+    return {
+      id: rows[0].id,
+      title: rows[0].title,
+      due_date: rows[0].due_date
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function getExpensesByPeriod(args, businessId) {
