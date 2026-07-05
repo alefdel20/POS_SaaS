@@ -735,6 +735,13 @@ export function SalesPage() {
     const seededCart: CartItem[] = [];
 
     for (const item of prescription.items) {
+      // Medicamento libre (Backlog: sin producto de catalogo) — nada que
+      // buscar ni agregar al carrito, no se puede vender lo que no existe
+      // como producto.
+      if (item.product_id === null) {
+        nextWarnings.push(`El medicamento recetado "${item.medication_name_snapshot}" es libre (sin producto de catalogo) y no se puede agregar a la venta.`);
+        continue;
+      }
       try {
         const product = await apiRequest<Product>(`/products/${item.product_id}`, { token });
         seededCart.push({ type: "product" as const, product, quantity: 1 });

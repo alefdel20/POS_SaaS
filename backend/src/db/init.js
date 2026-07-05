@@ -2345,6 +2345,23 @@ async function ensureConsultationsSchemaFase4Prep(client) {
   ]);
 }
 
+// Migration 52 — public.medical_prescription_items.product_id becomes
+// nullable. Product decision: a vet sometimes needs to prescribe a
+// medication the business doesn't stock (the patient buys it elsewhere) —
+// today product_id NOT NULL makes that "free-text medication" item
+// unrepresentable. Investigated (same pattern as 44/46/48/50): no CHECK on
+// this table references product_id; the only object referencing it is the
+// plain FK fk_medical_prescription_items_product, which Postgres never
+// evaluates when the column is NULL. See clinicalService.js
+// buildPrescriptionPayload/resolvePrescriptionItemSnapshots for the
+// create-time branch this unblocks.
+// Idempotent — DROP NOT NULL on an already-nullable column is a no-op.
+async function ensurePrescriptionItemsProductOptional(client) {
+  await run(client, [
+    "ALTER TABLE medical_prescription_items ALTER COLUMN product_id DROP NOT NULL"
+  ]);
+}
+
 // Base DDL for the healthcare vertical: schema, tables, indexes, FKs,
 // triggers and the antibiotic-book view from infra/postgres/14-healthcare-
 // modular-expansion.sql (schema itself) and infra/postgres/33-healthcare-
@@ -3610,7 +3627,18 @@ async function ensureHealthcareStructuralSync(client) {
     "CREATE INDEX IF NOT EXISTS idx_hc_reminders_source_reminder_id ON healthcare.reminders (source_reminder_id, business_id)",
     "CREATE INDEX IF NOT EXISTS idx_hc_reminders_business_status_due_date ON healthcare.reminders (business_id, status, due_date)",
     "CREATE INDEX IF NOT EXISTS idx_hc_reminders_patient_id ON healthcare.reminders (patient_id)",
-    "CREATE INDEX IF NOT EXISTS idx_hc_reminders_pet_id ON healthcare.reminders (pet_id)"
+    "CREATE INDEX IF NOT EXISTS idx_hc_reminders_pet_id ON healthcare.reminders (pet_id)",
+
+    // Migration 52 — healthcare.prescription_items.product_id becomes
+    // nullable, mirroring the same change on public.medical_prescription_items
+    // (see ensurePrescriptionItemsProductOptional below). Free-text
+    // ("catalog-less") medication items now sync here with product_id NULL —
+    // the only object referencing this column is the plain FK
+    // fk_healthcare_prescription_items_product, which Postgres never
+    // evaluates when the column is NULL; no CHECK on this table mentions
+    // product_id (prescription_items_type_check/_status_check/_qty_check all
+    // reference other columns).
+    "ALTER TABLE healthcare.prescription_items ALTER COLUMN product_id DROP NOT NULL"
   ]);
 
   // Migration 51 — healthcare.reminders constraints. Runs here (inside
@@ -3912,6 +3940,9 @@ async function ensureDatabaseCompatibility() {
 
     console.info("[DB-COMPAT] ensureConsultationsSchemaFase4Prep");
     await ensureConsultationsSchemaFase4Prep(client);
+
+    console.info("[DB-COMPAT] ensurePrescriptionItemsProductOptional");
+    await ensurePrescriptionItemsProductOptional(client);
 
     console.info("[DB-COMPAT] ensureHealthcareSchemaBase");
     await ensureHealthcareSchemaBase(client);

@@ -43,7 +43,7 @@ function formatOriginAppointmentOption(appointment: ClinicalAppointment) {
 }
 
 type PrescriptionItemForm = {
-  product_id: number;
+  product_id: number | null;
   medication_name_snapshot: string;
   presentation_snapshot: string;
   dose: string;
@@ -52,6 +52,27 @@ type PrescriptionItemForm = {
   route_of_administration: string;
   notes: string;
   stock_snapshot: number | null;
+};
+
+// "Medicamento libre" — a prescription item for something the business
+// doesn't stock (product_id stays null). Only the free-text fields the
+// prescriber can actually provide without a catalog product.
+type FreeMedicationForm = {
+  medication_name_snapshot: string;
+  dose: string;
+  frequency: string;
+  duration: string;
+  route_of_administration: string;
+  notes: string;
+};
+
+const emptyFreeMedicationForm: FreeMedicationForm = {
+  medication_name_snapshot: "",
+  dose: "",
+  frequency: "",
+  duration: "",
+  route_of_administration: "",
+  notes: ""
 };
 
 type PrescriptionFormState = {
@@ -149,6 +170,8 @@ export function MedicalConsultationsPage() {
   const [originAppointment, setOriginAppointment] = useState<ClinicalAppointment | null>(null);
   const [medications, setMedications] = useState<Product[]>([]);
   const [medicationSearch, setMedicationSearch] = useState("");
+  const [freeMedicationMode, setFreeMedicationMode] = useState(false);
+  const [freeMedicationForm, setFreeMedicationForm] = useState<FreeMedicationForm>(emptyFreeMedicationForm);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalConsultation | null>(null);
   const [prescription, setPrescription] = useState<MedicalPrescription | null>(null);
@@ -373,6 +396,31 @@ export function MedicalConsultationsPage() {
     });
   }
 
+  function addFreeMedicationToPrescription() {
+    const name = freeMedicationForm.medication_name_snapshot.trim();
+    if (!name) return;
+
+    setPrescriptionForm((current) => ({
+      ...current,
+      items: [
+        ...current.items,
+        {
+          product_id: null,
+          medication_name_snapshot: name,
+          presentation_snapshot: "",
+          dose: freeMedicationForm.dose,
+          frequency: freeMedicationForm.frequency,
+          duration: freeMedicationForm.duration,
+          route_of_administration: freeMedicationForm.route_of_administration,
+          notes: freeMedicationForm.notes,
+          stock_snapshot: null
+        }
+      ]
+    }));
+    setFreeMedicationForm(emptyFreeMedicationForm);
+    setFreeMedicationMode(false);
+  }
+
   function updatePrescriptionItem(index: number, field: keyof PrescriptionItemForm, value: string) {
     setPrescriptionForm((current) => ({
       ...current,
@@ -440,6 +488,12 @@ export function MedicalConsultationsPage() {
         status: prescriptionForm.status,
         items: prescriptionForm.items.map((item) => ({
           product_id: item.product_id,
+          // Only actually used by the backend when product_id is null (a
+          // free-text medication) — for a catalog item the backend always
+          // re-derives this from the product itself and ignores whatever is
+          // sent here. Must still be sent either way, since it's the only
+          // source of the name for a free item.
+          medication_name_snapshot: item.medication_name_snapshot,
           presentation_snapshot: item.presentation_snapshot,
           dose: item.dose,
           frequency: item.frequency,
@@ -702,6 +756,62 @@ export function MedicalConsultationsPage() {
           </div>
         </div>
 
+        <div className="info-card">
+          <div className="panel-header">
+            <div>
+              <h3>Medicamento libre</h3>
+              <p className="muted">Para medicamentos que no estan en el catalogo — el paciente los conseguira en otro lado.</p>
+            </div>
+            <button className="button ghost" onClick={() => setFreeMedicationMode((current) => !current)} type="button">
+              {freeMedicationMode ? "Cancelar" : "Medicamento libre"}
+            </button>
+          </div>
+          {freeMedicationMode ? (
+            <div className="form-section-grid">
+              <label>
+                Nombre *
+                <input
+                  value={freeMedicationForm.medication_name_snapshot}
+                  onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, medication_name_snapshot: event.target.value })}
+                />
+              </label>
+              <label>
+                Dosis
+                <input value={freeMedicationForm.dose} onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, dose: event.target.value })} />
+              </label>
+              <label>
+                Frecuencia
+                <input value={freeMedicationForm.frequency} onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, frequency: event.target.value })} />
+              </label>
+              <label>
+                Duracion
+                <input value={freeMedicationForm.duration} onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, duration: event.target.value })} />
+              </label>
+              <label>
+                Via
+                <input
+                  value={freeMedicationForm.route_of_administration}
+                  onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, route_of_administration: event.target.value })}
+                />
+              </label>
+              <label>
+                Notas
+                <input value={freeMedicationForm.notes} onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, notes: event.target.value })} />
+              </label>
+              <div className="inline-actions">
+                <button
+                  className="button"
+                  disabled={!detail || !freeMedicationForm.medication_name_snapshot.trim()}
+                  onClick={addFreeMedicationToPrescription}
+                  type="button"
+                >
+                  Agregar a receta
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
         {detail ? (
           <>
             <div className="info-card">
@@ -791,8 +901,11 @@ export function MedicalConsultationsPage() {
                   <tbody>
                     {prescriptionForm.items.map((item, index) => {
                       const stockState = getSnapshotStockLabel(item.stock_snapshot);
+                      // key by index alone — product_id is null for every free-text item
+                      // (Backlog: medicamento libre), so it can't disambiguate rows on its
+                      // own, and index already uniquely identifies a position in this list.
                       return (
-                        <tr key={`${item.product_id}-${index}`}>
+                        <tr key={`prescription-item-${index}`}>
                           <td>
                             <strong>{item.medication_name_snapshot}</strong>
                             <div className="muted">{item.presentation_snapshot || "-"}</div>

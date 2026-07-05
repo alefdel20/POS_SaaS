@@ -167,12 +167,21 @@ function buildPrescriptionPayload(payload = {}) {
   if (consultationId !== null && (!Number.isInteger(consultationId) || consultationId <= 0)) throw new ApiError(400, "Consultation is invalid");
   if (!status) throw new ApiError(400, "Prescription status is invalid");
 
+  // "Free medication" items (no catalog product — the business doesn't
+  // stock what's being prescribed): product_id is absent/null and the
+  // caller must instead provide a name via medication_name_snapshot. That
+  // field is reused rather than adding a new one because it's already the
+  // exact column that ends up persisted either way — for a catalog item,
+  // resolvePrescriptionItemSnapshots below always overwrites it from
+  // product.name, so whatever the caller sends here for a catalog item is
+  // ignored; for a free item, there is no product to derive it from, so the
+  // caller's value becomes the actual name of record. Same field, same
+  // meaning ("what shows as the medication name"), just sourced differently
+  // depending on whether product_id resolved.
   const normalizedItems = items.map((item) => {
-    const productId = Number(item.product_id);
-    if (!Number.isInteger(productId) || productId <= 0) throw new ApiError(400, "Prescription item product is required");
+    const hasProductId = item.product_id !== undefined && item.product_id !== null && item.product_id !== "";
 
-    return {
-      product_id: productId,
+    const commonFields = {
       dose: normalizeNullableText(item.dose),
       frequency: normalizeNullableText(item.frequency),
       duration: normalizeNullableText(item.duration),
@@ -180,6 +189,18 @@ function buildPrescriptionPayload(payload = {}) {
       notes: normalizeText(item.notes),
       presentation_snapshot: normalizeNullableText(item.presentation_snapshot)
     };
+
+    if (hasProductId) {
+      const productId = Number(item.product_id);
+      if (!Number.isInteger(productId) || productId <= 0) throw new ApiError(400, "Prescription item product is required");
+      return { ...commonFields, product_id: productId, medication_name_snapshot: null };
+    }
+
+    const freeMedicationName = normalizeNullableText(item.medication_name_snapshot);
+    if (!freeMedicationName) {
+      throw new ApiError(400, "Cada medicamento debe tener un producto del catalogo o un nombre de medicamento libre");
+    }
+    return { ...commonFields, product_id: null, medication_name_snapshot: freeMedicationName };
   });
 
   // Fase 5 follow-up: neither express-validator's prescriptionItemValidation
@@ -431,17 +452,31 @@ async function getPrescriptionSaleLinks(prescriptionId, actor, client = pool) {
 async function resolvePrescriptionItemSnapshots(items, actor, client = pool) {
   if (!items.length) return [];
   const businessId = requireActorBusinessId(actor);
-  const ids = items.map((item) => item.product_id);
-  const { rows } = await client.query(
-    `SELECT id, name, unidad_de_venta, stock, category, catalog_type
-     FROM products
-     WHERE business_id = $1
-       AND id = ANY($2::int[])`,
-    [businessId, ids]
-  );
+  // Free medication items (product_id === null, set in buildPrescriptionPayload)
+  // have nothing to look up in the catalog — only query for the items that
+  // actually declared a product.
+  const ids = items.filter((item) => item.product_id !== null).map((item) => item.product_id);
+  const { rows } = ids.length
+    ? await client.query(
+        `SELECT id, name, unidad_de_venta, stock, category, catalog_type
+         FROM products
+         WHERE business_id = $1
+           AND id = ANY($2::int[])`,
+        [businessId, ids]
+      )
+    : { rows: [] };
   const catalog = new Map(rows.map((row) => [Number(row.id), row]));
 
   return items.map((item) => {
+    // Free medication item — no catalog product to resolve. The caller-
+    // provided medication_name_snapshot/presentation_snapshot (already
+    // normalized in buildPrescriptionPayload) are used as-is; stock_snapshot
+    // stays NULL — there is no stock to snapshot for something the business
+    // doesn't sell.
+    if (item.product_id === null) {
+      return { ...item, stock_snapshot: null };
+    }
+
     const product = catalog.get(item.product_id);
     if (!product) throw new ApiError(404, "Product not found");
 

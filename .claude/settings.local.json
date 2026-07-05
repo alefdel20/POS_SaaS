@@ -58,7 +58,18 @@
       "Artifact",
       "Bash(echo \"EXIT:$?\")",
       "Bash(psql --version)",
-      "Bash(timeout 5 bash -c \"cat < /dev/null > /dev/tcp/31.97.214.24/5432\")"
+      "Bash(timeout 5 bash -c \"cat < /dev/null > /dev/tcp/31.97.214.24/5432\")",
+      "Bash(awk 'NR==1682,NR==1700' src/db/init.js)",
+      "Bash(awk '{print $1}')",
+      "Bash(env)",
+      "Read(//c/Program Files/**)",
+      "Bash(where docker.exe)",
+      "Bash(powershell.exe -NoProfile -Command \"Get-Command docker -ErrorAction SilentlyContinue\")",
+      "PowerShell(Get-Command *)",
+      "Bash(find . -maxdepth 2 -iname \"docker-compose*\")",
+      "Bash(find . -maxdepth 2 -iname \".env*\")",
+      "Bash(docker --version)",
+      "Bash(xargs -I{} basename {})"
     ]
   }
 }

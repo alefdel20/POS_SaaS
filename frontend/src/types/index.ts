@@ -670,7 +670,7 @@ export interface ClinicalHistoryResponse {
 export interface MedicalPrescriptionItem {
   id: number;
   prescription_id: number;
-  product_id: number;
+  product_id: number | null;
   medication_name_snapshot: string;
   presentation_snapshot?: string | null;
   dose?: string | null;
