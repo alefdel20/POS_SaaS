@@ -72,11 +72,11 @@ export function AppRouter() {
               <Route path="/health/products/accessories/restock" element={<ProductsPage />} />
               <Route path="/health/products/accessories/restock/history" element={<RestockHistoryPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} posTypes={["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} posTypes={["Farmacia", "FarmaciaConsultorio", "ClinicaChica", "Veterinaria", "Dentista"]} />}>
               <Route path="/health/products/medications/restock" element={<ProductsPage />} />
               <Route path="/health/products/medications/restock/history" element={<RestockHistoryPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.gerente]} posTypes={["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.gerente]} posTypes={["Farmacia", "FarmaciaConsultorio", "ClinicaChica", "Veterinaria", "Dentista"]} />}>
               <Route path="/health/products/medications" element={<ProductsPage />} />
               <Route path="/health/products/medications/new" element={<ProductsPage />} />
             </Route>
