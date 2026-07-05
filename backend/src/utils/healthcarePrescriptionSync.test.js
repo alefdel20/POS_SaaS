@@ -442,6 +442,10 @@ function createEndToEndMockClient({ patientRow, existingPatientMirrorId = 5000, 
     if (/^INSERT INTO healthcare\.prescriptions\b/i.test(normalized)) {
       return { rows: [{ id: nextId++ }] };
     }
+    if (/^SELECT id, name, unidad_de_venta, stock, category, catalog_type\s+FROM products\b/i.test(normalized)) {
+      const ids = params[1] || [];
+      return { rows: ids.map((id) => ({ id, name: "Amoxicilina", unidad_de_venta: "pieza", stock: 40, category: "Medicamento", catalog_type: "medications" })) };
+    }
     if (/^INSERT INTO audit_logs\b/i.test(normalized)) {
       return { rows: [{ id: nextId++ }] };
     }
@@ -488,7 +492,10 @@ test("clinicalService.createPrescription: syncs into healthcare.prescriptions af
   stubPrescriptionDetailPoolQuery({ id: 2001 });
 
   const created = await clinicalService.createPrescription(
-    { patient_id: 900, diagnosis: "Otitis", indications: "Limpiar oido", items: [] },
+    {
+      patient_id: 900, diagnosis: "Otitis", indications: "Limpiar oido",
+      items: [{ product_id: 501, dose: "10mg", frequency: "Cada 12h", duration: "7 dias" }]
+    },
     actor
   );
 
@@ -535,7 +542,10 @@ test("clinicalService.updatePrescription: re-syncs the mirror after the public u
   };
 
   const actor = { id: 42, business_id: 7, role: "clinico" };
-  await clinicalService.updatePrescription(300, { patient_id: 900, diagnosis: "Otitis cronica", items: [] }, actor);
+  await clinicalService.updatePrescription(300, {
+    patient_id: 900, diagnosis: "Otitis cronica",
+    items: [{ product_id: 501, dose: "10mg", frequency: "Cada 12h", duration: "7 dias" }]
+  }, actor);
 
   const calls = currentMockClient.calls;
   const updatePrescriptionsIndex = calls.findIndex((c) => /^UPDATE medical_prescriptions\b/i.test(c.sql.replace(/\s+/g, " ").trim()));

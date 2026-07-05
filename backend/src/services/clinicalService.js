@@ -182,6 +182,18 @@ function buildPrescriptionPayload(payload = {}) {
     };
   });
 
+  // Fase 5 follow-up: neither express-validator's prescriptionItemValidation
+  // (medicalPrescriptionController.js — only checks item shape when items are
+  // present) nor this function used to require at least one item, so
+  // create/update could silently persist a prescription with zero medications.
+  // "draft" is just a lifecycle status (draft/issued/cancelled), never a
+  // signal that items are still pending — no code path treats a draft
+  // differently re: item count, so there is no legitimate empty-prescription
+  // flow to preserve here.
+  if (normalizedItems.length === 0) {
+    throw new ApiError(400, "La receta debe tener al menos un medicamento");
+  }
+
   return {
     patient_id: patientId,
     consultation_id: consultationId,

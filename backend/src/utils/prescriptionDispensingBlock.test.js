@@ -119,8 +119,15 @@ test("clinicalService.updatePrescription: blocks removing a dispensed item — 4
   currentMockClient = createMockClient({ patientRow, productRows: [] });
 
   const actor = { id: 42, business_id: 7, role: "clinico" };
+  // Replacing with a different, unrelated item (not the dispensed product 55)
+  // rather than clearing to [] — an empty items array is now rejected
+  // unconditionally by buildPrescriptionPayload (Parte A), which would
+  // otherwise mask the dispensed-item-removal 409 this test exists to check.
   await assert.rejects(
-    () => clinicalService.updatePrescription(300, { patient_id: 900, diagnosis: "x", items: [] }, actor),
+    () => clinicalService.updatePrescription(300, {
+      patient_id: 900, diagnosis: "x",
+      items: [{ product_id: 66, dose: "10mg" }]
+    }, actor),
     (err) => {
       assert.equal(err.statusCode, 409);
       assert.match(err.message, /Amoxicilina/);

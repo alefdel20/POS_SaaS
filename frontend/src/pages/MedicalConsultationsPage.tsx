@@ -553,7 +553,7 @@ export function MedicalConsultationsPage() {
                   <td>{consultation.client_name}</td>
                   <td>{shortDateTime(consultation.consultation_date)}</td>
                   <td>{consultation.motivo_consulta}</td>
-                  <td>{consultation.has_prescription ? `${consultation.prescription_count || 0} item(s)` : "Sin receta"}</td>
+                  <td>{consultation.has_prescription ? `${consultation.prescription_count || 0} receta(s)` : "Sin receta"}</td>
                 </tr>
               ))}
               {!visibleConsultations.length ? (
@@ -716,7 +716,7 @@ export function MedicalConsultationsPage() {
               <p><strong>Motivo:</strong> {detail.motivo_consulta}</p>
               <p><strong>Diagnostico:</strong> {detail.diagnostico}</p>
               <p><strong>Tratamiento:</strong> {detail.tratamiento}</p>
-              <p><strong>Receta asociada:</strong> {detail.has_prescription ? `Si, ${detail.prescription_count || 0} item(s)` : "No"}</p>
+              <p><strong>Receta asociada:</strong> {detail.has_prescription ? `Si, ${detail.prescription_count || 0} receta(s)` : "No"}</p>
               {detail.appointment_id ? (
                 <p>
                   <strong>Cita de origen:</strong>{" "}
