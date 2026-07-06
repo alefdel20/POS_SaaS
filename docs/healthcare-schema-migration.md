@@ -105,6 +105,19 @@ ORDER BY hpet.business_id;
 
 ### Clients vs healthcare.pet_owners
 
+> **Nota sobre el nombre:** "pet_owners" es un nombre heredado que asume
+> dueño-de-mascota. En la práctica, la tabla es una entidad genérica de
+> "parte responsable/pagadora" de una visita clínica — se usa también para
+> el responsable de un paciente humano (ver `healthcare.clinical_encounters
+> .owner_id`, `healthcare.prescriptions.owner_id`, `healthcare.privacy_consents
+> .owner_id`), no solo para dueños de mascota. Evaluado en Backlog #13
+> (6 Jul 2026): se decidió NO renombrar (blast radius de ~9 archivos +
+> 6 FKs + 3 índices no se justifica solo por claridad de nombre, sin
+> impacto funcional). Si en el futuro se retoma, el nombre candidato
+> correcto sería algo como "responsible_parties" o "payers", no "clients"
+> — `client_id` es nullable precisamente porque no todo responsable es un
+> cliente de POS.
+
 ```sql
 -- Nunca sincronizado
 SELECT c.business_id, COUNT(*) AS never_synced_clients

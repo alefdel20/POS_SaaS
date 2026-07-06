@@ -256,6 +256,12 @@ CREATE TABLE IF NOT EXISTS healthcare.prescription_items (
   CONSTRAINT prescription_items_qty_check CHECK (prescribed_quantity > 0 AND dispensed_quantity >= 0 AND dispensed_quantity <= prescribed_quantity)
 );
 
+-- NOTA: pese al nombre, esta tabla es una entidad genérica de "parte
+-- responsable/pagadora" de una visita clínica (dueño de mascota O
+-- responsable de paciente humano) — ver client_id nullable y su uso en
+-- clinical_encounters.owner_id / prescriptions.owner_id / privacy_consents
+-- .owner_id. No renombrada por decisión de Backlog #13 (6 Jul 2026, bajo
+-- blast radius de renombrar vs. beneficio solo de claridad).
 CREATE TABLE IF NOT EXISTS healthcare.pet_owners (
   id BIGSERIAL PRIMARY KEY,
   record_uuid UUID NOT NULL DEFAULT gen_random_uuid(),
