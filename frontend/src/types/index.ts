@@ -680,6 +680,7 @@ export interface MedicalPrescriptionItem {
   notes?: string | null;
   stock_snapshot?: number | null;
   created_at: string;
+  dispensed_quantity?: number;
 }
 
 export interface MedicalPrescription {

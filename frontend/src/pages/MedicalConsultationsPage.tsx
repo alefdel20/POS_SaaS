@@ -895,15 +895,23 @@ export function MedicalConsultationsPage() {
                       <th>Duracion</th>
                       <th>Via</th>
                       <th>Estado</th>
+                      <th>Dispensado</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {prescriptionForm.items.map((item, index) => {
                       const stockState = getSnapshotStockLabel(item.stock_snapshot);
-                      // key by index alone — product_id is null for every free-text item
-                      // (Backlog: medicamento libre), so it can't disambiguate rows on its
-                      // own, and index already uniquely identifies a position in this list.
+                      // Dispensed quantity only exists on the saved prescription (it's
+                      // computed backend-side from sale_prescription_item_links), so it
+                      // has to be looked up positionally on the last-fetched `prescription`
+                      // — prescriptionForm.items is the editable copy and never carries it.
+                      // The product_id check guards against a stale match if the form was
+                      // edited (item added/removed) since the last save.
+                      const savedItem = prescription?.items[index];
+                      const dispensedQuantity = savedItem && savedItem.product_id === item.product_id
+                        ? Number(savedItem.dispensed_quantity || 0)
+                        : 0;
                       return (
                         <tr key={`prescription-item-${index}`}>
                           <td>
@@ -915,13 +923,14 @@ export function MedicalConsultationsPage() {
                           <td><input value={item.duration} onChange={(event) => updatePrescriptionItem(index, "duration", event.target.value)} /></td>
                           <td><input value={item.route_of_administration} onChange={(event) => updatePrescriptionItem(index, "route_of_administration", event.target.value)} /></td>
                           <td><span className={stockState.className}>{stockState.label}</span></td>
+                          <td>{dispensedQuantity > 0 ? <span className="success-text">{dispensedQuantity} dispensada(s)</span> : <span className="muted">Sin dispensar</span>}</td>
                           <td><button className="button ghost" onClick={() => removePrescriptionItem(index)} type="button">Quitar</button></td>
                         </tr>
                       );
                     })}
                     {!prescriptionForm.items.length ? (
                       <tr>
-                        <td className="muted" colSpan={7}>Agrega medicamentos desde el panel superior. Si no hay stock, aun asi puedes recetar y el snapshot queda guardado.</td>
+                        <td className="muted" colSpan={8}>Agrega medicamentos desde el panel superior. Si no hay stock, aun asi puedes recetar y el snapshot queda guardado.</td>
                       </tr>
                     ) : null}
                   </tbody>

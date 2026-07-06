@@ -49,6 +49,7 @@ interface CartProductItem {
   type: "product";
   product: Product;
   quantity: number;
+  prescriptionItemId?: number | null;
 }
 
 interface CartKitItem {
@@ -744,7 +745,7 @@ export function SalesPage() {
       }
       try {
         const product = await apiRequest<Product>(`/products/${item.product_id}`, { token });
-        seededCart.push({ type: "product" as const, product, quantity: 1 });
+        seededCart.push({ type: "product" as const, product, quantity: 1, prescriptionItemId: item.id });
       } catch {
         nextWarnings.push(`El producto recetado "${item.medication_name_snapshot}" ya no existe o no esta disponible.`);
       }
@@ -1038,7 +1039,12 @@ export function SalesPage() {
           items: cart.map((item) =>
             item.type === "kit"
               ? { kit_id: item.kit.id, quantity: item.quantity }
-              : { product_id: item.product.id, quantity: item.quantity, unit_price: item.product.effective_price ?? item.product.price }
+              : {
+                  product_id: item.product.id,
+                  quantity: item.quantity,
+                  unit_price: item.product.effective_price ?? item.product.price,
+                  prescription_item_id: item.prescriptionItemId ?? undefined
+                }
           )
         })
       });
