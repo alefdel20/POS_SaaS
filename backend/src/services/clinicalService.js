@@ -1268,6 +1268,11 @@ async function listConsultations(filters = {}, actor) {
     conditions.push(`mc.client_id = $${params.length}`);
   }
 
+  if (filters.appointment_id) {
+    params.push(Number(filters.appointment_id));
+    conditions.push(`mc.appointment_id = $${params.length}`);
+  }
+
   if (filters.active !== undefined && filters.active !== "") {
     params.push(normalizeBooleanFlag(filters.active));
     conditions.push(`mc.is_active = $${params.length}`);

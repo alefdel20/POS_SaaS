@@ -7,6 +7,7 @@ const listValidation = [
   query("search").optional().trim(),
   query("patient_id").optional().isInt(),
   query("client_id").optional().isInt(),
+  query("appointment_id").optional().isInt(),
   query("active").optional().isBoolean(),
   validateRequest
 ];

@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { PatientQuickCreateModal } from "../components/PatientQuickCreateModal";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalAppointment, ClinicalClientSummary, ClinicalPatientSummary, User } from "../types";
+import type { ClinicalAppointment, ClinicalClientSummary, ClinicalConsultation, ClinicalPatientSummary, User } from "../types";
 import { shortDate } from "../utils/format";
 import { getAppointmentAreaFromPath } from "../utils/navigation";
 import { hidesAesthetics, isPharmacyClinicPos } from "../utils/pos";
@@ -81,6 +81,7 @@ export function MedicalAppointmentsPage() {
   const [patientSearching, setPatientSearching] = useState(false);
   const [selectedPatientMeta, setSelectedPatientMeta] = useState<SelectedPatientMeta | null>(null);
   const [showCreatePatientModal, setShowCreatePatientModal] = useState(false);
+  const [linkedConsultationId, setLinkedConsultationId] = useState<number | null>(null);
   const [form, setForm] = useState<AppointmentFormState>({
     ...emptyForm,
     area: forcedArea || emptyForm.area,
@@ -190,6 +191,16 @@ export function MedicalAppointmentsPage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar la cita");
     });
   }, [selectedId, token, dateFilter, mode, setSearchParams]);
+
+  useEffect(() => {
+    if (!token || !detail?.id) {
+      setLinkedConsultationId(null);
+      return;
+    }
+    apiRequest<ClinicalConsultation[]>(`/medical-consultations?appointment_id=${detail.id}`, { token })
+      .then((response) => setLinkedConsultationId(response[0]?.id ?? null))
+      .catch(() => setLinkedConsultationId(null));
+  }, [detail?.id, token]);
 
   useEffect(() => {
     if (mode !== "edit" || !detail) return;
@@ -583,7 +594,16 @@ export function MedicalAppointmentsPage() {
             <p><strong>Especialidad:</strong> {detail.specialty || "-"}</p>
             <p><strong>Estado:</strong> {detail.status}</p>
             <div className="inline-actions">
-              <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver paciente</button>
+              <button
+                className="button ghost"
+                onClick={() => navigate(linkedConsultationId
+                  ? `/medical-consultations?consultation=${linkedConsultationId}`
+                  : `/medical-consultations?patient_id=${detail.patient_id}&appointment_id=${detail.id}`)}
+                type="button"
+              >
+                {linkedConsultationId ? "Ir a consulta medica" : "Crear consulta desde esta cita"}
+              </button>
+              <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver historial medico</button>
             </div>
           </div>
         ) : (

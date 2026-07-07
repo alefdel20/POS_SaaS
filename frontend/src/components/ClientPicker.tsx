@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import type { ClinicalClientSummary } from "../types";
+import { ClientQuickCreateModal } from "./ClientQuickCreateModal";
 
 interface ClientPickerProps {
   token: string | null;
@@ -22,6 +23,7 @@ export function ClientPicker({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ClinicalClientSummary[]>([]);
   const [searching, setSearching] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
     if (!token || value) {
@@ -48,6 +50,11 @@ export function ClientPicker({
     setResults([]);
     setQuery("");
     onSelect(client);
+  }
+
+  function handleCreated(client: ClinicalClientSummary) {
+    setShowCreateModal(false);
+    handleSelect(client);
   }
 
   if (value) {
@@ -95,6 +102,17 @@ export function ClientPicker({
         </div>
       ) : null}
       {!results.length && !searching && query.trim().length >= 2 ? <p className="muted">Sin resultados.</p> : null}
+      <div className="inline-actions">
+        <button className="button ghost" onClick={() => setShowCreateModal(true)} type="button">+ Crear cliente</button>
+      </div>
+      {showCreateModal ? (
+        <ClientQuickCreateModal
+          initialName={query}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={handleCreated}
+          token={token}
+        />
+      ) : null}
     </div>
   );
 }

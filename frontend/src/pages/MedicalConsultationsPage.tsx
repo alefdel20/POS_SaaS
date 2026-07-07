@@ -330,6 +330,29 @@ export function MedicalConsultationsPage() {
     });
   }, [detail?.appointment_id, token]);
 
+  // Deep link from MedicalAppointmentsPage ("Crear consulta desde esta cita")
+  // — prefills patient + origin appointment without the user re-selecting
+  // them, then clears the params so they don't re-trigger on later navigation
+  // within this page.
+  useEffect(() => {
+    const queryPatientId = searchParams.get("patient_id");
+    const queryAppointmentId = searchParams.get("appointment_id");
+    if (!queryPatientId && !queryAppointmentId) return;
+    if (searchParams.get("consultation")) return;
+
+    startCreate();
+    setForm((current) => ({
+      ...current,
+      patient_id: queryPatientId || "",
+      appointment_id: queryAppointmentId || ""
+    }));
+    setSearchParams((current) => {
+      current.delete("patient_id");
+      current.delete("appointment_id");
+      return current;
+    }, { replace: true });
+  }, [searchParams]);
+
   function resetFeedback() {
     setError("");
     setInfo("");
@@ -836,9 +859,18 @@ export function MedicalConsultationsPage() {
                 </p>
               ) : null}
               <div className="inline-actions">
-                <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver historial</button>
-                <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver paciente</button>
+                <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver bitacora clinica</button>
+                <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver historial medico</button>
                 {!humanPatientsOnly ? <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver cliente</button> : null}
+                {originAppointment ? (
+                  <button
+                    className="button ghost"
+                    onClick={() => navigate(`/medical-appointments?appointment=${originAppointment.id}&date=${originAppointment.appointment_date}`)}
+                    type="button"
+                  >
+                    Ver cita
+                  </button>
+                ) : null}
               </div>
             </div>
 
