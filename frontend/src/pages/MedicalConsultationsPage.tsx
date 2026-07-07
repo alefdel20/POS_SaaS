@@ -299,21 +299,38 @@ export function MedicalConsultationsPage() {
       setMedicationSearching(false);
       return;
     }
+    // `cancelled` guards against a stale response landing after this exact
+    // effect run has been superseded — e.g. the debounced fetch for an
+    // earlier search term is still in flight (past its 300ms timer, already
+    // a real network request) when medicationQuery changes again (new
+    // keystroke, or startCreate()/startEdit() resetting it back to ""). Only
+    // clearTimeout-ing the pending timer (the old code) does nothing once
+    // the timer has already fired and the request is genuinely in flight —
+    // this is what let a previous consultation's medication suggestions
+    // reappear on a freshly-opened "Nueva consulta" form.
+    let cancelled = false;
     setMedicationSearching(true);
     const timeout = setTimeout(() => {
       // pageSize is validated server-side against an allowlist of ["10","15"]
-      // (see productController.js listValidation) — "3" fails that check
-      // with a 422 before the search ever runs, which is exactly why this
-      // search used to silently return nothing. The UI only ever shows 3
-      // suggestions regardless (sliced below), so the smallest valid page
-      // size is enough.
+      // (productController.js listValidation) — the UI only ever shows 3
+      // suggestions regardless (sliced below), so the smallest valid size is enough.
       const params = new URLSearchParams({ catalog_scope: "medications-supplies", page: "1", pageSize: "10", search: term });
       apiRequest<{ items: Product[] }>(`/products?${params.toString()}`, { token })
-        .then((response) => setMedicationSuggestions(response.items.slice(0, 3)))
-        .catch(() => setMedicationSuggestions([]))
-        .finally(() => setMedicationSearching(false));
+        .then((response) => {
+          if (cancelled) return;
+          setMedicationSuggestions(response.items.slice(0, 3));
+        })
+        .catch(() => {
+          if (!cancelled) setMedicationSuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setMedicationSearching(false);
+        });
     }, 300);
-    return () => clearTimeout(timeout);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, [medicationQuery, token]);
 
   useEffect(() => {
@@ -360,6 +377,19 @@ export function MedicalConsultationsPage() {
   function startCreate() {
     resetFeedback();
     setMode("create");
+    // Clearing selectedId here matters beyond just tidiness: it was
+    // previously left untouched, so re-clicking the SAME row the user had
+    // open right before hitting "Nueva consulta" set selectedId to a value
+    // it already had — React bails out on a no-op state update, the
+    // [selectedId, token] effect never re-runs, and the form never hides in
+    // favor of the detail view the user just clicked. This is what made row
+    // clicks look broken (Bug 2): they weren't, selectedId just never
+    // actually changed.
+    setSelectedId(null);
+    setSearchParams((current) => {
+      current.delete("consultation");
+      return current;
+    }, { replace: true });
     setForm({ ...emptyForm, consultation_date: new Date().toISOString().slice(0, 16) });
     setPatientValue(emptyPatientValue);
     setClientValue(emptyPatientValue);
@@ -645,19 +675,19 @@ export function MedicalConsultationsPage() {
             ) : null}
             <label>
               Fecha *
-              <input type="datetime-local" value={form.consultation_date} onChange={(event) => setForm({ ...form, consultation_date: event.target.value })} />
+              <input required type="datetime-local" value={form.consultation_date} onChange={(event) => setForm({ ...form, consultation_date: event.target.value })} />
             </label>
             <label>
               Motivo de consulta *
-              <textarea value={form.motivo_consulta} onChange={(event) => setForm({ ...form, motivo_consulta: event.target.value })} />
+              <textarea required value={form.motivo_consulta} onChange={(event) => setForm({ ...form, motivo_consulta: event.target.value })} />
             </label>
             <label>
               Diagnostico *
-              <textarea value={form.diagnostico} onChange={(event) => setForm({ ...form, diagnostico: event.target.value })} />
+              <textarea required value={form.diagnostico} onChange={(event) => setForm({ ...form, diagnostico: event.target.value })} />
             </label>
             <label>
               Tratamiento *
-              <textarea value={form.tratamiento} onChange={(event) => setForm({ ...form, tratamiento: event.target.value })} />
+              <textarea required value={form.tratamiento} onChange={(event) => setForm({ ...form, tratamiento: event.target.value })} />
             </label>
             <label>
               Notas
@@ -668,6 +698,7 @@ export function MedicalConsultationsPage() {
               <label>
                 Agregar medicamento
                 <input
+                  autoComplete="off"
                   onChange={(event) => setMedicationQuery(event.target.value)}
                   placeholder="Escribe para buscar en el catalogo (min. 2 letras)"
                   value={medicationQuery}

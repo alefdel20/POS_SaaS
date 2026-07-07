@@ -137,3 +137,67 @@ export function translateErrorMessage(message: string) {
 
   return errorTranslations[message] || message;
 }
+
+// express-validator's `path` (see validateRequest.js — 422 { message, details })
+// for the clinical module (citas/pacientes/clientes/consultas/recetas). Used
+// by buildValidationErrorMessage below to name the offending field(s) in
+// Spanish instead of surfacing the generic "Validation failed" banner with no
+// indication of which field failed.
+const VALIDATION_FIELD_LABELS: Record<string, string> = {
+  patient_id: "Paciente",
+  patient_name: "Paciente",
+  client_id: "Cliente / responsable",
+  client_name: "Cliente / responsable",
+  doctor_user_id: "Doctor",
+  appointment_id: "Cita de origen",
+  appointment_date: "Fecha de la cita",
+  start_time: "Hora de inicio",
+  end_time: "Hora de fin",
+  area: "Área",
+  status: "Estado",
+  specialty: "Especialidad",
+  consultation_date: "Fecha de la consulta",
+  motivo_consulta: "Motivo de consulta",
+  diagnostico: "Diagnóstico",
+  tratamiento: "Tratamiento",
+  notas: "Notas",
+  name: "Nombre",
+  phone: "Teléfono",
+  email: "Correo",
+  species: "Especie",
+  breed: "Raza",
+  sex: "Sexo",
+  birth_date: "Fecha de nacimiento",
+  weight: "Peso",
+  allergies: "Alergias",
+  "prescription.diagnosis": "Diagnóstico de la receta",
+  "prescription.indications": "Indicaciones de la receta",
+  "prescription.status": "Estado de la receta",
+  "prescription.items": "Medicamentos de la receta"
+};
+
+function getValidationFieldLabel(path: string) {
+  if (VALIDATION_FIELD_LABELS[path]) return VALIDATION_FIELD_LABELS[path];
+  // "prescription.items[0].product_id" -> falls back to the items-level label
+  // rather than showing the raw dotted/indexed path to the user.
+  const itemMatch = path.match(/^prescription\.items(\[\d+\]|\.\d+)?/);
+  if (itemMatch) return VALIDATION_FIELD_LABELS["prescription.items"];
+  return path;
+}
+
+// Builds a specific, Spanish, field-named message from express-validator's
+// `details` array (see validateRequest.js) — the individual `msg` values
+// ("Invalid value") are generic boilerplate not worth surfacing; naming the
+// field(s) is what actually helps the user fix the form.
+export function buildValidationErrorMessage(details: Array<{ path?: string; msg?: string }>) {
+  const labels = Array.from(new Set(
+    details
+      .map((item) => item.path)
+      .filter((path): path is string => Boolean(path))
+      .map(getValidationFieldLabel)
+  ));
+
+  if (!labels.length) return "Revisa los datos del formulario, algunos campos no son válidos.";
+  if (labels.length === 1) return `El campo "${labels[0]}" es obligatorio o no es válido.`;
+  return `Revisa estos campos: ${labels.join(", ")}.`;
+}
