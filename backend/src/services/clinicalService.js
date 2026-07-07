@@ -610,13 +610,18 @@ function buildClientPayload(payload = {}) {
 function buildPatientPayload(payload = {}) {
   const name = normalizeText(payload.name);
   const weight = payload.weight === undefined || payload.weight === null || payload.weight === "" ? null : Number(payload.weight);
+  const clientId = payload.client_id === undefined || payload.client_id === null || payload.client_id === "" ? null : Number(payload.client_id);
 
   if (!name) throw new ApiError(400, "Patient name is required");
   if (weight !== null && (!Number.isFinite(weight) || weight < 0 || weight > 500)) {
     throw new ApiError(400, "Patient weight is invalid");
   }
+  if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) {
+    throw new ApiError(400, "Client is invalid");
+  }
 
   return {
+    client_id: clientId,
     phone: payload.phone ? String(payload.phone).trim() : null,
     name,
     species: normalizeNullableText(payload.species),
@@ -1019,6 +1024,8 @@ async function listPatients(filters = {}, actor) {
        p.id,
        p.business_id,
        p.client_id,
+       c.name AS client_name,
+       c.phone AS client_phone,
 ${PATIENT_MIRROR_FIELDS},
        p.species,
        p.is_active,
@@ -1028,6 +1035,9 @@ ${PATIENT_MIRROR_FIELDS},
        COUNT(DISTINCT ma.id)::int AS appointment_count
      FROM patients p
 ${PATIENT_MIRROR_JOIN}
+     LEFT JOIN clients c
+       ON c.id = p.client_id
+      AND c.business_id = p.business_id
      LEFT JOIN consultations mc
        ON mc.patient_id = p.id
       AND mc.business_id = p.business_id
@@ -1037,7 +1047,7 @@ ${PATIENT_MIRROR_JOIN}
       AND ma.business_id = p.business_id
       AND ma.is_active = TRUE
      WHERE ${conditions.join(" AND ")}
-     GROUP BY p.id,
+     GROUP BY p.id, c.name, c.phone,
 ${PATIENT_MIRROR_GROUP_BY}
      ORDER BY p.is_active DESC, name ASC`,
     params
@@ -1054,6 +1064,8 @@ async function getPatientDetail(id, actor) {
        p.id,
        p.business_id,
        p.client_id,
+       c.name AS client_name,
+       c.phone AS client_phone,
 ${PATIENT_MIRROR_FIELDS},
        p.species,
        p.is_active,
@@ -1063,6 +1075,9 @@ ${PATIENT_MIRROR_FIELDS},
        COUNT(DISTINCT ma.id)::int AS appointment_count
      FROM patients p
 ${PATIENT_MIRROR_JOIN}
+     LEFT JOIN clients c
+       ON c.id = p.client_id
+      AND c.business_id = p.business_id
      LEFT JOIN consultations mc
        ON mc.patient_id = p.id
       AND mc.business_id = p.business_id
@@ -1072,7 +1087,7 @@ ${PATIENT_MIRROR_JOIN}
       AND ma.business_id = p.business_id
       AND ma.is_active = TRUE
      WHERE p.id = $1 AND p.business_id = $2
-     GROUP BY p.id,
+     GROUP BY p.id, c.name, c.phone,
 ${PATIENT_MIRROR_GROUP_BY}`,
     [id, businessId]
   );
@@ -1125,17 +1140,22 @@ ${PATIENT_MIRROR_GROUP_BY}`,
 async function createPatient(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const data = buildPatientPayload(payload);
+
+  if (!data.client_id) throw new ApiError(400, "El responsable (client_id) es obligatorio para crear un paciente");
+  const ownedClient = await getOwnedClient(data.client_id, actor);
+  if (!ownedClient.is_active) throw new ApiError(409, "Client is inactive");
+
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
       `INSERT INTO patients (
-        business_id, phone, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, created_by, updated_by
+        business_id, client_id, phone, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, created_by, updated_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
       RETURNING *`,
-      [businessId, data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id]
+      [businessId, data.client_id, data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id]
     );
 
     await syncPatientToHealthcare(rows[0], actor, client);

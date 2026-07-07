@@ -1,11 +1,19 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
+import { PatientQuickCreateModal } from "../components/PatientQuickCreateModal";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalAppointment, ClinicalPatientSummary, User } from "../types";
+import type { ClinicalAppointment, ClinicalClientSummary, ClinicalPatientSummary, User } from "../types";
 import { shortDate } from "../utils/format";
 import { getAppointmentAreaFromPath } from "../utils/navigation";
 import { hidesAesthetics, isPharmacyClinicPos } from "../utils/pos";
+
+type SelectedPatientMeta = {
+  id: number;
+  name: string;
+  client_id: number | null;
+  client_name: string | null;
+};
 
 type AppointmentFormState = {
   patient_id: string;
@@ -48,7 +56,7 @@ function appointmentToForm(appointment: ClinicalAppointment | null): Appointment
   };
 }
 
-function buildPatientSearchLabel(patient: ClinicalPatientSummary) {
+function buildPatientSearchLabel(patient: { name: string; client_name?: string | null }) {
   return `${patient.name} - ${patient.client_name || "Sin responsable"}`;
 }
 
@@ -64,12 +72,15 @@ export function MedicalAppointmentsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const forcedArea = getAppointmentAreaFromPath(location.pathname);
-  const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
   const [appointments, setAppointments] = useState<ClinicalAppointment[]>([]);
   const [doctors, setDoctors] = useState<User[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalAppointment | null>(null);
-  const [patientSearch, setPatientSearch] = useState("");
+  const [patientQuery, setPatientQuery] = useState("");
+  const [patientResults, setPatientResults] = useState<ClinicalPatientSummary[]>([]);
+  const [patientSearching, setPatientSearching] = useState(false);
+  const [selectedPatientMeta, setSelectedPatientMeta] = useState<SelectedPatientMeta | null>(null);
+  const [showCreatePatientModal, setShowCreatePatientModal] = useState(false);
   const [form, setForm] = useState<AppointmentFormState>({
     ...emptyForm,
     area: forcedArea || emptyForm.area,
@@ -107,12 +118,6 @@ export function MedicalAppointmentsPage() {
     () => dayAppointments.map((appointment) => `${appointment.start_time.slice(0, 5)} - ${appointment.end_time.slice(0, 5)} · ${appointment.patient_name}`),
     [dayAppointments]
   );
-
-  async function loadPatients() {
-    if (!token) return;
-    const response = await apiRequest<ClinicalPatientSummary[]>("/patients?active=true", { token });
-    setPatients(response);
-  }
 
   async function loadDoctors() {
     if (!token) return;
@@ -153,9 +158,6 @@ export function MedicalAppointmentsPage() {
   }
 
   useEffect(() => {
-    loadPatients().catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar pacientes");
-    });
     loadDoctors().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar doctores");
     });
@@ -190,16 +192,39 @@ export function MedicalAppointmentsPage() {
   }, [selectedId, token, dateFilter, mode, setSearchParams]);
 
   useEffect(() => {
-    if (!form.patient_id) {
-      setPatientSearch("");
+    if (mode !== "edit" || !detail) return;
+    setSelectedPatientMeta({
+      id: detail.patient_id,
+      name: detail.patient_name,
+      client_id: detail.client_id,
+      client_name: detail.client_name
+    });
+    setPatientQuery(buildPatientSearchLabel({ name: detail.patient_name, client_name: detail.client_name }));
+    setPatientResults([]);
+  }, [mode, detail]);
+
+  useEffect(() => {
+    if (!token || selectedPatientMeta) {
+      setPatientResults([]);
       return;
     }
-    const selectedPatient = patients.find((patient) => String(patient.id) === form.patient_id);
-    if (selectedPatient) {
-      setPatientSearch(buildPatientSearchLabel(selectedPatient));
-      setForm((current) => ({ ...current, client_id: selectedPatient.client_id ? String(selectedPatient.client_id) : "" }));
+    const term = patientQuery.trim();
+    if (term.length < 2) {
+      setPatientResults([]);
+      setPatientSearching(false);
+      return;
     }
-  }, [form.patient_id, patients]);
+    setPatientSearching(true);
+    const timeout = setTimeout(() => {
+      apiRequest<ClinicalPatientSummary[]>(`/patients?search=${encodeURIComponent(term)}&active=true`, { token })
+        .then(setPatientResults)
+        .catch((loadError) => {
+          setError(loadError instanceof Error ? loadError.message : "No fue posible buscar pacientes");
+        })
+        .finally(() => setPatientSearching(false));
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [patientQuery, token, selectedPatientMeta]);
 
   function resetFeedback() {
     setError("");
@@ -217,7 +242,9 @@ export function MedicalAppointmentsPage() {
       doctor_user_id: doctorUserId,
       specialty: nextDoctor?.specialty || ""
     });
-    setPatientSearch("");
+    setPatientQuery("");
+    setPatientResults([]);
+    setSelectedPatientMeta(null);
   }
 
   function startEdit() {
@@ -226,14 +253,35 @@ export function MedicalAppointmentsPage() {
     setForm(appointmentToForm(detail));
   }
 
-  function handlePatientSearchChange(value: string) {
-    const matchedPatient = patients.find((patient) => buildPatientSearchLabel(patient).toLowerCase() === value.trim().toLowerCase());
-    setPatientSearch(value);
+  function handlePatientQueryChange(value: string) {
+    setPatientQuery(value);
+    setSelectedPatientMeta(null);
+    setForm((current) => ({ ...current, patient_id: "", client_id: "" }));
+  }
+
+  function handleSelectPatient(patient: ClinicalPatientSummary) {
+    setSelectedPatientMeta({
+      id: patient.id,
+      name: patient.name,
+      client_id: patient.client_id ?? null,
+      client_name: patient.client_name ?? null
+    });
+    setPatientQuery(buildPatientSearchLabel(patient));
     setForm((current) => ({
       ...current,
-      patient_id: matchedPatient ? String(matchedPatient.id) : "",
-      client_id: matchedPatient?.client_id ? String(matchedPatient.client_id) : ""
+      patient_id: String(patient.id),
+      client_id: patient.client_id ? String(patient.client_id) : ""
     }));
+    setPatientResults([]);
+  }
+
+  function handlePatientCreated(patient: ClinicalPatientSummary, client: ClinicalClientSummary) {
+    setSelectedPatientMeta({ id: patient.id, name: patient.name, client_id: client.id, client_name: client.name });
+    setPatientQuery(buildPatientSearchLabel({ name: patient.name, client_name: client.name }));
+    setForm((current) => ({ ...current, patient_id: String(patient.id), client_id: String(client.id) }));
+    setPatientResults([]);
+    setShowCreatePatientModal(false);
+    setInfo("Paciente creado y seleccionado en la cita");
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -421,21 +469,48 @@ export function MedicalAppointmentsPage() {
           {detail ? <button className="button ghost" onClick={startEdit} type="button">Editar</button> : null}
         </div>
         <form className="grid-form" onSubmit={handleSubmit}>
-          <label>
-            Paciente
-            <input
-              list="appointment-patient-options"
-              placeholder="Busca por paciente"
-              value={patientSearch}
-              onChange={(event) => handlePatientSearchChange(event.target.value)}
-            />
-          </label>
-          <datalist id="appointment-patient-options">
-            {patients.map((patient) => <option key={patient.id} value={buildPatientSearchLabel(patient)} />)}
-          </datalist>
+          <div className="form-span-2">
+            <label>
+              Paciente
+              <input
+                placeholder="Busca por nombre (min. 2 letras)"
+                value={patientQuery}
+                onChange={(event) => handlePatientQueryChange(event.target.value)}
+              />
+            </label>
+            {patientSearching ? <p className="muted">Buscando...</p> : null}
+            {!selectedPatientMeta && patientResults.length ? (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Paciente</th>
+                      <th>Responsable</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {patientResults.map((patient) => (
+                      <tr key={patient.id}>
+                        <td>{patient.name}</td>
+                        <td>{patient.client_name || "Sin responsable"}</td>
+                        <td><button className="button ghost" onClick={() => handleSelectPatient(patient)} type="button">Seleccionar</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {!selectedPatientMeta && !patientSearching && patientQuery.trim().length >= 2 && !patientResults.length ? (
+              <p className="muted">Sin resultados para &quot;{patientQuery.trim()}&quot;.</p>
+            ) : null}
+            <div className="inline-actions">
+              <button className="button ghost" onClick={() => setShowCreatePatientModal(true)} type="button">+ Crear paciente</button>
+            </div>
+          </div>
           <label>
             Responsable
-            <input disabled value={form.patient_id ? (patients.find((patient) => String(patient.id) === form.patient_id)?.client_name || "Sin responsable") : ""} />
+            <input disabled value={selectedPatientMeta?.client_name || (form.patient_id ? "Sin responsable" : "")} />
           </label>
           <label>
             Fecha
@@ -575,6 +650,16 @@ export function MedicalAppointmentsPage() {
             </table>
           </div>
         </div>
+      ) : null}
+
+      {showCreatePatientModal ? (
+        <PatientQuickCreateModal
+          initialName={patientQuery}
+          onClose={() => setShowCreatePatientModal(false)}
+          onCreated={handlePatientCreated}
+          posType={user?.pos_type}
+          token={token}
+        />
       ) : null}
     </section>
   );

@@ -69,7 +69,13 @@
       "Bash(find . -maxdepth 2 -iname \"docker-compose*\")",
       "Bash(find . -maxdepth 2 -iname \".env*\")",
       "Bash(docker --version)",
-      "Bash(xargs -I{} basename {})"
+      "Bash(xargs -I{} basename {})",
+      "Bash(ls backend *)",
+      "Bash(ls server *)",
+      "Bash(ls frontend *)",
+      "Bash(ls client *)",
+      "Bash(ls .eslintrc* eslint.config*)",
+      "Bash(ls node_modules/.bin/eslint)"
     ]
   }
 }

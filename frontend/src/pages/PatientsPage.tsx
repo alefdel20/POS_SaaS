@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
+import { ClientPicker } from "../components/ClientPicker";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
+import type { ClinicalClientSummary, ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
 import { PREVENTIVE_EVENT_STATUSES, PREVENTIVE_EVENT_TYPES } from "../utils/domainEnums";
 import { getClinicalPatientLabel, showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
 import { shortDate, shortDateTime } from "../utils/format";
@@ -80,6 +81,7 @@ export function PatientsPage() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState<PatientFormState>(emptyForm);
+  const [selectedClient, setSelectedClient] = useState<ClinicalClientSummary | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [preventiveForm, setPreventiveForm] = useState<PreventiveFormState>(emptyPreventiveForm);
   const [saving, setSaving] = useState(false);
@@ -160,17 +162,23 @@ export function PatientsPage() {
     resetFeedback();
     setMode("create");
     setForm(emptyForm);
+    setSelectedClient(null);
   }
 
   function startEdit() {
     resetFeedback();
     setMode("edit");
     setForm(detailToForm(detail));
+    setSelectedClient(null);
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
+    if (mode !== "edit" && !selectedClient) {
+      setError("Selecciona el responsable del paciente");
+      return;
+    }
 
     try {
       setSaving(true);
@@ -182,7 +190,8 @@ export function PatientsPage() {
         weight: form.weight ? Number(form.weight) : null,
         phone: form.phone.trim() || null,
         allergies: form.allergies,
-        is_active: form.is_active
+        is_active: form.is_active,
+        ...(mode !== "edit" ? { client_id: selectedClient!.id } : {})
       };
       const method = mode === "edit" && selectedId ? "PUT" : "POST";
       const path = mode === "edit" && selectedId ? `/patients/${selectedId}` : "/patients";
@@ -197,6 +206,7 @@ export function PatientsPage() {
         await loadDetail(selectedId);
       } else {
         setForm(emptyForm);
+        setSelectedClient(null);
       }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el paciente");
@@ -325,6 +335,14 @@ export function PatientsPage() {
             Teléfono
             <input type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
           </label>
+          {mode !== "edit" ? (
+            <ClientPicker label="Responsable *" onClear={() => setSelectedClient(null)} onSelect={setSelectedClient} token={token} value={selectedClient} />
+          ) : (
+            <label>
+              Responsable
+              <input disabled value={detail?.client_name || "Sin responsable"} />
+            </label>
+          )}
           {showSpecies ? (
             <>
               <label>
