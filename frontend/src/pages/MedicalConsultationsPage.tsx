@@ -569,33 +569,50 @@ export function MedicalConsultationsPage() {
     }
   }
 
+  // Shared by the plain "Descargar PDF" button and "Compartir" below — same
+  // file, same content, triggered as a real browser download either way.
+  async function downloadPrescriptionPdf(prescriptionId: number) {
+    const blob = await apiDownload(`/medical-prescriptions/${prescriptionId}/export/pdf`, { token: token! });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `receta-medica-${prescriptionId}.pdf`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function handleDownloadPrescriptionPdf() {
     if (!token || !prescription) return;
     try {
       resetFeedback();
-      const blob = await apiDownload(`/medical-prescriptions/${prescription.id}/export/pdf`, { token });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `receta-medica-${prescription.id}.pdf`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      await downloadPrescriptionPdf(prescription.id);
       setInfo("PDF de receta descargado");
     } catch (downloadError) {
       setError(downloadError instanceof Error ? downloadError.message : "No fue posible descargar la receta");
     }
   }
 
-  function handleSharePrescription(channel: "whatsapp" | "email") {
-    if (!prescription || !detail) return;
-    const message = `Receta medica de ${detail.patient_name}. Consulta ${shortDateTime(detail.consultation_date)}.`;
-    const currentUrl = `${window.location.origin}/medical-consultations?consultation=${detail.id}`;
-    if (channel === "whatsapp") {
-      window.open(`https://wa.me/?text=${encodeURIComponent(`${message} ${currentUrl}`)}`, "_blank", "noopener,noreferrer");
-      return;
+  // "Compartir" no manda ningún link a la app — el dueño de la mascota no
+  // tiene cuenta, así que un link que exige iniciar sesión no sirve de nada.
+  // En su lugar: descarga el PDF (misma función que "Descargar PDF") y abre
+  // WhatsApp/correo con un mensaje corto pidiendo adjuntarlo manualmente
+  // desde las descargas. Sin Web Share API ni envío de adjuntos por backend
+  // — es intencional que el usuario lo adjunte a mano.
+  async function handleSharePrescription(channel: "whatsapp" | "email") {
+    if (!token || !prescription || !detail) return;
+    try {
+      resetFeedback();
+      await downloadPrescriptionPdf(prescription.id);
+      const message = `Aquí tienes la receta de ${detail.patient_name}. Revisa tus descargas y adjúntala.`;
+      if (channel === "whatsapp") {
+        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+      } else {
+        window.location.href = `mailto:?subject=${encodeURIComponent(`Receta medica - ${detail.patient_name}`)}&body=${encodeURIComponent(message)}`;
+      }
+      setInfo("PDF descargado. Adjúntalo manualmente al abrir WhatsApp o el correo.");
+    } catch (shareError) {
+      setError(shareError instanceof Error ? shareError.message : "No fue posible descargar la receta");
     }
-
-    window.location.href = `mailto:?subject=${encodeURIComponent(`Receta medica - ${detail.patient_name}`)}&body=${encodeURIComponent(`${message}\n\n${currentUrl}`)}`;
   }
 
   return (
