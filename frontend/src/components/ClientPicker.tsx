@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
 import type { ClinicalClientSummary } from "../types";
-import { ClientQuickCreateModal } from "./ClientQuickCreateModal";
 
 interface ClientPickerProps {
   token: string | null;
@@ -18,12 +17,16 @@ export function ClientPicker({
   onSelect,
   onClear,
   label = "Responsable",
-  placeholder = "Busca por nombre, telefono o correo (min. 2 letras)"
+  placeholder = "Busca por nombre, telefono o correo (min. 2 letras) — opcional"
 }: ClientPickerProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ClinicalClientSummary[]>([]);
   const [searching, setSearching] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showNewClientFields, setShowNewClientFields] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientPhone, setNewClientPhone] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
 
   useEffect(() => {
     if (!token || value) {
@@ -49,12 +52,38 @@ export function ClientPicker({
   function handleSelect(client: ClinicalClientSummary) {
     setResults([]);
     setQuery("");
+    setShowNewClientFields(false);
+    setNewClientName("");
+    setNewClientPhone("");
     onSelect(client);
   }
 
-  function handleCreated(client: ClinicalClientSummary) {
-    setShowCreateModal(false);
-    handleSelect(client);
+  function toggleNewClientFields() {
+    setCreateError("");
+    setNewClientName((current) => current || query.trim());
+    setShowNewClientFields((current) => !current);
+  }
+
+  async function handleCreateClient() {
+    if (!token) return;
+    if (!newClientName.trim()) {
+      setCreateError("El nombre del responsable es obligatorio");
+      return;
+    }
+    try {
+      setCreating(true);
+      setCreateError("");
+      const created = await apiRequest<ClinicalClientSummary>("/clients", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ name: newClientName.trim(), phone: newClientPhone.trim() })
+      });
+      handleSelect(created);
+    } catch (submitError) {
+      setCreateError(submitError instanceof Error ? submitError.message : "No fue posible crear el responsable");
+    } finally {
+      setCreating(false);
+    }
   }
 
   if (value) {
@@ -101,17 +130,31 @@ export function ClientPicker({
           </table>
         </div>
       ) : null}
-      {!results.length && !searching && query.trim().length >= 2 ? <p className="muted">Sin resultados.</p> : null}
+      {!results.length && !searching && query.trim().length >= 2 ? (
+        <p className="muted">Sin resultados. Puedes dejarlo sin responsable o crear uno nuevo.</p>
+      ) : null}
       <div className="inline-actions">
-        <button className="button ghost" onClick={() => setShowCreateModal(true)} type="button">+ Crear cliente</button>
+        <button className="button ghost" onClick={toggleNewClientFields} type="button">
+          {showNewClientFields ? "Cancelar nuevo responsable" : "+ Nuevo responsable"}
+        </button>
       </div>
-      {showCreateModal ? (
-        <ClientQuickCreateModal
-          initialName={query}
-          onClose={() => setShowCreateModal(false)}
-          onCreated={handleCreated}
-          token={token}
-        />
+      {showNewClientFields ? (
+        <div className="form-section-grid">
+          {createError ? <p className="error-text form-span-2">{createError}</p> : null}
+          <label>
+            Nombre
+            <input value={newClientName} onChange={(event) => setNewClientName(event.target.value)} />
+          </label>
+          <label>
+            Telefono
+            <input type="tel" value={newClientPhone} onChange={(event) => setNewClientPhone(event.target.value)} />
+          </label>
+          <div className="inline-actions">
+            <button className="button" disabled={creating} onClick={handleCreateClient} type="button">
+              {creating ? "Guardando..." : "Guardar responsable"}
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );

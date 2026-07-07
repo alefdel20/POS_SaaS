@@ -9,7 +9,7 @@ interface PatientQuickCreateModalProps {
   posType?: string | null;
   initialName?: string;
   onClose: () => void;
-  onCreated: (patient: ClinicalPatientSummary, client: ClinicalClientSummary) => void;
+  onCreated: (patient: ClinicalPatientSummary, client: ClinicalClientSummary | null) => void;
 }
 
 type FormState = {
@@ -48,10 +48,6 @@ export function PatientQuickCreateModal({ token, posType, initialName = "", onCl
       setError("El nombre del paciente es obligatorio");
       return;
     }
-    if (!client) {
-      setError("Selecciona el responsable del paciente");
-      return;
-    }
 
     try {
       setSaving(true);
@@ -65,7 +61,7 @@ export function PatientQuickCreateModal({ token, posType, initialName = "", onCl
           breed: showSpecies ? form.breed : "",
           weight: form.weight ? Number(form.weight) : null,
           phone: form.phone.trim() || null,
-          client_id: client.id
+          ...(client ? { client_id: client.id } : {})
         })
       });
       onCreated(created, client);
@@ -124,7 +120,7 @@ export function PatientQuickCreateModal({ token, posType, initialName = "", onCl
             Peso
             <input min="0" step="0.001" type="number" value={form.weight} onChange={(event) => setForm({ ...form, weight: event.target.value })} />
           </label>
-          <ClientPicker label="Responsable *" onClear={() => setClient(null)} onSelect={setClient} token={token} value={client} />
+          <ClientPicker label="Responsable" onClear={() => setClient(null)} onSelect={setClient} token={token} value={client} />
           <label className="form-span-2">
             Notas
             <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />

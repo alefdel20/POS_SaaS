@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiDownload, apiRequest } from "../api/client";
+import { AssignPatientResponsible } from "../components/AssignPatientResponsible";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalAppointment, ClinicalConsultation, ClinicalPatientSummary, MedicalPrescription, Product } from "../types";
 import { PRESCRIPTION_STATUSES } from "../utils/domainEnums";
@@ -839,7 +840,12 @@ export function MedicalConsultationsPage() {
           <>
             <div className="info-card">
               <p><strong>Paciente:</strong> {detail.patient_name}</p>
-              {!humanPatientsOnly ? <p><strong>Cliente:</strong> {detail.client_name}</p> : null}
+              {!humanPatientsOnly ? (
+                <p>
+                  <strong>Cliente:</strong>{" "}
+                  {detail.client_name || <AssignPatientResponsible onAssigned={() => loadDetail(detail.id)} patientId={detail.patient_id} token={token} />}
+                </p>
+              ) : null}
               <p><strong>Telefono:</strong> {detailPatient?.client_phone || "-"}</p>
               <p><strong>Correo:</strong> {detailPatient?.client_email || "-"}</p>
               {showSpecies ? <p><strong>Especie / raza:</strong> {detail.species || detailPatient?.species || "-"} / {detail.breed || detailPatient?.breed || "-"}</p> : null}

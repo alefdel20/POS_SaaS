@@ -1141,9 +1141,14 @@ async function createPatient(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const data = buildPatientPayload(payload);
 
-  if (!data.client_id) throw new ApiError(400, "El responsable (client_id) es obligatorio para crear un paciente");
-  const ownedClient = await getOwnedClient(data.client_id, actor);
-  if (!ownedClient.is_active) throw new ApiError(409, "Client is inactive");
+  // client_id is optional at creation (a rescued animal pending adoption has
+  // no responsible party yet, see migration 25) — it's only enforced at
+  // billing time, in saleService.createSale. When it IS provided here, it
+  // still has to resolve to a real, active client in this tenant.
+  if (data.client_id) {
+    const ownedClient = await getOwnedClient(data.client_id, actor);
+    if (!ownedClient.is_active) throw new ApiError(409, "Client is inactive");
+  }
 
   const client = await pool.connect();
 
@@ -1201,27 +1206,36 @@ async function updatePatient(id, payload, actor) {
     throw new ApiError(400, "No se puede cambiar la especie de un paciente despues de creado (humano <-> mascota). Si te equivocaste al registrar el paciente, crea uno nuevo con la especie correcta.");
   }
 
+  // client_id can be assigned (or changed) here — this is the "asignar
+  // responsable despues" path for a patient created without one. Same
+  // existence/active checks as createPatient.
+  if (data.client_id) {
+    const ownedClient = await getOwnedClient(data.client_id, actor);
+    if (!ownedClient.is_active) throw new ApiError(409, "Client is inactive");
+  }
+
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
       `UPDATE patients
-       SET phone = $1,
-           name = $2,
-           species = $3,
-           breed = $4,
-           sex = $5,
-           birth_date = $6,
-           weight = $7,
-           allergies = $8,
-           notes = $9,
-           is_active = $10,
-           updated_by = $11,
+       SET client_id = $1,
+           phone = $2,
+           name = $3,
+           species = $4,
+           breed = $5,
+           sex = $6,
+           birth_date = $7,
+           weight = $8,
+           allergies = $9,
+           notes = $10,
+           is_active = $11,
+           updated_by = $12,
            updated_at = NOW()
-       WHERE id = $12 AND business_id = $13
+       WHERE id = $13 AND business_id = $14
        RETURNING *`,
-      [data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id, id, businessId]
+      [data.client_id, data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id, id, businessId]
     );
 
     await syncPatientToHealthcareOnUpdate(rows[0], actor, client);

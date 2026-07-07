@@ -11,7 +11,10 @@ const listValidation = [
 
 const createValidation = [
   body("name").trim().notEmpty(),
-  body("client_id").notEmpty().withMessage("client_id is required").bail().isInt({ min: 1 }),
+  // client_id is optional — a rescued animal pending adoption has no
+  // responsible party yet (migration 25 dropped the NOT NULL). It becomes
+  // mandatory only at billing time (see saleService.createSale), not here.
+  body("client_id").optional({ values: "falsy" }).isInt({ min: 1 }),
   body("phone").optional({ values: "falsy" }).trim(),
   body("species").optional().trim(),
   body("breed").optional().trim(),
@@ -25,7 +28,12 @@ const createValidation = [
 
 const updateValidation = [
   param("id").isInt(),
-  body("name").trim().notEmpty(),
+  // name stays optional here (unlike createValidation) so a partial payload
+  // like { client_id } — the "asignar responsable despues" quick action —
+  // can go straight through; clinicalService.updatePatient always merges
+  // against the current row server-side, so a partial body is safe.
+  body("name").optional().trim().notEmpty(),
+  body("client_id").optional({ values: "falsy" }).isInt({ min: 1 }),
   body("phone").optional({ values: "falsy" }).trim(),
   body("species").optional().trim(),
   body("breed").optional().trim(),

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
+import { AssignPatientResponsible } from "../components/AssignPatientResponsible";
 import { ClientPicker } from "../components/ClientPicker";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalClientSummary, ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
@@ -175,10 +176,6 @@ export function PatientsPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
-    if (mode !== "edit" && !selectedClient) {
-      setError("Selecciona el responsable del paciente");
-      return;
-    }
 
     try {
       setSaving(true);
@@ -191,7 +188,7 @@ export function PatientsPage() {
         phone: form.phone.trim() || null,
         allergies: form.allergies,
         is_active: form.is_active,
-        ...(mode !== "edit" ? { client_id: selectedClient!.id } : {})
+        ...(mode !== "edit" && selectedClient ? { client_id: selectedClient.id } : {})
       };
       const method = mode === "edit" && selectedId ? "PUT" : "POST";
       const path = mode === "edit" && selectedId ? `/patients/${selectedId}` : "/patients";
@@ -336,7 +333,7 @@ export function PatientsPage() {
             <input type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
           </label>
           {mode !== "edit" ? (
-            <ClientPicker label="Responsable *" onClear={() => setSelectedClient(null)} onSelect={setSelectedClient} token={token} value={selectedClient} />
+            <ClientPicker label="Responsable" onClear={() => setSelectedClient(null)} onSelect={setSelectedClient} token={token} value={selectedClient} />
           ) : (
             <label>
               Responsable
@@ -402,6 +399,10 @@ export function PatientsPage() {
           <>
             <div className="info-card">
               <p><strong>Paciente:</strong> {detail.name}</p>
+              <p>
+                <strong>Responsable:</strong>{" "}
+                {detail.client_name || <AssignPatientResponsible onAssigned={() => loadDetail(detail.id)} patientId={detail.id} token={token} />}
+              </p>
               <p><strong>Teléfono:</strong> {detail.phone || "-"}</p>
               <p><strong>Estado:</strong> {detail.is_active ? "Activo" : "Inactivo"}</p>
               <p><strong>Sexo:</strong> {detail.sex || "-"}</p>

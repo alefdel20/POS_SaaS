@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
+import { AssignPatientResponsible } from "../components/AssignPatientResponsible";
 import { PatientQuickCreateModal } from "../components/PatientQuickCreateModal";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalAppointment, ClinicalClientSummary, ClinicalConsultation, ClinicalPatientSummary, User } from "../types";
@@ -286,10 +287,10 @@ export function MedicalAppointmentsPage() {
     setPatientResults([]);
   }
 
-  function handlePatientCreated(patient: ClinicalPatientSummary, client: ClinicalClientSummary) {
-    setSelectedPatientMeta({ id: patient.id, name: patient.name, client_id: client.id, client_name: client.name });
-    setPatientQuery(buildPatientSearchLabel({ name: patient.name, client_name: client.name }));
-    setForm((current) => ({ ...current, patient_id: String(patient.id), client_id: String(client.id) }));
+  function handlePatientCreated(patient: ClinicalPatientSummary, client: ClinicalClientSummary | null) {
+    setSelectedPatientMeta({ id: patient.id, name: patient.name, client_id: client?.id ?? null, client_name: client?.name ?? null });
+    setPatientQuery(buildPatientSearchLabel({ name: patient.name, client_name: client?.name ?? null }));
+    setForm((current) => ({ ...current, patient_id: String(patient.id), client_id: client ? String(client.id) : "" }));
     setPatientResults([]);
     setShowCreatePatientModal(false);
     setInfo("Paciente creado y seleccionado en la cita");
@@ -586,7 +587,10 @@ export function MedicalAppointmentsPage() {
         {detail ? (
           <div className="info-card">
             <p><strong>Paciente:</strong> {detail.patient_name}</p>
-            <p><strong>Responsable:</strong> {detail.client_name || "Sin responsable"}</p>
+            <p>
+              <strong>Responsable:</strong>{" "}
+              {detail.client_name || <AssignPatientResponsible onAssigned={() => loadDetail(detail.id)} patientId={detail.patient_id} token={token} />}
+            </p>
             <p><strong>Fecha:</strong> {shortDate(detail.appointment_date)}</p>
             <p><strong>Horario:</strong> {detail.start_time.slice(0, 5)} - {detail.end_time.slice(0, 5)}</p>
             <p><strong>Area:</strong> {detail.area}</p>

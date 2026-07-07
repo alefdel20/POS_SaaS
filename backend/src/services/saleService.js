@@ -483,6 +483,19 @@ async function createSale(payload, user, branchId = null) {
       );
       if (!prescriptionRows[0]) throw new ApiError(404, "Prescription not found");
       prescriptionSnapshot = prescriptionRows[0];
+
+      // A sale generated from a prescription bills/collects money against the
+      // patient's responsible party — patients.client_id is optional at
+      // creation (a rescued animal pending adoption has no owner yet, see
+      // migration 25), but it must be resolved by the time money changes
+      // hands here, or the sale/receipt has no one to bill.
+      const { rows: billingPatientRows } = await client.query(
+        "SELECT client_id FROM patients WHERE id = $1 AND business_id = $2",
+        [prescriptionSnapshot.patient_id, businessId]
+      );
+      if (!billingPatientRows[0]?.client_id) {
+        throw new ApiError(400, "Este paciente no tiene responsable asignado. Asignalo antes de generar una consulta facturable o venta.");
+      }
     }
     const regularItems = payload.items.filter((item) => item.product_id && !item.kit_id);
     const kitItems = payload.items.filter((item) => item.kit_id && !item.product_id);
