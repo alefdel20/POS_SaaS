@@ -230,6 +230,10 @@ export function MedicalAppointmentsPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
+    if (!patientValue.id && !patientValue.confirmedNew) {
+      setError("Selecciona un paciente existente o confirma la creación de uno nuevo con “Crear como paciente nuevo”.");
+      return;
+    }
 
     try {
       setSaving(true);
@@ -411,7 +415,7 @@ export function MedicalAppointmentsPage() {
           {detail ? <button className="button ghost" onClick={startEdit} type="button">Editar</button> : null}
         </div>
         <form className="grid-form" onSubmit={handleSubmit}>
-          <NameAutocomplete activeOnly kind="patient" label="Paciente" onChange={setPatientValue} required token={token} value={patientValue} />
+          <NameAutocomplete kind="patient" label="Paciente" onChange={setPatientValue} required token={token} value={patientValue} />
           <label>
             Responsable
             <input disabled value={patientValue.meta?.client_name || (patientValue.id || patientValue.name.trim() ? "Sin responsable" : "")} />

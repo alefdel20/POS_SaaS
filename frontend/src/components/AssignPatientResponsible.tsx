@@ -24,8 +24,8 @@ export function AssignPatientResponsible({ token, patientId, onAssigned }: Assig
   async function handleAssign() {
     if (!token) return;
     const name = value.name.trim();
-    if (!value.id && !name) {
-      setError("Escribe o selecciona un responsable");
+    if (!value.id && !(value.confirmedNew && name)) {
+      setError("Selecciona un responsable existente o confirma la creación de uno nuevo con “Crear como cliente nuevo”.");
       return;
     }
     try {
@@ -60,7 +60,7 @@ export function AssignPatientResponsible({ token, patientId, onAssigned }: Assig
       {error ? <p className="error-text">{error}</p> : null}
       <NameAutocomplete kind="client" label="Responsable" onChange={setValue} token={token} value={value} />
       <div className="inline-actions">
-        <button className="button" disabled={saving || (!value.id && !value.name.trim())} onClick={handleAssign} type="button">
+        <button className="button" disabled={saving || (!value.id && !(value.confirmedNew && value.name.trim()))} onClick={handleAssign} type="button">
           {saving ? "Asignando..." : "Asignar"}
         </button>
         <button className="button ghost" onClick={() => { setExpanded(false); setValue(emptyValue); }} type="button">Cancelar</button>

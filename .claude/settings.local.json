@@ -75,7 +75,9 @@
       "Bash(ls frontend *)",
       "Bash(ls client *)",
       "Bash(ls .eslintrc* eslint.config*)",
-      "Bash(ls node_modules/.bin/eslint)"
+      "Bash(ls node_modules/.bin/eslint)",
+      "Bash(curl -s -m 8 -o /dev/null -w \"HTTP_STATUS:%{http_code}\\\\n\" http://31.97.214.24:3002/)",
+      "Bash(curl -s -m 8 http://31.97.214.24:3002/health)"
     ]
   }
 }

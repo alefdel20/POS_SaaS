@@ -115,6 +115,11 @@ function consultationToPatientValue(consultation: ClinicalConsultation | null): 
   };
 }
 
+function consultationToClientValue(consultation: ClinicalConsultation | null): NameAutocompleteValue {
+  if (!consultation || !consultation.client_id) return emptyPatientValue;
+  return { id: consultation.client_id, name: consultation.client_name || "" };
+}
+
 function prescriptionToForm(prescription: MedicalPrescription | null): PrescriptionFormState {
   if (!prescription) return emptyPrescriptionForm;
   return {
@@ -159,6 +164,7 @@ export function MedicalConsultationsPage() {
   const [detail, setDetail] = useState<ClinicalConsultation | null>(null);
   const [prescription, setPrescription] = useState<MedicalPrescription | null>(null);
   const [patientValue, setPatientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
+  const [clientValue, setClientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
   const [form, setForm] = useState<ConsultationFormState>(emptyForm);
   const [prescriptionForm, setPrescriptionForm] = useState<PrescriptionFormState>(emptyPrescriptionForm);
   const [mode, setMode] = useState<"create" | "edit">("create");
@@ -275,6 +281,16 @@ export function MedicalConsultationsPage() {
     });
   }, [patientValue.id, token]);
 
+  // Prefills "Cliente" from the selected patient's own responsable, but only
+  // as a starting point — it stays a fully independent, editable/
+  // overridable NameAutocomplete (Bug 1). Only fires on an actual patient
+  // pick (id change), never clobbers a value the user is mid-typing.
+  useEffect(() => {
+    if (patientValue.id && patientValue.meta?.client_id && patientValue.meta?.client_name) {
+      setClientValue({ id: patientValue.meta.client_id, name: patientValue.meta.client_name });
+    }
+  }, [patientValue.id]);
+
   useEffect(() => {
     if (!token) return;
     const term = medicationQuery.trim();
@@ -285,7 +301,13 @@ export function MedicalConsultationsPage() {
     }
     setMedicationSearching(true);
     const timeout = setTimeout(() => {
-      const params = new URLSearchParams({ catalog_scope: "medications-supplies", page: "1", pageSize: "3", search: term });
+      // pageSize is validated server-side against an allowlist of ["10","15"]
+      // (see productController.js listValidation) — "3" fails that check
+      // with a 422 before the search ever runs, which is exactly why this
+      // search used to silently return nothing. The UI only ever shows 3
+      // suggestions regardless (sliced below), so the smallest valid page
+      // size is enough.
+      const params = new URLSearchParams({ catalog_scope: "medications-supplies", page: "1", pageSize: "10", search: term });
       apiRequest<{ items: Product[] }>(`/products?${params.toString()}`, { token })
         .then((response) => setMedicationSuggestions(response.items.slice(0, 3)))
         .catch(() => setMedicationSuggestions([]))
@@ -340,6 +362,7 @@ export function MedicalConsultationsPage() {
     setMode("create");
     setForm({ ...emptyForm, consultation_date: new Date().toISOString().slice(0, 16) });
     setPatientValue(emptyPatientValue);
+    setClientValue(emptyPatientValue);
     setPrescriptionForm(emptyPrescriptionForm);
     setFreeMedicationMode(false);
     setFreeMedicationForm(emptyFreeMedicationForm);
@@ -352,6 +375,7 @@ export function MedicalConsultationsPage() {
     setMode("edit");
     setForm(consultationToForm(detail));
     setPatientValue(consultationToPatientValue(detail));
+    setClientValue(consultationToClientValue(detail));
     setPrescriptionForm(prescriptionToForm(prescription));
     setFreeMedicationMode(false);
     setFreeMedicationForm(emptyFreeMedicationForm);
@@ -437,6 +461,10 @@ export function MedicalConsultationsPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!token) return;
+    if (!patientValue.id && !patientValue.confirmedNew) {
+      setError("Selecciona un paciente existente o confirma la creación de uno nuevo con “Crear como paciente nuevo”.");
+      return;
+    }
 
     try {
       setSaving(true);
@@ -446,7 +474,16 @@ export function MedicalConsultationsPage() {
       const payload: Record<string, unknown> = {
         ...form,
         ...(patientValue.id ? { patient_id: patientValue.id } : { patient_name: patientValue.name.trim() }),
-        client_id: patientValue.meta?.client_id ?? undefined,
+        // client is independent and optional here (Bug 1) — createConsultation
+        // has no automatic patient->client fallback the way appointments do,
+        // so this has to be resolved explicitly. Unconfirmed free text is
+        // dropped rather than sent, same "don't silently create" rule as the
+        // patient field.
+        ...(clientValue.id
+          ? { client_id: clientValue.id }
+          : clientValue.confirmedNew && clientValue.name.trim()
+            ? { client_name: clientValue.name.trim() }
+            : {}),
         appointment_id: form.appointment_id ? Number(form.appointment_id) : null
       };
       if (prescriptionForm.items.length > 0) {
@@ -588,12 +625,9 @@ export function MedicalConsultationsPage() {
           </div>
 
           <form className="grid-form" onSubmit={handleSubmit}>
-            <NameAutocomplete activeOnly kind="patient" label={humanPatientsOnly ? "Paciente" : "Paciente / mascota"} onChange={setPatientValue} required token={token} value={patientValue} />
+            <NameAutocomplete kind="patient" label={humanPatientsOnly ? "Paciente" : "Paciente / mascota"} onChange={setPatientValue} required token={token} value={patientValue} />
             {!humanPatientsOnly ? (
-              <label>
-                Cliente
-                <input disabled value={patientValue.meta?.client_name || (patientValue.id || patientValue.name.trim() ? "Sin responsable" : "")} />
-              </label>
+              <NameAutocomplete kind="client" label="Cliente" onChange={setClientValue} token={token} value={clientValue} />
             ) : null}
             {patientValue.id ? (
               <label>

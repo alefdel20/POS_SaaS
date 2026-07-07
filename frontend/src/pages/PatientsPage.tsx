@@ -190,7 +190,10 @@ export function PatientsPage() {
         allergies: form.allergies,
         is_active: form.is_active,
         ...(mode !== "edit" && clientValue.id ? { client_id: clientValue.id } : {}),
-        ...(mode !== "edit" && !clientValue.id && clientName ? { client_name: clientName } : {})
+        // Unconfirmed free text is dropped, not sent — the user must click
+        // "Crear como cliente nuevo" first (see NameAutocomplete), so a
+        // stray unmatched search doesn't silently create a duplicate client.
+        ...(mode !== "edit" && !clientValue.id && clientValue.confirmedNew && clientName ? { client_name: clientName } : {})
       };
       const method = mode === "edit" && selectedId ? "PUT" : "POST";
       const path = mode === "edit" && selectedId ? `/patients/${selectedId}` : "/patients";
