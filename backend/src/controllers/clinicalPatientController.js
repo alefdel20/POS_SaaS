@@ -15,6 +15,9 @@ const createValidation = [
   // responsible party yet (migration 25 dropped the NOT NULL). It becomes
   // mandatory only at billing time (see saleService.createSale), not here.
   body("client_id").optional({ values: "falsy" }).isInt({ min: 1 }),
+  // client_name is the NameAutocomplete free-text alternative to client_id —
+  // resolved (created if needed) inside createPatient's own transaction.
+  body("client_name").optional({ values: "falsy" }).trim(),
   body("phone").optional({ values: "falsy" }).trim(),
   body("species").optional().trim(),
   body("breed").optional().trim(),
@@ -34,6 +37,7 @@ const updateValidation = [
   // against the current row server-side, so a partial body is safe.
   body("name").optional().trim().notEmpty(),
   body("client_id").optional({ values: "falsy" }).isInt({ min: 1 }),
+  body("client_name").optional({ values: "falsy" }).trim(),
   body("phone").optional({ values: "falsy" }).trim(),
   body("species").optional().trim(),
   body("breed").optional().trim(),

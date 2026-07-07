@@ -18,8 +18,14 @@ const listValidation = [
 ];
 
 const createValidation = [
-  body("patient_id").isInt(),
+  // patient_id/client_id are each optional here — they can arrive instead as
+  // patient_name/client_name (NameAutocomplete free text), resolved/created
+  // by clinicalService inside the same transaction. buildAppointmentPayload
+  // enforces that at least one of patient_id/patient_name is present.
+  body("patient_id").optional({ values: "falsy" }).isInt(),
+  body("patient_name").optional({ values: "falsy" }).trim(),
   body("client_id").optional({ values: "falsy" }).isInt(),
+  body("client_name").optional({ values: "falsy" }).trim(),
   body("doctor_user_id").optional({ values: "falsy" }).isInt(),
   body("appointment_date").optional({ values: "falsy" }).isISO8601(),
   body("fecha").optional({ values: "falsy" }).isISO8601(),

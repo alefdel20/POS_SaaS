@@ -234,7 +234,7 @@ async function getOwnedClient(id, actor, client = pool) {
     [id, businessId]
   );
   const owned = rows[0];
-  if (!owned) throw new ApiError(404, "Client not found");
+  if (!owned) throw new ApiError(404, "Cliente no encontrado");
   return owned;
 }
 
@@ -247,7 +247,7 @@ async function getOwnedPatient(id, actor, client = pool) {
     [id, businessId]
   );
   const owned = rows[0];
-  if (!owned) throw new ApiError(404, "Patient not found");
+  if (!owned) throw new ApiError(404, "Paciente no encontrado");
   return owned;
 }
 
@@ -262,7 +262,7 @@ async function getOwnedDoctor(id, actor, client = pool) {
     [id, businessId]
   );
   const owned = rows[0];
-  if (!owned) throw new ApiError(404, "Doctor not found");
+  if (!owned) throw new ApiError(404, "Doctor no encontrado");
   return owned;
 }
 
@@ -305,7 +305,7 @@ ${APPOINTMENT_MIRROR_JOIN}
     [id, businessId]
   );
   const owned = rows[0];
-  if (!owned) throw new ApiError(404, "Appointment not found");
+  if (!owned) throw new ApiError(404, "Cita no encontrada");
   return owned;
 }
 
@@ -334,11 +334,11 @@ async function validateClinicalRelationship({ patientId, clientId, actor, client
   const ownedClient = clientId ? await getOwnedClient(clientId, actor, client) : null;
 
   if (!patient.is_active) {
-    throw new ApiError(409, "Patient is inactive");
+    throw new ApiError(409, "El paciente está inactivo");
   }
 
   if (ownedClient && !ownedClient.is_active) {
-    throw new ApiError(409, "Client is inactive");
+    throw new ApiError(409, "El cliente está inactivo");
   }
 
   return { patient, client: ownedClient };
@@ -498,6 +498,16 @@ async function ensureAppointmentAvailability({
   ignoreId = null,
   client = pool
 }) {
+  // end_time is optional (migration 53) — a time-range overlap can only be
+  // computed when both appointments being compared HAVE a range. Product
+  // decision: an appointment with no end_time opts out of overlap detection
+  // entirely (in both directions — it never blocks another appointment on
+  // this check, and another appointment's own check never blocks against
+  // it), rather than guessing a duration. Documented in migration 53.
+  if (!endTime) {
+    return;
+  }
+
   const params = [businessId, appointmentDate, area, startTime, endTime];
   let sql = `SELECT id
              FROM appointments
@@ -506,6 +516,7 @@ async function ensureAppointmentAvailability({
                AND area = $3
                AND is_active = TRUE
                AND status <> 'cancelled'
+               AND end_time IS NOT NULL
                AND start_time < $5
                AND end_time > $4`;
 
@@ -518,7 +529,7 @@ async function ensureAppointmentAvailability({
 
   const { rows } = await client.query(sql, params);
   if (rows[0]) {
-    throw new ApiError(409, "There is already an appointment in the same area and time range");
+    throw new ApiError(409, "Ya existe una cita en la misma área y horario");
   }
 }
 
@@ -535,6 +546,11 @@ async function ensureDoctorAppointmentAvailability({
     return;
   }
 
+  // Same end_time-optional criterion as ensureAppointmentAvailability above.
+  if (!endTime) {
+    return;
+  }
+
   const params = [businessId, doctorUserId, appointmentDate, startTime, endTime];
   let sql = `SELECT id
              FROM appointments
@@ -543,6 +559,7 @@ async function ensureDoctorAppointmentAvailability({
                AND appointment_date = $3
                AND is_active = TRUE
                AND status IN ('scheduled', 'confirmed')
+               AND end_time IS NOT NULL
                AND start_time < $5
                AND end_time > $4`;
 
@@ -594,7 +611,7 @@ function buildClientPayload(payload = {}) {
   const address = normalizeText(payload.address);
   const notes = normalizeText(payload.notes);
 
-  if (!name) throw new ApiError(400, "Client name is required");
+  if (!name) throw new ApiError(400, "El nombre del cliente es obligatorio");
 
   return {
     name,
@@ -611,17 +628,23 @@ function buildPatientPayload(payload = {}) {
   const name = normalizeText(payload.name);
   const weight = payload.weight === undefined || payload.weight === null || payload.weight === "" ? null : Number(payload.weight);
   const clientId = payload.client_id === undefined || payload.client_id === null || payload.client_id === "" ? null : Number(payload.client_id);
+  // client_name is the NameAutocomplete free-text alternative to client_id —
+  // resolved to a real (possibly newly-created) client_id by
+  // resolveOrCreateClientId at the call site, never used directly as a
+  // column value. clientId still wins if both are somehow present.
+  const clientName = normalizeText(payload.client_name);
 
-  if (!name) throw new ApiError(400, "Patient name is required");
+  if (!name) throw new ApiError(400, "El nombre del paciente es obligatorio");
   if (weight !== null && (!Number.isFinite(weight) || weight < 0 || weight > 500)) {
-    throw new ApiError(400, "Patient weight is invalid");
+    throw new ApiError(400, "El peso del paciente no es válido");
   }
   if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) {
-    throw new ApiError(400, "Client is invalid");
+    throw new ApiError(400, "El cliente no es válido");
   }
 
   return {
     client_id: clientId,
+    client_name: clientName,
     phone: payload.phone ? String(payload.phone).trim() : null,
     name,
     species: normalizeNullableText(payload.species),
@@ -636,13 +659,19 @@ function buildPatientPayload(payload = {}) {
 }
 
 function buildConsultationPayload(payload = {}) {
-  const patientId = Number(payload.patient_id);
+  // patient_id/client_id may instead arrive as patient_name/client_name —
+  // same NameAutocomplete free-text contract as buildAppointmentPayload. An
+  // id always wins over a name; resolution (and creation, if needed) happens
+  // in createConsultation/updateConsultation inside their own transaction.
+  const patientId = payload.patient_id === undefined || payload.patient_id === null || payload.patient_id === "" ? null : Number(payload.patient_id);
+  const patientName = normalizeText(payload.patient_name);
   // client_id is optional as of migration 47 — same resolve-or-null shape as
   // buildAppointmentPayload's client_id (migration 46). The frontend today
   // still auto-fills it from the selected patient's own client_id and never
   // exposes an editable field, so this mostly matters for a patient that has
   // no client_id of its own (rescued animal / patient created without one).
   const clientId = payload.client_id === undefined || payload.client_id === null || payload.client_id === "" ? null : Number(payload.client_id);
+  const clientName = normalizeText(payload.client_name);
   // appointment_id is optional — declares which appointment this consultation
   // resulted from, if any. No heuristics (see Fase 4 investigation notes):
   // omitted or null means the consultation is not linked to any appointment.
@@ -653,7 +682,8 @@ function buildConsultationPayload(payload = {}) {
   const tratamiento = normalizeText(payload.tratamiento);
   const notas = normalizeText(payload.notas || payload.notes);
 
-  if (!Number.isInteger(patientId) || patientId <= 0) throw new ApiError(400, "Patient is required");
+  if (!patientId && !patientName) throw new ApiError(400, "El paciente es obligatorio");
+  if (patientId !== null && (!Number.isInteger(patientId) || patientId <= 0)) throw new ApiError(400, "El paciente es obligatorio");
   if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) throw new ApiError(400, "Client is invalid");
   if (appointmentId !== null && (!Number.isInteger(appointmentId) || appointmentId <= 0)) throw new ApiError(400, "Appointment is invalid");
   if (!consultationDate) throw new ApiError(400, "Consultation date is required");
@@ -663,7 +693,9 @@ function buildConsultationPayload(payload = {}) {
 
   return {
     patient_id: patientId,
+    patient_name: patientName,
     client_id: clientId,
+    client_name: clientName,
     appointment_id: appointmentId,
     consultation_date: consultationDate,
     motivo_consulta: motivoConsulta,
@@ -675,8 +707,18 @@ function buildConsultationPayload(payload = {}) {
 }
 
 function buildAppointmentPayload(payload = {}) {
-  const patientId = Number(payload.patient_id);
+  // patient_id/client_id can each arrive instead as patient_name/client_name
+  // — the NameAutocomplete free-text alternative, resolved (and created if
+  // needed) by resolveOrCreatePatientId/resolveOrCreateClientId inside the
+  // caller's own transaction. An id always wins over a name when both are
+  // present (see those resolvers). patientId/clientId stay null here (not
+  // validated as "required") whenever only a name was given — the "some
+  // patient reference must exist" check happens after resolution, in
+  // createAppointment/updateAppointment.
+  const patientId = payload.patient_id === undefined || payload.patient_id === null || payload.patient_id === "" ? null : Number(payload.patient_id);
+  const patientName = normalizeText(payload.patient_name);
   const clientId = payload.client_id === undefined || payload.client_id === null || payload.client_id === "" ? null : Number(payload.client_id);
+  const clientName = normalizeText(payload.client_name);
   const doctorUserId = payload.doctor_user_id === undefined || payload.doctor_user_id === null || payload.doctor_user_id === "" ? null : Number(payload.doctor_user_id);
   const appointmentDate = normalizeText(payload.appointment_date || payload.fecha);
   const startTime = normalizeTimeValue(payload.start_time || payload.hora_inicio);
@@ -686,21 +728,27 @@ function buildAppointmentPayload(payload = {}) {
   const status = normalizeText(payload.status || "scheduled").toLowerCase();
   const notes = normalizeText(payload.notes || payload.notas);
 
-  if (!Number.isInteger(patientId) || patientId <= 0) throw new ApiError(400, "Patient is required");
-  if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) throw new ApiError(400, "Client is invalid");
-  if (doctorUserId !== null && (!Number.isInteger(doctorUserId) || doctorUserId <= 0)) throw new ApiError(400, "Doctor is invalid");
-  if (!appointmentDate) throw new ApiError(400, "Appointment date is required");
-  if (!startTime) throw new ApiError(400, "Start time is required");
-  if (!endTime) throw new ApiError(400, "End time is required");
-  if (!["CLINICA", "ESTETICA"].includes(area)) throw new ApiError(400, "Invalid appointment area");
+  if (!patientId && !patientName) throw new ApiError(400, "El paciente es obligatorio");
+  if (patientId !== null && (!Number.isInteger(patientId) || patientId <= 0)) throw new ApiError(400, "El paciente es obligatorio");
+  if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) throw new ApiError(400, "El cliente no es válido");
+  if (doctorUserId !== null && (!Number.isInteger(doctorUserId) || doctorUserId <= 0)) throw new ApiError(400, "El doctor no es válido");
+  if (!appointmentDate) throw new ApiError(400, "La fecha de la cita es obligatoria");
+  if (!startTime) throw new ApiError(400, "La hora de inicio es obligatoria");
+  // end_time is optional (migration 53) — not every appointment has a known
+  // end time at booking time (e.g. "llega cuando pueda", urgencias). Only
+  // validate ordering when it IS provided; a missing end_time is never an
+  // error on its own.
+  if (!["CLINICA", "ESTETICA"].includes(area)) throw new ApiError(400, "Área de la cita inválida");
   if (!["scheduled", "confirmed", "completed", "cancelled", "no_show"].includes(status)) {
-    throw new ApiError(400, "Invalid appointment status");
+    throw new ApiError(400, "Estado de la cita inválido");
   }
-  if (endTime <= startTime) throw new ApiError(400, "End time must be after start time");
+  if (endTime && endTime <= startTime) throw new ApiError(400, "La hora de fin debe ser posterior a la hora de inicio");
 
   return {
     patient_id: patientId,
+    patient_name: patientName,
     client_id: clientId,
+    client_name: clientName,
     doctor_user_id: doctorUserId,
     appointment_date: appointmentDate,
     start_time: startTime,
@@ -907,43 +955,68 @@ ${PATIENT_MIRROR_GROUP_BY}
   };
 }
 
-async function createClient(payload, actor) {
+// Transaction-aware core: assumes the caller already opened `client`'s
+// transaction (BEGIN) — no connect/BEGIN/COMMIT/release here. Reused by
+// createClient (which wraps it in its own transaction below) AND by
+// resolveOrCreateClientId, which runs it inside the PARENT resource's own
+// transaction (appointment/consultation/patient) so a free-text client name
+// is created atomically with whatever referenced it — never as a separate
+// HTTP call, never left dangling if the parent write fails afterward.
+async function insertClientRow(payload, actor, client) {
   const businessId = requireActorBusinessId(actor);
   const data = buildClientPayload(payload);
+  const { rows } = await client.query(
+    `INSERT INTO clients (
+      business_id, name, email, phone, tax_id, address, notes, is_active, created_by, updated_by
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+    RETURNING *`,
+    [businessId, data.name, data.email, data.phone, data.tax_id, data.address, data.notes, data.is_active, actor.id]
+  );
+
+  await syncClientToHealthcare(rows[0], actor, client);
+
+  await saveAuditLog({
+    business_id: businessId,
+    usuario_id: actor.id,
+    modulo: "clinical",
+    accion: "create_client",
+    entidad_tipo: "client",
+    entidad_id: rows[0].id,
+    detalle_nuevo: { snapshot: mapClient(rows[0]) },
+    metadata: {}
+  }, { client });
+
+  return mapClient(rows[0]);
+}
+
+async function createClient(payload, actor) {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query(
-      `INSERT INTO clients (
-        business_id, name, email, phone, tax_id, address, notes, is_active, created_by, updated_by
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-      RETURNING *`,
-      [businessId, data.name, data.email, data.phone, data.tax_id, data.address, data.notes, data.is_active, actor.id]
-    );
-
-    await syncClientToHealthcare(rows[0], actor, client);
-
-    await saveAuditLog({
-      business_id: businessId,
-      usuario_id: actor.id,
-      modulo: "clinical",
-      accion: "create_client",
-      entidad_tipo: "client",
-      entidad_id: rows[0].id,
-      detalle_nuevo: { snapshot: mapClient(rows[0]) },
-      metadata: {}
-    }, { client });
-
+    const created = await insertClientRow(payload, actor, client);
     await client.query("COMMIT");
-    return mapClient(rows[0]);
+    return created;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();
   }
+}
+
+// Priority: an explicit clientId always wins over clientName — it means the
+// user picked an existing suggestion after typing (NameAutocomplete's
+// contract on the frontend). A blank/whitespace-only name resolves to null,
+// same as never having typed anything — client stays optional everywhere it
+// already was.
+async function resolveOrCreateClientId({ clientId, clientName, actor, client }) {
+  if (clientId) return Number(clientId);
+  const name = normalizeText(clientName);
+  if (!name) return null;
+  const created = await insertClientRow({ name }, actor, client);
+  return created.id;
 }
 
 async function updateClient(id, payload, actor) {
@@ -1137,47 +1210,90 @@ ${PATIENT_MIRROR_GROUP_BY}`,
   };
 }
 
-async function createPatient(payload, actor) {
+// Transaction-aware core — same contract as insertClientRow above: caller
+// already opened `client`'s transaction. `payload.client_id` here must
+// already be a resolved, validated id (or null); this function does not
+// resolve names or check the client's existence/active status itself.
+async function insertPatientRow(payload, actor, client) {
   const businessId = requireActorBusinessId(actor);
   const data = buildPatientPayload(payload);
+  const { rows } = await client.query(
+    `INSERT INTO patients (
+      business_id, client_id, phone, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, created_by, updated_by
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+    RETURNING *`,
+    [businessId, data.client_id, data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id]
+  );
 
-  // client_id is optional at creation (a rescued animal pending adoption has
-  // no responsible party yet, see migration 25) — it's only enforced at
-  // billing time, in saleService.createSale. When it IS provided here, it
-  // still has to resolve to a real, active client in this tenant.
-  if (data.client_id) {
-    const ownedClient = await getOwnedClient(data.client_id, actor);
-    if (!ownedClient.is_active) throw new ApiError(409, "Client is inactive");
-  }
+  await syncPatientToHealthcare(rows[0], actor, client);
 
+  await saveAuditLog({
+    business_id: businessId,
+    usuario_id: actor.id,
+    modulo: "clinical",
+    accion: "create_patient",
+    entidad_tipo: "patient",
+    entidad_id: rows[0].id,
+    detalle_nuevo: { snapshot: mapPatient(rows[0]) },
+    metadata: {}
+  }, { client });
+
+  return mapPatient(rows[0]);
+}
+
+// Priority: an explicit patientId always wins over patientName (the user
+// picked a suggestion after typing). patientName is required when patientId
+// is absent — unlike client, a patient is never optional on the parent
+// resource. clientId (already resolved by the caller, possibly via
+// resolveOrCreateClientId) is attached to the newly created patient so a
+// brand-new patient + brand-new responsable typed together in the same
+// parent form end up linked to each other.
+async function resolveOrCreatePatientId({ patientId, patientName, clientId = null, actor, client }) {
+  if (patientId) return Number(patientId);
+  const name = normalizeText(patientName);
+  if (!name) throw new ApiError(400, "El nombre del paciente es obligatorio");
+
+  // The shared NameAutocomplete UI only captures a name — no species field.
+  // buildPatientPayload would otherwise leave species blank, which
+  // isHumanSpecies() treats as "human", silently mis-mirroring a veterinary
+  // patient into healthcare.patients instead of healthcare.pets. Force a
+  // non-empty placeholder for any business that isn't human-patients-only;
+  // the real species can be filled in later from the patient's own edit
+  // form. Human-only businesses (FarmaciaConsultorio) are unaffected — blank
+  // species there is already the correct, intended state.
+  const species = usesHumanPatientsOnly(actor?.pos_type) ? undefined : "Sin especificar";
+
+  const created = await insertPatientRow({ name, client_id: clientId, species }, actor, client);
+  return created.id;
+}
+
+async function createPatient(payload, actor) {
+  const data = buildPatientPayload(payload);
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query(
-      `INSERT INTO patients (
-        business_id, client_id, phone, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, created_by, updated_by
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
-      RETURNING *`,
-      [businessId, data.client_id, data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id]
-    );
 
-    await syncPatientToHealthcare(rows[0], actor, client);
+    // client_id/client_name are both optional at creation (a rescued animal
+    // pending adoption has no responsible party yet, see migration 25) —
+    // it's only enforced at billing time, in saleService.createSale. When a
+    // client IS resolved here (existing id, or a brand-new one created from
+    // free text), it still has to be active in this tenant.
+    const resolvedClientId = await resolveOrCreateClientId({
+      clientId: data.client_id,
+      clientName: data.client_name,
+      actor,
+      client
+    });
+    if (resolvedClientId) {
+      const ownedClient = await getOwnedClient(resolvedClientId, actor, client);
+      if (!ownedClient.is_active) throw new ApiError(409, "El cliente está inactivo");
+    }
 
-    await saveAuditLog({
-      business_id: businessId,
-      usuario_id: actor.id,
-      modulo: "clinical",
-      accion: "create_patient",
-      entidad_tipo: "patient",
-      entidad_id: rows[0].id,
-      detalle_nuevo: { snapshot: mapPatient(rows[0]) },
-      metadata: {}
-    }, { client });
-
+    const created = await insertPatientRow({ ...data, client_id: resolvedClientId }, actor, client);
     await client.query("COMMIT");
-    return mapPatient(rows[0]);
+    return created;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -1206,18 +1322,27 @@ async function updatePatient(id, payload, actor) {
     throw new ApiError(400, "No se puede cambiar la especie de un paciente despues de creado (humano <-> mascota). Si te equivocaste al registrar el paciente, crea uno nuevo con la especie correcta.");
   }
 
-  // client_id can be assigned (or changed) here — this is the "asignar
-  // responsable despues" path for a patient created without one. Same
-  // existence/active checks as createPatient.
-  if (data.client_id) {
-    const ownedClient = await getOwnedClient(data.client_id, actor);
-    if (!ownedClient.is_active) throw new ApiError(409, "Client is inactive");
-  }
-
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
+
+    // client_id/client_name can be assigned (or changed) here — this is the
+    // "asignar responsable despues" path for a patient created without one
+    // (AssignPatientResponsible on the frontend). Same existence/active
+    // checks as createPatient; a brand-new client typed as free text is
+    // created inside this same transaction via resolveOrCreateClientId.
+    const resolvedClientId = await resolveOrCreateClientId({
+      clientId: data.client_id,
+      clientName: data.client_name,
+      actor,
+      client
+    });
+    if (resolvedClientId) {
+      const ownedClient = await getOwnedClient(resolvedClientId, actor, client);
+      if (!ownedClient.is_active) throw new ApiError(409, "El cliente está inactivo");
+    }
+
     const { rows } = await client.query(
       `UPDATE patients
        SET client_id = $1,
@@ -1235,7 +1360,7 @@ async function updatePatient(id, payload, actor) {
            updated_at = NOW()
        WHERE id = $13 AND business_id = $14
        RETURNING *`,
-      [data.client_id, data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id, id, businessId]
+      [resolvedClientId, data.phone, data.name, data.species, data.breed, data.sex, data.birth_date, data.weight, data.allergies, data.notes, data.is_active, actor.id, id, businessId]
     );
 
     await syncPatientToHealthcareOnUpdate(rows[0], actor, client);
@@ -1329,6 +1454,109 @@ async function getConsultationDetail(id, actor) {
   return mapConsultation(await getOwnedConsultation(id, actor));
 }
 
+// Only save a prescription bundled with a consultation when it has actual
+// medications — matches buildPrescriptionPayload's own hard requirement
+// ("La receta debe tener al menos un medicamento"). A consultation with
+// only diagnostico/tratamiento filled (no items added) stays a plain
+// consultation; those two fields already live on public.consultations
+// itself, so nothing is lost by not also creating an empty prescription.
+function shouldSavePrescription(prescriptionPayload) {
+  return Boolean(prescriptionPayload) && Array.isArray(prescriptionPayload.items) && prescriptionPayload.items.length > 0;
+}
+
+// Inserts or updates the ONE prescription linked to a consultation, inside
+// the caller's already-open transaction — used by createConsultation/
+// updateConsultation when a `prescription` object is bundled with the
+// consultation save (the merged "un solo boton Guardar" flow in the
+// redesigned Consultas page). Deliberately NOT built on top of
+// createPrescription/updatePrescription (which each open and manage their
+// own transaction) — duplicates their insert/update core instead, to avoid
+// touching those two existing, dispensing-aware functions for this.
+//
+// On update: if the consultation already has a prescription and the
+// incoming payload has zero items, the existing prescription is left
+// untouched rather than forced through buildPrescriptionPayload's "at least
+// one medication" requirement — clearing every item in the UI does not
+// implicitly delete/cancel the prescription (use its own status field for
+// that).
+async function savePrescriptionForConsultation({ prescriptionPayload, patientId, consultationId, actor, client }) {
+  const businessId = requireActorBusinessId(actor);
+  const data = buildPrescriptionPayload({ ...prescriptionPayload, patient_id: patientId, consultation_id: consultationId });
+  const resolvedItems = await resolvePrescriptionItemSnapshots(data.items, actor, client);
+
+  const { rows: existingRows } = await client.query(
+    "SELECT id FROM medical_prescriptions WHERE consultation_id = $1 AND business_id = $2 LIMIT 1",
+    [consultationId, businessId]
+  );
+  const existing = existingRows[0];
+
+  let prescriptionRow;
+  if (existing) {
+    const currentDetail = await getPrescriptionDetail(existing.id, actor);
+    assertNoDispensedPrescriptionItemsRemoved(currentDetail.items, resolvedItems);
+
+    const { rows } = await client.query(
+      `UPDATE medical_prescriptions
+       SET diagnosis = $1, indications = $2, status = $3, updated_by = $4, updated_at = NOW()
+       WHERE id = $5 AND business_id = $6
+       RETURNING *`,
+      [data.diagnosis, data.indications, data.status, actor.id, existing.id, businessId]
+    );
+    await client.query("DELETE FROM medical_prescription_items WHERE prescription_id = $1", [existing.id]);
+    prescriptionRow = rows[0];
+  } else {
+    const { rows } = await client.query(
+      `INSERT INTO medical_prescriptions (
+        business_id, patient_id, consultation_id, doctor_user_id, diagnosis, indications, status, created_by, updated_by
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+      RETURNING *`,
+      [businessId, data.patient_id, consultationId, actor.id, data.diagnosis, data.indications, data.status, actor.id]
+    );
+    prescriptionRow = rows[0];
+  }
+
+  for (const item of resolvedItems) {
+    await client.query(
+      `INSERT INTO medical_prescription_items (
+        prescription_id, product_id, medication_name_snapshot, presentation_snapshot, dose, frequency, duration, route_of_administration, notes, stock_snapshot
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        prescriptionRow.id,
+        item.product_id,
+        item.medication_name_snapshot,
+        item.presentation_snapshot,
+        item.dose,
+        item.frequency,
+        item.duration,
+        item.route_of_administration,
+        item.notes,
+        item.stock_snapshot
+      ]
+    );
+  }
+
+  if (existing) {
+    await syncPrescriptionToHealthcareOnUpdate(prescriptionRow, actor, client);
+  } else {
+    await syncPrescriptionToHealthcare(prescriptionRow, actor, client);
+  }
+
+  await saveAuditLog({
+    business_id: businessId,
+    usuario_id: actor.id,
+    modulo: "clinical",
+    accion: existing ? "update_prescription" : "create_prescription",
+    entidad_tipo: "medical_prescription",
+    entidad_id: prescriptionRow.id,
+    detalle_nuevo: { snapshot: { ...prescriptionRow, items: resolvedItems } },
+    metadata: { patient_id: patientId, consultation_id: consultationId }
+  }, { client });
+
+  return prescriptionRow.id;
+}
+
 async function createConsultation(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const data = buildConsultationPayload(payload);
@@ -1336,6 +1564,13 @@ async function createConsultation(payload, actor) {
 
   try {
     await client.query("BEGIN");
+
+    // patient_id/client_id may instead have arrived as patient_name/
+    // client_name (NameAutocomplete free text) — resolve (creating inside
+    // this same transaction if needed) before anything else touches them.
+    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, clientId: data.client_id, actor, client });
+
     const { patient } = await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
     await validateConsultationAppointmentLink({ appointmentId: data.appointment_id, patientId: data.patient_id, actor, client });
 
@@ -1392,6 +1627,20 @@ async function createConsultation(payload, actor) {
       metadata: {}
     }, { client });
 
+    // Optional, bundled with the same "Guardar" action from the redesigned
+    // Consultas page — created inside this same transaction, so a failed
+    // prescription (e.g. an invalid product_id) rolls back the consultation
+    // too rather than leaving one saved without the other.
+    if (shouldSavePrescription(payload.prescription)) {
+      await savePrescriptionForConsultation({
+        prescriptionPayload: payload.prescription,
+        patientId: data.patient_id,
+        consultationId: consultationRow.id,
+        actor,
+        client
+      });
+    }
+
     await client.query("COMMIT");
     return mapConsultation(consultationRow);
   } catch (error) {
@@ -1410,6 +1659,11 @@ async function updateConsultation(id, payload, actor) {
 
   try {
     await client.query("BEGIN");
+
+    // Same free-text resolution as createConsultation above.
+    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, clientId: data.client_id, actor, client });
+
     const { patient } = await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
     await validateConsultationAppointmentLink({ appointmentId: data.appointment_id, patientId: data.patient_id, actor, client });
 
@@ -1473,6 +1727,17 @@ async function updateConsultation(id, payload, actor) {
       detalle_nuevo: { snapshot: mapConsultation(consultationRow) },
       metadata: {}
     }, { client });
+
+    // Same bundled-prescription save as createConsultation above.
+    if (shouldSavePrescription(payload.prescription)) {
+      await savePrescriptionForConsultation({
+        prescriptionPayload: payload.prescription,
+        patientId: data.patient_id,
+        consultationId: consultationRow.id,
+        actor,
+        client
+      });
+    }
 
     await client.query("COMMIT");
     return mapConsultation(consultationRow);
@@ -1852,7 +2117,7 @@ ${APPOINTMENT_MIRROR_JOIN}
   } catch (error) {
     if (isSchemaError(error)) {
       console.error("[APPOINTMENTS] Schema error while listing appointments", error);
-      throw new ApiError(503, "Feature schema is not ready");
+      throw new ApiError(503, "Esta función no está disponible por el momento");
     }
     throw error;
   }
@@ -1895,10 +2160,19 @@ async function createAppointment(payload, actor) {
 
   try {
     await client.query("BEGIN");
+
+    // patient_id/client_id may instead have arrived as patient_name/
+    // client_name (NameAutocomplete free text) — resolve (creating inside
+    // this same transaction if needed) before anything else touches them.
+    // Client resolves first since a brand-new patient created right after
+    // gets linked to it.
+    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, clientId: data.client_id, actor, client });
+
     const patient = await getOwnedPatient(data.patient_id, actor, client);
     const resolvedClientId = resolveOptionalAppointmentClientId(data, patient);
     if (hidesAesthetics(actor?.pos_type) && data.area === "ESTETICA") {
-      throw new ApiError(409, "Invalid appointment area");
+      throw new ApiError(409, "Área de la cita inválida");
     }
     if (data.doctor_user_id) {
       await getOwnedDoctor(data.doctor_user_id, actor, client);
@@ -1987,7 +2261,7 @@ async function createAppointment(payload, actor) {
     await client.query("ROLLBACK");
     if (isSchemaError(error)) {
       console.error("[APPOINTMENTS] Schema error while creating appointment", error);
-      throw new ApiError(503, "Feature schema is not ready");
+      throw new ApiError(503, "Esta función no está disponible por el momento");
     }
     throw error;
   } finally {
@@ -2004,10 +2278,15 @@ async function updateAppointment(id, payload, actor) {
 
   try {
     await client.query("BEGIN");
+
+    // Same free-text resolution as createAppointment above.
+    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, clientId: data.client_id, actor, client });
+
     const patient = await getOwnedPatient(data.patient_id, actor, client);
     const resolvedClientId = resolveOptionalAppointmentClientId(data, patient);
     if (hidesAesthetics(actor?.pos_type) && data.area === "ESTETICA") {
-      throw new ApiError(409, "Invalid appointment area");
+      throw new ApiError(409, "Área de la cita inválida");
     }
     if (data.doctor_user_id) {
       await getOwnedDoctor(data.doctor_user_id, actor, client);
@@ -2105,7 +2384,7 @@ async function updateAppointment(id, payload, actor) {
     await client.query("ROLLBACK");
     if (isSchemaError(error)) {
       console.error("[APPOINTMENTS] Schema error while updating appointment", error);
-      throw new ApiError(503, "Feature schema is not ready");
+      throw new ApiError(503, "Esta función no está disponible por el momento");
     }
     throw error;
   } finally {
@@ -2326,7 +2605,7 @@ async function listDoctors(actor) {
   } catch (error) {
     if (isSchemaError(error)) {
       console.error("[APPOINTMENTS] Schema error while listing doctors", error);
-      throw new ApiError(503, "Feature schema is not ready");
+      throw new ApiError(503, "Esta función no está disponible por el momento");
     }
     throw error;
   }

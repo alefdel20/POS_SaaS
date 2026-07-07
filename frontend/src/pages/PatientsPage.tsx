@@ -2,9 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { AssignPatientResponsible } from "../components/AssignPatientResponsible";
-import { ClientPicker } from "../components/ClientPicker";
+import { NameAutocomplete, NameAutocompleteValue } from "../components/NameAutocomplete";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalClientSummary, ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
+import type { ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
 import { PREVENTIVE_EVENT_STATUSES, PREVENTIVE_EVENT_TYPES } from "../utils/domainEnums";
 import { getClinicalPatientLabel, showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
 import { shortDate, shortDateTime } from "../utils/format";
@@ -82,7 +82,7 @@ export function PatientsPage() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState<PatientFormState>(emptyForm);
-  const [selectedClient, setSelectedClient] = useState<ClinicalClientSummary | null>(null);
+  const [clientValue, setClientValue] = useState<NameAutocompleteValue>({ id: null, name: "" });
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [preventiveForm, setPreventiveForm] = useState<PreventiveFormState>(emptyPreventiveForm);
   const [saving, setSaving] = useState(false);
@@ -163,14 +163,14 @@ export function PatientsPage() {
     resetFeedback();
     setMode("create");
     setForm(emptyForm);
-    setSelectedClient(null);
+    setClientValue({ id: null, name: "" });
   }
 
   function startEdit() {
     resetFeedback();
     setMode("edit");
     setForm(detailToForm(detail));
-    setSelectedClient(null);
+    setClientValue({ id: null, name: "" });
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -180,6 +180,7 @@ export function PatientsPage() {
     try {
       setSaving(true);
       resetFeedback();
+      const clientName = clientValue.name.trim();
       const payload = {
         ...form,
         species: showSpecies ? form.species : "",
@@ -188,7 +189,8 @@ export function PatientsPage() {
         phone: form.phone.trim() || null,
         allergies: form.allergies,
         is_active: form.is_active,
-        ...(mode !== "edit" && selectedClient ? { client_id: selectedClient.id } : {})
+        ...(mode !== "edit" && clientValue.id ? { client_id: clientValue.id } : {}),
+        ...(mode !== "edit" && !clientValue.id && clientName ? { client_name: clientName } : {})
       };
       const method = mode === "edit" && selectedId ? "PUT" : "POST";
       const path = mode === "edit" && selectedId ? `/patients/${selectedId}` : "/patients";
@@ -203,7 +205,7 @@ export function PatientsPage() {
         await loadDetail(selectedId);
       } else {
         setForm(emptyForm);
-        setSelectedClient(null);
+        setClientValue({ id: null, name: "" });
       }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el paciente");
@@ -333,7 +335,7 @@ export function PatientsPage() {
             <input type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
           </label>
           {mode !== "edit" ? (
-            <ClientPicker label="Responsable" onClear={() => setSelectedClient(null)} onSelect={setSelectedClient} token={token} value={selectedClient} />
+            <NameAutocomplete kind="client" label="Responsable" onChange={setClientValue} token={token} value={clientValue} />
           ) : (
             <label>
               Responsable
@@ -454,7 +456,7 @@ export function PatientsPage() {
                   {detail.appointments.map((appointment) => (
                     <tr key={appointment.id}>
                       <td>{shortDate(appointment.appointment_date)}</td>
-                      <td>{appointment.start_time} - {appointment.end_time}</td>
+                      <td>{appointment.start_time} - {appointment.end_time || "sin hora fin"}</td>
                       <td><button className="button ghost" onClick={() => navigate(`/medical-appointments?appointment=${appointment.id}&date=${appointment.appointment_date}`)} type="button">Ver cita</button></td>
                     </tr>
                   ))}

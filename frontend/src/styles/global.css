@@ -919,6 +919,45 @@ td {
   grid-column: 1 / -1;
 }
 
+.autocomplete-wrap {
+  position: relative;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  margin-top: 0.25rem;
+  background: var(--modal-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--modal-shadow);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.autocomplete-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text);
+}
+
+.autocomplete-option:last-child {
+  border-bottom: none;
+}
+
+.autocomplete-option:hover {
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
 .sales-actions {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

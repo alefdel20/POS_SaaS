@@ -2,23 +2,14 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { AssignPatientResponsible } from "../components/AssignPatientResponsible";
-import { PatientQuickCreateModal } from "../components/PatientQuickCreateModal";
+import { NameAutocomplete, NameAutocompleteValue } from "../components/NameAutocomplete";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalAppointment, ClinicalClientSummary, ClinicalConsultation, ClinicalPatientSummary, User } from "../types";
+import type { ClinicalAppointment, ClinicalConsultation, User } from "../types";
 import { shortDate } from "../utils/format";
 import { getAppointmentAreaFromPath } from "../utils/navigation";
 import { hidesAesthetics, isPharmacyClinicPos } from "../utils/pos";
 
-type SelectedPatientMeta = {
-  id: number;
-  name: string;
-  client_id: number | null;
-  client_name: string | null;
-};
-
 type AppointmentFormState = {
-  patient_id: string;
-  client_id: string;
   doctor_user_id: string;
   appointment_date: string;
   start_time: string;
@@ -30,8 +21,6 @@ type AppointmentFormState = {
 };
 
 const emptyForm: AppointmentFormState = {
-  patient_id: "",
-  client_id: "",
   doctor_user_id: "",
   appointment_date: new Date().toISOString().slice(0, 10),
   start_time: "",
@@ -42,10 +31,10 @@ const emptyForm: AppointmentFormState = {
   notes: ""
 };
 
+const emptyPatientValue: NameAutocompleteValue = { id: null, name: "" };
+
 function appointmentToForm(appointment: ClinicalAppointment | null): AppointmentFormState {
   return {
-    patient_id: appointment?.patient_id ? String(appointment.patient_id) : "",
-    client_id: appointment?.client_id ? String(appointment.client_id) : "",
     doctor_user_id: appointment?.doctor_user_id ? String(appointment.doctor_user_id) : "",
     appointment_date: appointment?.appointment_date || new Date().toISOString().slice(0, 10),
     start_time: appointment?.start_time?.slice(0, 5) || "",
@@ -57,8 +46,17 @@ function appointmentToForm(appointment: ClinicalAppointment | null): Appointment
   };
 }
 
-function buildPatientSearchLabel(patient: { name: string; client_name?: string | null }) {
-  return `${patient.name} - ${patient.client_name || "Sin responsable"}`;
+function appointmentToPatientValue(appointment: ClinicalAppointment | null): NameAutocompleteValue {
+  if (!appointment) return emptyPatientValue;
+  return {
+    id: appointment.patient_id,
+    name: appointment.patient_name,
+    meta: { client_name: appointment.client_name }
+  };
+}
+
+function formatTimeRange(startTime: string, endTime: string | null) {
+  return `${startTime.slice(0, 5)} - ${endTime ? endTime.slice(0, 5) : "sin hora fin"}`;
 }
 
 function getDoctorStatusBadge(status?: string | null) {
@@ -77,11 +75,7 @@ export function MedicalAppointmentsPage() {
   const [doctors, setDoctors] = useState<User[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalAppointment | null>(null);
-  const [patientQuery, setPatientQuery] = useState("");
-  const [patientResults, setPatientResults] = useState<ClinicalPatientSummary[]>([]);
-  const [patientSearching, setPatientSearching] = useState(false);
-  const [selectedPatientMeta, setSelectedPatientMeta] = useState<SelectedPatientMeta | null>(null);
-  const [showCreatePatientModal, setShowCreatePatientModal] = useState(false);
+  const [patientValue, setPatientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
   const [linkedConsultationId, setLinkedConsultationId] = useState<number | null>(null);
   const [form, setForm] = useState<AppointmentFormState>({
     ...emptyForm,
@@ -117,7 +111,7 @@ export function MedicalAppointmentsPage() {
     [doctorFilter, doctors]
   );
   const occupiedSlots = useMemo(
-    () => dayAppointments.map((appointment) => `${appointment.start_time.slice(0, 5)} - ${appointment.end_time.slice(0, 5)} · ${appointment.patient_name}`),
+    () => dayAppointments.map((appointment) => `${formatTimeRange(appointment.start_time, appointment.end_time)} · ${appointment.patient_name}`),
     [dayAppointments]
   );
 
@@ -205,38 +199,8 @@ export function MedicalAppointmentsPage() {
 
   useEffect(() => {
     if (mode !== "edit" || !detail) return;
-    setSelectedPatientMeta({
-      id: detail.patient_id,
-      name: detail.patient_name,
-      client_id: detail.client_id,
-      client_name: detail.client_name
-    });
-    setPatientQuery(buildPatientSearchLabel({ name: detail.patient_name, client_name: detail.client_name }));
-    setPatientResults([]);
+    setPatientValue(appointmentToPatientValue(detail));
   }, [mode, detail]);
-
-  useEffect(() => {
-    if (!token || selectedPatientMeta) {
-      setPatientResults([]);
-      return;
-    }
-    const term = patientQuery.trim();
-    if (term.length < 2) {
-      setPatientResults([]);
-      setPatientSearching(false);
-      return;
-    }
-    setPatientSearching(true);
-    const timeout = setTimeout(() => {
-      apiRequest<ClinicalPatientSummary[]>(`/patients?search=${encodeURIComponent(term)}&active=true`, { token })
-        .then(setPatientResults)
-        .catch((loadError) => {
-          setError(loadError instanceof Error ? loadError.message : "No fue posible buscar pacientes");
-        })
-        .finally(() => setPatientSearching(false));
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, [patientQuery, token, selectedPatientMeta]);
 
   function resetFeedback() {
     setError("");
@@ -254,46 +218,13 @@ export function MedicalAppointmentsPage() {
       doctor_user_id: doctorUserId,
       specialty: nextDoctor?.specialty || ""
     });
-    setPatientQuery("");
-    setPatientResults([]);
-    setSelectedPatientMeta(null);
+    setPatientValue(emptyPatientValue);
   }
 
   function startEdit() {
     resetFeedback();
     setMode("edit");
     setForm(appointmentToForm(detail));
-  }
-
-  function handlePatientQueryChange(value: string) {
-    setPatientQuery(value);
-    setSelectedPatientMeta(null);
-    setForm((current) => ({ ...current, patient_id: "", client_id: "" }));
-  }
-
-  function handleSelectPatient(patient: ClinicalPatientSummary) {
-    setSelectedPatientMeta({
-      id: patient.id,
-      name: patient.name,
-      client_id: patient.client_id ?? null,
-      client_name: patient.client_name ?? null
-    });
-    setPatientQuery(buildPatientSearchLabel(patient));
-    setForm((current) => ({
-      ...current,
-      patient_id: String(patient.id),
-      client_id: patient.client_id ? String(patient.client_id) : ""
-    }));
-    setPatientResults([]);
-  }
-
-  function handlePatientCreated(patient: ClinicalPatientSummary, client: ClinicalClientSummary | null) {
-    setSelectedPatientMeta({ id: patient.id, name: patient.name, client_id: client?.id ?? null, client_name: client?.name ?? null });
-    setPatientQuery(buildPatientSearchLabel({ name: patient.name, client_name: client?.name ?? null }));
-    setForm((current) => ({ ...current, patient_id: String(patient.id), client_id: client ? String(client.id) : "" }));
-    setPatientResults([]);
-    setShowCreatePatientModal(false);
-    setInfo("Paciente creado y seleccionado en la cita");
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -310,8 +241,7 @@ export function MedicalAppointmentsPage() {
         token,
         body: JSON.stringify({
           ...form,
-          patient_id: Number(form.patient_id),
-          client_id: form.client_id ? Number(form.client_id) : undefined,
+          ...(patientValue.id ? { patient_id: patientValue.id } : { patient_name: patientValue.name.trim() }),
           doctor_user_id: form.doctor_user_id ? Number(form.doctor_user_id) : undefined
         })
       });
@@ -409,7 +339,7 @@ export function MedicalAppointmentsPage() {
               {appointments.map((appointment) => (
                 <button className={`timeline-card ${appointment.id === selectedId ? "timeline-card-active" : ""}`} key={appointment.id} onClick={() => setSelectedId(appointment.id)} type="button">
                   <div className="panel-header">
-                    <strong>{appointment.start_time.slice(0, 5)} - {appointment.end_time.slice(0, 5)}</strong>
+                    <strong>{formatTimeRange(appointment.start_time, appointment.end_time)}</strong>
                     <span className={`status-badge appointment-status-${appointment.status}`}>{appointment.status}</span>
                   </div>
                   <div>{appointment.patient_name}</div>
@@ -453,7 +383,7 @@ export function MedicalAppointmentsPage() {
                 {dayAppointmentsGroup.map((appointment) => (
                   <button className={`timeline-card ${appointment.id === selectedId ? "timeline-card-active" : ""}`} key={appointment.id} onClick={() => setSelectedId(appointment.id)} type="button">
                     <div className="panel-header">
-                      <strong>{appointment.start_time.slice(0, 5)} - {appointment.end_time.slice(0, 5)}</strong>
+                      <strong>{formatTimeRange(appointment.start_time, appointment.end_time)}</strong>
                       <span className={`status-badge appointment-status-${appointment.status}`}>{appointment.status}</span>
                     </div>
                     <div>{appointment.patient_name}</div>
@@ -481,48 +411,10 @@ export function MedicalAppointmentsPage() {
           {detail ? <button className="button ghost" onClick={startEdit} type="button">Editar</button> : null}
         </div>
         <form className="grid-form" onSubmit={handleSubmit}>
-          <div className="form-span-2">
-            <label>
-              Paciente
-              <input
-                placeholder="Busca por nombre (min. 2 letras)"
-                value={patientQuery}
-                onChange={(event) => handlePatientQueryChange(event.target.value)}
-              />
-            </label>
-            {patientSearching ? <p className="muted">Buscando...</p> : null}
-            {!selectedPatientMeta && patientResults.length ? (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Paciente</th>
-                      <th>Responsable</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {patientResults.map((patient) => (
-                      <tr key={patient.id}>
-                        <td>{patient.name}</td>
-                        <td>{patient.client_name || "Sin responsable"}</td>
-                        <td><button className="button ghost" onClick={() => handleSelectPatient(patient)} type="button">Seleccionar</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-            {!selectedPatientMeta && !patientSearching && patientQuery.trim().length >= 2 && !patientResults.length ? (
-              <p className="muted">Sin resultados para &quot;{patientQuery.trim()}&quot;.</p>
-            ) : null}
-            <div className="inline-actions">
-              <button className="button ghost" onClick={() => setShowCreatePatientModal(true)} type="button">+ Crear paciente</button>
-            </div>
-          </div>
+          <NameAutocomplete activeOnly kind="patient" label="Paciente" onChange={setPatientValue} required token={token} value={patientValue} />
           <label>
             Responsable
-            <input disabled value={selectedPatientMeta?.client_name || (form.patient_id ? "Sin responsable" : "")} />
+            <input disabled value={patientValue.meta?.client_name || (patientValue.id || patientValue.name.trim() ? "Sin responsable" : "")} />
           </label>
           <label>
             Fecha
@@ -592,7 +484,7 @@ export function MedicalAppointmentsPage() {
               {detail.client_name || <AssignPatientResponsible onAssigned={() => loadDetail(detail.id)} patientId={detail.patient_id} token={token} />}
             </p>
             <p><strong>Fecha:</strong> {shortDate(detail.appointment_date)}</p>
-            <p><strong>Horario:</strong> {detail.start_time.slice(0, 5)} - {detail.end_time.slice(0, 5)}</p>
+            <p><strong>Horario:</strong> {formatTimeRange(detail.start_time, detail.end_time)}</p>
             <p><strong>Area:</strong> {detail.area}</p>
             <p><strong>Doctor:</strong> {detail.doctor_name || "-"}</p>
             <p><strong>Especialidad:</strong> {detail.specialty || "-"}</p>
@@ -674,16 +566,6 @@ export function MedicalAppointmentsPage() {
             </table>
           </div>
         </div>
-      ) : null}
-
-      {showCreatePatientModal ? (
-        <PatientQuickCreateModal
-          initialName={patientQuery}
-          onClose={() => setShowCreatePatientModal(false)}
-          onCreated={handlePatientCreated}
-          posType={user?.pos_type}
-          token={token}
-        />
       ) : null}
     </section>
   );

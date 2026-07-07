@@ -481,7 +481,7 @@ async function createSale(payload, user, branchId = null) {
          WHERE mp.id = $1 AND mp.business_id = $2`,
         [prescriptionId, businessId]
       );
-      if (!prescriptionRows[0]) throw new ApiError(404, "Prescription not found");
+      if (!prescriptionRows[0]) throw new ApiError(404, "Receta no encontrada");
       prescriptionSnapshot = prescriptionRows[0];
 
       // A sale generated from a prescription bills/collects money against the

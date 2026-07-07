@@ -654,6 +654,28 @@ async function resolveAppointmentOwnerId(clientId, businessId, client) {
   return rows[0]?.id ?? null;
 }
 
+// public.appointments.end_time became nullable in migration 53 (not every
+// appointment has a known end time at booking time), but
+// healthcare.appointments.end_time stays NOT NULL with a
+// CHECK (end_time > start_time) — this mirror is infrastructure-only today,
+// with no Fase 3+ read path surfacing it yet (see the "no visible value
+// changes today" comment on APPOINTMENT_MIRROR_JOIN in clinicalService.js),
+// so an arbitrary fallback here has zero visible impact on any report/UI.
+// This value is ONLY used for the mirror insert/update below — it is never
+// written back to public.appointments.end_time, which stays the real
+// (possibly null) source of truth.
+const FALLBACK_MIRROR_APPOINTMENT_DURATION_MINUTES = 30;
+
+function resolveMirrorEndTime(startTime, endTime) {
+  if (endTime) return endTime;
+  const [hours, minutes] = String(startTime).slice(0, 5).split(":").map(Number);
+  const totalMinutes = (hours * 60) + minutes + FALLBACK_MIRROR_APPOINTMENT_DURATION_MINUTES;
+  const wrappedMinutes = totalMinutes % (24 * 60);
+  const fallbackHours = String(Math.floor(wrappedMinutes / 60)).padStart(2, "0");
+  const fallbackMinutes = String(wrappedMinutes % 60).padStart(2, "0");
+  return `${fallbackHours}:${fallbackMinutes}:00`;
+}
+
 // Resolves the subject (human vs pet, via resolveHealthcareSubject) and the
 // pet-side owner_id, then builds every other mirrored column. Callers
 // (syncAppointmentToHealthcare/OnUpdate below) are expected to have already
@@ -687,7 +709,7 @@ async function buildAppointmentMirrorFields(publicAppointmentRow, syncSource, cl
     specialty: publicAppointmentRow.specialty || null,
     appointmentDate: publicAppointmentRow.appointment_date,
     startTime: publicAppointmentRow.start_time,
-    endTime: publicAppointmentRow.end_time,
+    endTime: resolveMirrorEndTime(publicAppointmentRow.start_time, publicAppointmentRow.end_time),
     status: publicAppointmentRow.status,
     notes: publicAppointmentRow.notes ? String(publicAppointmentRow.notes).trim() : "",
     metadataJson: JSON.stringify(metadata),

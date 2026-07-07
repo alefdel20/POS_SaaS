@@ -2,6 +2,7 @@ const { body, param, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const clinicalService = require("../services/clinicalService");
+const { PRESCRIPTION_STATUSES } = require("../utils/domainEnums");
 
 const listValidation = [
   query("search").optional().trim(),
@@ -13,11 +14,17 @@ const listValidation = [
 ];
 
 const createValidation = [
-  body("patient_id").isInt(),
+  // patient_id/client_id are each optional here — they can arrive instead as
+  // patient_name/client_name (NameAutocomplete free text), resolved/created
+  // by clinicalService inside the same transaction. buildConsultationPayload
+  // enforces that at least one of patient_id/patient_name is present.
+  body("patient_id").optional({ values: "falsy" }).isInt(),
+  body("patient_name").optional({ values: "falsy" }).trim(),
   // client_id is optional as of migration 47 — a patient attended before a
   // responsible party is resolved is a valid state, same criterion already
   // applied to appointments.client_id (migration 46).
   body("client_id").optional({ values: "falsy" }).isInt(),
+  body("client_name").optional({ values: "falsy" }).trim(),
   // appointment_id is optional — declares which appointment this consultation
   // resulted from, if any (migration 47). No heuristics: omitted means the
   // consultation stays unlinked, same as a walk-in.
@@ -29,6 +36,23 @@ const createValidation = [
   body("tratamiento").trim().notEmpty(),
   body("notas").optional().trim(),
   body("notes").optional().trim(),
+  // Optional prescription bundled with the same "Guardar" action (redesigned
+  // Consultas page) — saved inside createConsultation/updateConsultation's
+  // own transaction when it has at least one item (see
+  // shouldSavePrescription in clinicalService.js).
+  body("prescription").optional().isObject(),
+  body("prescription.diagnosis").optional({ values: "falsy" }).trim(),
+  body("prescription.indications").optional({ values: "falsy" }).trim(),
+  body("prescription.status").optional({ values: "falsy" }).isIn(PRESCRIPTION_STATUSES),
+  body("prescription.items").optional().isArray(),
+  body("prescription.items.*.product_id").optional({ values: "falsy" }).isInt(),
+  body("prescription.items.*.medication_name_snapshot").optional({ values: "falsy" }).trim(),
+  body("prescription.items.*.presentation_snapshot").optional({ values: "falsy" }).trim(),
+  body("prescription.items.*.dose").optional({ values: "falsy" }).trim(),
+  body("prescription.items.*.frequency").optional({ values: "falsy" }).trim(),
+  body("prescription.items.*.duration").optional({ values: "falsy" }).trim(),
+  body("prescription.items.*.route_of_administration").optional({ values: "falsy" }).trim(),
+  body("prescription.items.*.notes").optional().trim(),
   validateRequest
 ];
 

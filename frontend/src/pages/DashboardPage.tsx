@@ -135,7 +135,7 @@ export function DashboardPage() {
               {doctorSummary?.appointments_today.map((appointment) => (
                 <article className="info-card" key={appointment.id}>
                   <strong>{appointment.patient_name}</strong>
-                  <p>{shortDate(appointment.appointment_date)} · {appointment.start_time.slice(0, 5)} - {appointment.end_time.slice(0, 5)}</p>
+                  <p>{shortDate(appointment.appointment_date)} · {appointment.start_time.slice(0, 5)} - {appointment.end_time ? appointment.end_time.slice(0, 5) : "sin hora fin"}</p>
                   <p>{appointment.specialty || "Consulta general"} · {appointment.status}</p>
                 </article>
               ))}
@@ -159,7 +159,7 @@ export function DashboardPage() {
               {doctorSummary?.next_appointments.map((appointment) => (
                 <article className="info-card" key={appointment.id}>
                   <strong>{appointment.patient_name}</strong>
-                  <p>{shortDate(appointment.appointment_date)} · {appointment.start_time.slice(0, 5)} - {appointment.end_time.slice(0, 5)}</p>
+                  <p>{shortDate(appointment.appointment_date)} · {appointment.start_time.slice(0, 5)} - {appointment.end_time ? appointment.end_time.slice(0, 5) : "sin hora fin"}</p>
                   <p>{appointment.specialty || "Consulta general"} · {appointment.status}</p>
                 </article>
               ))}
@@ -256,7 +256,7 @@ export function DashboardPage() {
               {adminAppointmentsToday.map((appointment) => (
                 <article className="info-card" key={`admin-appointment-${appointment.id}`}>
                   <strong>{appointment.patient_name}</strong>
-                  <p>{appointment.start_time.slice(0, 5)} - {appointment.end_time.slice(0, 5)}</p>
+                  <p>{appointment.start_time.slice(0, 5)} - {appointment.end_time ? appointment.end_time.slice(0, 5) : "sin hora fin"}</p>
                   <p>{appointment.doctor_name || "Sin doctor"} · {appointment.specialty || "Consulta"}</p>
                 </article>
               ))}

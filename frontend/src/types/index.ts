@@ -627,7 +627,7 @@ export interface ClinicalAppointment {
   breed?: string | null;
   appointment_date: string;
   start_time: string;
-  end_time: string;
+  end_time: string | null;
   area: "CLINICA" | "ESTETICA";
   specialty?: string | null;
   status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show";
@@ -1045,7 +1045,7 @@ export interface DashboardSummary {
       patient_name: string;
       appointment_date: string;
       start_time: string;
-      end_time: string;
+      end_time: string | null;
       doctor_name?: string | null;
       specialty?: string | null;
       status: string;
@@ -1066,7 +1066,7 @@ export interface DashboardSummary {
         patient_name: string;
         appointment_date: string;
         start_time: string;
-        end_time: string;
+        end_time: string | null;
         specialty?: string | null;
         status: string;
       }>;
@@ -1075,7 +1075,7 @@ export interface DashboardSummary {
         patient_name: string;
         appointment_date: string;
         start_time: string;
-        end_time: string;
+        end_time: string | null;
         specialty?: string | null;
         status: string;
       }>;

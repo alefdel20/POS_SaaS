@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { apiRequest } from "../api/client";
-import type { ClinicalClientSummary } from "../types";
-import { ClientPicker } from "./ClientPicker";
+import { NameAutocomplete, NameAutocompleteValue } from "./NameAutocomplete";
 
 interface AssignPatientResponsibleProps {
   token: string | null;
@@ -9,26 +8,36 @@ interface AssignPatientResponsibleProps {
   onAssigned: () => void;
 }
 
+const emptyValue: NameAutocompleteValue = { id: null, name: "" };
+
 // Quick "asignar responsable" affordance for a patient created without one
 // (rescued animal pending adoption, etc — client_id is optional at creation,
 // see clinicalService.buildPatientPayload). Reuses PUT /patients/:id, which
-// now persists client_id, instead of a dedicated endpoint.
+// accepts client_id (existing) or client_name (created inline, inside the
+// same transaction as the update — see resolveOrCreateClientId).
 export function AssignPatientResponsible({ token, patientId, onAssigned }: AssignPatientResponsibleProps) {
   const [expanded, setExpanded] = useState(false);
+  const [value, setValue] = useState<NameAutocompleteValue>(emptyValue);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleAssign(client: ClinicalClientSummary) {
+  async function handleAssign() {
     if (!token) return;
+    const name = value.name.trim();
+    if (!value.id && !name) {
+      setError("Escribe o selecciona un responsable");
+      return;
+    }
     try {
       setSaving(true);
       setError("");
       await apiRequest(`/patients/${patientId}`, {
         method: "PUT",
         token,
-        body: JSON.stringify({ client_id: client.id })
+        body: JSON.stringify(value.id ? { client_id: value.id } : { client_name: name })
       });
       setExpanded(false);
+      setValue(emptyValue);
       onAssigned();
     } catch (assignError) {
       setError(assignError instanceof Error ? assignError.message : "No fue posible asignar el responsable");
@@ -49,10 +58,12 @@ export function AssignPatientResponsible({ token, patientId, onAssigned }: Assig
   return (
     <div className="info-card">
       {error ? <p className="error-text">{error}</p> : null}
-      {saving ? <p className="muted">Asignando...</p> : null}
-      <ClientPicker label="Asignar responsable" onClear={() => setExpanded(false)} onSelect={handleAssign} token={token} value={null} />
+      <NameAutocomplete kind="client" label="Responsable" onChange={setValue} token={token} value={value} />
       <div className="inline-actions">
-        <button className="button ghost" onClick={() => setExpanded(false)} type="button">Cancelar</button>
+        <button className="button" disabled={saving || (!value.id && !value.name.trim())} onClick={handleAssign} type="button">
+          {saving ? "Asignando..." : "Asignar"}
+        </button>
+        <button className="button ghost" onClick={() => { setExpanded(false); setValue(emptyValue); }} type="button">Cancelar</button>
       </div>
     </div>
   );
