@@ -163,6 +163,15 @@ export function MedicalConsultationsPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalConsultation | null>(null);
   const [prescription, setPrescription] = useState<MedicalPrescription | null>(null);
+  // Pre-fetched as soon as `prescription` loads (see the effect below), NOT
+  // on click — see the long comment on that effect for why: navigator.share()
+  // and anchor-click blob downloads both require "transient user activation",
+  // and an `await fetch(...)` placed between the click and that call is
+  // enough for some mobile browsers (confirmed: Android Chrome) to treat the
+  // gesture as stale and silently fail both, with no download and no share
+  // sheet. Having the blob ready ahead of time lets every click handler call
+  // share()/anchor.click() synchronously, with zero await in between.
+  const [prescriptionPdfBlob, setPrescriptionPdfBlob] = useState<Blob | null>(null);
   const [patientValue, setPatientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
   const [clientValue, setClientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
   const [form, setForm] = useState<ConsultationFormState>(emptyForm);
@@ -274,6 +283,30 @@ export function MedicalConsultationsPage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar la cita de origen");
     });
   }, [detail?.appointment_id, token]);
+
+  // Pre-fetches the PDF as soon as a prescription is loaded, well before any
+  // click — see the comment on the prescriptionPdfBlob state above for why
+  // this exists. Depends on the whole `prescription` object (not just its
+  // id) so an edit that changes the medications but keeps the same
+  // prescription id still invalidates the stale blob and re-fetches.
+  useEffect(() => {
+    setPrescriptionPdfBlob(null);
+    if (!token || !prescription) return;
+    let cancelled = false;
+    fetchPrescriptionPdfBlob(prescription.id)
+      .then((blob) => {
+        if (!cancelled) setPrescriptionPdfBlob(blob);
+      })
+      .catch(() => {
+        // Pre-fetch failing silently is fine — the click handlers below
+        // detect a missing blob and ask the user to retry instead of
+        // falling back to an on-click fetch (which would reintroduce the
+        // exact activation-loss bug this mechanism exists to avoid).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [prescription, token]);
 
   useEffect(() => {
     loadPatientAppointments(patientValue.id).catch((loadError) => {
@@ -569,22 +602,45 @@ export function MedicalConsultationsPage() {
     }
   }
 
-  // Shared by the plain "Descargar PDF" button and "Compartir" below — same
-  // file, same content, triggered as a real browser download either way.
-  async function downloadPrescriptionPdf(prescriptionId: number) {
-    const blob = await apiDownload(`/medical-prescriptions/${prescriptionId}/export/pdf`, { token: token! });
+  // Fetches the raw PDF without triggering a download — used both to build
+  // the download-only flow and to build the File for native sharing.
+  async function fetchPrescriptionPdfBlob(prescriptionId: number) {
+    return apiDownload(`/medical-prescriptions/${prescriptionId}/export/pdf`, { token: token! });
+  }
+
+  function triggerBlobDownload(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `receta-medica-${prescriptionId}.pdf`;
+    anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
   }
 
+  // Shared by the plain "Descargar PDF" button and the share fallback below
+  // — same file, same content, triggered as a real browser download either
+  // way.
+  async function downloadPrescriptionPdf(prescriptionId: number) {
+    const blob = await fetchPrescriptionPdfBlob(prescriptionId);
+    triggerBlobDownload(blob, `receta-medica-${prescriptionId}.pdf`);
+  }
+
   async function handleDownloadPrescriptionPdf() {
-    if (!token || !prescription) return;
+    if (!prescription) return;
+    resetFeedback();
+    const filename = `receta-medica-${prescription.id}.pdf`;
+    if (prescriptionPdfBlob) {
+      triggerBlobDownload(prescriptionPdfBlob, filename);
+      setInfo("PDF de receta descargado");
+      return;
+    }
+    // Pre-fetch hasn't resolved yet (rare — only in the brief window right
+    // after opening the detail) or failed silently — fetch on demand as a
+    // last resort. This narrow path still carries the original
+    // activation-loss risk on strict mobile browsers (see prescriptionPdfBlob
+    // above), but there is no ready blob to call this synchronously with.
+    if (!token) return;
     try {
-      resetFeedback();
       await downloadPrescriptionPdf(prescription.id);
       setInfo("PDF de receta descargado");
     } catch (downloadError) {
@@ -592,28 +648,95 @@ export function MedicalConsultationsPage() {
     }
   }
 
-  // "Compartir" no manda ningún link a la app — el dueño de la mascota no
-  // tiene cuenta, así que un link que exige iniciar sesión no sirve de nada.
-  // En su lugar: descarga el PDF (misma función que "Descargar PDF") y abre
-  // WhatsApp/correo con un mensaje corto pidiendo adjuntarlo manualmente
-  // desde las descargas. Sin Web Share API ni envío de adjuntos por backend
-  // — es intencional que el usuario lo adjunte a mano.
-  async function handleSharePrescription(channel: "whatsapp" | "email") {
-    if (!token || !prescription || !detail) return;
-    try {
-      resetFeedback();
-      await downloadPrescriptionPdf(prescription.id);
-      const message = `Aquí tienes la receta de ${detail.patient_name}. Revisa tus descargas y adjúntala.`;
-      if (channel === "whatsapp") {
-        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
-      } else {
-        window.location.href = `mailto:?subject=${encodeURIComponent(`Receta medica - ${detail.patient_name}`)}&body=${encodeURIComponent(message)}`;
-      }
-      setInfo("PDF descargado. Adjúntalo manualmente al abrir WhatsApp o el correo.");
-    } catch (shareError) {
-      setError(shareError instanceof Error ? shareError.message : "No fue posible descargar la receta");
-    }
+  function shareFallbackMessage(patientName: string) {
+    return `Aquí tienes la receta de ${patientName}. Revisa tus descargas y adjúntala.`;
   }
+
+  // Fallback path when the browser has no Web Share support for files (see
+  // handleNativeShare below) — never sends a link to the app (the pet
+  // owner has no account, so a link that requires login is useless). Downloads
+  // the PDF (using the pre-fetched blob — see prescriptionPdfBlob above; this
+  // must stay synchronous, no await, or the activation-loss bug comes right
+  // back) and opens WhatsApp/correo with a short, link-free message; the
+  // user attaches the file manually from their downloads. This is the ONLY
+  // option on browsers that can't share files directly, so it stays — it is
+  // not dead code.
+  function handleSharePrescription(channel: "whatsapp" | "email") {
+    if (!prescription || !detail) return;
+    resetFeedback();
+    if (!prescriptionPdfBlob) {
+      setError("La receta todavía se está preparando, espera un segundo e intenta de nuevo.");
+      return;
+    }
+    triggerBlobDownload(prescriptionPdfBlob, `receta-medica-${prescription.id}.pdf`);
+    const message = shareFallbackMessage(detail.patient_name);
+    if (channel === "whatsapp") {
+      window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+    } else {
+      window.location.href = `mailto:?subject=${encodeURIComponent(`Receta medica - ${detail.patient_name}`)}&body=${encodeURIComponent(message)}`;
+    }
+    setInfo("PDF descargado. Adjúntalo manualmente al abrir WhatsApp o el correo.");
+  }
+
+  // Primary path: neither wa.me nor mailto: can attach a file for platform/
+  // security reasons — the only real "attach without manual steps" option is
+  // the OS/browser's native share sheet (Web Share API Level 2, `files`).
+  // canShare({ files }) is checked against the REAL File (not just presence
+  // of navigator.share) because plenty of browsers support text-only share
+  // but not file share.
+  //
+  // Everything up to and including navigator.share(...) below runs
+  // synchronously off the click — no await before it — using the blob
+  // pre-fetched by the effect above. That's the actual fix for the Android
+  // Chrome bug: the previous version awaited fetchPrescriptionPdfBlob()
+  // INSIDE this handler, and by the time navigator.share()/anchor.click() ran,
+  // transient user activation had expired, so Android Chrome silently
+  // rejected both the share sheet and the blob download (only window.open()
+  // for wa.me still worked, since popup-gating is comparatively lenient).
+  //
+  // A user cancelling the native picker throws AbortError — not a real
+  // failure, swallowed silently. Any OTHER failure runs the manual download +
+  // WhatsApp fallback inside the .catch() below; that one branch is
+  // technically one microtask removed from the original gesture (unavoidable
+  // — we don't know share() will fail until it does), but share() rejections
+  // are typically near-instant, not after a network round trip, so it stays
+  // well inside the activation window in practice.
+  function handleNativeShare() {
+    if (!prescription || !detail) return;
+    resetFeedback();
+    if (!prescriptionPdfBlob) {
+      setError("La receta todavía se está preparando, espera un segundo e intenta de nuevo.");
+      return;
+    }
+    const filename = `receta-medica-${prescription.id}.pdf`;
+    const file = new File([prescriptionPdfBlob], filename, { type: "application/pdf" });
+
+    function fallbackToManualShare() {
+      triggerBlobDownload(prescriptionPdfBlob!, filename);
+      window.open(`https://wa.me/?text=${encodeURIComponent(shareFallbackMessage(detail!.patient_name))}`, "_blank", "noopener,noreferrer");
+      setInfo("Tu navegador no pudo adjuntar el archivo directamente: se descargó el PDF, adjúntalo manualmente.");
+    }
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({
+        files: [file],
+        title: "Receta medica",
+        text: `Receta medica de ${detail.patient_name}`
+      }).catch((shareError) => {
+        if (shareError instanceof Error && shareError.name === "AbortError") return;
+        fallbackToManualShare();
+      });
+      return;
+    }
+
+    fallbackToManualShare();
+  }
+
+  // Static capability gate deciding WHICH share UI to render — not whether
+  // an individual share attempt will succeed (that's the real canShare(file)
+  // check inside handleNativeShare). `canShare` existing without `share`
+  // (or vice versa) has been observed in the wild, so both are required.
+  const supportsFileShare = typeof navigator !== "undefined" && "share" in navigator && "canShare" in navigator;
 
   return (
     <section className="page-grid">
@@ -898,13 +1021,17 @@ export function MedicalConsultationsPage() {
                       Generar venta desde receta
                     </button>
                   ) : null}
-                  <details className="share-actions">
-                    <summary className="button ghost">Compartir</summary>
-                    <div className="share-actions-menu">
-                      <button className="button ghost" onClick={() => handleSharePrescription("whatsapp")} type="button">WhatsApp</button>
-                      <button className="button ghost" onClick={() => handleSharePrescription("email")} type="button">Correo</button>
-                    </div>
-                  </details>
+                  {supportsFileShare ? (
+                    <button className="button ghost" onClick={handleNativeShare} type="button">Compartir</button>
+                  ) : (
+                    <details className="share-actions">
+                      <summary className="button ghost">Compartir</summary>
+                      <div className="share-actions-menu">
+                        <button className="button ghost" onClick={() => handleSharePrescription("whatsapp")} type="button">WhatsApp</button>
+                        <button className="button ghost" onClick={() => handleSharePrescription("email")} type="button">Correo</button>
+                      </div>
+                    </details>
+                  )}
                 </div>
               </div>
               <div className="table-wrap">
