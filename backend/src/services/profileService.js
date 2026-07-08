@@ -33,6 +33,9 @@ function mapProfile(profile, subscription = null) {
     business_image_path: generalSettings.business_image_path || null,
     professional_license: generalSettings.professional_license || null,
     signature_image_path: generalSettings.signature_image_path || null,
+    prescription_template: ["clasico", "moderno", "compacto"].includes(generalSettings.prescription_template)
+      ? generalSettings.prescription_template
+      : "clasico",
     bank_name: profile.bank_name,
     bank_clabe: profile.bank_clabe,
     bank_beneficiary: profile.bank_beneficiary,
@@ -237,6 +240,11 @@ async function updateProfileSection(payload, actor, section) {
     }
     if (section === "general" && payload.professional_license !== undefined) {
       generalSettings.professional_license = payload.professional_license || "";
+    }
+    if (section === "general" && payload.prescription_template !== undefined) {
+      generalSettings.prescription_template = ["clasico", "moderno", "compacto"].includes(payload.prescription_template)
+        ? payload.prescription_template
+        : "clasico";
     }
     if (section === "banking") {
       Object.assign(updates, { bank_name: payload.bank_name ?? current.bank_name, bank_clabe: payload.bank_clabe ?? current.bank_clabe, bank_beneficiary: payload.bank_beneficiary ?? current.bank_beneficiary });

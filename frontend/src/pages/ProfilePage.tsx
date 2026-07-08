@@ -17,6 +17,7 @@ type ProfileFormState = {
   professional_license: string;
   theme: "light" | "dark";
   accent_palette: "default" | "ocean" | "forest" | "ember";
+  prescription_template: "clasico" | "moderno" | "compacto";
   bank_name: string;
   bank_clabe: string;
   bank_beneficiary: string;
@@ -54,6 +55,7 @@ const emptyForm: ProfileFormState = {
   professional_license: "",
   theme: "dark",
   accent_palette: "default",
+  prescription_template: "clasico",
   bank_name: "",
   bank_clabe: "",
   bank_beneficiary: "",
@@ -81,6 +83,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
     professional_license: profile?.professional_license || "",
     theme: profile?.theme || "dark",
     accent_palette: profile?.accent_palette || "default",
+    prescription_template: profile?.prescription_template || "clasico",
     bank_name: profile?.bank_name || "",
     bank_clabe: profile?.bank_clabe || "",
     bank_beneficiary: profile?.bank_beneficiary || "",
@@ -100,7 +103,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
 }
 
 const sectionFields = {
-  general: ["owner_name", "company_name", "phone", "email", "address", "professional_license", "theme", "accent_palette"],
+  general: ["owner_name", "company_name", "phone", "email", "address", "professional_license", "theme", "accent_palette", "prescription_template"],
   banking: ["bank_name", "bank_clabe", "bank_beneficiary", "card_terminal", "card_bank", "card_instructions", "card_commission"],
   fiscal: ["fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address"],
   stamps: ["pac_provider", "pac_mode", "stamps_available", "stamp_alert_threshold"]
@@ -737,7 +740,8 @@ export function ProfilePage() {
         address: formData.address,
         professional_license: formData.professional_license,
         theme: formData.theme,
-        accent_palette: formData.accent_palette
+        accent_palette: formData.accent_palette,
+        prescription_template: formData.prescription_template
       })}>
         <div className="panel-header">
           <div>
@@ -783,6 +787,17 @@ export function ProfilePage() {
             <option value="ocean">Oceano</option>
             <option value="forest">Bosque</option>
             <option value="ember">Ember</option>
+          </select>
+        </label>
+        <label>
+          Plantilla de receta
+          <select
+            value={formData.prescription_template}
+            onChange={(event) => updateField("prescription_template", event.target.value as ProfileFormState["prescription_template"])}
+          >
+            <option value="clasico">Clasica</option>
+            <option value="moderno">Moderna (banda de color)</option>
+            <option value="compacto">Compacta (mas medicamentos por pagina)</option>
           </select>
         </label>
         <div className="info-card form-span-2">

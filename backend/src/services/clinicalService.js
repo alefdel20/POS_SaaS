@@ -315,13 +315,14 @@ async function getOwnedPrescription(id, actor, client = pool) {
     `SELECT mp.*,
             p.name AS patient_name,
             u.full_name AS doctor_name,
+            u.professional_license AS doctor_professional_license,
             COUNT(mpi.id)::int AS item_count
      FROM medical_prescriptions mp
      INNER JOIN patients p ON p.id = mp.patient_id AND p.business_id = mp.business_id
      LEFT JOIN users u ON u.id = mp.doctor_user_id
      LEFT JOIN medical_prescription_items mpi ON mpi.prescription_id = mp.id
      WHERE mp.id = $1 AND mp.business_id = $2
-     GROUP BY mp.id, p.name, u.full_name`,
+     GROUP BY mp.id, p.name, u.full_name, u.professional_license`,
     [id, businessId]
   );
   const owned = rows[0];
@@ -2503,7 +2504,13 @@ async function getBusinessProfile(actor) {
     ...profile,
     professional_license: generalSettings.professional_license || null,
     business_image_path: generalSettings.business_image_path || null,
-    signature_image_path: generalSettings.signature_image_path || null
+    signature_image_path: generalSettings.signature_image_path || null,
+    accent_palette: ["default", "ocean", "forest", "ember"].includes(generalSettings.accent_palette)
+      ? generalSettings.accent_palette
+      : "default",
+    prescription_template: ["clasico", "moderno", "compacto"].includes(generalSettings.prescription_template)
+      ? generalSettings.prescription_template
+      : "clasico"
   };
 }
 
@@ -2723,16 +2730,40 @@ async function exportClinicalHistoryPdf(filters = {}, actor) {
   };
 }
 
-async function exportPrescriptionPdf(id, actor) {
-  const prescription = await getPrescriptionDetail(id, actor);
-  const patient = await getPatientDetail(Number(prescription.patient_id), actor);
-  const business = await getBusinessProfile(actor);
-  const document = new PDFDocument({ margin: 36 });
-  const chunks = [];
-  document.on("data", (chunk) => chunks.push(chunk));
+const PRESCRIPTION_ACCENT_COLORS = {
+  default: "#1f9c82",
+  ocean: "#2f82ff",
+  forest: "#2f9e44",
+  ember: "#e76f51"
+};
 
-  const businessImagePath = resolveStoredBusinessAssetAbsolutePath(business?.business_image_path);
-  const signatureImagePath = resolveStoredBusinessAssetAbsolutePath(business?.signature_image_path);
+function resolvePrescriptionAccentColor(accentPalette) {
+  return PRESCRIPTION_ACCENT_COLORS[accentPalette] || PRESCRIPTION_ACCENT_COLORS.default;
+}
+
+function drawPrescriptionPatientInfo(document, { patient, prescription }) {
+  document.text(`Paciente: ${patient.name}`);
+  document.text(`Cliente / tutor: ${patient.client_name || "-"}`);
+  document.text(`Fecha de emision: ${prescription.created_at}`);
+  document.text(`Estado: ${prescription.status}`);
+}
+
+function drawPrescriptionSignature(document, signatureImagePath) {
+  if (!signatureImagePath) return;
+  try {
+    document.moveDown();
+    document.fillColor("#000000").fontSize(11).text("Firma", { align: "left" });
+    document.image(signatureImagePath, { fit: [160, 80], align: "left" });
+  } catch (error) {
+    // Ignore invalid images so the PDF remains compatible.
+  }
+}
+
+// Template "clasico": plain black-on-white, one field per line — the original
+// receta layout, kept as the default so a business that never picks a
+// template sees no visual change from before templates existed.
+function renderClassicPrescription(document, ctx) {
+  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName } = ctx;
   if (businessImagePath) {
     try {
       document.image(businessImagePath, 36, 28, { fit: [90, 90], align: "left" });
@@ -2747,15 +2778,12 @@ async function exportPrescriptionPdf(id, actor) {
   document.fontSize(11).text(`Negocio: ${business?.company_name || business?.fiscal_business_name || "-"}`);
   document.text(`Telefono: ${business?.phone || "-"}`);
   document.text(`Correo: ${business?.email || "-"}`);
-  if (business?.professional_license) {
-    document.text(`Cedula profesional: ${business.professional_license}`);
+  document.text(`Medico: ${doctorName}`);
+  if (doctorLicense) {
+    document.text(`Cedula profesional: ${doctorLicense}`);
   }
   document.moveDown();
-  document.text(`Paciente: ${patient.name}`);
-  document.text(`Cliente / tutor: ${patient.client_name || "-"}`);
-  document.text(`Medico: ${prescription.doctor_name || actor.full_name || "-"}`);
-  document.text(`Fecha de emision: ${prescription.created_at}`);
-  document.text(`Estado: ${prescription.status}`);
+  drawPrescriptionPatientInfo(document, { patient, prescription });
   document.moveDown();
   document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
   document.text(`Indicaciones generales: ${prescription.indications || "-"}`);
@@ -2775,14 +2803,133 @@ async function exportPrescriptionPdf(id, actor) {
     document.moveDown(0.75);
   });
 
-  if (signatureImagePath) {
+  drawPrescriptionSignature(document, signatureImagePath);
+}
+
+// Template "moderno": colored band header (business accent color, same
+// palette as the app UI) with the logo inside it, accent-colored section
+// labels, and thin accent rules between medications.
+function renderModernPrescription(document, ctx) {
+  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName, accentColor } = ctx;
+
+  document.rect(0, 0, document.page.width, 90).fill(accentColor);
+  if (businessImagePath) {
     try {
-      document.moveDown();
-      document.fontSize(11).text("Firma", { align: "left" });
-      document.image(signatureImagePath, { fit: [160, 80], align: "left" });
+      document.image(businessImagePath, 36, 15, { fit: [60, 60], align: "left" });
     } catch (error) {
       // Ignore invalid images so the PDF remains compatible.
     }
+  }
+  document.fillColor("#ffffff").fontSize(18).text("Receta medica", 108, 24, { width: document.page.width - 144 });
+  document.fontSize(11).text(business?.company_name || business?.fiscal_business_name || "-", 108, 50, { width: document.page.width - 144 });
+
+  document.fillColor("#000000").fontSize(11);
+  document.x = document.page.margins.left;
+  document.y = 110;
+
+  document.fillColor(accentColor).text("Datos del negocio");
+  document.fillColor("#000000");
+  document.text(`Telefono: ${business?.phone || "-"}`);
+  document.text(`Correo: ${business?.email || "-"}`);
+  document.moveDown();
+
+  document.fillColor(accentColor).text("Paciente y medico");
+  document.fillColor("#000000");
+  document.text(`Medico: ${doctorName}`);
+  if (doctorLicense) document.text(`Cedula profesional: ${doctorLicense}`);
+  drawPrescriptionPatientInfo(document, { patient, prescription });
+  document.moveDown();
+
+  document.fillColor(accentColor).text("Diagnostico e indicaciones");
+  document.fillColor("#000000");
+  document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
+  document.text(`Indicaciones generales: ${prescription.indications || "-"}`);
+  document.moveDown();
+
+  document.fillColor(accentColor).fontSize(13).text("Medicamentos");
+  document.fillColor("#000000").fontSize(10);
+  document.moveDown(0.3);
+
+  prescription.items.forEach((item, index) => {
+    const ruleY = document.y;
+    document.moveTo(36, ruleY).lineTo(document.page.width - 36, ruleY).strokeColor(accentColor).lineWidth(0.75).stroke();
+    document.moveDown(0.3);
+    document.fillColor(accentColor).text(`${index + 1}. ${item.medication_name_snapshot}`);
+    document.fillColor("#000000");
+    document.text(`Presentacion: ${item.presentation_snapshot || "-"}`);
+    document.text(`Dosis: ${item.dose || "-"}    Frecuencia: ${item.frequency || "-"}`);
+    document.text(`Duracion: ${item.duration || "-"}    Via: ${item.route_of_administration || "-"}`);
+    document.text(`Notas: ${item.notes || "-"}`);
+    document.text(`Stock al recetar: ${item.stock_snapshot ?? "-"}`);
+    document.moveDown(0.5);
+  });
+
+  drawPrescriptionSignature(document, signatureImagePath);
+}
+
+// Template "compacto": tighter margins, smaller type, medication fields
+// grouped onto fewer lines — fits more medications on a single page.
+function renderCompactPrescription(document, ctx) {
+  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName } = ctx;
+
+  if (businessImagePath) {
+    try {
+      document.image(businessImagePath, 24, 20, { fit: [50, 50], align: "left" });
+    } catch (error) {
+      // Ignore invalid images so the PDF remains compatible.
+    }
+  }
+
+  document.fontSize(13).text("Receta medica", { align: "center" });
+  document.moveDown(0.5);
+  document.fontSize(9);
+  document.text(`Negocio: ${business?.company_name || business?.fiscal_business_name || "-"}    Tel: ${business?.phone || "-"}    Correo: ${business?.email || "-"}`);
+  document.text(`Medico: ${doctorName}${doctorLicense ? `    Cedula: ${doctorLicense}` : ""}`);
+  document.text(`Paciente: ${patient.name}    Tutor: ${patient.client_name || "-"}    Fecha: ${prescription.created_at}    Estado: ${prescription.status}`);
+  document.moveDown(0.5);
+  document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
+  document.text(`Indicaciones: ${prescription.indications || "-"}`);
+  document.moveDown(0.5);
+  document.fontSize(10).text("Medicamentos", { underline: true });
+  document.moveDown(0.3);
+
+  prescription.items.forEach((item, index) => {
+    document.fontSize(9).text(`${index + 1}. ${item.medication_name_snapshot} (${item.presentation_snapshot || "-"})`);
+    document.text(`  Dosis: ${item.dose || "-"} | Frecuencia: ${item.frequency || "-"} | Duracion: ${item.duration || "-"} | Via: ${item.route_of_administration || "-"}`);
+    if (item.notes) document.text(`  Notas: ${item.notes}`);
+    document.text(`  Stock al recetar: ${item.stock_snapshot ?? "-"}`);
+    document.moveDown(0.3);
+  });
+
+  drawPrescriptionSignature(document, signatureImagePath);
+}
+
+async function exportPrescriptionPdf(id, actor) {
+  const prescription = await getPrescriptionDetail(id, actor);
+  const patient = await getPatientDetail(Number(prescription.patient_id), actor);
+  const business = await getBusinessProfile(actor);
+  const template = business?.prescription_template || "clasico";
+  const document = new PDFDocument({ margin: template === "compacto" ? 24 : 36 });
+  const chunks = [];
+  document.on("data", (chunk) => chunks.push(chunk));
+
+  const ctx = {
+    business,
+    patient,
+    prescription,
+    doctorName: prescription.doctor_name || actor.full_name || "-",
+    doctorLicense: prescription.doctor_professional_license || null,
+    businessImagePath: resolveStoredBusinessAssetAbsolutePath(business?.business_image_path),
+    signatureImagePath: resolveStoredBusinessAssetAbsolutePath(business?.signature_image_path),
+    accentColor: resolvePrescriptionAccentColor(business?.accent_palette)
+  };
+
+  if (template === "moderno") {
+    renderModernPrescription(document, ctx);
+  } else if (template === "compacto") {
+    renderCompactPrescription(document, ctx);
+  } else {
+    renderClassicPrescription(document, ctx);
   }
 
   document.end();
