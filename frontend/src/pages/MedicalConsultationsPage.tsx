@@ -216,26 +216,6 @@ function useMedicationSearch(token: string | null) {
   return { query, setQuery, suggestions, searching, reset };
 }
 
-// QA follow-up: capture a medication that isn't in the catalog, for print
-// only — name only (no dose/frequency/via, same decision as catalog items:
-// that detail goes in Tratamiento/Notas). Never resolves/creates a
-// product_id, so it's stored exactly like the pre-existing "medicamento
-// libre" shape (product_id NULL + medication_name_snapshot) and is
-// automatically excluded from stock deduction and from "Generar venta desde
-// receta" (loadPrescriptionIntoCart in SalesPage.tsx already skips any item
-// with product_id === null).
-function useOutOfCatalogInput() {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-
-  function reset() {
-    setOpen(false);
-    setName("");
-  }
-
-  return { open, setOpen, name, setName, reset };
-}
-
 export function MedicalConsultationsPage() {
   const { token, user } = useAuth();
   const location = useLocation();
@@ -250,8 +230,6 @@ export function MedicalConsultationsPage() {
   // which list a result would land in) — see useMedicationSearch above.
   const administeredSearch = useMedicationSearch(token);
   const dispensedSearch = useMedicationSearch(token);
-  const administeredOutOfCatalog = useOutOfCatalogInput();
-  const dispensedOutOfCatalog = useOutOfCatalogInput();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalConsultation | null>(null);
   const [prescription, setPrescription] = useState<MedicalPrescription | null>(null);
@@ -479,8 +457,6 @@ export function MedicalConsultationsPage() {
     setPrescriptionForm(emptyPrescriptionForm);
     administeredSearch.reset();
     dispensedSearch.reset();
-    administeredOutOfCatalog.reset();
-    dispensedOutOfCatalog.reset();
     setShowForm(true);
   }
 
@@ -493,8 +469,6 @@ export function MedicalConsultationsPage() {
     setPrescriptionForm(prescriptionToForm(prescription));
     administeredSearch.reset();
     dispensedSearch.reset();
-    administeredOutOfCatalog.reset();
-    dispensedOutOfCatalog.reset();
     setShowForm(true);
   }
 
@@ -528,9 +502,11 @@ export function MedicalConsultationsPage() {
     }));
   }
 
-  // "Medicamento fuera de catalogo" — texto libre SOLO para impresion (ver
-  // useOutOfCatalogInput above): nunca resuelve/crea un product_id, nunca
-  // descuenta stock, no puede venderse desde el POS.
+  // "Medicamento fuera de catalogo" — texto libre SOLO para impresion,
+  // ofrecido por renderPrescriptionCategorySection cuando el buscador de
+  // catalogo no encuentra resultados para el termino escrito (ver abajo).
+  // Nunca resuelve/crea un product_id, nunca descuenta stock, no puede
+  // venderse desde el POS.
   function addOutOfCatalogMedicationToPrescription(name: string, category: PrescriptionItemForm["item_category"]) {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -583,8 +559,7 @@ export function MedicalConsultationsPage() {
   // to add the first one.
   function renderPrescriptionCategorySection(
     category: PrescriptionItemForm["item_category"],
-    search: ReturnType<typeof useMedicationSearch>,
-    outOfCatalog: ReturnType<typeof useOutOfCatalogInput>
+    search: ReturnType<typeof useMedicationSearch>
   ) {
     const rows = prescriptionForm.items
       .map((item, index) => ({ item, index }))
@@ -612,7 +587,11 @@ export function MedicalConsultationsPage() {
                     <tr key={`prescription-item-${index}`}>
                       <td>
                         <strong>{item.medication_name_snapshot}</strong>
-                        <div className="muted">{item.presentation_snapshot || "-"}</div>
+                        {item.product_id === null ? (
+                          <div className="muted">Medicamento no existente en el stock</div>
+                        ) : (
+                          <div className="muted">{item.presentation_snapshot || "-"}</div>
+                        )}
                       </td>
                       <td>
                         <input
@@ -675,29 +654,21 @@ export function MedicalConsultationsPage() {
               ))}
             </div>
           ) : null}
-          <div className="inline-actions">
-            <button className="button ghost" onClick={() => outOfCatalog.setOpen((current) => !current)} type="button">
-              {outOfCatalog.open ? "Cancelar" : "+ Medicamento fuera de catalogo"}
-            </button>
-          </div>
-          {outOfCatalog.open ? (
+          {/* QA follow-up: no separate "+ Medicamento fuera de catalogo" form
+              anymore — a term that comes back with zero catalog matches
+              offers this same search box as the way to add it, texto libre,
+              solo para impresion. */}
+          {!search.searching && search.suggestions.length === 0 && search.query.trim().length >= 2 ? (
             <div className="inline-actions">
-              <input
-                autoComplete="off"
-                onChange={(event) => outOfCatalog.setName(event.target.value)}
-                placeholder="Nombre del medicamento (solo para impresion)"
-                value={outOfCatalog.name}
-              />
               <button
-                className="button"
-                disabled={!outOfCatalog.name.trim()}
+                className="button ghost"
                 onClick={() => {
-                  addOutOfCatalogMedicationToPrescription(outOfCatalog.name, category);
-                  outOfCatalog.reset();
+                  addOutOfCatalogMedicationToPrescription(search.query, category);
+                  search.reset();
                 }}
                 type="button"
               >
-                Agregar
+                Agregar "{search.query.trim()}" como medicamento fuera de catalogo
               </button>
             </div>
           ) : null}
@@ -1034,8 +1005,8 @@ export function MedicalConsultationsPage() {
             </label>
 
             <div className="form-span-2 invoice-grid">
-              {renderPrescriptionCategorySection("administered", administeredSearch, administeredOutOfCatalog)}
-              {renderPrescriptionCategorySection("dispensed", dispensedSearch, dispensedOutOfCatalog)}
+              {renderPrescriptionCategorySection("administered", administeredSearch)}
+              {renderPrescriptionCategorySection("dispensed", dispensedSearch)}
             </div>
 
             <label>
