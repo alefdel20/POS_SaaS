@@ -2505,10 +2505,11 @@ async function getBusinessProfile(actor) {
     professional_license: generalSettings.professional_license || null,
     business_image_path: generalSettings.business_image_path || null,
     signature_image_path: generalSettings.signature_image_path || null,
+    prescription_background_path: generalSettings.prescription_background_path || null,
     accent_palette: ["default", "ocean", "forest", "ember"].includes(generalSettings.accent_palette)
       ? generalSettings.accent_palette
       : "default",
-    prescription_template: ["clasico", "moderno", "compacto"].includes(generalSettings.prescription_template)
+    prescription_template: ["clasico", "moderno", "compacto", "personalizado"].includes(generalSettings.prescription_template)
       ? generalSettings.prescription_template
       : "clasico"
   };
@@ -2904,6 +2905,65 @@ function renderCompactPrescription(document, ctx) {
   drawPrescriptionSignature(document, signatureImagePath);
 }
 
+// Template "personalizado": the business's own uploaded letterhead image
+// (designed externally, with their own logo/colors/frame already baked in)
+// is drawn as a full-bleed background, and the receta data is overlaid
+// starting below it.
+//
+// Positioning criterion (documented so it can be tuned later against real
+// letterheads): the top third of the page (document.page.height / 3) is
+// reserved for the letterhead's own branding/frame, plus a small 20pt gap.
+// Data starts there in plain black text, since we have no way to know the
+// letterhead's color scheme. If real membretes turn out taller/shorter than
+// a third of the page, adjust PRESCRIPTION_CUSTOM_TEMPLATE_CONTENT_START_RATIO.
+const PRESCRIPTION_CUSTOM_TEMPLATE_CONTENT_START_RATIO = 1 / 3;
+
+function renderCustomPrescription(document, ctx) {
+  const { business, patient, prescription, prescriptionBackgroundPath, signatureImagePath, doctorLicense, doctorName } = ctx;
+
+  if (prescriptionBackgroundPath) {
+    try {
+      document.image(prescriptionBackgroundPath, 0, 0, { width: document.page.width, height: document.page.height });
+    } catch (error) {
+      // Ignore invalid images so the PDF remains compatible.
+    }
+  }
+
+  document.x = 36;
+  document.y = document.page.height * PRESCRIPTION_CUSTOM_TEMPLATE_CONTENT_START_RATIO + 20;
+  document.fillColor("#000000").fontSize(11);
+
+  document.text(`Negocio: ${business?.company_name || business?.fiscal_business_name || "-"}`);
+  document.text(`Telefono: ${business?.phone || "-"}`);
+  document.text(`Correo: ${business?.email || "-"}`);
+  document.text(`Medico: ${doctorName}`);
+  if (doctorLicense) {
+    document.text(`Cedula profesional: ${doctorLicense}`);
+  }
+  document.moveDown();
+  drawPrescriptionPatientInfo(document, { patient, prescription });
+  document.moveDown();
+  document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
+  document.text(`Indicaciones generales: ${prescription.indications || "-"}`);
+  document.moveDown();
+  document.fontSize(12).text("Medicamentos");
+  document.moveDown(0.5);
+
+  prescription.items.forEach((item, index) => {
+    document.fontSize(10).text(`${index + 1}. ${item.medication_name_snapshot}`);
+    document.text(`Presentacion: ${item.presentation_snapshot || "-"}`);
+    document.text(`Dosis: ${item.dose || "-"}`);
+    document.text(`Frecuencia: ${item.frequency || "-"}`);
+    document.text(`Duracion: ${item.duration || "-"}`);
+    document.text(`Via: ${item.route_of_administration || "-"}`);
+    document.text(`Notas: ${item.notes || "-"}`);
+    document.text(`Stock al recetar: ${item.stock_snapshot ?? "-"}`);
+    document.moveDown(0.75);
+  });
+
+  drawPrescriptionSignature(document, signatureImagePath);
+}
+
 async function exportPrescriptionPdf(id, actor) {
   const prescription = await getPrescriptionDetail(id, actor);
   const patient = await getPatientDetail(Number(prescription.patient_id), actor);
@@ -2913,6 +2973,8 @@ async function exportPrescriptionPdf(id, actor) {
   const chunks = [];
   document.on("data", (chunk) => chunks.push(chunk));
 
+  const prescriptionBackgroundPath = resolveStoredBusinessAssetAbsolutePath(business?.prescription_background_path);
+
   const ctx = {
     business,
     patient,
@@ -2921,10 +2983,16 @@ async function exportPrescriptionPdf(id, actor) {
     doctorLicense: prescription.doctor_professional_license || null,
     businessImagePath: resolveStoredBusinessAssetAbsolutePath(business?.business_image_path),
     signatureImagePath: resolveStoredBusinessAssetAbsolutePath(business?.signature_image_path),
+    prescriptionBackgroundPath,
     accentColor: resolvePrescriptionAccentColor(business?.accent_palette)
   };
 
-  if (template === "moderno") {
+  if (template === "personalizado" && prescriptionBackgroundPath) {
+    // No membrete uploaded yet despite picking "personalizado" falls back to
+    // "clasico" below, rather than shipping a receta with a blank top third
+    // and nothing to explain why.
+    renderCustomPrescription(document, ctx);
+  } else if (template === "moderno") {
     renderModernPrescription(document, ctx);
   } else if (template === "compacto") {
     renderCompactPrescription(document, ctx);

@@ -3,6 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { OnboardingTour, type OnboardingTourHandle } from "../components/OnboardingTour";
 import { CancelSubscriptionModal } from "../components/CancelSubscriptionModal";
+import { PrescriptionTemplatePreview, type PrescriptionTemplateKey } from "../components/PrescriptionTemplatePreview";
 import { setStoredTheme } from "../services/storage";
 import type { CompanyProfile, DoctorProfile } from "../types";
 import { resolveUploadedAssetUrl } from "../utils/assets";
@@ -17,7 +18,7 @@ type ProfileFormState = {
   professional_license: string;
   theme: "light" | "dark";
   accent_palette: "default" | "ocean" | "forest" | "ember";
-  prescription_template: "clasico" | "moderno" | "compacto";
+  prescription_template: PrescriptionTemplateKey;
   bank_name: string;
   bank_clabe: string;
   bank_beneficiary: string;
@@ -150,7 +151,7 @@ export function ProfilePage() {
     cvv2: '',
   });
   const [openpayReady, setOpenpayReady] = useState(false);
-  const [assetLoading, setAssetLoading] = useState<"business_image" | "signature" | "">("");
+  const [assetLoading, setAssetLoading] = useState<"business_image" | "signature" | "prescription_background" | "">("");
   const [savingSection, setSavingSection] = useState<"general" | "banking" | "fiscal" | "stamps" | "">("");
   const [cfdiStatus, setCfdiStatus] = useState<{ addon: { status: string }; config: CfdiConfig } | null>(null);
   const [cfdiLoading, setCfdiLoading] = useState(false);
@@ -551,7 +552,7 @@ export function ProfilePage() {
     }
   }
 
-  async function handleAssetUpload(assetType: "business_image" | "signature", file: File | null) {
+  async function handleAssetUpload(assetType: "business_image" | "signature" | "prescription_background", file: File | null) {
     if (!token || !file) return;
 
     try {
@@ -658,7 +659,7 @@ export function ProfilePage() {
     }
   }
 
-  async function handleAssetDelete(assetType: "business_image" | "signature") {
+  async function handleAssetDelete(assetType: "business_image" | "signature" | "prescription_background") {
     if (!token) return;
 
     try {
@@ -789,17 +790,41 @@ export function ProfilePage() {
             <option value="ember">Ember</option>
           </select>
         </label>
-        <label>
-          Plantilla de receta
-          <select
-            value={formData.prescription_template}
-            onChange={(event) => updateField("prescription_template", event.target.value as ProfileFormState["prescription_template"])}
-          >
-            <option value="clasico">Clasica</option>
-            <option value="moderno">Moderna (banda de color)</option>
-            <option value="compacto">Compacta (mas medicamentos por pagina)</option>
-          </select>
-        </label>
+        <div className="form-span-2">
+          <span className="template-picker-label">Plantilla de receta</span>
+          <div className="template-picker">
+            {(
+              [
+                { value: "clasico", label: "Clasica" },
+                { value: "moderno", label: "Moderna" },
+                { value: "compacto", label: "Compacta" },
+                { value: "personalizado", label: "Personalizada" }
+              ] as const
+            ).map((option) => (
+              <label
+                key={option.value}
+                className={`template-option${formData.prescription_template === option.value ? " selected" : ""}`}
+              >
+                <input
+                  checked={formData.prescription_template === option.value}
+                  name="prescription_template"
+                  onChange={() => updateField("prescription_template", option.value)}
+                  type="radio"
+                  value={option.value}
+                />
+                <span className="template-option-thumb">
+                  <PrescriptionTemplatePreview accentPalette={formData.accent_palette} template={option.value} />
+                </span>
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+          {formData.prescription_template === "personalizado" ? (
+            <p className="muted">
+              Sube tu membrete abajo. Se usa como fondo de la pagina; los datos de la receta se imprimen debajo del tercio superior.
+            </p>
+          ) : null}
+        </div>
         <div className="info-card form-span-2">
           <div className="panel-header">
             <div>
@@ -815,6 +840,30 @@ export function ProfilePage() {
           {profile?.business_image_path ? <img alt="Imagen del negocio" className="profile-asset-preview" src={resolveUploadedAssetUrl(profile.business_image_path) || ""} /> : null}
           <input accept=".jpg,.jpeg,.png,.webp" disabled={assetLoading === "business_image"} onChange={(event) => handleAssetUpload("business_image", event.target.files?.[0] || null)} type="file" />
         </div>
+        {formData.prescription_template === "personalizado" ? (
+          <div className="info-card form-span-2">
+            <div className="panel-header">
+              <div>
+                <h3>Membrete personalizado</h3>
+                <p className="muted">Imagen de tu hoja membretada (logo, colores y marco ya integrados). Se usa como fondo completo de la receta.</p>
+              </div>
+              {profile?.prescription_background_path ? (
+                <button className="button ghost" disabled={assetLoading === "prescription_background"} onClick={() => handleAssetDelete("prescription_background")} type="button">
+                  Quitar
+                </button>
+              ) : null}
+            </div>
+            {profile?.prescription_background_path ? (
+              <img alt="Membrete personalizado" className="profile-asset-preview" src={resolveUploadedAssetUrl(profile.prescription_background_path) || ""} />
+            ) : null}
+            <input
+              accept=".jpg,.jpeg,.png,.webp"
+              disabled={assetLoading === "prescription_background"}
+              onChange={(event) => handleAssetUpload("prescription_background", event.target.files?.[0] || null)}
+              type="file"
+            />
+          </div>
+        ) : null}
         <div className="info-card form-span-2">
           <div className="panel-header">
             <div>

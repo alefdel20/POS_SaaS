@@ -33,7 +33,8 @@ function mapProfile(profile, subscription = null) {
     business_image_path: generalSettings.business_image_path || null,
     professional_license: generalSettings.professional_license || null,
     signature_image_path: generalSettings.signature_image_path || null,
-    prescription_template: ["clasico", "moderno", "compacto"].includes(generalSettings.prescription_template)
+    prescription_background_path: generalSettings.prescription_background_path || null,
+    prescription_template: ["clasico", "moderno", "compacto", "personalizado"].includes(generalSettings.prescription_template)
       ? generalSettings.prescription_template
       : "clasico",
     bank_name: profile.bank_name,
@@ -242,7 +243,7 @@ async function updateProfileSection(payload, actor, section) {
       generalSettings.professional_license = payload.professional_license || "";
     }
     if (section === "general" && payload.prescription_template !== undefined) {
-      generalSettings.prescription_template = ["clasico", "moderno", "compacto"].includes(payload.prescription_template)
+      generalSettings.prescription_template = ["clasico", "moderno", "compacto", "personalizado"].includes(payload.prescription_template)
         ? payload.prescription_template
         : "clasico";
     }
@@ -280,6 +281,7 @@ async function updateProfileSection(payload, actor, section) {
 function resolveProfileAssetSettingKey(assetType) {
   if (assetType === "business_image") return "business_image_path";
   if (assetType === "signature") return "signature_image_path";
+  if (assetType === "prescription_background") return "prescription_background_path";
   throw new ApiError(400, "Invalid profile asset type");
 }
 

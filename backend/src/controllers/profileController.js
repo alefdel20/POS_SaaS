@@ -12,7 +12,7 @@ const generalValidation = [
   body("theme").optional().isIn(["light", "dark"]),
   body("accent_palette").optional().isIn(["default", "ocean", "forest", "ember"]),
   body("professional_license").optional({ values: "falsy" }).trim(),
-  body("prescription_template").optional().isIn(["clasico", "moderno", "compacto"]),
+  body("prescription_template").optional().isIn(["clasico", "moderno", "compacto", "personalizado"]),
   body("reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
@@ -60,7 +60,7 @@ const stampsValidation = [
 ];
 
 const assetTypeValidation = [
-  param("assetType").isIn(["business_image", "signature"]),
+  param("assetType").isIn(["business_image", "signature", "prescription_background"]),
   validateRequest
 ];
 

@@ -1376,6 +1376,48 @@ td {
   margin-top: 0;
 }
 
+.template-picker-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.template-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.75rem;
+}
+
+.template-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  cursor: pointer;
+  text-align: center;
+}
+
+.template-option.selected {
+  border-color: var(--accent);
+}
+
+.template-option input[type="radio"] {
+  margin: 0;
+}
+
+.template-option-thumb {
+  width: 100%;
+  max-width: 90px;
+  aspect-ratio: 3 / 4;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
 .share-actions {
   grid-auto-flow: column;
 }

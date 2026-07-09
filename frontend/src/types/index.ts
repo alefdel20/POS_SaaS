@@ -842,7 +842,8 @@ export interface CompanyProfile {
   business_image_path?: string | null;
   professional_license?: string | null;
   signature_image_path?: string | null;
-  prescription_template?: "clasico" | "moderno" | "compacto";
+  prescription_background_path?: string | null;
+  prescription_template?: "clasico" | "moderno" | "compacto" | "personalizado";
   bank_name?: string | null;
   bank_clabe?: string | null;
   bank_beneficiary?: string | null;
