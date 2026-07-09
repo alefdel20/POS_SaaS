@@ -607,6 +607,7 @@ export interface ClinicalConsultation {
   diagnostico: string;
   tratamiento: string;
   notas: string;
+  temperature?: number | null;
   has_prescription?: boolean;
   prescription_count?: number;
   is_active: boolean;

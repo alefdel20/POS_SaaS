@@ -17,6 +17,7 @@ type ConsultationFormState = {
   diagnostico: string;
   tratamiento: string;
   notas: string;
+  temperature: string;
 };
 
 // Appointments a consultation could plausibly have originated from: excludes
@@ -85,7 +86,8 @@ const emptyForm: ConsultationFormState = {
   motivo_consulta: "",
   diagnostico: "",
   tratamiento: "",
-  notas: ""
+  notas: "",
+  temperature: ""
 };
 
 const emptyPrescriptionForm: PrescriptionFormState = {
@@ -102,7 +104,8 @@ function consultationToForm(consultation: ClinicalConsultation | null): Consulta
     motivo_consulta: consultation?.motivo_consulta || "",
     diagnostico: consultation?.diagnostico || "",
     tratamiento: consultation?.tratamiento || "",
-    notas: consultation?.notas || ""
+    notas: consultation?.notas || "",
+    temperature: consultation?.temperature !== null && consultation?.temperature !== undefined ? String(consultation.temperature) : ""
   };
 }
 
@@ -547,7 +550,8 @@ export function MedicalConsultationsPage() {
           : clientValue.confirmedNew && clientValue.name.trim()
             ? { client_name: clientValue.name.trim() }
             : {}),
-        appointment_id: form.appointment_id ? Number(form.appointment_id) : null
+        appointment_id: form.appointment_id ? Number(form.appointment_id) : null,
+        temperature: form.temperature.trim() ? Number(form.temperature) : null
       };
       if (prescriptionForm.items.length > 0) {
         payload.prescription = {
@@ -830,6 +834,10 @@ export function MedicalConsultationsPage() {
               <textarea required value={form.tratamiento} onChange={(event) => setForm({ ...form, tratamiento: event.target.value })} />
             </label>
             <label>
+              Temperatura (°C)
+              <input type="number" step="0.1" min="20" max="45" value={form.temperature} onChange={(event) => setForm({ ...form, temperature: event.target.value })} />
+            </label>
+            <label>
               Notas
               <textarea value={form.notas} onChange={(event) => setForm({ ...form, notas: event.target.value })} />
             </label>
@@ -982,6 +990,7 @@ export function MedicalConsultationsPage() {
             <p><strong>Motivo:</strong> {detail.motivo_consulta}</p>
             <p><strong>Diagnostico:</strong> {detail.diagnostico}</p>
             <p><strong>Tratamiento:</strong> {detail.tratamiento}</p>
+            {detail.temperature !== null && detail.temperature !== undefined ? <p><strong>Temperatura:</strong> {detail.temperature} °C</p> : null}
             <p><strong>Receta asociada:</strong> {detail.has_prescription ? `Si, ${detail.prescription_count || 0} receta(s)` : "No"}</p>
             {detail.appointment_id ? (
               <p>

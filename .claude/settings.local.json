@@ -81,7 +81,8 @@
       "Bash(where pdftoppm *)",
       "Bash(where magick *)",
       "Bash(python -c \"import fitz\")",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(xargs -I{} sh -c 'echo ==={}; wc -l {}')"
     ]
   }
 }

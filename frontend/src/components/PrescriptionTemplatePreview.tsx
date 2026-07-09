@@ -43,15 +43,34 @@ function TextLines({ x, y, width, count, gap = 7, color = "#9ca3af" }: { x: numb
   );
 }
 
+// Redesigned to mirror the printed-veterinary-receta structure of
+// renderClassicPrescription: circular logo + business name with date at top
+// right, a rounded patient-info box (two columns), a rounded Rp./Dx./Tx. box
+// with separators, and a footer line for the doctors' cedulas.
 function ClassicPreview() {
   return (
     <PageFrame>
-      <rect x={10} y={10} width={14} height={14} fill="#e5e7eb" />
-      <rect x={30} y={12} width={40} height={4} fill="#111827" rx={1} />
-      <TextLines x={10} y={34} width={70} count={3} />
-      <TextLines x={10} y={60} width={100} count={2} />
-      <rect x={10} y={78} width={30} height={3.5} fill="#374151" rx={1} />
-      <TextLines x={10} y={88} width={95} count={6} />
+      <circle cx={17} cy={17} r={7} fill="#e5e7eb" />
+      <rect x={28} y={14} width={38} height={4} fill="#111827" rx={1} />
+      <rect x={98} y={9} width={16} height={2.2} fill="#9ca3af" rx={1} />
+
+      <rect x={8} y={30} width={104} height={38} rx={4} fill="none" stroke="#9ca3af" strokeWidth={0.75} />
+      <TextLines x={12} y={36} width={40} count={4} gap={6.5} color="#6b7280" />
+      <TextLines x={62} y={36} width={40} count={4} gap={6.5} color="#6b7280" />
+      <rect x={12} y={62} width={4} height={4} fill="none" stroke="#6b7280" strokeWidth={0.6} />
+      <rect x={20} y={62} width={4} height={4} fill="none" stroke="#6b7280" strokeWidth={0.6} />
+
+      <rect x={8} y={74} width={104} height={46} rx={4} fill="none" stroke="#9ca3af" strokeWidth={0.75} />
+      <rect x={12} y={79} width={10} height={3} fill="#374151" rx={0.5} />
+      <TextLines x={26} y={80} width={80} count={2} gap={5} />
+      <rect x={8} y={91} width={104} height={0.5} fill="#d4d4d8" />
+      <rect x={12} y={95} width={10} height={3} fill="#374151" rx={0.5} />
+      <TextLines x={26} y={96} width={80} count={1} gap={5} />
+      <rect x={8} y={104} width={104} height={0.5} fill="#d4d4d8" />
+      <rect x={12} y={108} width={10} height={3} fill="#374151" rx={0.5} />
+      <TextLines x={26} y={109} width={80} count={1} gap={5} />
+
+      <TextLines x={16} y={148} width={88} count={1} gap={5} color="#9ca3af" />
     </PageFrame>
   );
 }

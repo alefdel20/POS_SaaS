@@ -682,6 +682,9 @@ function buildConsultationPayload(payload = {}) {
   const diagnostico = normalizeText(payload.diagnostico);
   const tratamiento = normalizeText(payload.tratamiento);
   const notas = normalizeText(payload.notas || payload.notes);
+  // Optional vital sign, captured per-visit (unlike patient.weight, which
+  // describes the patient in general) — see migration 54.
+  const temperature = payload.temperature === undefined || payload.temperature === null || payload.temperature === "" ? null : Number(payload.temperature);
 
   if (!patientId && !patientName) throw new ApiError(400, "El paciente es obligatorio");
   if (patientId !== null && (!Number.isInteger(patientId) || patientId <= 0)) throw new ApiError(400, "El paciente es obligatorio");
@@ -691,6 +694,9 @@ function buildConsultationPayload(payload = {}) {
   if (!motivoConsulta) throw new ApiError(400, "Consultation reason is required");
   if (!diagnostico) throw new ApiError(400, "Diagnosis is required");
   if (!tratamiento) throw new ApiError(400, "Treatment is required");
+  if (temperature !== null && (!Number.isFinite(temperature) || temperature < 20 || temperature > 45)) {
+    throw new ApiError(400, "La temperatura no es válida");
+  }
 
   return {
     patient_id: patientId,
@@ -703,6 +709,7 @@ function buildConsultationPayload(payload = {}) {
     diagnostico,
     tratamiento,
     notas,
+    temperature,
     is_active: normalizeBooleanFlag(payload.is_active, true)
   };
 }
@@ -1578,9 +1585,9 @@ async function createConsultation(payload, actor) {
     const { rows } = await client.query(
       `INSERT INTO consultations (
         business_id, patient_id, client_id, appointment_id, consultation_date, motivo_consulta,
-        diagnostico, tratamiento, notas, is_active, created_by, updated_by
+        diagnostico, tratamiento, notas, temperature, is_active, created_by, updated_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
       RETURNING *`,
       [
         businessId,
@@ -1592,6 +1599,7 @@ async function createConsultation(payload, actor) {
         data.diagnostico,
         data.tratamiento,
         data.notas,
+        data.temperature,
         data.is_active,
         actor.id
       ]
@@ -1678,10 +1686,11 @@ async function updateConsultation(id, payload, actor) {
            diagnostico = $6,
            tratamiento = $7,
            notas = $8,
-           is_active = $9,
-           updated_by = $10,
+           temperature = $9,
+           is_active = $10,
+           updated_by = $11,
            updated_at = NOW()
-       WHERE id = $11 AND business_id = $12
+       WHERE id = $12 AND business_id = $13
        RETURNING *`,
       [
         data.patient_id,
@@ -1692,6 +1701,7 @@ async function updateConsultation(id, payload, actor) {
         data.diagnostico,
         data.tratamiento,
         data.notas,
+        data.temperature,
         data.is_active,
         actor.id,
         id,
@@ -2515,6 +2525,37 @@ async function getBusinessProfile(actor) {
   };
 }
 
+// All active vets/doctors of the business, for the "Clasica" receta footer —
+// deliberately every clinico, not just prescription.doctor_user_id (the one
+// who treated this patient), since a printed receta footer on real veterinary
+// letterhead lists every professional license the business operates under.
+// Same role filter as getOwnedDoctor/listDoctors ('clinico').
+async function listPrescriptionFooterDoctors(businessId) {
+  const { rows } = await pool.query(
+    `SELECT full_name, professional_license
+     FROM users
+     WHERE business_id = $1
+       AND role = 'clinico'
+       AND is_active = TRUE
+     ORDER BY full_name`,
+    [businessId]
+  );
+  return rows;
+}
+
+// Consultation-specific temperature (migration 54) for the receta's patient
+// info box — lives on consultations, not patients, since it varies per visit.
+// Returns null when the prescription has no linked consultation or that
+// consultation never captured one.
+async function getPrescriptionConsultationTemperature(consultationId, businessId) {
+  if (!consultationId) return null;
+  const { rows } = await pool.query(
+    `SELECT temperature FROM consultations WHERE id = $1 AND business_id = $2`,
+    [consultationId, businessId]
+  );
+  return rows[0]?.temperature ?? null;
+}
+
 function buildAppointmentReminderSourceKey(appointmentId, actor) {
   return `auto:clinical:${requireActorBusinessId(actor)}:appointment:${appointmentId}`;
 }
@@ -2760,51 +2801,174 @@ function drawPrescriptionSignature(document, signatureImagePath) {
   }
 }
 
-// Template "clasico": plain black-on-white, one field per line — the original
-// receta layout, kept as the default so a business that never picks a
-// template sees no visual change from before templates existed.
+// dd/mm/yyyy — handles both a JS Date (TIMESTAMP columns, e.g.
+// prescription.created_at) and the raw "YYYY-MM-DD" string pg returns for
+// DATE columns (pool.js forces DATE's type parser to plain text).
+function formatPrescriptionDate(value) {
+  if (!value) return "-";
+  if (value instanceof Date) {
+    const dd = String(value.getDate()).padStart(2, "0");
+    const mm = String(value.getMonth() + 1).padStart(2, "0");
+    return `${dd}/${mm}/${value.getFullYear()}`;
+  }
+  const parts = String(value).slice(0, 10).split("-");
+  if (parts.length !== 3) return String(value);
+  const [yyyy, mm, dd] = parts;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+// "3 años 2 meses" / "5 meses" style age, computed from patients.birth_date —
+// there is no stored "age" field, birth_date is the source of truth.
+function formatPatientAge(birthDate) {
+  if (!birthDate) return "-";
+  const parts = String(birthDate).slice(0, 10).split("-").map(Number);
+  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) return "-";
+  const [by, bm, bd] = parts;
+  const today = new Date();
+  let years = today.getFullYear() - by;
+  let months = today.getMonth() + 1 - bm;
+  if (today.getDate() < bd) months -= 1;
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+  if (years <= 0 && months <= 0) return "< 1 mes";
+  if (years <= 0) return `${months} mes${months === 1 ? "" : "es"}`;
+  if (months === 0) return `${years} año${years === 1 ? "" : "s"}`;
+  return `${years} año${years === 1 ? "" : "s"} ${months} mes${months === 1 ? "" : "es"}`;
+}
+
+function drawSexCheckbox(document, x, y, checked) {
+  document.lineWidth(0.75).strokeColor("#000000").rect(x, y, 8, 8).stroke();
+  if (checked) {
+    document.moveTo(x + 1.5, y + 1.5).lineTo(x + 6.5, y + 6.5).stroke();
+    document.moveTo(x + 6.5, y + 1.5).lineTo(x + 1.5, y + 6.5).stroke();
+  }
+}
+
+// Template "clasico": redesigned to approximate a real printed veterinary
+// receta (rounded patient-info box, stacked Rp./Dx./Tx. sections, footer
+// listing every doctor's cedula) — replaces the original plain layout
+// outright, no new template key was added, per product decision. Temperature
+// comes from the linked consultation (migration 54), not from patient —
+// see getPrescriptionConsultationTemperature.
 function renderClassicPrescription(document, ctx) {
-  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName } = ctx;
+  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName, footerDoctors, temperature } = ctx;
+  const contentX = 36;
+  const contentWidth = document.page.width - 72;
+
+  // --- Header: circular logo + business name, date top-right -------------
   if (businessImagePath) {
     try {
-      document.image(businessImagePath, 36, 28, { fit: [90, 90], align: "left" });
-      document.moveDown(3);
+      document.save();
+      document.circle(contentX + 30, 28 + 30, 30).clip();
+      document.image(businessImagePath, contentX, 28, { width: 60, height: 60 });
+      document.restore();
     } catch (error) {
       // Ignore invalid images so the PDF remains compatible.
     }
   }
+  document.fillColor("#000000").fontSize(16).text(business?.company_name || business?.fiscal_business_name || "-", contentX + 72, 34, { width: contentWidth - 72 - 150 });
+  document.fontSize(9).text(`Fecha: ${formatPrescriptionDate(prescription.created_at)}`, contentX, 34, { width: contentWidth, align: "right" });
 
-  document.fontSize(16).text("Receta medica", { align: "center" });
-  document.moveDown();
-  document.fontSize(11).text(`Negocio: ${business?.company_name || business?.fiscal_business_name || "-"}`);
-  document.text(`Telefono: ${business?.phone || "-"}`);
-  document.text(`Correo: ${business?.email || "-"}`);
-  document.text(`Medico: ${doctorName}`);
-  if (doctorLicense) {
-    document.text(`Cedula profesional: ${doctorLicense}`);
+  // --- Patient info box ---------------------------------------------------
+  const infoBoxY = 104;
+  const leftLabelX = contentX + 12;
+  const leftValueX = contentX + 78;
+  const rightLabelX = contentX + contentWidth / 2 + 10;
+  const rightValueX = rightLabelX + 70;
+  const colWidth = contentWidth / 2 - 90;
+
+  document.fontSize(9);
+  let rowY = infoBoxY + 10;
+  function infoRow(leftLabel, leftValue, rightLabel, rightValue) {
+    document.text(leftLabel, leftLabelX, rowY);
+    document.text(leftValue, leftValueX, rowY, { width: colWidth });
+    if (rightLabel) {
+      document.text(rightLabel, rightLabelX, rowY);
+      document.text(rightValue, rightValueX, rowY, { width: colWidth });
+    }
+    rowY += 15;
   }
-  document.moveDown();
-  drawPrescriptionPatientInfo(document, { patient, prescription });
-  document.moveDown();
-  document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
-  document.text(`Indicaciones generales: ${prescription.indications || "-"}`);
-  document.moveDown();
-  document.fontSize(12).text("Medicamentos");
-  document.moveDown(0.5);
 
-  prescription.items.forEach((item, index) => {
-    document.fontSize(10).text(`${index + 1}. ${item.medication_name_snapshot}`);
-    document.text(`Presentacion: ${item.presentation_snapshot || "-"}`);
-    document.text(`Dosis: ${item.dose || "-"}`);
-    document.text(`Frecuencia: ${item.frequency || "-"}`);
-    document.text(`Duracion: ${item.duration || "-"}`);
-    document.text(`Via: ${item.route_of_administration || "-"}`);
-    document.text(`Notas: ${item.notes || "-"}`);
-    document.text(`Stock al recetar: ${item.stock_snapshot ?? "-"}`);
-    document.moveDown(0.75);
-  });
+  infoRow("Paciente:", patient.name || "-", "Peso:", patient.weight !== null && patient.weight !== undefined ? `${patient.weight} kg` : "-");
+  infoRow("Propietario:", patient.client_name || "-", "Temperatura:", temperature !== null && temperature !== undefined ? `${temperature} °C` : "-");
+  infoRow("Especie:", patient.species || "-", "Teléfono:", patient.client_phone || patient.phone || "-");
+  infoRow("Raza:", patient.breed || "-", null, null);
+  infoRow("Edad:", formatPatientAge(patient.birth_date), null, null);
+
+  document.text("Sexo:", leftLabelX, rowY);
+  drawSexCheckbox(document, leftValueX, rowY - 1, patient.sex === "Masculino");
+  document.text("M", leftValueX + 12, rowY);
+  drawSexCheckbox(document, leftValueX + 34, rowY - 1, patient.sex === "Femenino");
+  document.text("H", leftValueX + 46, rowY);
+  rowY += 15;
+
+  const infoBoxHeight = rowY - infoBoxY + 8;
+  document.roundedRect(contentX, infoBoxY, contentWidth, infoBoxHeight, 8).lineWidth(0.75).strokeColor("#9ca3af").stroke();
+  document.strokeColor("#000000");
+
+  // --- Rp. / Dx. / Tx. box -------------------------------------------------
+  const clinicalBoxY = infoBoxY + infoBoxHeight + 14;
+  const sectionContentX = contentX + 44;
+  const sectionContentWidth = contentWidth - 56;
+
+  document.fontSize(10).text("Rp.", contentX + 10, clinicalBoxY + 10);
+  document.fontSize(9);
+  let cursorY = clinicalBoxY + 10;
+  if (prescription.items.length > 0) {
+    prescription.items.forEach((item, index) => {
+      const details = [item.presentation_snapshot, item.dose, item.frequency, item.duration, item.route_of_administration].filter(Boolean).join(" · ");
+      document.text(`${index + 1}. ${item.medication_name_snapshot}${details ? ` (${details})` : ""}`, sectionContentX, cursorY, { width: sectionContentWidth });
+      cursorY = document.y;
+      if (item.notes) {
+        document.text(`   ${item.notes}`, sectionContentX, cursorY, { width: sectionContentWidth });
+        cursorY = document.y;
+      }
+    });
+  } else {
+    document.text("-", sectionContentX, cursorY, { width: sectionContentWidth });
+    cursorY = document.y;
+  }
+
+  const rpEndY = cursorY + 6;
+  document.moveTo(contentX + 10, rpEndY).lineTo(contentX + contentWidth - 10, rpEndY).lineWidth(0.5).strokeColor("#d4d4d8").stroke();
+  document.strokeColor("#000000");
+
+  document.fontSize(10).text("Dx.", contentX + 10, rpEndY + 8);
+  document.fontSize(9).text(prescription.diagnosis || "-", sectionContentX, rpEndY + 8, { width: sectionContentWidth });
+  const dxEndY = document.y + 6;
+  document.moveTo(contentX + 10, dxEndY).lineTo(contentX + contentWidth - 10, dxEndY).lineWidth(0.5).strokeColor("#d4d4d8").stroke();
+  document.strokeColor("#000000");
+
+  document.fontSize(10).text("Tx.", contentX + 10, dxEndY + 8);
+  document.fontSize(9).text(prescription.indications || "-", sectionContentX, dxEndY + 8, { width: sectionContentWidth });
+  const clinicalBoxEndY = document.y + 10;
+
+  document.roundedRect(contentX, clinicalBoxY, contentWidth, clinicalBoxEndY - clinicalBoxY, 8).lineWidth(0.75).strokeColor("#9ca3af").stroke();
+  document.strokeColor("#000000");
+
+  document.x = contentX;
+  document.y = clinicalBoxEndY + 16;
 
   drawPrescriptionSignature(document, signatureImagePath);
+
+  // --- Footer: every doctor's cedula, then business contact line ---------
+  document.moveDown(1.5);
+  document.fontSize(8).fillColor("#000000");
+  const doctorsLine = footerDoctors && footerDoctors.length > 0
+    ? footerDoctors.map((doctor) => `${doctor.full_name}${doctor.professional_license ? ` — Céd. Prof. ${doctor.professional_license}` : ""}`).join("  |  ")
+    : `${doctorName}${doctorLicense ? ` — Céd. Prof. ${doctorLicense}` : ""}`;
+  document.text(doctorsLine, contentX, document.y, { width: contentWidth, align: "center" });
+
+  const contactParts = [
+    business?.address ? `Dirección: ${business.address}` : null,
+    business?.phone ? `Tel: ${business.phone}` : null
+  ].filter(Boolean);
+  if (contactParts.length > 0) {
+    document.moveDown(0.4);
+    document.text(contactParts.join("    "), contentX, document.y, { width: contentWidth, align: "center" });
+  }
 }
 
 // Template "moderno": colored band header (business accent color, same
@@ -2965,6 +3129,7 @@ function renderCustomPrescription(document, ctx) {
 }
 
 async function exportPrescriptionPdf(id, actor) {
+  const businessId = requireActorBusinessId(actor);
   const prescription = await getPrescriptionDetail(id, actor);
   const patient = await getPatientDetail(Number(prescription.patient_id), actor);
   const business = await getBusinessProfile(actor);
@@ -2984,7 +3149,10 @@ async function exportPrescriptionPdf(id, actor) {
     businessImagePath: resolveStoredBusinessAssetAbsolutePath(business?.business_image_path),
     signatureImagePath: resolveStoredBusinessAssetAbsolutePath(business?.signature_image_path),
     prescriptionBackgroundPath,
-    accentColor: resolvePrescriptionAccentColor(business?.accent_palette)
+    accentColor: resolvePrescriptionAccentColor(business?.accent_palette),
+    // Only consumed by renderClassicPrescription's veterinary-receta layout.
+    footerDoctors: await listPrescriptionFooterDoctors(businessId),
+    temperature: await getPrescriptionConsultationTemperature(prescription.consultation_id, businessId)
   };
 
   if (template === "personalizado" && prescriptionBackgroundPath) {

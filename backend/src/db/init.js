@@ -729,6 +729,10 @@ async function ensureSchema(client) {
     "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id)",
     "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
     "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    // Migration 54 — optional, consultation-specific vital sign (not a patient
+    // field like weight: a patient's temperature varies per visit). Nullable,
+    // no default — most historical rows and any business that skips it stay NULL.
+    "ALTER TABLE consultations ADD COLUMN IF NOT EXISTS temperature NUMERIC(4, 1)",
 
     `CREATE TABLE IF NOT EXISTS medical_prescriptions (
       id BIGSERIAL PRIMARY KEY,
