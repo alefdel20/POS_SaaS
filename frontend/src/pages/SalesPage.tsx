@@ -735,10 +735,21 @@ export function SalesPage() {
     const nextWarnings: string[] = [];
     const seededCart: CartItem[] = [];
 
+    // QA: a prescription can have zero items (a review-only visit that still
+    // wants a billable sale — see clinicalService.js shouldSavePrescription).
+    // Previously this silently left the cart empty with no explanation,
+    // which combined with "Confirmar venta" being disabled while cart is
+    // empty made it look like the whole flow was blocked. It isn't — there's
+    // just nothing to seed automatically; the vet adds whatever should be
+    // billed (e.g. a "Consulta"/revision service) manually below.
+    if (prescription.items.length === 0) {
+      nextWarnings.push("Esta receta no tiene medicamentos ligados. Agrega manualmente lo que quieras cobrar (por ejemplo, la consulta/revision).");
+    }
+
     for (const item of prescription.items) {
-      // Medicamento libre (Backlog: sin producto de catalogo) — nada que
-      // buscar ni agregar al carrito, no se puede vender lo que no existe
-      // como producto.
+      // Medicamento libre (sin producto de catalogo, incluye el texto libre
+      // "fuera de catalogo" solo-para-impresion) — nada que buscar ni agregar
+      // al carrito, no se puede vender lo que no existe como producto.
       if (item.product_id === null) {
         nextWarnings.push(`El medicamento recetado "${item.medication_name_snapshot}" es libre (sin producto de catalogo) y no se puede agregar a la venta.`);
         continue;

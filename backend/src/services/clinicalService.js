@@ -2971,14 +2971,25 @@ function renderClassicPrescription(document, ctx) {
   const contentWidth = document.page.width - 72;
 
   // --- Header: circular logo + business name, date top-right -------------
+  // BUG FIX (QA staging: receta-medica-6.pdf rendered as a fully blank page,
+  // reproduced independently of item count): document.restore() lived INSIDE
+  // the try, right after document.image() — an invalid/missing/corrupted
+  // business_image_path (stale asset path, unsupported format, etc.) throws
+  // there, so restore() never ran. The circular clip from document.save() +
+  // .clip() then stayed active for the REST OF THE PAGE, silently clipping
+  // away every subsequent draw call (patient box, Rp/Dx/Tx box, footer) to
+  // that tiny top-left circle — the page opens blank even though the content
+  // stream still has all the text in it. restore() now lives in `finally` so
+  // it always pairs with save(), regardless of whether the image draw fails.
   if (businessImagePath) {
+    document.save();
     try {
-      document.save();
       document.circle(contentX + 30, 28 + 30, 30).clip();
       document.image(businessImagePath, contentX, 28, { width: 60, height: 60 });
-      document.restore();
     } catch (error) {
       // Ignore invalid images so the PDF remains compatible.
+    } finally {
+      document.restore();
     }
   }
   document.fillColor("#000000").fontSize(16).text(business?.company_name || business?.fiscal_business_name || "-", contentX + 72, 34, { width: contentWidth - 72 - 150 });

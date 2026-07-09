@@ -156,6 +156,86 @@ function getSnapshotStockLabel(stock: number | null) {
   return { label: "Disponible", className: "success-text" };
 }
 
+// Sprint 2.7 follow-up (QA): the search box used to be shared by both
+// categories with a radio to pick which list a result landed in — split into
+// one independent search per category instead, so searching in one never
+// touches the other's query/suggestions. Same debounce/cancellation logic as
+// before, just instantiated twice (once per category) instead of once.
+function useMedicationSearch(token: string | null) {
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<Product[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    const term = query.trim();
+    if (term.length < 2) {
+      setSuggestions([]);
+      setSearching(false);
+      return;
+    }
+    // `cancelled` guards against a stale response landing after this exact
+    // effect run has been superseded — e.g. the debounced fetch for an
+    // earlier search term is still in flight (past its 300ms timer, already
+    // a real network request) when query changes again (new keystroke, or
+    // reset() clearing it back to ""). Only clearTimeout-ing the pending
+    // timer (the old code) does nothing once the timer has already fired and
+    // the request is genuinely in flight — this is what let a previous
+    // consultation's medication suggestions reappear on a freshly-opened
+    // "Nueva consulta" form.
+    let cancelled = false;
+    setSearching(true);
+    const timeout = setTimeout(() => {
+      // pageSize is validated server-side against an allowlist of ["10","15"]
+      // (productController.js listValidation) — the UI only ever shows 3
+      // suggestions regardless (sliced below), so the smallest valid size is enough.
+      const params = new URLSearchParams({ catalog_scope: "medications-supplies", page: "1", pageSize: "10", search: term });
+      apiRequest<{ items: Product[] }>(`/products?${params.toString()}`, { token })
+        .then((response) => {
+          if (cancelled) return;
+          setSuggestions(response.items.slice(0, 3));
+        })
+        .catch(() => {
+          if (!cancelled) setSuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [query, token]);
+
+  function reset() {
+    setQuery("");
+    setSuggestions([]);
+  }
+
+  return { query, setQuery, suggestions, searching, reset };
+}
+
+// QA follow-up: capture a medication that isn't in the catalog, for print
+// only — name only (no dose/frequency/via, same decision as catalog items:
+// that detail goes in Tratamiento/Notas). Never resolves/creates a
+// product_id, so it's stored exactly like the pre-existing "medicamento
+// libre" shape (product_id NULL + medication_name_snapshot) and is
+// automatically excluded from stock deduction and from "Generar venta desde
+// receta" (loadPrescriptionIntoCart in SalesPage.tsx already skips any item
+// with product_id === null).
+function useOutOfCatalogInput() {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+
+  function reset() {
+    setOpen(false);
+    setName("");
+  }
+
+  return { open, setOpen, name, setName, reset };
+}
+
 export function MedicalConsultationsPage() {
   const { token, user } = useAuth();
   const location = useLocation();
@@ -166,14 +246,12 @@ export function MedicalConsultationsPage() {
   const [patientAppointments, setPatientAppointments] = useState<ClinicalAppointment[]>([]);
   const [originAppointment, setOriginAppointment] = useState<ClinicalAppointment | null>(null);
   const [detailPatient, setDetailPatient] = useState<ClinicalPatientDetail | null>(null);
-  const [medicationQuery, setMedicationQuery] = useState("");
-  const [medicationSuggestions, setMedicationSuggestions] = useState<Product[]>([]);
-  const [medicationSearching, setMedicationSearching] = useState(false);
-  // Which of the 2 categories a medication picked from the search box gets
-  // added to — persists across multiple adds so the vet can flip it once
-  // ("ahora voy a registrar lo que usé aquí") and keep searching/adding
-  // without re-choosing every time.
-  const [medicationAddCategory, setMedicationAddCategory] = useState<PrescriptionItemForm["item_category"]>("dispensed");
+  // One independent search per category (QA: a shared search box confused
+  // which list a result would land in) — see useMedicationSearch above.
+  const administeredSearch = useMedicationSearch(token);
+  const dispensedSearch = useMedicationSearch(token);
+  const administeredOutOfCatalog = useOutOfCatalogInput();
+  const dispensedOutOfCatalog = useOutOfCatalogInput();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalConsultation | null>(null);
   const [prescription, setPrescription] = useState<MedicalPrescription | null>(null);
@@ -339,48 +417,6 @@ export function MedicalConsultationsPage() {
   }, [patientValue.id]);
 
   useEffect(() => {
-    if (!token) return;
-    const term = medicationQuery.trim();
-    if (term.length < 2) {
-      setMedicationSuggestions([]);
-      setMedicationSearching(false);
-      return;
-    }
-    // `cancelled` guards against a stale response landing after this exact
-    // effect run has been superseded — e.g. the debounced fetch for an
-    // earlier search term is still in flight (past its 300ms timer, already
-    // a real network request) when medicationQuery changes again (new
-    // keystroke, or startCreate()/startEdit() resetting it back to ""). Only
-    // clearTimeout-ing the pending timer (the old code) does nothing once
-    // the timer has already fired and the request is genuinely in flight —
-    // this is what let a previous consultation's medication suggestions
-    // reappear on a freshly-opened "Nueva consulta" form.
-    let cancelled = false;
-    setMedicationSearching(true);
-    const timeout = setTimeout(() => {
-      // pageSize is validated server-side against an allowlist of ["10","15"]
-      // (productController.js listValidation) — the UI only ever shows 3
-      // suggestions regardless (sliced below), so the smallest valid size is enough.
-      const params = new URLSearchParams({ catalog_scope: "medications-supplies", page: "1", pageSize: "10", search: term });
-      apiRequest<{ items: Product[] }>(`/products?${params.toString()}`, { token })
-        .then((response) => {
-          if (cancelled) return;
-          setMedicationSuggestions(response.items.slice(0, 3));
-        })
-        .catch(() => {
-          if (!cancelled) setMedicationSuggestions([]);
-        })
-        .finally(() => {
-          if (!cancelled) setMedicationSearching(false);
-        });
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timeout);
-    };
-  }, [medicationQuery, token]);
-
-  useEffect(() => {
     if (showForm) {
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -441,8 +477,10 @@ export function MedicalConsultationsPage() {
     setPatientValue(emptyPatientValue);
     setClientValue(emptyPatientValue);
     setPrescriptionForm(emptyPrescriptionForm);
-    setMedicationAddCategory("dispensed");
-    setMedicationQuery("");
+    administeredSearch.reset();
+    dispensedSearch.reset();
+    administeredOutOfCatalog.reset();
+    dispensedOutOfCatalog.reset();
     setShowForm(true);
   }
 
@@ -453,8 +491,10 @@ export function MedicalConsultationsPage() {
     setPatientValue(consultationToPatientValue(detail));
     setClientValue(consultationToClientValue(detail));
     setPrescriptionForm(prescriptionToForm(prescription));
-    setMedicationAddCategory("dispensed");
-    setMedicationQuery("");
+    administeredSearch.reset();
+    dispensedSearch.reset();
+    administeredOutOfCatalog.reset();
+    dispensedOutOfCatalog.reset();
     setShowForm(true);
   }
 
@@ -463,10 +503,9 @@ export function MedicalConsultationsPage() {
     setShowForm(false);
   }
 
-  // Adds to whichever of the 2 categories is currently selected
-  // (medicationAddCategory) — the search box itself is reset so it's
-  // immediately ready to search/add another, in either category, right away.
-  function addMedicationToPrescription(product: Product) {
+  // Adds directly to the given category (each of the 2 search boxes below is
+  // fixed to its own category — no shared "agregar como" toggle anymore).
+  function addMedicationToPrescription(product: Product, category: PrescriptionItemForm["item_category"]) {
     setPrescriptionForm((current) => ({
       ...current,
       items: [
@@ -476,7 +515,7 @@ export function MedicalConsultationsPage() {
           medication_name_snapshot: product.name,
           presentation_snapshot: product.unidad_de_venta || product.category || "",
           quantity: "1",
-          item_category: medicationAddCategory,
+          item_category: category,
           deducts_stock: true,
           stock_snapshot: product.stock ?? null,
           dose: "",
@@ -487,8 +526,34 @@ export function MedicalConsultationsPage() {
         }
       ]
     }));
-    setMedicationQuery("");
-    setMedicationSuggestions([]);
+  }
+
+  // "Medicamento fuera de catalogo" — texto libre SOLO para impresion (ver
+  // useOutOfCatalogInput above): nunca resuelve/crea un product_id, nunca
+  // descuenta stock, no puede venderse desde el POS.
+  function addOutOfCatalogMedicationToPrescription(name: string, category: PrescriptionItemForm["item_category"]) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setPrescriptionForm((current) => ({
+      ...current,
+      items: [
+        ...current.items,
+        {
+          product_id: null,
+          medication_name_snapshot: trimmed,
+          presentation_snapshot: "",
+          quantity: "1",
+          item_category: category,
+          deducts_stock: false,
+          stock_snapshot: null,
+          dose: "",
+          frequency: "",
+          duration: "",
+          route_of_administration: "",
+          notes: ""
+        }
+      ]
+    }));
   }
 
   function updatePrescriptionItem(index: number, changes: Partial<PrescriptionItemForm>) {
@@ -509,68 +574,134 @@ export function MedicalConsultationsPage() {
     }));
   }
 
-  // One table per category (Sprint 2.7: the two lists must be separate
-  // sections, never mixed) — filters prescriptionForm.items by category but
+  // One full section per category (Sprint 2.7 + QA follow-up: the two lists
+  // must be separate sections, each with its OWN search box right under it,
+  // never a shared one) — filters prescriptionForm.items by category but
   // keeps each row's real index so updatePrescriptionItem/removePrescriptionItem
-  // still target the right item.
-  function renderPrescriptionCategoryTable(category: PrescriptionItemForm["item_category"]) {
+  // still target the right item. The table only shows once that category has
+  // at least one item; the search box always shows, so there's always a way
+  // to add the first one.
+  function renderPrescriptionCategorySection(
+    category: PrescriptionItemForm["item_category"],
+    search: ReturnType<typeof useMedicationSearch>,
+    outOfCatalog: ReturnType<typeof useOutOfCatalogInput>
+  ) {
     const rows = prescriptionForm.items
       .map((item, index) => ({ item, index }))
       .filter(({ item }) => item.item_category === category);
-    if (!rows.length) return null;
 
     return (
-      <div className="table-wrap form-span-2" key={category}>
+      <div className="form-span-2" key={category}>
         <h4>{PRESCRIPTION_ITEM_CATEGORY_LABELS[category]}</h4>
-        <table>
-          <thead>
-            <tr>
-              <th>Medicamento</th>
-              <th>Cantidad</th>
-              <th>Descuenta stock</th>
-              <th>Existencia</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ item, index }) => {
-              const stockState = getSnapshotStockLabel(item.stock_snapshot);
-              return (
-                <tr key={`prescription-item-${index}`}>
-                  <td>
-                    <strong>{item.medication_name_snapshot}</strong>
-                    <div className="muted">{item.presentation_snapshot || "-"}</div>
-                  </td>
-                  <td>
-                    <input
-                      min="0.001"
-                      onChange={(event) => updatePrescriptionItem(index, { quantity: event.target.value })}
-                      step="0.001"
-                      type="number"
-                      value={item.quantity}
-                    />
-                  </td>
-                  <td>
-                    {item.product_id !== null ? (
-                      <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", whiteSpace: "nowrap" }}>
-                        <input
-                          checked={item.deducts_stock}
-                          onChange={(event) => updatePrescriptionItem(index, { deducts_stock: event.target.checked })}
-                          type="checkbox"
-                        />
-                        {item.deducts_stock ? "Se lleva de aqui" : "Compra aparte / no disponible"}
-                      </label>
-                    ) : (
-                      <span className="muted">Medicamento libre</span>
-                    )}
-                  </td>
-                  <td><span className={stockState.className}>{stockState.label}</span></td>
-                  <td><button className="button ghost" onClick={() => removePrescriptionItem(index)} type="button">Quitar</button></td>
+        {rows.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Medicamento</th>
+                  <th>Cantidad</th>
+                  <th>Descuenta stock</th>
+                  <th>Existencia</th>
+                  <th></th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {rows.map(({ item, index }) => {
+                  const stockState = getSnapshotStockLabel(item.stock_snapshot);
+                  return (
+                    <tr key={`prescription-item-${index}`}>
+                      <td>
+                        <strong>{item.medication_name_snapshot}</strong>
+                        <div className="muted">{item.presentation_snapshot || "-"}</div>
+                      </td>
+                      <td>
+                        <input
+                          min="0.001"
+                          onChange={(event) => updatePrescriptionItem(index, { quantity: event.target.value })}
+                          step="0.001"
+                          type="number"
+                          value={item.quantity}
+                        />
+                      </td>
+                      <td>
+                        {item.product_id !== null ? (
+                          <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", whiteSpace: "nowrap" }}>
+                            <input
+                              checked={item.deducts_stock}
+                              onChange={(event) => updatePrescriptionItem(index, { deducts_stock: event.target.checked })}
+                              type="checkbox"
+                            />
+                            {item.deducts_stock ? "Se lleva de aqui" : "Compra aparte / no disponible"}
+                          </label>
+                        ) : (
+                          <span className="muted">Medicamento libre</span>
+                        )}
+                      </td>
+                      <td><span className={stockState.className}>{stockState.label}</span></td>
+                      <td><button className="button ghost" onClick={() => removePrescriptionItem(index)} type="button">Quitar</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+        <div className="autocomplete-wrap">
+          <label>
+            Agregar medicamento
+            <input
+              autoComplete="off"
+              onChange={(event) => search.setQuery(event.target.value)}
+              placeholder="Escribe para buscar en el catalogo (min. 2 letras)"
+              value={search.query}
+            />
+          </label>
+          {search.searching ? <p className="muted">Buscando...</p> : null}
+          {search.suggestions.length ? (
+            <div className="autocomplete-dropdown">
+              {search.suggestions.map((product) => (
+                <button
+                  className="autocomplete-option"
+                  key={product.id}
+                  onClick={() => {
+                    addMedicationToPrescription(product, category);
+                    search.reset();
+                  }}
+                  type="button"
+                >
+                  <strong>{product.name}</strong>
+                  <span className="muted"> — stock {product.stock}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div className="inline-actions">
+            <button className="button ghost" onClick={() => outOfCatalog.setOpen((current) => !current)} type="button">
+              {outOfCatalog.open ? "Cancelar" : "+ Medicamento fuera de catalogo"}
+            </button>
+          </div>
+          {outOfCatalog.open ? (
+            <div className="inline-actions">
+              <input
+                autoComplete="off"
+                onChange={(event) => outOfCatalog.setName(event.target.value)}
+                placeholder="Nombre del medicamento (solo para impresion)"
+                value={outOfCatalog.name}
+              />
+              <button
+                className="button"
+                disabled={!outOfCatalog.name.trim()}
+                onClick={() => {
+                  addOutOfCatalogMedicationToPrescription(outOfCatalog.name, category);
+                  outOfCatalog.reset();
+                }}
+                type="button"
+              >
+                Agregar
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -902,52 +1033,10 @@ export function MedicalConsultationsPage() {
               <textarea value={form.notas} onChange={(event) => setForm({ ...form, notas: event.target.value })} />
             </label>
 
-            <div className="form-span-2 autocomplete-wrap">
-              <label>
-                Agregar medicamento
-                <input
-                  autoComplete="off"
-                  onChange={(event) => setMedicationQuery(event.target.value)}
-                  placeholder="Escribe para buscar en el catalogo (min. 2 letras)"
-                  value={medicationQuery}
-                />
-              </label>
-              {medicationSearching ? <p className="muted">Buscando...</p> : null}
-              {medicationSuggestions.length ? (
-                <div className="autocomplete-dropdown">
-                  {medicationSuggestions.map((product) => (
-                    <button className="autocomplete-option" key={product.id} onClick={() => addMedicationToPrescription(product)} type="button">
-                      <strong>{product.name}</strong>
-                      <span className="muted"> — stock {product.stock}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <div className="inline-actions">
-                <span className="muted">Agregar como:</span>
-                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", whiteSpace: "nowrap" }}>
-                  <input
-                    checked={medicationAddCategory === "administered"}
-                    name="medication-add-category"
-                    onChange={() => setMedicationAddCategory("administered")}
-                    type="radio"
-                  />
-                  {PRESCRIPTION_ITEM_CATEGORY_LABELS.administered}
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", whiteSpace: "nowrap" }}>
-                  <input
-                    checked={medicationAddCategory === "dispensed"}
-                    name="medication-add-category"
-                    onChange={() => setMedicationAddCategory("dispensed")}
-                    type="radio"
-                  />
-                  {PRESCRIPTION_ITEM_CATEGORY_LABELS.dispensed}
-                </label>
-              </div>
+            <div className="form-span-2 invoice-grid">
+              {renderPrescriptionCategorySection("administered", administeredSearch, administeredOutOfCatalog)}
+              {renderPrescriptionCategorySection("dispensed", dispensedSearch, dispensedOutOfCatalog)}
             </div>
-
-            {renderPrescriptionCategoryTable("administered")}
-            {renderPrescriptionCategoryTable("dispensed")}
 
             <label>
               Estado de la receta
@@ -965,123 +1054,145 @@ export function MedicalConsultationsPage() {
         </div>
       ) : detail ? (
         <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Detalle de consulta</h2>
-              <p className="muted">El historial clinico se deriva directamente de estas consultas.</p>
-            </div>
-            <div className="inline-actions">
-              <button className="button ghost" onClick={startEdit} type="button">Editar</button>
-              <button className="button ghost" disabled={saving} onClick={() => handleStatus(!detail.is_active)} type="button">
-                {detail.is_active ? "Desactivar" : "Reactivar"}
-              </button>
-            </div>
-          </div>
-
-          <div className="info-card">
-            <p><strong>Paciente:</strong> {detail.patient_name}</p>
-            {!humanPatientsOnly ? (
-              <p>
-                <strong>Cliente:</strong>{" "}
-                {detail.client_name || <AssignPatientResponsible onAssigned={() => loadDetail(detail.id)} patientId={detail.patient_id} token={token} />}
-              </p>
-            ) : null}
-            <p><strong>Telefono:</strong> {detailPatient?.client_phone || "-"}</p>
-            <p><strong>Correo:</strong> {detailPatient?.client_email || "-"}</p>
-            {showSpecies ? <p><strong>Especie / raza:</strong> {detail.species || detailPatient?.species || "-"} / {detail.breed || detailPatient?.breed || "-"}</p> : null}
-            <p><strong>Sexo:</strong> {detailPatient?.sex || "-"}</p>
-            <p><strong>Nacimiento:</strong> {detailPatient?.birth_date || "-"}</p>
-            <p><strong>Fecha:</strong> {shortDateTime(detail.consultation_date)}</p>
-            <p><strong>Motivo:</strong> {detail.motivo_consulta}</p>
-            <p><strong>Diagnostico:</strong> {detail.diagnostico}</p>
-            <p><strong>Tratamiento:</strong> {detail.tratamiento}</p>
-            {detail.temperature !== null && detail.temperature !== undefined ? <p><strong>Temperatura:</strong> {detail.temperature} °C</p> : null}
-            <p><strong>Receta asociada:</strong> {detail.has_prescription ? `Si, ${detail.prescription_count || 0} receta(s)` : "No"}</p>
-            {detail.appointment_id ? (
-              <p>
-                <strong>Cita de origen:</strong>{" "}
-                {originAppointment
-                  ? `Originada de la cita del ${formatDate(originAppointment.appointment_date)} ${(originAppointment.start_time || "").slice(0, 5)}`
-                  : "Originada de una cita"}
-              </p>
-            ) : null}
-            <div className="inline-actions">
-              <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver bitacora clinica</button>
-              <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver historial medico</button>
-              {!humanPatientsOnly ? <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver cliente</button> : null}
-              {originAppointment ? (
-                <button
-                  className="button ghost"
-                  onClick={() => navigate(`/medical-appointments?appointment=${originAppointment.id}&date=${originAppointment.appointment_date}`)}
-                  type="button"
-                >
-                  Ver cita
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          {prescription ? (
-            <div className="info-card">
-              <div className="panel-header">
-                <div>
-                  <h3>Receta medica</h3>
-                  <p className="muted">{prescription.items.length} medicamento(s) · {prescription.status}</p>
-                </div>
-                <div className="inline-actions">
-                  <button className="button ghost" onClick={handleDownloadPrescriptionPdf} type="button">Descargar PDF</button>
-                  {canAccessSales(user?.role) ? (
-                    <button className="button ghost" onClick={() => navigate(`/sales?prescription_id=${prescription.id}`)} type="button">
-                      Generar venta desde receta
+          {(() => {
+            const consultationDetailBlock = (
+              <>
+                <div className="panel-header">
+                  <div>
+                    <h2>Detalle de consulta</h2>
+                    <p className="muted">El historial clinico se deriva directamente de estas consultas.</p>
+                  </div>
+                  <div className="inline-actions">
+                    <button className="button ghost" onClick={startEdit} type="button">Editar</button>
+                    <button className="button ghost" disabled={saving} onClick={() => handleStatus(!detail.is_active)} type="button">
+                      {detail.is_active ? "Desactivar" : "Reactivar"}
                     </button>
-                  ) : null}
-                  {supportsFileShare ? (
-                    <button className="button ghost" onClick={handleNativeShare} type="button">Compartir</button>
-                  ) : (
-                    <details className="share-actions">
-                      <summary className="button ghost">Compartir</summary>
-                      <div className="share-actions-menu">
-                        <button className="button ghost" onClick={() => handleSharePrescription("whatsapp")} type="button">WhatsApp</button>
-                        <button className="button ghost" onClick={() => handleSharePrescription("email")} type="button">Correo</button>
-                      </div>
-                    </details>
-                  )}
+                  </div>
                 </div>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Medicamento</th>
-                      <th>Categoria</th>
-                      <th>Cantidad</th>
-                      <th>Stock</th>
-                      <th>Dispensado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {prescription.items.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.medication_name_snapshot}</td>
-                        <td>{PRESCRIPTION_ITEM_CATEGORY_LABELS[item.item_category === "administered" ? "administered" : "dispensed"]}</td>
-                        <td>{item.quantity ?? "-"}</td>
-                        <td>{item.product_id === null ? "Medicamento libre" : item.deducts_stock === false ? "No descuenta" : "Descuenta stock"}</td>
-                        <td>{item.dispensed_quantity ? `${item.dispensed_quantity} dispensada(s)` : "Sin dispensar"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {prescription.linked_sales?.length ? (
+
                 <div className="info-card">
-                  <p><strong>Ventas generadas:</strong> {prescription.linked_sales.length}</p>
-                  {prescription.linked_sales.map((saleLink) => (
-                    <p className="muted" key={`sale-link-${saleLink.id}`}>Venta #{saleLink.sale_id} · {saleLink.sale_date} · {saleLink.total}</p>
-                  ))}
+                  <p><strong>Paciente:</strong> {detail.patient_name}</p>
+                  {!humanPatientsOnly ? (
+                    <p>
+                      <strong>Cliente:</strong>{" "}
+                      {detail.client_name || <AssignPatientResponsible onAssigned={() => loadDetail(detail.id)} patientId={detail.patient_id} token={token} />}
+                    </p>
+                  ) : null}
+                  <p><strong>Telefono:</strong> {detailPatient?.client_phone || "-"}</p>
+                  <p><strong>Correo:</strong> {detailPatient?.client_email || "-"}</p>
+                  {showSpecies ? <p><strong>Especie / raza:</strong> {detail.species || detailPatient?.species || "-"} / {detail.breed || detailPatient?.breed || "-"}</p> : null}
+                  <p><strong>Sexo:</strong> {detailPatient?.sex || "-"}</p>
+                  <p><strong>Nacimiento:</strong> {detailPatient?.birth_date || "-"}</p>
+                  <p><strong>Fecha:</strong> {shortDateTime(detail.consultation_date)}</p>
+                  <p><strong>Motivo:</strong> {detail.motivo_consulta}</p>
+                  <p><strong>Diagnostico:</strong> {detail.diagnostico}</p>
+                  <p><strong>Tratamiento:</strong> {detail.tratamiento}</p>
+                  {detail.temperature !== null && detail.temperature !== undefined ? <p><strong>Temperatura:</strong> {detail.temperature} °C</p> : null}
+                  <p><strong>Receta asociada:</strong> {detail.has_prescription ? `Si, ${detail.prescription_count || 0} receta(s)` : "No"}</p>
+                  {detail.appointment_id ? (
+                    <p>
+                      <strong>Cita de origen:</strong>{" "}
+                      {originAppointment
+                        ? `Originada de la cita del ${formatDate(originAppointment.appointment_date)} ${(originAppointment.start_time || "").slice(0, 5)}`
+                        : "Originada de una cita"}
+                    </p>
+                  ) : null}
+                  <div className="inline-actions">
+                    <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver bitacora clinica</button>
+                    <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver historial medico</button>
+                    {!humanPatientsOnly ? <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver cliente</button> : null}
+                    {originAppointment ? (
+                      <button
+                        className="button ghost"
+                        onClick={() => navigate(`/medical-appointments?appointment=${originAppointment.id}&date=${originAppointment.appointment_date}`)}
+                        type="button"
+                      >
+                        Ver cita
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-              ) : null}
-            </div>
-          ) : null}
+              </>
+            );
+
+            const prescriptionBlock = prescription ? (
+              <div className="info-card">
+                <div className="panel-header">
+                  <div>
+                    <h3>Receta medica</h3>
+                    <p className="muted">{prescription.items.length} medicamento(s) · {prescription.status}</p>
+                  </div>
+                  <div className="inline-actions">
+                    <button className="button ghost" onClick={handleDownloadPrescriptionPdf} type="button">Descargar PDF</button>
+                    {canAccessSales(user?.role) ? (
+                      <button className="button ghost" onClick={() => navigate(`/sales?prescription_id=${prescription.id}`)} type="button">
+                        Generar venta desde receta
+                      </button>
+                    ) : null}
+                    {supportsFileShare ? (
+                      <button className="button ghost" onClick={handleNativeShare} type="button">Compartir</button>
+                    ) : (
+                      <details className="share-actions">
+                        <summary className="button ghost">Compartir</summary>
+                        <div className="share-actions-menu">
+                          <button className="button ghost" onClick={() => handleSharePrescription("whatsapp")} type="button">WhatsApp</button>
+                          <button className="button ghost" onClick={() => handleSharePrescription("email")} type="button">Correo</button>
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </div>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Medicamento</th>
+                        <th>Categoria</th>
+                        <th>Cantidad</th>
+                        <th>Stock</th>
+                        <th>Dispensado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {prescription.items.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.medication_name_snapshot}</td>
+                          <td>{PRESCRIPTION_ITEM_CATEGORY_LABELS[item.item_category === "administered" ? "administered" : "dispensed"]}</td>
+                          <td>{item.quantity ?? "-"}</td>
+                          <td>{item.product_id === null ? "Medicamento libre" : item.deducts_stock === false ? "No descuenta" : "Descuenta stock"}</td>
+                          <td>{item.dispensed_quantity ? `${item.dispensed_quantity} dispensada(s)` : "Sin dispensar"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {prescription.linked_sales?.length ? (
+                  <div className="info-card">
+                    <p><strong>Ventas generadas:</strong> {prescription.linked_sales.length}</p>
+                    {prescription.linked_sales.map((saleLink) => (
+                      <p className="muted" key={`sale-link-${saleLink.id}`}>Venta #{saleLink.sale_id} · {saleLink.sale_date} · {saleLink.total}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null;
+
+            // QA: cuando la receta esta Emitida, mostrarla ARRIBA del detalle
+            // de la consulta (compartir/descargar sin scroll) — en cualquier
+            // otro estado (draft/cancelled/sin receta) el orden se queda
+            // igual que antes, Detalle de consulta primero.
+            return prescription?.status === "issued" ? (
+              <>
+                {prescriptionBlock}
+                {consultationDetailBlock}
+              </>
+            ) : (
+              <>
+                {consultationDetailBlock}
+                {prescriptionBlock}
+              </>
+            );
+          })()}
         </div>
       ) : (
         <div className="panel">
