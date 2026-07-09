@@ -368,7 +368,6 @@ export function PatientsPage() {
             <select value={form.sex} onChange={(event) => setForm({ ...form, sex: event.target.value })}>
               <option value="Macho">Macho</option>
               <option value="Hembra">Hembra</option>
-              <option value="Otro">Otro</option>
             </select>
           </label>
           <label>

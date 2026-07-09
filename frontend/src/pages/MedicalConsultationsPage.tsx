@@ -95,7 +95,7 @@ const emptyForm: ConsultationFormState = {
 };
 
 const emptyPrescriptionForm: PrescriptionFormState = {
-  status: "draft",
+  status: "issued",
   items: []
 };
 
@@ -715,7 +715,9 @@ export function MedicalConsultationsPage() {
       // issue a formal receta with just diagnosis/indications (Sprint 2.7:
       // "muchas consultas son solo revision"). The backend only actually
       // persists it when there's a real signal to do so (items present, or
-      // status explicitly moved off "draft") — see shouldSavePrescription.
+      // status explicitly set to "cancelled") — see shouldSavePrescription.
+      // "issued" is now the default status shown in the select, so it can no
+      // longer double as that signal on its own the way "draft" used to.
       payload.prescription = {
         diagnosis: form.diagnostico,
         indications: form.tratamiento,
@@ -967,13 +969,12 @@ export function MedicalConsultationsPage() {
 
           <form className="grid-form" onSubmit={handleSubmit}>
             <NameAutocomplete kind="patient" label={humanPatientsOnly ? "Paciente" : "Paciente / mascota"} onChange={setPatientValue} required token={token} value={patientValue} />
-            {!patientValue.id && patientValue.confirmedNew ? (
+            {!patientValue.id ? (
               <label>
                 Sexo
                 <select value={newPatientSex} onChange={(event) => setNewPatientSex(event.target.value)}>
                   <option value="Macho">Macho</option>
                   <option value="Hembra">Hembra</option>
-                  <option value="Otro">Otro</option>
                 </select>
               </label>
             ) : null}

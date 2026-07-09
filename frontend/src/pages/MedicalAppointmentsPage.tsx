@@ -421,13 +421,12 @@ export function MedicalAppointmentsPage() {
         </div>
         <form className="grid-form" onSubmit={handleSubmit}>
           <NameAutocomplete kind="patient" label="Paciente" onChange={setPatientValue} required token={token} value={patientValue} />
-          {!patientValue.id && patientValue.confirmedNew ? (
+          {!patientValue.id ? (
             <label>
               Sexo
               <select value={newPatientSex} onChange={(event) => setNewPatientSex(event.target.value)}>
                 <option value="Macho">Macho</option>
                 <option value="Hembra">Hembra</option>
-                <option value="Otro">Otro</option>
               </select>
             </label>
           ) : null}

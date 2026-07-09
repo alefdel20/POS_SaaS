@@ -1600,18 +1600,21 @@ async function getConsultationDetail(id, actor) {
 
 // Only save a prescription bundled with a consultation when the vet actually
 // engaged with the receta panel: it has medications, OR its status was
-// explicitly moved off the default "draft" (e.g. "issued" for a review-only
-// visit where no medication is recorded as an item, but a formal receta with
-// diagnosis/indications is still wanted — feedback from a vet using the
-// system: "muchas consultas son solo revision"). Leaving both untouched (no
-// items, still "draft") stays a plain consultation — those two fields already
-// live on public.consultations itself, so nothing is lost by not also
-// creating an empty draft prescription on every single visit.
+// explicitly set to "cancelled". The frontend's "Estado de la receta" select
+// now defaults to "issued" (not "draft") and is always sent, so "issued"
+// can no longer be used as a proxy for "the vet touched this" the way it
+// could when "draft" was the untouched default — every single consultation
+// would otherwise bundle an empty issued prescription. "cancelled" stays a
+// reliable signal because it's never the default and nobody picks it by
+// accident. A review-only visit (no items, status left at "issued") stays a
+// plain consultation — those fields already live on public.consultations
+// itself, so nothing is lost by not also creating an empty prescription on
+// every single visit.
 function shouldSavePrescription(prescriptionPayload) {
   if (!prescriptionPayload) return false;
   const hasItems = Array.isArray(prescriptionPayload.items) && prescriptionPayload.items.length > 0;
-  const hasExplicitStatus = Boolean(prescriptionPayload.status) && prescriptionPayload.status !== "draft";
-  return hasItems || hasExplicitStatus;
+  const isExplicitlyCancelled = prescriptionPayload.status === "cancelled";
+  return hasItems || isExplicitlyCancelled;
 }
 
 // Inserts or updates the ONE prescription linked to a consultation, inside
