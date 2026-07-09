@@ -926,7 +926,7 @@ const PATIENT_MIRROR_JOIN = `
 // normalizeHealthcareSex in healthcareSubjectTranslation.js), but the
 // /patients edit form (frontend/src/pages/PatientsPage.tsx) is a controlled
 // <select> hardcoded to the three literal legacy strings it always wrote to
-// public.patients.sex — "Masculino"/"Femenino"/"Otro" — and does not
+// public.patients.sex — "Macho"/"Hembra"/"Otro" — and does not
 // recognize the enum tokens. Serving "male" to that <select> would silently
 // fail to match any <option> (blank/unselected) instead of the correct
 // label, for every patient that now has a mirror (an increasing share, since
@@ -936,7 +936,7 @@ const PATIENT_MIRROR_JOIN = `
 // this frontend constraint); this mapping is a display/back-compat shim for
 // the current frontend, not a permanent design choice.
 function legacySexCase(column) {
-  return `CASE ${column} WHEN 'male' THEN 'Masculino' WHEN 'female' THEN 'Femenino' WHEN 'intersex' THEN 'Otro' ELSE NULL END`;
+  return `CASE ${column} WHEN 'male' THEN 'Macho' WHEN 'female' THEN 'Hembra' WHEN 'intersex' THEN 'Otro' ELSE NULL END`;
 }
 
 const PATIENT_MIRROR_FIELDS = `
@@ -3022,9 +3022,9 @@ function renderClassicPrescription(document, ctx) {
   infoRow("Edad:", formatPatientAge(patient.birth_date), null, null);
 
   document.text("Sexo:", leftLabelX, rowY);
-  drawSexCheckbox(document, leftValueX, rowY - 1, patient.sex === "Masculino");
+  drawSexCheckbox(document, leftValueX, rowY - 1, patient.sex === "Macho");
   document.text("M", leftValueX + 12, rowY);
-  drawSexCheckbox(document, leftValueX + 34, rowY - 1, patient.sex === "Femenino");
+  drawSexCheckbox(document, leftValueX + 34, rowY - 1, patient.sex === "Hembra");
   document.text("H", leftValueX + 46, rowY);
   rowY += 15;
 

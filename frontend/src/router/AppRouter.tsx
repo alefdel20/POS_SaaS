@@ -61,6 +61,7 @@ export function AppRouter() {
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.sales]} />}>
               <Route path="/sales" element={<SalesPage />} />
               <Route path="/retail/sales" element={<SalesPage />} />
+              <Route path="/health/sales/food" element={<SalesPage />} />
               <Route path="/health/sales/accessories" element={<SalesPage />} />
               <Route path="/health/sales/medications" element={<SalesPage />} />
             </Route>
@@ -69,6 +70,8 @@ export function AppRouter() {
               <Route path="/products/restock/history" element={<RestockHistoryPage />} />
               <Route path="/retail/products/restock" element={<ProductsPage />} />
               <Route path="/retail/products/restock/history" element={<RestockHistoryPage />} />
+              <Route path="/health/products/food/restock" element={<ProductsPage />} />
+              <Route path="/health/products/food/restock/history" element={<RestockHistoryPage />} />
               <Route path="/health/products/accessories/restock" element={<ProductsPage />} />
               <Route path="/health/products/accessories/restock/history" element={<RestockHistoryPage />} />
             </Route>
@@ -136,10 +139,13 @@ export function AppRouter() {
               <Route path="/products/new" element={<ProductsPage />} />
               <Route path="/retail/products" element={<ProductsPage />} />
               <Route path="/retail/products/new" element={<ProductsPage />} />
+              <Route path="/health/products/food" element={<ProductsPage />} />
+              <Route path="/health/products/food/new" element={<ProductsPage />} />
               <Route path="/health/products/accessories" element={<ProductsPage />} />
               <Route path="/health/products/accessories/new" element={<ProductsPage />} />
               <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/retail/suppliers" element={<SuppliersPage />} />
+              <Route path="/health/suppliers/food" element={<SuppliersPage />} />
               <Route path="/health/suppliers/accessories" element={<SuppliersPage />} />
               <Route path="/health/suppliers/medications" element={<SuppliersPage />} />
               <Route path="/remate" element={<RematePage />} />

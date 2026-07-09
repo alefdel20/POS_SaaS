@@ -756,7 +756,7 @@ test("clinicalService.listPatients: consultation_count/appointment_count still c
 
 test("clinicalService.listPatients: sex is translated back to the legacy Spanish label the frontend <select> expects, not passed through as the raw healthcare enum", async () => {
   // frontend/src/pages/PatientsPage.tsx's sex <select> is hardcoded to
-  // "Masculino"/"Femenino"/"Otro" — serving healthcare.patients/pets.sex's
+  // "Macho"/"Hembra"/"Otro" — serving healthcare.patients/pets.sex's
   // normalized enum ('male'/'female'/'intersex') straight through would
   // silently fail to match any <option> for every patient with a mirror.
   let capturedSql = "";
@@ -767,8 +767,8 @@ test("clinicalService.listPatients: sex is translated back to the legacy Spanish
 
   await clinicalService.listPatients({}, { id: 1, business_id: 7 });
 
-  assert.match(capturedSql, /CASE hcp\.sex WHEN 'male' THEN 'Masculino' WHEN 'female' THEN 'Femenino' WHEN 'intersex' THEN 'Otro' ELSE NULL END/i);
-  assert.match(capturedSql, /CASE hcpet\.sex WHEN 'male' THEN 'Masculino' WHEN 'female' THEN 'Femenino' WHEN 'intersex' THEN 'Otro' ELSE NULL END/i);
+  assert.match(capturedSql, /CASE hcp\.sex WHEN 'male' THEN 'Macho' WHEN 'female' THEN 'Hembra' WHEN 'intersex' THEN 'Otro' ELSE NULL END/i);
+  assert.match(capturedSql, /CASE hcpet\.sex WHEN 'male' THEN 'Macho' WHEN 'female' THEN 'Hembra' WHEN 'intersex' THEN 'Otro' ELSE NULL END/i);
   // must never leak the raw enum token as a bare column reference
   assert.doesNotMatch(capturedSql, /COALESCE\(hcp\.sex, hcpet\.sex, p\.sex\)/i);
 });
@@ -873,7 +873,7 @@ test("clinicalService.getClientDetail: a client with a pet that has a healthcare
       return {
         rows: [{
           id: 41, business_id: 7, client_id: 40, name: "Firulais", phone: "5544332211",
-          breed: "Labrador", sex: "Masculino", birth_date: null, weight: 24.5,
+          breed: "Labrador", sex: "Macho", birth_date: null, weight: 24.5,
           allergies: "", notes: "", species: "Perro", is_active: true,
           created_at: new Date(), updated_at: new Date(),
           consultation_count: 0, appointment_count: 0

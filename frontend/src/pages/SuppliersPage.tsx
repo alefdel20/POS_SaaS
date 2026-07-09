@@ -113,11 +113,13 @@ export function SuppliersPage() {
   const navigate = useNavigate();
   const catalogScope = getCatalogScopeFromPath(location.pathname);
   const suppliersTitle = catalogScope ? `Proveedores · ${getCatalogScopeLabel(catalogScope)}` : "Proveedores";
-  const productsBasePath = catalogScope === "food-accessories"
-    ? "/health/products/accessories"
-    : catalogScope === "medications-supplies"
-      ? "/health/products/medications"
-      : "/products";
+  const productsBasePath = catalogScope === "food"
+    ? "/health/products/food"
+    : catalogScope === "accessories"
+      ? "/health/products/accessories"
+      : catalogScope === "medications-supplies"
+        ? "/health/products/medications"
+        : "/products";
   const productEditorPath = `${productsBasePath}/new`;
   const [suppliers, setSuppliers] = useState<SupplierSummary[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(null);

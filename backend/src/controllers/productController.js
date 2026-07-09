@@ -8,7 +8,7 @@ const { PRODUCT_CATALOG_TYPES } = require("../utils/domainEnums");
 const listValidation = [
   query("search").optional().trim(),
   query("category").optional({ values: "falsy" }).trim(),
-  query("catalog_scope").optional().isIn(["food-accessories", "medications-supplies"]),
+  query("catalog_scope").optional().isIn(["food", "accessories", "medications-supplies"]),
   query("activeOnly").optional().isBoolean(),
   query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
   query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
@@ -16,13 +16,13 @@ const listValidation = [
 ];
 const categoryListValidation = [
   query("search").optional().trim(),
-  query("catalog_scope").optional().isIn(["food-accessories", "medications-supplies"]),
+  query("catalog_scope").optional().isIn(["food", "accessories", "medications-supplies"]),
   validateRequest
 ];
 const restockValidation = [
   query("search").optional().trim(),
   query("category").optional({ values: "falsy" }).trim(),
-  query("catalog_scope").optional().isIn(["food-accessories", "medications-supplies"]),
+  query("catalog_scope").optional().isIn(["food", "accessories", "medications-supplies"]),
   query("supplier").optional({ values: "falsy" }).trim(),
   query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
   query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),

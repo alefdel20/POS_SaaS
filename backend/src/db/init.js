@@ -1733,6 +1733,7 @@ async function ensureConstraints(client) {
       normalized_prescription_status_count INTEGER := 0;
       normalized_preventive_type_count INTEGER := 0;
       normalized_preventive_status_count INTEGER := 0;
+      normalized_patient_sex_count INTEGER := 0;
     BEGIN
       UPDATE users
       SET role = CASE
@@ -1791,6 +1792,19 @@ async function ensureConstraints(client) {
       WHERE catalog_type IS NULL OR BTRIM(catalog_type) = '';
       GET DIAGNOSTICS normalized_catalog_type_count = ROW_COUNT;
 
+      -- Rename legacy human-terminology sex values to veterinary terms
+      -- (Macho/Hembra) so patients saved before this change keep matching
+      -- the "Sexo" checkbox in the receta PDF (renderClassicPrescription in
+      -- clinicalService.js compares patient.sex against 'Macho'/'Hembra').
+      UPDATE patients
+      SET sex = CASE
+        WHEN sex = 'Masculino' THEN 'Macho'
+        WHEN sex = 'Femenino' THEN 'Hembra'
+        ELSE sex
+      END
+      WHERE sex IN ('Masculino', 'Femenino');
+      GET DIAGNOSTICS normalized_patient_sex_count = ROW_COUNT;
+
       UPDATE medical_prescriptions
       SET status = CASE
         WHEN LOWER(COALESCE(status, '')) IN ('draft', 'borrador') THEN 'draft'
@@ -1822,6 +1836,7 @@ async function ensureConstraints(client) {
 
       RAISE NOTICE '[DB-FIX] users.role normalized rows: %', normalized_roles_count;
       RAISE NOTICE '[DB-FIX] products.catalog_type normalized rows: %', normalized_catalog_type_count;
+      RAISE NOTICE '[DB-FIX] patients.sex normalized rows: %', normalized_patient_sex_count;
       RAISE NOTICE '[DB-FIX] reminders.category normalized rows: %', normalized_reminder_category_count;
       RAISE NOTICE '[DB-FIX] reminders.status normalized rows: %', normalized_reminder_status_count;
       RAISE NOTICE '[DB-FIX] medical_prescriptions.status normalized rows: %', normalized_prescription_status_count;

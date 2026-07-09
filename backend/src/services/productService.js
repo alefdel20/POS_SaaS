@@ -32,15 +32,30 @@ const IMPORT_COLUMN_ALIASES = {
 };
 
 const PRODUCT_CATALOG_SCOPES = {
-  "food-accessories": {
-    exactCategories: ["Insumos alimentos", "Accesorios e insumos", "Alimentos", "Accesorios"],
-    likePatterns: ["%alimento%", "%accesor%", "%snack%", "%juguete%", "%collar%", "%correa%", "%cama%", "%arena%"]
+  food: {
+    catalogType: "accessories",
+    exactCategories: ["Insumos alimentos", "Alimentos"],
+    likePatterns: ["%alimento%", "%snack%", "%premio%"]
+  },
+  accessories: {
+    catalogType: "accessories",
+    exactCategories: ["Accesorios e insumos", "Accesorios"],
+    likePatterns: ["%accesor%", "%juguete%", "%collar%", "%correa%", "%cama%", "%arena%"]
   },
   "medications-supplies": {
+    catalogType: "medications",
     exactCategories: ["Medicamentos", "Insumos medicamentos", "Insumos medicos/farmacos", "Medicinas", "Insumos medicos"],
     likePatterns: ["%medicament%", "%farmac%", "%insumo%", "%vacun%", "%antibiot%", "%curacion%", "%quirurg%"]
   }
 };
+
+// "food" and "accessories" are a UI-level split of the same DB catalog_type
+// ("accessories") — the category/name text is the real discriminator, not
+// the catalog_type column. CATALOG_SCOPE_SIBLING lets buildCatalogScopeCondition
+// know which scope to disambiguate against; a category matching neither
+// scope's patterns falls into CATALOG_SCOPE_AMBIGUOUS_DEFAULT ("food").
+const CATALOG_SCOPE_SIBLING = { food: "accessories", accessories: "food" };
+const CATALOG_SCOPE_AMBIGUOUS_DEFAULT = "food";
 
 function stripAccents(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -74,18 +89,50 @@ function normalizeCatalogType(value) {
 }
 
 function resolveCatalogTypeFromScope(scope) {
-  if (scope === "food-accessories") return "accessories";
-  if (scope === "medications-supplies") return "medications";
-  return null;
+  const definition = PRODUCT_CATALOG_SCOPES[normalizeCatalogScope(scope)];
+  return definition ? definition.catalogType : null;
+}
+
+function buildScopeCategoryMatchExpression(definition, params, categoryExpression, nameExpression) {
+  params.push(definition.exactCategories);
+  const exactParamIndex = params.length;
+  params.push(definition.likePatterns);
+  const likeParamIndex = params.length;
+  return `(
+    COALESCE(${categoryExpression}, '') = ANY($${exactParamIndex}::text[])
+    OR COALESCE(${categoryExpression}, '') ILIKE ANY($${likeParamIndex}::text[])
+    ${nameExpression ? `OR COALESCE(${nameExpression}, '') ILIKE ANY($${likeParamIndex}::text[])` : ""}
+  )`;
 }
 
 function buildCatalogScopeCondition(columnExpression, scope, params, fallbackCategoryExpression = null, fallbackNameExpression = null) {
-  const definition = PRODUCT_CATALOG_SCOPES[normalizeCatalogScope(scope)];
+  const normalizedScope = normalizeCatalogScope(scope);
+  const definition = PRODUCT_CATALOG_SCOPES[normalizedScope];
   if (!definition) return null;
-  const catalogType = resolveCatalogTypeFromScope(scope);
 
-  params.push(catalogType);
+  params.push(definition.catalogType);
   const typeParamIndex = params.length;
+
+  const siblingScope = CATALOG_SCOPE_SIBLING[normalizedScope];
+  if (siblingScope && fallbackCategoryExpression) {
+    // food/accessories share one catalog_type, so category/name text is the
+    // actual discriminator (not just a fallback for legacy blank rows like
+    // it is for medications-supplies below).
+    const thisScopeMatches = buildScopeCategoryMatchExpression(definition, params, fallbackCategoryExpression, fallbackNameExpression);
+    const siblingScopeMatches = buildScopeCategoryMatchExpression(PRODUCT_CATALOG_SCOPES[siblingScope], params, fallbackCategoryExpression, fallbackNameExpression);
+    const ambiguousFallsHere = normalizedScope === CATALOG_SCOPE_AMBIGUOUS_DEFAULT
+      ? `OR NOT (${thisScopeMatches} OR ${siblingScopeMatches})`
+      : "";
+
+    return `(
+      COALESCE(${columnExpression}, '') = $${typeParamIndex}
+      AND (
+        ${thisScopeMatches}
+        ${ambiguousFallsHere}
+      )
+    )`;
+  }
+
   params.push(definition.exactCategories);
   const exactParamIndex = params.length;
   params.push(definition.likePatterns);

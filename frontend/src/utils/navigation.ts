@@ -17,7 +17,7 @@ export type SidebarMenuSection = {
   items: SidebarMenuItem[];
 };
 
-export type CatalogScope = "food-accessories" | "medications-supplies";
+export type CatalogScope = "food" | "accessories" | "medications-supplies";
 export type BusinessVertical = "healthcare" | "retail" | "restaurant";
 
 const HEALTHCARE_POS_TYPES = new Set<PosType>(["Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
@@ -96,13 +96,14 @@ function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | nu
         if (
           nextItem.to === "/products/restock"
           || nextItem.to === "/retail/products/restock"
+          || nextItem.to === "/health/products/food/restock"
           || nextItem.to === "/health/products/accessories/restock"
           || nextItem.to === "/health/products/medications/restock"
           || nextItem.to === "/health/products/restock"
         ) {
           return { ...nextItem, roles: "sales" };
         }
-        if (nextItem.to && ["/health/sales/accessories", "/health/products/accessories", "/health/suppliers/accessories", "/health/suppliers/medications"].includes(nextItem.to)) {
+        if (nextItem.to && ["/health/sales/food", "/health/products/food", "/health/suppliers/food", "/health/sales/accessories", "/health/products/accessories", "/health/suppliers/accessories", "/health/suppliers/medications"].includes(nextItem.to)) {
           return null;
         }
       }
@@ -143,24 +144,33 @@ export function resolveBusinessVertical(posType?: string | null): BusinessVertic
 }
 
 export function getCatalogScopeLabel(scope?: CatalogScope | null) {
-  if (scope === "food-accessories") return "Alimentos y accesorios";
+  if (scope === "food") return "Alimentos";
+  if (scope === "accessories") return "Accesorios";
   if (scope === "medications-supplies") return "Medicamentos e insumos";
   return "Productos";
 }
 
 export function getCatalogTypeFromScope(scope?: CatalogScope | null) {
-  if (scope === "food-accessories") return "accessories" as const;
+  if (scope === "food" || scope === "accessories") return "accessories" as const;
   if (scope === "medications-supplies") return "medications" as const;
   return null;
 }
 
 export function getCatalogScopeFromPath(pathname: string): CatalogScope | null {
   if (
+    pathname.startsWith("/health/sales/food")
+    || pathname.startsWith("/health/products/food")
+    || pathname.startsWith("/health/suppliers/food")
+  ) {
+    return "food";
+  }
+
+  if (
     pathname.startsWith("/health/sales/accessories")
     || pathname.startsWith("/health/products/accessories")
     || pathname.startsWith("/health/suppliers/accessories")
   ) {
-    return "food-accessories";
+    return "accessories";
   }
 
   if (
@@ -209,7 +219,7 @@ export function getDefaultRouteForUser(role?: string | null, posType?: string | 
 
   const managementHome = vertical === "healthcare" ? "/health/admin/summary" : "/retail/admin/summary";
   const salesHome = vertical === "healthcare"
-    ? (isPharmacyPos(posType) ? "/health/sales" : "/health/sales/accessories")
+    ? (isPharmacyPos(posType) ? "/health/sales" : "/health/sales/food")
     : "/retail/sales";
   if (normalizeRole(role) === "clinico") {
     return "/health/patients";
@@ -225,9 +235,14 @@ function isPharmacyPos(posType?: string | null) {
 
 export function getSidebarSectionsForVertical(posType?: string | null, role?: string | null, canShowCreditCollections = true, canShowAlerts = true): SidebarMenuSection[] {
   const vertical = resolveBusinessVertical(posType);
+  const healthFoodProductChildren: SidebarMenuItem[] = [
+    { label: "Nuevo producto", to: "/health/products/food/new", roles: "gerente", activeMatch: ["/health/products/food/new"] },
+    { label: "Productos", to: "/health/products/food", roles: "gerente", activeMatch: withAlias("/health/products/food", "/products") },
+    { label: "Productos por reabastecer", to: "/health/products/food/restock", roles: "sales", activeMatch: ["/health/products/food/restock"] }
+  ];
   const healthAccessoriesProductChildren: SidebarMenuItem[] = [
     { label: "Nuevo producto", to: "/health/products/accessories/new", roles: "gerente", activeMatch: ["/health/products/accessories/new"] },
-    { label: "Productos", to: "/health/products/accessories", roles: "gerente", activeMatch: withAlias("/health/products/accessories", "/products") },
+    { label: "Productos", to: "/health/products/accessories", roles: "gerente", activeMatch: ["/health/products/accessories"] },
     { label: "Productos por reabastecer", to: "/health/products/accessories/restock", roles: "sales", activeMatch: ["/health/products/accessories/restock"] }
   ];
   const healthMedicationProductChildren: SidebarMenuItem[] = [
@@ -261,11 +276,19 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
           }
         ] : [
           {
-            label: "Alimentos y accesorios",
+            label: "Alimentos",
             children: [
-              { label: "Ventas", to: "/health/sales/accessories", roles: "sales" as const, activeMatch: withAlias("/health/sales/accessories", "/sales") },
+              { label: "Ventas", to: "/health/sales/food", roles: "sales" as const, activeMatch: withAlias("/health/sales/food", "/sales") },
+              { label: "Productos", roles: "gerente" as const, children: healthFoodProductChildren },
+              { label: "Proveedores", to: "/health/suppliers/food", roles: "gerente" as const, activeMatch: withAlias("/health/suppliers/food", "/suppliers") }
+            ]
+          },
+          {
+            label: "Accesorios",
+            children: [
+              { label: "Ventas", to: "/health/sales/accessories", roles: "sales" as const, activeMatch: ["/health/sales/accessories"] },
               { label: "Productos", roles: "gerente" as const, children: healthAccessoriesProductChildren },
-              { label: "Proveedores", to: "/health/suppliers/accessories", roles: "gerente" as const, activeMatch: withAlias("/health/suppliers/accessories", "/suppliers") }
+              { label: "Proveedores", to: "/health/suppliers/accessories", roles: "gerente" as const, activeMatch: ["/health/suppliers/accessories"] }
             ]
           },
           {
