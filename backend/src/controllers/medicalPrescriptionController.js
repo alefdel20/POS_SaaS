@@ -12,7 +12,11 @@ const prescriptionItemValidation = [
   body("items.*.frequency").optional({ values: "falsy" }).trim(),
   body("items.*.duration").optional({ values: "falsy" }).trim(),
   body("items.*.route_of_administration").optional({ values: "falsy" }).trim(),
-  body("items.*.notes").optional().trim()
+  body("items.*.notes").optional().trim(),
+  // Migration 55.
+  body("items.*.item_category").optional({ values: "falsy" }).isIn(["administered", "dispensed"]),
+  body("items.*.quantity").optional({ values: "falsy" }).isFloat({ gt: 0 }),
+  body("items.*.deducts_stock").optional().isBoolean()
 ];
 
 const listValidation = [

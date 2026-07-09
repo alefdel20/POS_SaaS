@@ -143,7 +143,12 @@ function mapPrescriptionItem(row) {
     // is a Parte A snapshot, always 0 — see syncPrescriptionItemsToHealthcare).
     // This is the source of truth assertNoDispensedPrescriptionItemsRemoved
     // below relies on to block editing/removing an already-dispensed item.
-    dispensed_quantity: Number(row.dispensed_quantity || 0)
+    dispensed_quantity: Number(row.dispensed_quantity || 0),
+    // Migration 55.
+    quantity: row.quantity === null || row.quantity === undefined ? null : Number(row.quantity),
+    item_category: row.item_category || "dispensed",
+    deducts_stock: Boolean(row.deducts_stock),
+    stock_deducted: Boolean(row.stock_deducted)
   };
 }
 
@@ -181,39 +186,56 @@ function buildPrescriptionPayload(payload = {}) {
   const normalizedItems = items.map((item) => {
     const hasProductId = item.product_id !== undefined && item.product_id !== null && item.product_id !== "";
 
+    // item_category: 'administered' (used by the vet in the consultation
+    // room, e.g. an injection) vs 'dispensed' (given/prescribed to the owner
+    // to take home) — see migration 55. Defaults to 'dispensed', the closer
+    // match to every item created before this field existed.
+    const itemCategory = item.item_category === "administered" ? "administered" : "dispensed";
+
+    // quantity: how many units this item prescribes — new (migration 55).
+    // stock_snapshot is a different thing entirely (a snapshot of the
+    // PRODUCT's stock at prescribing time, not a quantity). Defaults to 1 so
+    // callers that predate this field (existing tests, any other caller)
+    // keep working unchanged.
+    const quantity = item.quantity === undefined || item.quantity === null || item.quantity === "" ? 1 : Number(item.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new ApiError(400, "La cantidad del medicamento no es válida");
+    }
+
     const commonFields = {
       dose: normalizeNullableText(item.dose),
       frequency: normalizeNullableText(item.frequency),
       duration: normalizeNullableText(item.duration),
       route_of_administration: normalizeNullableText(item.route_of_administration),
       notes: normalizeText(item.notes),
-      presentation_snapshot: normalizeNullableText(item.presentation_snapshot)
+      presentation_snapshot: normalizeNullableText(item.presentation_snapshot),
+      item_category: itemCategory,
+      quantity
     };
 
     if (hasProductId) {
       const productId = Number(item.product_id);
       if (!Number.isInteger(productId) || productId <= 0) throw new ApiError(400, "Prescription item product is required");
-      return { ...commonFields, product_id: productId, medication_name_snapshot: null };
+      // deducts_stock only means something when there is a catalog product to
+      // deduct from — defaults to TRUE (the item is taken from this
+      // business's own stock), the toggle is "se lleva de aqui" vs "lo compra
+      // aparte / no disponible aqui" from the UI.
+      const deductsStock = item.deducts_stock === undefined ? true : Boolean(item.deducts_stock);
+      return { ...commonFields, product_id: productId, medication_name_snapshot: null, deducts_stock: deductsStock };
     }
 
+    // "Free medication" — no catalog product (the business doesn't stock
+    // what's being prescribed). The current UI never constructs this shape
+    // (medicamento libre was removed from the form), but the backend still
+    // accepts it so an existing prescription that already has one keeps
+    // working when edited. Never deducts stock — there is no product to
+    // deduct from.
     const freeMedicationName = normalizeNullableText(item.medication_name_snapshot);
     if (!freeMedicationName) {
       throw new ApiError(400, "Cada medicamento debe tener un producto del catalogo o un nombre de medicamento libre");
     }
-    return { ...commonFields, product_id: null, medication_name_snapshot: freeMedicationName };
+    return { ...commonFields, product_id: null, medication_name_snapshot: freeMedicationName, deducts_stock: false };
   });
-
-  // Fase 5 follow-up: neither express-validator's prescriptionItemValidation
-  // (medicalPrescriptionController.js — only checks item shape when items are
-  // present) nor this function used to require at least one item, so
-  // create/update could silently persist a prescription with zero medications.
-  // "draft" is just a lifecycle status (draft/issued/cancelled), never a
-  // signal that items are still pending — no code path treats a draft
-  // differently re: item count, so there is no legitimate empty-prescription
-  // flow to preserve here.
-  if (normalizedItems.length === 0) {
-    throw new ApiError(400, "La receta debe tener al menos un medicamento");
-  }
 
   return {
     patient_id: patientId,
@@ -425,6 +447,106 @@ function assertNoDispensedPrescriptionItemsRemoved(currentItems, incomingItems) 
       );
     }
     candidates[matchIndex].consumed = true;
+  }
+}
+
+// Migration 55: updatePrescription (and savePrescriptionForConsultation's
+// update branch) DELETE every medical_prescription_items row and reinsert the
+// full incoming set on EVERY save — see the comment on
+// assertNoDispensedPrescriptionItemsRemoved above. Immediate stock deduction
+// (insertPrescriptionItemRows below) must only ever fire once per real-world
+// prescribed line, or an unrelated edit (e.g. just fixing a typo in
+// diagnosis) would re-deduct stock for every item on every save.
+//
+// This returns, per incoming item (by index), whether it should be treated
+// as "the same line as an already-deducted current item" (skip deduction,
+// carry stock_deducted=true forward) — matched the same way
+// assertNoDispensedPrescriptionItemsRemoved matches dispensed items, but
+// keyed on product_id + quantity + item_category (dose/frequency/etc. are no
+// longer captured per item going forward, so they aren't reliable match keys
+// here). A multiset match: each already-deducted current item consumes
+// exactly one matching incoming candidate.
+function matchCarriedOverStockDeductions(currentItems, incomingItems) {
+  const alreadyDeducted = (currentItems || []).filter((item) => item.stock_deducted);
+  const carriedOver = incomingItems.map(() => false);
+  if (!alreadyDeducted.length) return carriedOver;
+
+  const candidates = incomingItems.map((item) => ({
+    product_id: item.product_id === null || item.product_id === undefined ? null : Number(item.product_id),
+    quantity: Number(item.quantity),
+    item_category: item.item_category,
+    consumed: false
+  }));
+
+  for (const deductedItem of alreadyDeducted) {
+    const matchIndex = candidates.findIndex((candidate) =>
+      !candidate.consumed &&
+      candidate.product_id === (deductedItem.product_id === null || deductedItem.product_id === undefined ? null : Number(deductedItem.product_id)) &&
+      candidate.quantity === Number(deductedItem.quantity) &&
+      candidate.item_category === deductedItem.item_category
+    );
+    if (matchIndex !== -1) {
+      candidates[matchIndex].consumed = true;
+      carriedOver[matchIndex] = true;
+    }
+    // No match found: the already-deducted item genuinely disappeared from
+    // the incoming set. Nothing to do here re: stock (its deduction already
+    // happened in the past and stands — removing a line from a receta after
+    // the fact does not "return" stock, same as the rest of this codebase
+    // never auto-reverses a sale's stock deduction on edit/void elsewhere).
+  }
+
+  return carriedOver;
+}
+
+// Shared by createPrescription/updatePrescription/savePrescriptionForConsultation
+// — inserts the resolved items and, for any item that (a) is linked to a
+// catalog product, (b) has deducts_stock = TRUE, and (c) is not a carried-over
+// already-deducted line (see matchCarriedOverStockDeductions), deducts its
+// quantity from products.stock immediately. This is a real inventory
+// movement at receta-save time — a deliberate product decision (confirmed
+// with the user) distinct from the existing "dispensar por venta" flow
+// (sale_prescription_item_links / recordPrescriptionItemDispensing in
+// saleService.js), which remains untouched and keeps applying to prescription
+// items from BEFORE this feature that rely on a later POS sale to move stock.
+// Negative stock is allowed, same convention already used for kit component
+// deduction and regular sale items (saleService.js createSale).
+async function insertPrescriptionItemRows(client, businessId, prescriptionId, resolvedItems, carriedOverFlags = []) {
+  for (let index = 0; index < resolvedItems.length; index += 1) {
+    const item = resolvedItems[index];
+    const alreadyDeducted = Boolean(carriedOverFlags[index]);
+    const shouldDeductNow = !alreadyDeducted && item.deducts_stock && item.product_id !== null;
+
+    if (shouldDeductNow) {
+      await client.query(
+        "UPDATE products SET stock = stock - $1 WHERE id = $2 AND business_id = $3",
+        [item.quantity, item.product_id, businessId]
+      );
+    }
+
+    await client.query(
+      `INSERT INTO medical_prescription_items (
+        prescription_id, product_id, medication_name_snapshot, presentation_snapshot, dose, frequency, duration,
+        route_of_administration, notes, stock_snapshot, item_category, quantity, deducts_stock, stock_deducted
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        prescriptionId,
+        item.product_id,
+        item.medication_name_snapshot,
+        item.presentation_snapshot,
+        item.dose,
+        item.frequency,
+        item.duration,
+        item.route_of_administration,
+        item.notes,
+        item.stock_snapshot,
+        item.item_category,
+        item.quantity,
+        item.deducts_stock,
+        shouldDeductNow || alreadyDeducted
+      ]
+    );
   }
 }
 
@@ -1462,14 +1584,20 @@ async function getConsultationDetail(id, actor) {
   return mapConsultation(await getOwnedConsultation(id, actor));
 }
 
-// Only save a prescription bundled with a consultation when it has actual
-// medications — matches buildPrescriptionPayload's own hard requirement
-// ("La receta debe tener al menos un medicamento"). A consultation with
-// only diagnostico/tratamiento filled (no items added) stays a plain
-// consultation; those two fields already live on public.consultations
-// itself, so nothing is lost by not also creating an empty prescription.
+// Only save a prescription bundled with a consultation when the vet actually
+// engaged with the receta panel: it has medications, OR its status was
+// explicitly moved off the default "draft" (e.g. "issued" for a review-only
+// visit where no medication is recorded as an item, but a formal receta with
+// diagnosis/indications is still wanted — feedback from a vet using the
+// system: "muchas consultas son solo revision"). Leaving both untouched (no
+// items, still "draft") stays a plain consultation — those two fields already
+// live on public.consultations itself, so nothing is lost by not also
+// creating an empty draft prescription on every single visit.
 function shouldSavePrescription(prescriptionPayload) {
-  return Boolean(prescriptionPayload) && Array.isArray(prescriptionPayload.items) && prescriptionPayload.items.length > 0;
+  if (!prescriptionPayload) return false;
+  const hasItems = Array.isArray(prescriptionPayload.items) && prescriptionPayload.items.length > 0;
+  const hasExplicitStatus = Boolean(prescriptionPayload.status) && prescriptionPayload.status !== "draft";
+  return hasItems || hasExplicitStatus;
 }
 
 // Inserts or updates the ONE prescription linked to a consultation, inside
@@ -1499,9 +1627,11 @@ async function savePrescriptionForConsultation({ prescriptionPayload, patientId,
   const existing = existingRows[0];
 
   let prescriptionRow;
+  let carriedOverFlags = [];
   if (existing) {
     const currentDetail = await getPrescriptionDetail(existing.id, actor);
     assertNoDispensedPrescriptionItemsRemoved(currentDetail.items, resolvedItems);
+    carriedOverFlags = matchCarriedOverStockDeductions(currentDetail.items, resolvedItems);
 
     const { rows } = await client.query(
       `UPDATE medical_prescriptions
@@ -1524,26 +1654,7 @@ async function savePrescriptionForConsultation({ prescriptionPayload, patientId,
     prescriptionRow = rows[0];
   }
 
-  for (const item of resolvedItems) {
-    await client.query(
-      `INSERT INTO medical_prescription_items (
-        prescription_id, product_id, medication_name_snapshot, presentation_snapshot, dose, frequency, duration, route_of_administration, notes, stock_snapshot
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [
-        prescriptionRow.id,
-        item.product_id,
-        item.medication_name_snapshot,
-        item.presentation_snapshot,
-        item.dose,
-        item.frequency,
-        item.duration,
-        item.route_of_administration,
-        item.notes,
-        item.stock_snapshot
-      ]
-    );
-  }
+  await insertPrescriptionItemRows(client, businessId, prescriptionRow.id, resolvedItems, carriedOverFlags);
 
   if (existing) {
     await syncPrescriptionToHealthcareOnUpdate(prescriptionRow, actor, client);
@@ -1851,26 +1962,9 @@ async function createPrescription(payload, actor) {
     );
 
     const prescription = rows[0];
-    for (const item of resolvedItems) {
-      await client.query(
-        `INSERT INTO medical_prescription_items (
-          prescription_id, product_id, medication_name_snapshot, presentation_snapshot, dose, frequency, duration, route_of_administration, notes, stock_snapshot
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          prescription.id,
-          item.product_id,
-          item.medication_name_snapshot,
-          item.presentation_snapshot,
-          item.dose,
-          item.frequency,
-          item.duration,
-          item.route_of_administration,
-          item.notes,
-          item.stock_snapshot
-        ]
-      );
-    }
+    // Brand new prescription — nothing to carry over, every eligible item
+    // deducts stock now (see insertPrescriptionItemRows).
+    await insertPrescriptionItemRows(client, businessId, prescription.id, resolvedItems, []);
 
     // Fase 5: mirror into healthcare.prescriptions/healthcare.prescription_items.
     // Auto-heal the patient's own mirror first — same reasoning as
@@ -1937,26 +2031,11 @@ async function updatePrescription(id, payload, actor) {
       [data.patient_id, data.consultation_id, data.diagnosis, data.indications, data.status, actor.id, id, businessId]
     );
     await client.query("DELETE FROM medical_prescription_items WHERE prescription_id = $1", [id]);
-    for (const item of resolvedItems) {
-      await client.query(
-        `INSERT INTO medical_prescription_items (
-          prescription_id, product_id, medication_name_snapshot, presentation_snapshot, dose, frequency, duration, route_of_administration, notes, stock_snapshot
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          id,
-          item.product_id,
-          item.medication_name_snapshot,
-          item.presentation_snapshot,
-          item.dose,
-          item.frequency,
-          item.duration,
-          item.route_of_administration,
-          item.notes,
-          item.stock_snapshot
-        ]
-      );
-    }
+    // Carry-over match against `current` (fetched before BEGIN) — an item
+    // that already deducted stock in a previous save must not deduct again
+    // just because this update's delete+reinsert cycle touches every row.
+    const carriedOverFlags = matchCarriedOverStockDeductions(current.items, resolvedItems);
+    await insertPrescriptionItemRows(client, businessId, id, resolvedItems, carriedOverFlags);
 
     const prescriptionRow = rows[0];
 
@@ -2801,6 +2880,40 @@ function drawPrescriptionSignature(document, signatureImagePath) {
   }
 }
 
+// Migration 55 — shared by all 4 templates so "Medicamentos"/"Rp." always
+// shows the two categories as separate lists, never mixed.
+const PRESCRIPTION_ITEM_CATEGORY_LABELS = {
+  administered: "Usado por el veterinario",
+  dispensed: "Entregado / emitido"
+};
+
+function splitPrescriptionItemsByCategory(items) {
+  const administered = items.filter((item) => item.item_category === "administered");
+  const dispensed = items.filter((item) => item.item_category !== "administered");
+  return { administered, dispensed };
+}
+
+// dose/frequency/duration/route_of_administration are never populated by the
+// current capture form (removed per Sprint 2.7 feedback — that detail now
+// lives in Tratamiento/Notas instead of being captured twice), but historical
+// items created before this change may still have them — filter(Boolean)
+// so a new item's line doesn't show a trail of "Dosis: - / Frecuencia: -"
+// placeholders that would never be filled in again, while an old item's real
+// values keep displaying exactly as before.
+function formatPrescriptionItemDetails(item) {
+  return [item.presentation_snapshot, item.dose, item.frequency, item.duration, item.route_of_administration]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function formatPrescriptionItemLine(item, index) {
+  const details = formatPrescriptionItemDetails(item);
+  const quantity = item.quantity !== null && item.quantity !== undefined ? ` x${item.quantity}` : "";
+  const stockFlag = item.product_id !== null && item.deducts_stock === false ? " (no descuenta stock)" : "";
+  const base = `${index + 1}. ${item.medication_name_snapshot}${quantity}${details ? ` (${details})` : ""}${stockFlag}`;
+  return item.notes ? `${base} — ${item.notes}` : base;
+}
+
 // dd/mm/yyyy — handles both a JS Date (TIMESTAMP columns, e.g.
 // prescription.created_at) and the raw "YYYY-MM-DD" string pg returns for
 // DATE columns (pool.js forces DATE's type parser to plain text).
@@ -2913,22 +3026,28 @@ function renderClassicPrescription(document, ctx) {
   const sectionContentX = contentX + 44;
   const sectionContentWidth = contentWidth - 56;
 
-  document.fontSize(10).text("Rp.", contentX + 10, clinicalBoxY + 10);
+  document.font("Helvetica").fontSize(10).text("Rp.", contentX + 10, clinicalBoxY + 10);
   document.fontSize(9);
   let cursorY = clinicalBoxY + 10;
-  if (prescription.items.length > 0) {
-    prescription.items.forEach((item, index) => {
-      const details = [item.presentation_snapshot, item.dose, item.frequency, item.duration, item.route_of_administration].filter(Boolean).join(" · ");
-      document.text(`${index + 1}. ${item.medication_name_snapshot}${details ? ` (${details})` : ""}`, sectionContentX, cursorY, { width: sectionContentWidth });
-      cursorY = document.y;
-      if (item.notes) {
-        document.text(`   ${item.notes}`, sectionContentX, cursorY, { width: sectionContentWidth });
-        cursorY = document.y;
-      }
-    });
-  } else {
+  const { administered, dispensed } = splitPrescriptionItemsByCategory(prescription.items);
+  if (administered.length === 0 && dispensed.length === 0) {
     document.text("-", sectionContentX, cursorY, { width: sectionContentWidth });
     cursorY = document.y;
+  } else {
+    [
+      { label: PRESCRIPTION_ITEM_CATEGORY_LABELS.administered, group: administered },
+      { label: PRESCRIPTION_ITEM_CATEGORY_LABELS.dispensed, group: dispensed }
+    ].forEach(({ label, group }) => {
+      if (group.length === 0) return;
+      document.font("Helvetica-Bold").text(label, sectionContentX, cursorY, { width: sectionContentWidth });
+      cursorY = document.y;
+      document.font("Helvetica");
+      group.forEach((item, index) => {
+        document.text(formatPrescriptionItemLine(item, index), sectionContentX, cursorY, { width: sectionContentWidth });
+        cursorY = document.y;
+      });
+      cursorY += 4;
+    });
   }
 
   const rpEndY = cursorY + 6;
@@ -3015,18 +3134,27 @@ function renderModernPrescription(document, ctx) {
   document.fillColor("#000000").fontSize(10);
   document.moveDown(0.3);
 
-  prescription.items.forEach((item, index) => {
-    const ruleY = document.y;
-    document.moveTo(36, ruleY).lineTo(document.page.width - 36, ruleY).strokeColor(accentColor).lineWidth(0.75).stroke();
-    document.moveDown(0.3);
-    document.fillColor(accentColor).text(`${index + 1}. ${item.medication_name_snapshot}`);
-    document.fillColor("#000000");
-    document.text(`Presentacion: ${item.presentation_snapshot || "-"}`);
-    document.text(`Dosis: ${item.dose || "-"}    Frecuencia: ${item.frequency || "-"}`);
-    document.text(`Duracion: ${item.duration || "-"}    Via: ${item.route_of_administration || "-"}`);
-    document.text(`Notas: ${item.notes || "-"}`);
-    document.text(`Stock al recetar: ${item.stock_snapshot ?? "-"}`);
-    document.moveDown(0.5);
+  const { administered: modernAdministered, dispensed: modernDispensed } = splitPrescriptionItemsByCategory(prescription.items);
+  if (modernAdministered.length === 0 && modernDispensed.length === 0) {
+    document.text("-");
+  }
+  [
+    { label: PRESCRIPTION_ITEM_CATEGORY_LABELS.administered, group: modernAdministered },
+    { label: PRESCRIPTION_ITEM_CATEGORY_LABELS.dispensed, group: modernDispensed }
+  ].forEach(({ label, group }) => {
+    if (group.length === 0) return;
+    document.fillColor(accentColor).fontSize(11).text(label);
+    document.fillColor("#000000").fontSize(10);
+    group.forEach((item, index) => {
+      const ruleY = document.y;
+      document.moveTo(36, ruleY).lineTo(document.page.width - 36, ruleY).strokeColor(accentColor).lineWidth(0.75).stroke();
+      document.moveDown(0.3);
+      document.text(formatPrescriptionItemLine(item, index));
+      if (item.stock_snapshot !== null && item.stock_snapshot !== undefined) {
+        document.text(`Stock al recetar: ${item.stock_snapshot}`);
+      }
+      document.moveDown(0.5);
+    });
   });
 
   drawPrescriptionSignature(document, signatureImagePath);
@@ -3058,12 +3186,23 @@ function renderCompactPrescription(document, ctx) {
   document.fontSize(10).text("Medicamentos", { underline: true });
   document.moveDown(0.3);
 
-  prescription.items.forEach((item, index) => {
-    document.fontSize(9).text(`${index + 1}. ${item.medication_name_snapshot} (${item.presentation_snapshot || "-"})`);
-    document.text(`  Dosis: ${item.dose || "-"} | Frecuencia: ${item.frequency || "-"} | Duracion: ${item.duration || "-"} | Via: ${item.route_of_administration || "-"}`);
-    if (item.notes) document.text(`  Notas: ${item.notes}`);
-    document.text(`  Stock al recetar: ${item.stock_snapshot ?? "-"}`);
-    document.moveDown(0.3);
+  const { administered: compactAdministered, dispensed: compactDispensed } = splitPrescriptionItemsByCategory(prescription.items);
+  if (compactAdministered.length === 0 && compactDispensed.length === 0) {
+    document.fontSize(9).text("-");
+  }
+  [
+    { label: PRESCRIPTION_ITEM_CATEGORY_LABELS.administered, group: compactAdministered },
+    { label: PRESCRIPTION_ITEM_CATEGORY_LABELS.dispensed, group: compactDispensed }
+  ].forEach(({ label, group }) => {
+    if (group.length === 0) return;
+    document.fontSize(9).text(label, { underline: true });
+    group.forEach((item, index) => {
+      document.fontSize(9).text(`  ${formatPrescriptionItemLine(item, index)}`);
+      if (item.stock_snapshot !== null && item.stock_snapshot !== undefined) {
+        document.text(`  Stock al recetar: ${item.stock_snapshot}`);
+      }
+      document.moveDown(0.3);
+    });
   });
 
   drawPrescriptionSignature(document, signatureImagePath);
@@ -3113,16 +3252,25 @@ function renderCustomPrescription(document, ctx) {
   document.fontSize(12).text("Medicamentos");
   document.moveDown(0.5);
 
-  prescription.items.forEach((item, index) => {
-    document.fontSize(10).text(`${index + 1}. ${item.medication_name_snapshot}`);
-    document.text(`Presentacion: ${item.presentation_snapshot || "-"}`);
-    document.text(`Dosis: ${item.dose || "-"}`);
-    document.text(`Frecuencia: ${item.frequency || "-"}`);
-    document.text(`Duracion: ${item.duration || "-"}`);
-    document.text(`Via: ${item.route_of_administration || "-"}`);
-    document.text(`Notas: ${item.notes || "-"}`);
-    document.text(`Stock al recetar: ${item.stock_snapshot ?? "-"}`);
-    document.moveDown(0.75);
+  const { administered: customAdministered, dispensed: customDispensed } = splitPrescriptionItemsByCategory(prescription.items);
+  if (customAdministered.length === 0 && customDispensed.length === 0) {
+    document.fontSize(10).text("-");
+  }
+  [
+    { label: PRESCRIPTION_ITEM_CATEGORY_LABELS.administered, group: customAdministered },
+    { label: PRESCRIPTION_ITEM_CATEGORY_LABELS.dispensed, group: customDispensed }
+  ].forEach(({ label, group }) => {
+    if (group.length === 0) return;
+    document.fontSize(11).text(label);
+    document.moveDown(0.2);
+    group.forEach((item, index) => {
+      document.fontSize(10).text(formatPrescriptionItemLine(item, index));
+      if (item.stock_snapshot !== null && item.stock_snapshot !== undefined) {
+        document.text(`Stock al recetar: ${item.stock_snapshot}`);
+      }
+      document.moveDown(0.5);
+    });
+    document.moveDown(0.25);
   });
 
   drawPrescriptionSignature(document, signatureImagePath);

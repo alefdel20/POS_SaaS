@@ -682,6 +682,11 @@ export interface MedicalPrescriptionItem {
   stock_snapshot?: number | null;
   created_at: string;
   dispensed_quantity?: number;
+  // Migration 55.
+  item_category?: "administered" | "dispensed";
+  quantity?: number | null;
+  deducts_stock?: boolean;
+  stock_deducted?: boolean;
 }
 
 export interface MedicalPrescription {

@@ -42,23 +42,31 @@ function formatOriginAppointmentOption(appointment: ClinicalAppointment) {
   return `${formatDate(appointment.appointment_date)} ${time} - ${appointment.area} (${APPOINTMENT_STATUS_LABELS[appointment.status]})`;
 }
 
+// Sprint 2.7 (feedback directo de un veterinario): "medicamento libre" (texto
+// libre sin producto de catalogo) fue eliminado del formulario por completo —
+// todo medicamento se identifica UNICAMENTE seleccionandolo del buscador de
+// catalogo. Si algo no esta en el catalogo, se escribe en Tratamiento/Notas
+// como texto libre, sin registro estructurado.
+//
+// dose/frequency/duration/route_of_administration/notes ya no son inputs por
+// item (capturar eso dos veces — aqui y en Tratamiento/Notas de la consulta —
+// no era funcional). Se conservan aqui SOLO como pass-through invisible: un
+// item cargado desde una receta ya guardada (recetas anteriores a este
+// cambio) puede traer valores reales en esos campos, y deben sobrevivir un
+// guardado que no los toca — nunca se muestran ni se editan, y un item nuevo
+// jamas los puebla.
 type PrescriptionItemForm = {
+  // Null only ever happens for a legacy "medicamento libre" item loaded from
+  // a prescription saved before this change (see the module comment above) —
+  // the current form never creates one. Rendered read-only for identity
+  // (no catalog product to re-pick), quantity/category still editable.
   product_id: number | null;
   medication_name_snapshot: string;
   presentation_snapshot: string;
-  dose: string;
-  frequency: string;
-  duration: string;
-  route_of_administration: string;
-  notes: string;
+  quantity: string;
+  item_category: "administered" | "dispensed";
+  deducts_stock: boolean;
   stock_snapshot: number | null;
-};
-
-// "Medicamento libre" — a prescription item for something the business
-// doesn't stock (product_id stays null). Only the free-text fields the
-// prescriber can actually provide without a catalog product.
-type FreeMedicationForm = {
-  medication_name_snapshot: string;
   dose: string;
   frequency: string;
   duration: string;
@@ -66,13 +74,9 @@ type FreeMedicationForm = {
   notes: string;
 };
 
-const emptyFreeMedicationForm: FreeMedicationForm = {
-  medication_name_snapshot: "",
-  dose: "",
-  frequency: "",
-  duration: "",
-  route_of_administration: "",
-  notes: ""
+const PRESCRIPTION_ITEM_CATEGORY_LABELS: Record<PrescriptionItemForm["item_category"], string> = {
+  administered: "Usado por el veterinario",
+  dispensed: "Entregado / emitido"
 };
 
 type PrescriptionFormState = {
@@ -131,12 +135,16 @@ function prescriptionToForm(prescription: MedicalPrescription | null): Prescript
       product_id: item.product_id,
       medication_name_snapshot: item.medication_name_snapshot,
       presentation_snapshot: item.presentation_snapshot || "",
+      quantity: item.quantity !== null && item.quantity !== undefined ? String(item.quantity) : "1",
+      item_category: item.item_category === "administered" ? "administered" : "dispensed",
+      deducts_stock: item.product_id !== null && item.deducts_stock !== false,
+      stock_snapshot: item.stock_snapshot ?? null,
+      // Pass-through only — see the PrescriptionItemForm comment above.
       dose: item.dose || "",
       frequency: item.frequency || "",
       duration: item.duration || "",
       route_of_administration: item.route_of_administration || "",
-      notes: item.notes || "",
-      stock_snapshot: item.stock_snapshot ?? null
+      notes: item.notes || ""
     }))
   };
 }
@@ -161,8 +169,11 @@ export function MedicalConsultationsPage() {
   const [medicationQuery, setMedicationQuery] = useState("");
   const [medicationSuggestions, setMedicationSuggestions] = useState<Product[]>([]);
   const [medicationSearching, setMedicationSearching] = useState(false);
-  const [freeMedicationMode, setFreeMedicationMode] = useState(false);
-  const [freeMedicationForm, setFreeMedicationForm] = useState<FreeMedicationForm>(emptyFreeMedicationForm);
+  // Which of the 2 categories a medication picked from the search box gets
+  // added to — persists across multiple adds so the vet can flip it once
+  // ("ahora voy a registrar lo que usé aquí") and keep searching/adding
+  // without re-choosing every time.
+  const [medicationAddCategory, setMedicationAddCategory] = useState<PrescriptionItemForm["item_category"]>("dispensed");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalConsultation | null>(null);
   const [prescription, setPrescription] = useState<MedicalPrescription | null>(null);
@@ -430,8 +441,7 @@ export function MedicalConsultationsPage() {
     setPatientValue(emptyPatientValue);
     setClientValue(emptyPatientValue);
     setPrescriptionForm(emptyPrescriptionForm);
-    setFreeMedicationMode(false);
-    setFreeMedicationForm(emptyFreeMedicationForm);
+    setMedicationAddCategory("dispensed");
     setMedicationQuery("");
     setShowForm(true);
   }
@@ -443,8 +453,7 @@ export function MedicalConsultationsPage() {
     setPatientValue(consultationToPatientValue(detail));
     setClientValue(consultationToClientValue(detail));
     setPrescriptionForm(prescriptionToForm(prescription));
-    setFreeMedicationMode(false);
-    setFreeMedicationForm(emptyFreeMedicationForm);
+    setMedicationAddCategory("dispensed");
     setMedicationQuery("");
     setShowForm(true);
   }
@@ -454,64 +463,40 @@ export function MedicalConsultationsPage() {
     setShowForm(false);
   }
 
+  // Adds to whichever of the 2 categories is currently selected
+  // (medicationAddCategory) — the search box itself is reset so it's
+  // immediately ready to search/add another, in either category, right away.
   function addMedicationToPrescription(product: Product) {
-    setPrescriptionForm((current) => {
-      if (current.items.some((item) => item.product_id === product.id)) {
-        return current;
-      }
-      return {
-        ...current,
-        items: [
-          ...current.items,
-          {
-            product_id: product.id,
-            medication_name_snapshot: product.name,
-            presentation_snapshot: product.unidad_de_venta || product.category || "",
-            dose: "",
-            frequency: "",
-            duration: "",
-            route_of_administration: "",
-            notes: "",
-            stock_snapshot: product.stock ?? null
-          }
-        ]
-      };
-    });
-    setMedicationQuery("");
-    setMedicationSuggestions([]);
-  }
-
-  function addFreeMedicationToPrescription() {
-    const name = freeMedicationForm.medication_name_snapshot.trim();
-    if (!name) return;
-
     setPrescriptionForm((current) => ({
       ...current,
       items: [
         ...current.items,
         {
-          product_id: null,
-          medication_name_snapshot: name,
-          presentation_snapshot: "",
-          dose: freeMedicationForm.dose,
-          frequency: freeMedicationForm.frequency,
-          duration: freeMedicationForm.duration,
-          route_of_administration: freeMedicationForm.route_of_administration,
-          notes: freeMedicationForm.notes,
-          stock_snapshot: null
+          product_id: product.id,
+          medication_name_snapshot: product.name,
+          presentation_snapshot: product.unidad_de_venta || product.category || "",
+          quantity: "1",
+          item_category: medicationAddCategory,
+          deducts_stock: true,
+          stock_snapshot: product.stock ?? null,
+          dose: "",
+          frequency: "",
+          duration: "",
+          route_of_administration: "",
+          notes: ""
         }
       ]
     }));
-    setFreeMedicationForm(emptyFreeMedicationForm);
-    setFreeMedicationMode(false);
+    setMedicationQuery("");
+    setMedicationSuggestions([]);
   }
 
-  function updatePrescriptionItem(index: number, field: keyof PrescriptionItemForm, value: string) {
+  function updatePrescriptionItem(index: number, changes: Partial<PrescriptionItemForm>) {
     setPrescriptionForm((current) => ({
       ...current,
       items: current.items.map((item, itemIndex) => (
         itemIndex === index
-          ? { ...item, [field]: value }
+          ? { ...item, ...changes }
           : item
       ))
     }));
@@ -522,6 +507,72 @@ export function MedicalConsultationsPage() {
       ...current,
       items: current.items.filter((_, itemIndex) => itemIndex !== index)
     }));
+  }
+
+  // One table per category (Sprint 2.7: the two lists must be separate
+  // sections, never mixed) — filters prescriptionForm.items by category but
+  // keeps each row's real index so updatePrescriptionItem/removePrescriptionItem
+  // still target the right item.
+  function renderPrescriptionCategoryTable(category: PrescriptionItemForm["item_category"]) {
+    const rows = prescriptionForm.items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.item_category === category);
+    if (!rows.length) return null;
+
+    return (
+      <div className="table-wrap form-span-2" key={category}>
+        <h4>{PRESCRIPTION_ITEM_CATEGORY_LABELS[category]}</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Medicamento</th>
+              <th>Cantidad</th>
+              <th>Descuenta stock</th>
+              <th>Existencia</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ item, index }) => {
+              const stockState = getSnapshotStockLabel(item.stock_snapshot);
+              return (
+                <tr key={`prescription-item-${index}`}>
+                  <td>
+                    <strong>{item.medication_name_snapshot}</strong>
+                    <div className="muted">{item.presentation_snapshot || "-"}</div>
+                  </td>
+                  <td>
+                    <input
+                      min="0.001"
+                      onChange={(event) => updatePrescriptionItem(index, { quantity: event.target.value })}
+                      step="0.001"
+                      type="number"
+                      value={item.quantity}
+                    />
+                  </td>
+                  <td>
+                    {item.product_id !== null ? (
+                      <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", whiteSpace: "nowrap" }}>
+                        <input
+                          checked={item.deducts_stock}
+                          onChange={(event) => updatePrescriptionItem(index, { deducts_stock: event.target.checked })}
+                          type="checkbox"
+                        />
+                        {item.deducts_stock ? "Se lleva de aqui" : "Compra aparte / no disponible"}
+                      </label>
+                    ) : (
+                      <span className="muted">Medicamento libre</span>
+                    )}
+                  </td>
+                  <td><span className={stockState.className}>{stockState.label}</span></td>
+                  <td><button className="button ghost" onClick={() => removePrescriptionItem(index)} type="button">Quitar</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -553,23 +604,32 @@ export function MedicalConsultationsPage() {
         appointment_id: form.appointment_id ? Number(form.appointment_id) : null,
         temperature: form.temperature.trim() ? Number(form.temperature) : null
       };
-      if (prescriptionForm.items.length > 0) {
-        payload.prescription = {
-          diagnosis: form.diagnostico,
-          indications: form.tratamiento,
-          status: prescriptionForm.status,
-          items: prescriptionForm.items.map((item) => ({
-            product_id: item.product_id,
-            medication_name_snapshot: item.medication_name_snapshot,
-            presentation_snapshot: item.presentation_snapshot,
-            dose: item.dose,
-            frequency: item.frequency,
-            duration: item.duration,
-            route_of_administration: item.route_of_administration,
-            notes: item.notes
-          }))
-        };
-      }
+      // Always sent, even with zero items — a review-only visit can still
+      // issue a formal receta with just diagnosis/indications (Sprint 2.7:
+      // "muchas consultas son solo revision"). The backend only actually
+      // persists it when there's a real signal to do so (items present, or
+      // status explicitly moved off "draft") — see shouldSavePrescription.
+      payload.prescription = {
+        diagnosis: form.diagnostico,
+        indications: form.tratamiento,
+        status: prescriptionForm.status,
+        items: prescriptionForm.items.map((item) => ({
+          product_id: item.product_id,
+          medication_name_snapshot: item.medication_name_snapshot,
+          presentation_snapshot: item.presentation_snapshot,
+          quantity: item.quantity ? Number(item.quantity) : 1,
+          item_category: item.item_category,
+          deducts_stock: item.product_id !== null && item.deducts_stock,
+          // Pass-through only — never captured by this form, but must
+          // survive round-tripping an item loaded from an existing
+          // prescription that predates this change (see PrescriptionItemForm).
+          dose: item.dose,
+          frequency: item.frequency,
+          duration: item.duration,
+          route_of_administration: item.route_of_administration,
+          notes: item.notes
+        }))
+      };
       const saved = await apiRequest<ClinicalConsultation>(path, {
         method,
         token,
@@ -864,94 +924,39 @@ export function MedicalConsultationsPage() {
                 </div>
               ) : null}
               <div className="inline-actions">
-                <button className="button ghost" onClick={() => setFreeMedicationMode((current) => !current)} type="button">
-                  {freeMedicationMode ? "Cancelar medicamento libre" : "+ Medicamento libre"}
-                </button>
+                <span className="muted">Agregar como:</span>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  <input
+                    checked={medicationAddCategory === "administered"}
+                    name="medication-add-category"
+                    onChange={() => setMedicationAddCategory("administered")}
+                    type="radio"
+                  />
+                  {PRESCRIPTION_ITEM_CATEGORY_LABELS.administered}
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  <input
+                    checked={medicationAddCategory === "dispensed"}
+                    name="medication-add-category"
+                    onChange={() => setMedicationAddCategory("dispensed")}
+                    type="radio"
+                  />
+                  {PRESCRIPTION_ITEM_CATEGORY_LABELS.dispensed}
+                </label>
               </div>
-              {freeMedicationMode ? (
-                <div className="form-section-grid">
-                  <label>
-                    Nombre *
-                    <input
-                      onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, medication_name_snapshot: event.target.value })}
-                      value={freeMedicationForm.medication_name_snapshot}
-                    />
-                  </label>
-                  <label>
-                    Dosis
-                    <input onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, dose: event.target.value })} value={freeMedicationForm.dose} />
-                  </label>
-                  <label>
-                    Frecuencia
-                    <input onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, frequency: event.target.value })} value={freeMedicationForm.frequency} />
-                  </label>
-                  <label>
-                    Duracion
-                    <input onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, duration: event.target.value })} value={freeMedicationForm.duration} />
-                  </label>
-                  <label>
-                    Via
-                    <input
-                      onChange={(event) => setFreeMedicationForm({ ...freeMedicationForm, route_of_administration: event.target.value })}
-                      value={freeMedicationForm.route_of_administration}
-                    />
-                  </label>
-                  <div className="inline-actions">
-                    <button className="button" disabled={!freeMedicationForm.medication_name_snapshot.trim()} onClick={addFreeMedicationToPrescription} type="button">
-                      Agregar
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </div>
 
-            {prescriptionForm.items.length ? (
-              <div className="table-wrap form-span-2">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Medicamento</th>
-                      <th>Dosis</th>
-                      <th>Frecuencia</th>
-                      <th>Duracion</th>
-                      <th>Via</th>
-                      <th>Estado</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {prescriptionForm.items.map((item, index) => {
-                      const stockState = getSnapshotStockLabel(item.stock_snapshot);
-                      return (
-                        <tr key={`prescription-item-${index}`}>
-                          <td>
-                            <strong>{item.medication_name_snapshot}</strong>
-                            <div className="muted">{item.presentation_snapshot || "-"}</div>
-                          </td>
-                          <td><input onChange={(event) => updatePrescriptionItem(index, "dose", event.target.value)} value={item.dose} /></td>
-                          <td><input onChange={(event) => updatePrescriptionItem(index, "frequency", event.target.value)} value={item.frequency} /></td>
-                          <td><input onChange={(event) => updatePrescriptionItem(index, "duration", event.target.value)} value={item.duration} /></td>
-                          <td><input onChange={(event) => updatePrescriptionItem(index, "route_of_administration", event.target.value)} value={item.route_of_administration} /></td>
-                          <td><span className={stockState.className}>{stockState.label}</span></td>
-                          <td><button className="button ghost" onClick={() => removePrescriptionItem(index)} type="button">Quitar</button></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
+            {renderPrescriptionCategoryTable("administered")}
+            {renderPrescriptionCategoryTable("dispensed")}
 
-            {prescriptionForm.items.length ? (
-              <label>
-                Estado de la receta
-                <select onChange={(event) => setPrescriptionForm({ ...prescriptionForm, status: event.target.value as PrescriptionFormState["status"] })} value={prescriptionForm.status}>
-                  <option value="draft">Borrador</option>
-                  <option value="issued">Emitida</option>
-                  <option value="cancelled">Cancelada</option>
-                </select>
-              </label>
-            ) : null}
+            <label>
+              Estado de la receta
+              <select onChange={(event) => setPrescriptionForm({ ...prescriptionForm, status: event.target.value as PrescriptionFormState["status"] })} value={prescriptionForm.status}>
+                <option value="draft">Borrador</option>
+                <option value="issued">Emitida</option>
+                <option value="cancelled">Cancelada</option>
+              </select>
+            </label>
 
             <div className="inline-actions form-span-2">
               <button className="button" disabled={saving} type="submit">{saving ? "Guardando..." : "Guardar"}</button>
@@ -1048,8 +1053,9 @@ export function MedicalConsultationsPage() {
                   <thead>
                     <tr>
                       <th>Medicamento</th>
-                      <th>Dosis</th>
-                      <th>Frecuencia</th>
+                      <th>Categoria</th>
+                      <th>Cantidad</th>
+                      <th>Stock</th>
                       <th>Dispensado</th>
                     </tr>
                   </thead>
@@ -1057,8 +1063,9 @@ export function MedicalConsultationsPage() {
                     {prescription.items.map((item) => (
                       <tr key={item.id}>
                         <td>{item.medication_name_snapshot}</td>
-                        <td>{item.dose || "-"}</td>
-                        <td>{item.frequency || "-"}</td>
+                        <td>{PRESCRIPTION_ITEM_CATEGORY_LABELS[item.item_category === "administered" ? "administered" : "dispensed"]}</td>
+                        <td>{item.quantity ?? "-"}</td>
+                        <td>{item.product_id === null ? "Medicamento libre" : item.deducts_stock === false ? "No descuenta" : "Descuenta stock"}</td>
                         <td>{item.dispensed_quantity ? `${item.dispensed_quantity} dispensada(s)` : "Sin dispensar"}</td>
                       </tr>
                     ))}

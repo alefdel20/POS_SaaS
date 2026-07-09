@@ -1,57 +1,113 @@
-// Fase 5 follow-up (Backlog #15, Parte A): createPrescription/updatePrescription
-// never required at least one item — a prescription could be saved with zero
-// medications. The fix lives in clinicalService.js's buildPrescriptionPayload,
-// the single choke point both createPrescription and updatePrescription funnel
-// through (see healthcarePrescriptionSync.test.js / prescriptionDispensingBlock.test.js
-// for the broader create/update round-trip coverage — this file only exercises
-// the new item-count guard itself). No real DB involved — same mocking
-// approach as the other clinicalService test files in this directory.
+// Sprint 2.7 (feedback directo de un veterinario que usa el sistema):
+// createPrescription/updatePrescription YA NO exigen al menos un medicamento
+// — muchas consultas son solo revision, o el medicamento se aplica en el
+// consultorio sin "recetarlo" formalmente. This reverses the Fase 5 guard
+// this file used to test (see git history for the prior version asserting
+// the opposite). No real DB involved — same mocking approach as the other
+// clinicalService test files in this directory.
 //
 // Run with: node --test src/utils/prescriptionItemValidation.test.js   (from backend/)
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const pool = require("../db/pool");
+
+let currentMockClient = null;
+pool.connect = async () => currentMockClient;
+
 const clinicalService = require("../services/clinicalService");
 
-const EXPECTED_MESSAGE = "La receta debe tener al menos un medicamento";
+// Mirrors createMockClient in prescriptionFreeMedicationItem.test.js — full
+// create round-trip (medical_prescriptions insert + healthcare mirror sync),
+// with zero medical_prescription_items rows since these tests exercise an
+// empty items array.
+function createMockClient({ patientRow }) {
+  const calls = [];
+  let nextId = 6000;
 
-test("clinicalService.createPrescription: rejects an empty items array with 400, before touching any connection", async () => {
-  const actor = { id: 42, business_id: 7, role: "clinico" };
+  async function query(sqlText, params = []) {
+    const sql = String(sqlText);
+    calls.push({ sql, params });
+    const normalized = sql.replace(/\s+/g, " ").trim();
 
-  await assert.rejects(
-    () => clinicalService.createPrescription(
-      { patient_id: 900, diagnosis: "Otitis", indications: "Limpiar oido", items: [] },
-      actor
-    ),
-    (err) => {
-      assert.equal(err.statusCode, 400);
-      assert.equal(err.message, EXPECTED_MESSAGE);
-      return true;
+    if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(normalized)) return { rows: [] };
+    if (/^SELECT p\.\* FROM patients p\b/i.test(normalized)) return { rows: [patientRow] };
+    if (/^INSERT INTO medical_prescriptions\b/i.test(normalized)) {
+      const [businessId, patientId, consultationId, doctorUserId, diagnosis, indications, status, createdBy] = params;
+      return {
+        rows: [{
+          id: 300, business_id: businessId, patient_id: patientId, consultation_id: consultationId,
+          doctor_user_id: doctorUserId, diagnosis, indications, status, metadata: {},
+          created_by: createdBy, updated_by: createdBy,
+          created_at: "2026-01-10T10:00:00.000Z", updated_at: "2026-01-10T10:00:00.000Z"
+        }]
+      };
     }
+    if (/^SELECT id, species FROM patients\b/i.test(normalized)) return { rows: [{ id: patientRow.id, species: patientRow.species }] };
+    if (/^UPDATE healthcare\.patients\b/i.test(normalized)) return { rows: [{ id: 5000 }] };
+    if (/^SELECT id FROM healthcare\.patients WHERE source_patient_id\b/i.test(normalized)) return { rows: [{ id: 5000 }] };
+    if (/^INSERT INTO healthcare\.patients\b/i.test(normalized)) return { rows: [{ id: nextId++ }] };
+    if (/^INSERT INTO healthcare\.prescriptions\b/i.test(normalized)) return { rows: [{ id: 9500 }] };
+    if (/^SELECT \* FROM medical_prescription_items WHERE prescription_id\b/i.test(normalized)) return { rows: [] };
+    if (/^INSERT INTO audit_logs\b/i.test(normalized)) return { rows: [{ id: 1 }] };
+    return { rows: [] };
+  }
+
+  return { calls, query, release: () => {} };
+}
+
+function stubPrescriptionDetailPoolQuery(prescriptionRow) {
+  pool.query = async (sqlText) => {
+    const normalized = String(sqlText).replace(/\s+/g, " ").trim();
+    if (/^SELECT mp\.\*/i.test(normalized)) {
+      return { rows: [{ ...prescriptionRow, patient_name: "Firulais", doctor_name: null, item_count: 0 }] };
+    }
+    if (/^SELECT mpi\.\*/i.test(normalized)) return { rows: [] };
+    if (/^SELECT spl\.id/i.test(normalized)) return { rows: [] };
+    return { rows: [] };
+  };
+}
+
+const patientRow = {
+  id: 900, business_id: 7, name: "Firulais", species: null, breed: null,
+  sex: null, birth_date: null, phone: null, weight: null, allergies: "",
+  notes: "", is_active: true, updated_by: 42
+};
+
+const actor = { id: 42, business_id: 7, role: "clinico" };
+
+test("clinicalService.createPrescription: an empty items array is accepted (solo revision, sin medicamentos)", async () => {
+  currentMockClient = createMockClient({ patientRow });
+  stubPrescriptionDetailPoolQuery({
+    id: 300, business_id: 7, patient_id: 900, consultation_id: null,
+    diagnosis: "Revision general", indications: "Sin tratamiento", status: "issued", metadata: {}
+  });
+
+  await assert.doesNotReject(() =>
+    clinicalService.createPrescription(
+      { patient_id: 900, diagnosis: "Revision general", indications: "Sin tratamiento", status: "issued", items: [] },
+      actor
+    )
   );
+
+  const itemInsert = currentMockClient.calls.find((call) => /^INSERT INTO medical_prescription_items\b/i.test(call.sql.replace(/\s+/g, " ").trim()));
+  assert.equal(itemInsert, undefined, "no item rows should be inserted for an empty items array");
 });
 
-test("clinicalService.createPrescription: rejects when items is omitted entirely (same as an empty array)", async () => {
-  const actor = { id: 42, business_id: 7, role: "clinico" };
+test("clinicalService.createPrescription: items omitted entirely is accepted the same as an empty array", async () => {
+  currentMockClient = createMockClient({ patientRow });
+  stubPrescriptionDetailPoolQuery({
+    id: 300, business_id: 7, patient_id: 900, consultation_id: null,
+    diagnosis: "Revision general", indications: "", status: "draft", metadata: {}
+  });
 
-  await assert.rejects(
-    () => clinicalService.createPrescription(
-      { patient_id: 900, diagnosis: "Otitis", indications: "Limpiar oido" },
-      actor
-    ),
-    (err) => {
-      assert.equal(err.statusCode, 400);
-      assert.equal(err.message, EXPECTED_MESSAGE);
-      return true;
-    }
+  await assert.doesNotReject(() =>
+    clinicalService.createPrescription({ patient_id: 900, diagnosis: "Revision general" }, actor)
   );
 });
 
 // updatePrescription calls getPrescriptionDetail (via pool.query) to build
-// `current` BEFORE buildPrescriptionPayload runs, so — unlike the create
-// tests above — this needs the read side stubbed. buildPrescriptionPayload
-// still throws before pool.connect()/BEGIN, so no client mock is needed.
+// `current` BEFORE buildPrescriptionPayload runs.
 function stubExistingPrescriptionWithOneItem() {
   pool.query = async (sqlText) => {
     const normalized = String(sqlText).replace(/\s+/g, " ").trim();
@@ -73,6 +129,7 @@ function stubExistingPrescriptionWithOneItem() {
           id: 1, prescription_id: 300, product_id: 55, medication_name_snapshot: "Amoxicilina",
           presentation_snapshot: "Tabletas", dose: "250mg", frequency: "Cada 12h",
           duration: "7 dias", route_of_administration: "Oral", notes: "", stock_snapshot: 40,
+          item_category: "dispensed", quantity: 1, deducts_stock: true, stock_deducted: true,
           dispensed_quantity: 0
         }]
       };
@@ -84,24 +141,6 @@ function stubExistingPrescriptionWithOneItem() {
   };
 }
 
-test("clinicalService.updatePrescription: rejects when items is explicitly cleared to an empty array, before touching any connection", async () => {
-  stubExistingPrescriptionWithOneItem();
-  const actor = { id: 42, business_id: 7, role: "clinico" };
-
-  await assert.rejects(
-    () => clinicalService.updatePrescription(300, { patient_id: 900, diagnosis: "Otitis cronica", items: [] }, actor),
-    (err) => {
-      assert.equal(err.statusCode, 400);
-      assert.equal(err.message, EXPECTED_MESSAGE);
-      return true;
-    }
-  );
-});
-
-// Regression guard: a partial update that never mentions `items` at all must
-// NOT be treated as "cleared to empty" — buildPrescriptionPayload merges
-// `{ ...current, ...payload }`, so omitting the key should fall back to the
-// prescription's existing items, not trip the new guard.
 function createFullUpdateMockClient() {
   const calls = [];
   async function query(sqlText, params = []) {
@@ -135,6 +174,7 @@ function createFullUpdateMockClient() {
     }
     if (/^DELETE FROM medical_prescription_items\b/i.test(normalized)) return { rows: [] };
     if (/^INSERT INTO medical_prescription_items\b/i.test(normalized)) return { rows: [] };
+    if (/^UPDATE products SET stock\b/i.test(normalized)) return { rows: [] };
     if (/^SELECT id, species FROM patients\b/i.test(normalized)) return { rows: [{ id: 900, species: null }] };
     if (/^UPDATE healthcare\.patients\b/i.test(normalized)) return { rows: [{ id: 5000 }] };
     if (/^SELECT id FROM healthcare\.patients WHERE source_patient_id\b/i.test(normalized)) return { rows: [{ id: 5000 }] };
@@ -146,6 +186,24 @@ function createFullUpdateMockClient() {
   return { calls, query, release: () => {} };
 }
 
+test("clinicalService.updatePrescription: items explicitly cleared to an empty array is accepted", async () => {
+  stubExistingPrescriptionWithOneItem();
+  const mockClient = createFullUpdateMockClient();
+  pool.connect = async () => mockClient;
+  const actor = { id: 42, business_id: 7, role: "clinico" };
+
+  await assert.doesNotReject(() =>
+    clinicalService.updatePrescription(300, { patient_id: 900, diagnosis: "Otitis cronica", items: [] }, actor)
+  );
+
+  const itemInsert = mockClient.calls.find((call) => /^INSERT INTO medical_prescription_items\b/i.test(call.sql.replace(/\s+/g, " ").trim()));
+  assert.equal(itemInsert, undefined, "no item rows should be reinserted when items is cleared to empty");
+});
+
+// Regression guard: a partial update that never mentions `items` at all must
+// NOT be treated as "cleared to empty" — buildPrescriptionPayload merges
+// `{ ...current, ...payload }`, so omitting the key should fall back to the
+// prescription's existing items, not be treated as clearing them.
 test("clinicalService.updatePrescription: succeeds when items is omitted, falling back to the prescription's existing items", async () => {
   stubExistingPrescriptionWithOneItem();
   const mockClient = createFullUpdateMockClient();
@@ -161,4 +219,11 @@ test("clinicalService.updatePrescription: succeeds when items is omitted, fallin
     mockClient.calls.some((c) => /^UPDATE medical_prescriptions\b/i.test(c.sql.replace(/\s+/g, " ").trim())),
     "the edit must actually run — omitting `items` must not be treated as clearing it"
   );
+
+  // stock_deducted was already true on the existing item, and the incoming
+  // (unchanged) item carries the same product_id/quantity/item_category —
+  // matchCarriedOverStockDeductions must recognize it as carried over and
+  // NOT deduct stock again on an edit that never touched the medications.
+  const stockUpdate = mockClient.calls.find((call) => /^UPDATE products SET stock\b/i.test(call.sql.replace(/\s+/g, " ").trim()));
+  assert.equal(stockUpdate, undefined, "an unrelated edit must not re-deduct stock for an already-deducted item");
 });

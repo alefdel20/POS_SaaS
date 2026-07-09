@@ -787,6 +787,19 @@ async function ensureSchema(client) {
     "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS stock_snapshot NUMERIC(12, 3)",
     "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    // Migration 55 — 'administered' (used by the vet in the consultation room,
+    // e.g. an injection) vs 'dispensed' (given/prescribed to the owner to take
+    // home). quantity is new — the only number that existed before was
+    // stock_snapshot, a snapshot of the PRODUCT's stock at prescribing time,
+    // never "how many units this item prescribes". deducts_stock lets an item
+    // stay linked to a catalog product for identification without moving
+    // inventory (bought elsewhere / not available here). stock_deducted is
+    // internal bookkeeping (never sent by the client) so updatePrescription's
+    // delete-and-reinsert cycle doesn't re-deduct stock for a surviving item.
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS item_category VARCHAR(20) NOT NULL DEFAULT 'dispensed'",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS quantity NUMERIC(12, 3) NOT NULL DEFAULT 1",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS deducts_stock BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE medical_prescription_items ADD COLUMN IF NOT EXISTS stock_deducted BOOLEAN NOT NULL DEFAULT FALSE",
 
     `CREATE TABLE IF NOT EXISTS appointments (
       id SERIAL PRIMARY KEY,
@@ -1491,6 +1504,31 @@ async function ensureConstraints(client) {
         ADD CONSTRAINT fk_sales_administrative_invoice
         FOREIGN KEY (administrative_invoice_id)
         REFERENCES administrative_invoices(id);
+      END IF;
+    END $$;
+    `
+  );
+
+  // Migration 55 — see medical_prescription_items.item_category/quantity above.
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'medical_prescription_items_category_check'
+      ) THEN
+        ALTER TABLE medical_prescription_items
+          ADD CONSTRAINT medical_prescription_items_category_check
+          CHECK (item_category IN ('administered', 'dispensed'));
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'medical_prescription_items_quantity_check'
+      ) THEN
+        ALTER TABLE medical_prescription_items
+          ADD CONSTRAINT medical_prescription_items_quantity_check
+          CHECK (quantity > 0);
       END IF;
     END $$;
     `
