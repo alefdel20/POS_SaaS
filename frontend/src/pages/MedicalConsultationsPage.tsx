@@ -715,9 +715,8 @@ export function MedicalConsultationsPage() {
       // issue a formal receta with just diagnosis/indications (Sprint 2.7:
       // "muchas consultas son solo revision"). The backend only actually
       // persists it when there's a real signal to do so (items present, or
-      // status explicitly set to "cancelled") — see shouldSavePrescription.
-      // "issued" is now the default status shown in the select, so it can no
-      // longer double as that signal on its own the way "draft" used to.
+      // status left at "issued", its default — see shouldSavePrescription).
+      // Only an explicit switch to "Borrador" opts out of saving one.
       payload.prescription = {
         diagnosis: form.diagnostico,
         indications: form.tratamiento,

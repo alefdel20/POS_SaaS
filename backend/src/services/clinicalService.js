@@ -1598,23 +1598,24 @@ async function getConsultationDetail(id, actor) {
   return mapConsultation(await getOwnedConsultation(id, actor));
 }
 
-// Only save a prescription bundled with a consultation when the vet actually
-// engaged with the receta panel: it has medications, OR its status was
-// explicitly set to "cancelled". The frontend's "Estado de la receta" select
-// now defaults to "issued" (not "draft") and is always sent, so "issued"
-// can no longer be used as a proxy for "the vet touched this" the way it
-// could when "draft" was the untouched default — every single consultation
-// would otherwise bundle an empty issued prescription. "cancelled" stays a
-// reliable signal because it's never the default and nobody picks it by
-// accident. A review-only visit (no items, status left at "issued") stays a
-// plain consultation — those fields already live on public.consultations
-// itself, so nothing is lost by not also creating an empty prescription on
-// every single visit.
+// Save a prescription bundled with a consultation whenever it has
+// medications, OR its status isn't "draft". The frontend's "Estado de la
+// receta" select defaults to "issued" (not "draft") precisely so a
+// review-only visit still gets a formal receta with diagnosis/indications
+// even when no medication is recorded as an item — feedback from a vet
+// using the system: "muchas consultas son solo revision [pero quiero una
+// receta formal]". "draft" is now the one status a vet has to deliberately
+// pick from the select — nobody lands on it by default — so it doubles as
+// the "opt out of saving a receta for this visit" signal, the same role
+// "draft" played before the default flip, just inverted: back then leaving
+// status untouched (at "draft") meant no receta; now leaving it untouched
+// (at "issued") means a receta IS saved, and only an explicit switch to
+// "Borrador" opts back out.
 function shouldSavePrescription(prescriptionPayload) {
   if (!prescriptionPayload) return false;
   const hasItems = Array.isArray(prescriptionPayload.items) && prescriptionPayload.items.length > 0;
-  const isExplicitlyCancelled = prescriptionPayload.status === "cancelled";
-  return hasItems || isExplicitlyCancelled;
+  const hasExplicitStatus = Boolean(prescriptionPayload.status) && prescriptionPayload.status !== "draft";
+  return hasItems || hasExplicitStatus;
 }
 
 // Inserts or updates the ONE prescription linked to a consultation, inside
