@@ -20,6 +20,9 @@ const createValidation = [
   // enforces that at least one of patient_id/patient_name is present.
   body("patient_id").optional({ values: "falsy" }).isInt(),
   body("patient_name").optional({ values: "falsy" }).trim(),
+  // Only used when patient_name creates a brand-new patient inline — see
+  // resolveOrCreatePatientId in clinicalService.js.
+  body("patient_sex").optional({ values: "falsy" }).isIn(["Macho", "Hembra", "Otro"]),
   // client_id is optional as of migration 47 — a patient attended before a
   // responsible party is resolved is a valid state, same criterion already
   // applied to appointments.client_id (migration 46).

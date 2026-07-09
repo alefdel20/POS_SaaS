@@ -24,6 +24,9 @@ const createValidation = [
   // enforces that at least one of patient_id/patient_name is present.
   body("patient_id").optional({ values: "falsy" }).isInt(),
   body("patient_name").optional({ values: "falsy" }).trim(),
+  // Only used when patient_name creates a brand-new patient inline — see
+  // resolveOrCreatePatientId in clinicalService.js.
+  body("patient_sex").optional({ values: "falsy" }).isIn(["Macho", "Hembra", "Otro"]),
   body("client_id").optional({ values: "falsy" }).isInt(),
   body("client_name").optional({ values: "falsy" }).trim(),
   body("doctor_user_id").optional({ values: "falsy" }).isInt(),

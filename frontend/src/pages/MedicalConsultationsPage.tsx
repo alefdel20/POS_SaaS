@@ -243,6 +243,10 @@ export function MedicalConsultationsPage() {
   // share()/anchor.click() synchronously, with zero await in between.
   const [prescriptionPdfBlob, setPrescriptionPdfBlob] = useState<Blob | null>(null);
   const [patientValue, setPatientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
+  // Only sent when patientValue creates a brand-new patient inline (no
+  // patientValue.id) — NameAutocomplete itself has no species/sex fields,
+  // see resolveOrCreatePatientId in clinicalService.js.
+  const [newPatientSex, setNewPatientSex] = useState("Macho");
   const [clientValue, setClientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
   const [form, setForm] = useState<ConsultationFormState>(emptyForm);
   const [prescriptionForm, setPrescriptionForm] = useState<PrescriptionFormState>(emptyPrescriptionForm);
@@ -453,6 +457,7 @@ export function MedicalConsultationsPage() {
     }, { replace: true });
     setForm({ ...emptyForm, consultation_date: new Date().toISOString().slice(0, 16) });
     setPatientValue(emptyPatientValue);
+    setNewPatientSex("Macho");
     setClientValue(emptyPatientValue);
     setPrescriptionForm(emptyPrescriptionForm);
     administeredSearch.reset();
@@ -692,7 +697,7 @@ export function MedicalConsultationsPage() {
       const path = mode === "edit" && selectedId ? `/medical-consultations/${selectedId}` : "/medical-consultations";
       const payload: Record<string, unknown> = {
         ...form,
-        ...(patientValue.id ? { patient_id: patientValue.id } : { patient_name: patientValue.name.trim() }),
+        ...(patientValue.id ? { patient_id: patientValue.id } : { patient_name: patientValue.name.trim(), patient_sex: newPatientSex }),
         // client is independent and optional here (Bug 1) — createConsultation
         // has no automatic patient->client fallback the way appointments do,
         // so this has to be resolved explicitly. Unconfirmed free text is
@@ -962,6 +967,16 @@ export function MedicalConsultationsPage() {
 
           <form className="grid-form" onSubmit={handleSubmit}>
             <NameAutocomplete kind="patient" label={humanPatientsOnly ? "Paciente" : "Paciente / mascota"} onChange={setPatientValue} required token={token} value={patientValue} />
+            {!patientValue.id && patientValue.confirmedNew ? (
+              <label>
+                Sexo
+                <select value={newPatientSex} onChange={(event) => setNewPatientSex(event.target.value)}>
+                  <option value="Macho">Macho</option>
+                  <option value="Hembra">Hembra</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </label>
+            ) : null}
             {!humanPatientsOnly ? (
               <NameAutocomplete kind="client" label="Cliente" onChange={setClientValue} token={token} value={clientValue} />
             ) : null}

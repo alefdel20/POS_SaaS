@@ -788,6 +788,10 @@ function buildConsultationPayload(payload = {}) {
   // in createConsultation/updateConsultation inside their own transaction.
   const patientId = payload.patient_id === undefined || payload.patient_id === null || payload.patient_id === "" ? null : Number(payload.patient_id);
   const patientName = normalizeText(payload.patient_name);
+  // Only meaningful alongside patient_name (a brand-new patient created
+  // inline from this form) — ignored when patientId is set, same as
+  // patientName itself. See resolveOrCreatePatientId.
+  const patientSex = normalizeNullableText(payload.patient_sex);
   // client_id is optional as of migration 47 — same resolve-or-null shape as
   // buildAppointmentPayload's client_id (migration 46). The frontend today
   // still auto-fills it from the selected patient's own client_id and never
@@ -823,6 +827,7 @@ function buildConsultationPayload(payload = {}) {
   return {
     patient_id: patientId,
     patient_name: patientName,
+    patient_sex: patientSex,
     client_id: clientId,
     client_name: clientName,
     appointment_id: appointmentId,
@@ -847,6 +852,10 @@ function buildAppointmentPayload(payload = {}) {
   // createAppointment/updateAppointment.
   const patientId = payload.patient_id === undefined || payload.patient_id === null || payload.patient_id === "" ? null : Number(payload.patient_id);
   const patientName = normalizeText(payload.patient_name);
+  // Only meaningful alongside patient_name (a brand-new patient created
+  // inline from this form) — ignored when patientId is set, same as
+  // patientName itself. See resolveOrCreatePatientId.
+  const patientSex = normalizeNullableText(payload.patient_sex);
   const clientId = payload.client_id === undefined || payload.client_id === null || payload.client_id === "" ? null : Number(payload.client_id);
   const clientName = normalizeText(payload.client_name);
   const doctorUserId = payload.doctor_user_id === undefined || payload.doctor_user_id === null || payload.doctor_user_id === "" ? null : Number(payload.doctor_user_id);
@@ -877,6 +886,7 @@ function buildAppointmentPayload(payload = {}) {
   return {
     patient_id: patientId,
     patient_name: patientName,
+    patient_sex: patientSex,
     client_id: clientId,
     client_name: clientName,
     doctor_user_id: doctorUserId,
@@ -1379,7 +1389,7 @@ async function insertPatientRow(payload, actor, client) {
 // resolveOrCreateClientId) is attached to the newly created patient so a
 // brand-new patient + brand-new responsable typed together in the same
 // parent form end up linked to each other.
-async function resolveOrCreatePatientId({ patientId, patientName, clientId = null, actor, client }) {
+async function resolveOrCreatePatientId({ patientId, patientName, patientSex = null, clientId = null, actor, client }) {
   if (patientId) return Number(patientId);
   const name = normalizeText(patientName);
   if (!name) throw new ApiError(400, "El nombre del paciente es obligatorio");
@@ -1394,7 +1404,11 @@ async function resolveOrCreatePatientId({ patientId, patientName, clientId = nul
   // species there is already the correct, intended state.
   const species = usesHumanPatientsOnly(actor?.pos_type) ? undefined : "Sin especificar";
 
-  const created = await insertPatientRow({ name, client_id: clientId, species }, actor, client);
+  // sex, unlike species, has no forced placeholder — it's optional on the
+  // patient form itself (buildPatientPayload leaves it NULL when omitted),
+  // so a missing patientSex here just means "not captured yet", same as
+  // creating the patient directly from /patients without picking one.
+  const created = await insertPatientRow({ name, client_id: clientId, species, sex: patientSex }, actor, client);
   return created.id;
 }
 
@@ -1688,7 +1702,7 @@ async function createConsultation(payload, actor) {
     // client_name (NameAutocomplete free text) — resolve (creating inside
     // this same transaction if needed) before anything else touches them.
     data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
-    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, clientId: data.client_id, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, patientSex: data.patient_sex, clientId: data.client_id, actor, client });
 
     const { patient } = await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
     await validateConsultationAppointmentLink({ appointmentId: data.appointment_id, patientId: data.patient_id, actor, client });
@@ -1782,7 +1796,7 @@ async function updateConsultation(id, payload, actor) {
 
     // Same free-text resolution as createConsultation above.
     data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
-    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, clientId: data.client_id, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, patientSex: data.patient_sex, clientId: data.client_id, actor, client });
 
     const { patient } = await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
     await validateConsultationAppointmentLink({ appointmentId: data.appointment_id, patientId: data.patient_id, actor, client });
@@ -2257,7 +2271,7 @@ async function createAppointment(payload, actor) {
     // Client resolves first since a brand-new patient created right after
     // gets linked to it.
     data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
-    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, clientId: data.client_id, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, patientSex: data.patient_sex, clientId: data.client_id, actor, client });
 
     const patient = await getOwnedPatient(data.patient_id, actor, client);
     const resolvedClientId = resolveOptionalAppointmentClientId(data, patient);
@@ -2371,7 +2385,7 @@ async function updateAppointment(id, payload, actor) {
 
     // Same free-text resolution as createAppointment above.
     data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
-    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, clientId: data.client_id, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, patientSex: data.patient_sex, clientId: data.client_id, actor, client });
 
     const patient = await getOwnedPatient(data.patient_id, actor, client);
     const resolvedClientId = resolveOptionalAppointmentClientId(data, patient);

@@ -76,6 +76,10 @@ export function MedicalAppointmentsPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ClinicalAppointment | null>(null);
   const [patientValue, setPatientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
+  // Only sent when patientValue creates a brand-new patient inline (no
+  // patientValue.id) — NameAutocomplete itself has no species/sex fields,
+  // see resolveOrCreatePatientId in clinicalService.js.
+  const [newPatientSex, setNewPatientSex] = useState("Macho");
   const [linkedConsultationId, setLinkedConsultationId] = useState<number | null>(null);
   const [form, setForm] = useState<AppointmentFormState>({
     ...emptyForm,
@@ -219,6 +223,7 @@ export function MedicalAppointmentsPage() {
       specialty: nextDoctor?.specialty || ""
     });
     setPatientValue(emptyPatientValue);
+    setNewPatientSex("Macho");
   }
 
   function startEdit() {
@@ -245,7 +250,7 @@ export function MedicalAppointmentsPage() {
         token,
         body: JSON.stringify({
           ...form,
-          ...(patientValue.id ? { patient_id: patientValue.id } : { patient_name: patientValue.name.trim() }),
+          ...(patientValue.id ? { patient_id: patientValue.id } : { patient_name: patientValue.name.trim(), patient_sex: newPatientSex }),
           doctor_user_id: form.doctor_user_id ? Number(form.doctor_user_id) : undefined
         })
       });
@@ -416,6 +421,16 @@ export function MedicalAppointmentsPage() {
         </div>
         <form className="grid-form" onSubmit={handleSubmit}>
           <NameAutocomplete kind="patient" label="Paciente" onChange={setPatientValue} required token={token} value={patientValue} />
+          {!patientValue.id && patientValue.confirmedNew ? (
+            <label>
+              Sexo
+              <select value={newPatientSex} onChange={(event) => setNewPatientSex(event.target.value)}>
+                <option value="Macho">Macho</option>
+                <option value="Hembra">Hembra</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </label>
+          ) : null}
           <label>
             Responsable
             <input disabled value={patientValue.meta?.client_name || (patientValue.id || patientValue.name.trim() ? "Sin responsable" : "")} />
