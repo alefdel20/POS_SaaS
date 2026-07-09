@@ -825,21 +825,6 @@ export function ProfilePage() {
             </p>
           ) : null}
         </div>
-        <div className="info-card form-span-2">
-          <div className="panel-header">
-            <div>
-              <h3>Imagen del negocio</h3>
-              <p className="muted">Se usara despues en recetas e historial medico PDF.</p>
-            </div>
-            {profile?.business_image_path ? (
-              <button className="button ghost" disabled={assetLoading === "business_image"} onClick={() => handleAssetDelete("business_image")} type="button">
-                Quitar
-              </button>
-            ) : null}
-          </div>
-          {profile?.business_image_path ? <img alt="Imagen del negocio" className="profile-asset-preview" src={resolveUploadedAssetUrl(profile.business_image_path) || ""} /> : null}
-          <input accept=".jpg,.jpeg,.png,.webp" disabled={assetLoading === "business_image"} onChange={(event) => handleAssetUpload("business_image", event.target.files?.[0] || null)} type="file" />
-        </div>
         {formData.prescription_template === "personalizado" ? (
           <div className="info-card form-span-2">
             <div className="panel-header">
@@ -864,6 +849,21 @@ export function ProfilePage() {
             />
           </div>
         ) : null}
+        <div className="info-card form-span-2">
+          <div className="panel-header">
+            <div>
+              <h3>Imagen del negocio</h3>
+              <p className="muted">Se usara despues en recetas e historial medico PDF.</p>
+            </div>
+            {profile?.business_image_path ? (
+              <button className="button ghost" disabled={assetLoading === "business_image"} onClick={() => handleAssetDelete("business_image")} type="button">
+                Quitar
+              </button>
+            ) : null}
+          </div>
+          {profile?.business_image_path ? <img alt="Imagen del negocio" className="profile-asset-preview" src={resolveUploadedAssetUrl(profile.business_image_path) || ""} /> : null}
+          <input accept=".jpg,.jpeg,.png,.webp" disabled={assetLoading === "business_image"} onChange={(event) => handleAssetUpload("business_image", event.target.files?.[0] || null)} type="file" />
+        </div>
         <div className="info-card form-span-2">
           <div className="panel-header">
             <div>
