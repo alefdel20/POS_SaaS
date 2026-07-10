@@ -30,10 +30,10 @@ function createPatientsMock({ currentPatientRow }) {
     }
 
     if (/^UPDATE patients\b/i.test(normalized)) {
-      const [phone, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, updated_by] = params;
+      const [client_id, phone, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, updated_by] = params;
       return {
         rows: [{
-          ...currentPatientRow, phone, name, species, breed, sex, birth_date,
+          ...currentPatientRow, client_id, phone, name, species, breed, sex, birth_date,
           weight, allergies, notes, is_active, updated_by
         }]
       };

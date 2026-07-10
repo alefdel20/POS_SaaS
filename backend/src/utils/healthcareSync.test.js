@@ -77,10 +77,10 @@ function createMockClient({ existingClientRow = null } = {}) {
     }
 
     if (/^INSERT INTO patients\b/i.test(normalized)) {
-      const [businessId, phone, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, created_by] = params;
+      const [businessId, client_id, phone, name, species, breed, sex, birth_date, weight, allergies, notes, is_active, created_by] = params;
       return {
         rows: [{
-          id: nextId++, business_id: businessId, phone, name, species, breed,
+          id: nextId++, business_id: businessId, client_id, phone, name, species, breed,
           sex, birth_date, weight, allergies, notes, is_active, created_by,
           updated_by: created_by, metadata: {}
         }]
