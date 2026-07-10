@@ -792,6 +792,9 @@ function buildConsultationPayload(payload = {}) {
   // inline from this form) — ignored when patientId is set, same as
   // patientName itself. See resolveOrCreatePatientId.
   const patientSex = normalizeNullableText(payload.patient_sex);
+  const patientWeight = payload.patient_weight === undefined || payload.patient_weight === null || payload.patient_weight === "" ? null : Number(payload.patient_weight);
+  const patientBreed = normalizeNullableText(payload.patient_breed);
+  const patientBirthDate = normalizeDateValue(payload.patient_birth_date);
   // client_id is optional as of migration 47 — same resolve-or-null shape as
   // buildAppointmentPayload's client_id (migration 46). The frontend today
   // still auto-fills it from the selected patient's own client_id and never
@@ -799,6 +802,9 @@ function buildConsultationPayload(payload = {}) {
   // no client_id of its own (rescued animal / patient created without one).
   const clientId = payload.client_id === undefined || payload.client_id === null || payload.client_id === "" ? null : Number(payload.client_id);
   const clientName = normalizeText(payload.client_name);
+  // Only meaningful alongside client_name (a brand-new client created inline
+  // from this form) — ignored when clientId is set. See resolveOrCreateClientId.
+  const clientPhone = normalizeNullableText(payload.client_phone);
   // appointment_id is optional — declares which appointment this consultation
   // resulted from, if any. No heuristics (see Fase 4 investigation notes):
   // omitted or null means the consultation is not linked to any appointment.
@@ -814,6 +820,11 @@ function buildConsultationPayload(payload = {}) {
 
   if (!patientId && !patientName) throw new ApiError(400, "El paciente es obligatorio");
   if (patientId !== null && (!Number.isInteger(patientId) || patientId <= 0)) throw new ApiError(400, "El paciente es obligatorio");
+  // Same bounds as buildPatientPayload's own weight validation, kept in sync
+  // since this ends up in the same patients.weight column.
+  if (patientWeight !== null && (!Number.isFinite(patientWeight) || patientWeight < 0 || patientWeight > 500)) {
+    throw new ApiError(400, "El peso del paciente no es válido");
+  }
   if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) throw new ApiError(400, "Client is invalid");
   if (appointmentId !== null && (!Number.isInteger(appointmentId) || appointmentId <= 0)) throw new ApiError(400, "Appointment is invalid");
   if (!consultationDate) throw new ApiError(400, "Consultation date is required");
@@ -828,8 +839,12 @@ function buildConsultationPayload(payload = {}) {
     patient_id: patientId,
     patient_name: patientName,
     patient_sex: patientSex,
+    patient_weight: patientWeight,
+    patient_breed: patientBreed,
+    patient_birth_date: patientBirthDate,
     client_id: clientId,
     client_name: clientName,
+    client_phone: clientPhone,
     appointment_id: appointmentId,
     consultation_date: consultationDate,
     motivo_consulta: motivoConsulta,
@@ -856,8 +871,14 @@ function buildAppointmentPayload(payload = {}) {
   // inline from this form) — ignored when patientId is set, same as
   // patientName itself. See resolveOrCreatePatientId.
   const patientSex = normalizeNullableText(payload.patient_sex);
+  const patientWeight = payload.patient_weight === undefined || payload.patient_weight === null || payload.patient_weight === "" ? null : Number(payload.patient_weight);
+  const patientBreed = normalizeNullableText(payload.patient_breed);
+  const patientBirthDate = normalizeDateValue(payload.patient_birth_date);
   const clientId = payload.client_id === undefined || payload.client_id === null || payload.client_id === "" ? null : Number(payload.client_id);
   const clientName = normalizeText(payload.client_name);
+  // Only meaningful alongside client_name (a brand-new client created inline
+  // from this form) — ignored when clientId is set. See resolveOrCreateClientId.
+  const clientPhone = normalizeNullableText(payload.client_phone);
   const doctorUserId = payload.doctor_user_id === undefined || payload.doctor_user_id === null || payload.doctor_user_id === "" ? null : Number(payload.doctor_user_id);
   const appointmentDate = normalizeText(payload.appointment_date || payload.fecha);
   const startTime = normalizeTimeValue(payload.start_time || payload.hora_inicio);
@@ -869,6 +890,11 @@ function buildAppointmentPayload(payload = {}) {
 
   if (!patientId && !patientName) throw new ApiError(400, "El paciente es obligatorio");
   if (patientId !== null && (!Number.isInteger(patientId) || patientId <= 0)) throw new ApiError(400, "El paciente es obligatorio");
+  // Same bounds as buildPatientPayload's own weight validation, kept in sync
+  // since this ends up in the same patients.weight column.
+  if (patientWeight !== null && (!Number.isFinite(patientWeight) || patientWeight < 0 || patientWeight > 500)) {
+    throw new ApiError(400, "El peso del paciente no es válido");
+  }
   if (clientId !== null && (!Number.isInteger(clientId) || clientId <= 0)) throw new ApiError(400, "El cliente no es válido");
   if (doctorUserId !== null && (!Number.isInteger(doctorUserId) || doctorUserId <= 0)) throw new ApiError(400, "El doctor no es válido");
   if (!appointmentDate) throw new ApiError(400, "La fecha de la cita es obligatoria");
@@ -887,8 +913,12 @@ function buildAppointmentPayload(payload = {}) {
     patient_id: patientId,
     patient_name: patientName,
     patient_sex: patientSex,
+    patient_weight: patientWeight,
+    patient_breed: patientBreed,
+    patient_birth_date: patientBirthDate,
     client_id: clientId,
     client_name: clientName,
+    client_phone: clientPhone,
     doctor_user_id: doctorUserId,
     appointment_date: appointmentDate,
     start_time: startTime,
@@ -1151,11 +1181,11 @@ async function createClient(payload, actor) {
 // contract on the frontend). A blank/whitespace-only name resolves to null,
 // same as never having typed anything — client stays optional everywhere it
 // already was.
-async function resolveOrCreateClientId({ clientId, clientName, actor, client }) {
+async function resolveOrCreateClientId({ clientId, clientName, clientPhone = null, actor, client }) {
   if (clientId) return Number(clientId);
   const name = normalizeText(clientName);
   if (!name) return null;
-  const created = await insertClientRow({ name }, actor, client);
+  const created = await insertClientRow({ name, phone: clientPhone }, actor, client);
   return created.id;
 }
 
@@ -1389,7 +1419,17 @@ async function insertPatientRow(payload, actor, client) {
 // resolveOrCreateClientId) is attached to the newly created patient so a
 // brand-new patient + brand-new responsable typed together in the same
 // parent form end up linked to each other.
-async function resolveOrCreatePatientId({ patientId, patientName, patientSex = null, clientId = null, actor, client }) {
+async function resolveOrCreatePatientId({
+  patientId,
+  patientName,
+  patientSex = null,
+  patientWeight = null,
+  patientBreed = null,
+  patientBirthDate = null,
+  clientId = null,
+  actor,
+  client
+}) {
   if (patientId) return Number(patientId);
   const name = normalizeText(patientName);
   if (!name) throw new ApiError(400, "El nombre del paciente es obligatorio");
@@ -1404,11 +1444,19 @@ async function resolveOrCreatePatientId({ patientId, patientName, patientSex = n
   // species there is already the correct, intended state.
   const species = usesHumanPatientsOnly(actor?.pos_type) ? undefined : "Sin especificar";
 
-  // sex, unlike species, has no forced placeholder — it's optional on the
-  // patient form itself (buildPatientPayload leaves it NULL when omitted),
-  // so a missing patientSex here just means "not captured yet", same as
-  // creating the patient directly from /patients without picking one.
-  const created = await insertPatientRow({ name, client_id: clientId, species, sex: patientSex }, actor, client);
+  // sex/weight/breed/birth_date, unlike species, have no forced placeholder —
+  // they're optional on the patient form itself (buildPatientPayload leaves
+  // them NULL when omitted), so missing values here just mean "not captured
+  // yet", same as creating the patient directly from /patients without them.
+  const created = await insertPatientRow({
+    name,
+    client_id: clientId,
+    species,
+    sex: patientSex,
+    weight: patientWeight,
+    breed: patientBreed,
+    birth_date: patientBirthDate
+  }, actor, client);
   return created.id;
 }
 
@@ -1705,8 +1753,18 @@ async function createConsultation(payload, actor) {
     // patient_id/client_id may instead have arrived as patient_name/
     // client_name (NameAutocomplete free text) — resolve (creating inside
     // this same transaction if needed) before anything else touches them.
-    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
-    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, patientSex: data.patient_sex, clientId: data.client_id, actor, client });
+    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, clientPhone: data.client_phone, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({
+      patientId: data.patient_id,
+      patientName: data.patient_name,
+      patientSex: data.patient_sex,
+      patientWeight: data.patient_weight,
+      patientBreed: data.patient_breed,
+      patientBirthDate: data.patient_birth_date,
+      clientId: data.client_id,
+      actor,
+      client
+    });
 
     const { patient } = await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
     await validateConsultationAppointmentLink({ appointmentId: data.appointment_id, patientId: data.patient_id, actor, client });
@@ -1799,8 +1857,18 @@ async function updateConsultation(id, payload, actor) {
     await client.query("BEGIN");
 
     // Same free-text resolution as createConsultation above.
-    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
-    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, patientSex: data.patient_sex, clientId: data.client_id, actor, client });
+    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, clientPhone: data.client_phone, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({
+      patientId: data.patient_id,
+      patientName: data.patient_name,
+      patientSex: data.patient_sex,
+      patientWeight: data.patient_weight,
+      patientBreed: data.patient_breed,
+      patientBirthDate: data.patient_birth_date,
+      clientId: data.client_id,
+      actor,
+      client
+    });
 
     const { patient } = await validateClinicalRelationship({ patientId: data.patient_id, clientId: data.client_id, actor, client });
     await validateConsultationAppointmentLink({ appointmentId: data.appointment_id, patientId: data.patient_id, actor, client });
@@ -2274,8 +2342,18 @@ async function createAppointment(payload, actor) {
     // this same transaction if needed) before anything else touches them.
     // Client resolves first since a brand-new patient created right after
     // gets linked to it.
-    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
-    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, patientSex: data.patient_sex, clientId: data.client_id, actor, client });
+    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, clientPhone: data.client_phone, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({
+      patientId: data.patient_id,
+      patientName: data.patient_name,
+      patientSex: data.patient_sex,
+      patientWeight: data.patient_weight,
+      patientBreed: data.patient_breed,
+      patientBirthDate: data.patient_birth_date,
+      clientId: data.client_id,
+      actor,
+      client
+    });
 
     const patient = await getOwnedPatient(data.patient_id, actor, client);
     const resolvedClientId = resolveOptionalAppointmentClientId(data, patient);
@@ -2388,8 +2466,18 @@ async function updateAppointment(id, payload, actor) {
     await client.query("BEGIN");
 
     // Same free-text resolution as createAppointment above.
-    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, actor, client });
-    data.patient_id = await resolveOrCreatePatientId({ patientId: data.patient_id, patientName: data.patient_name, patientSex: data.patient_sex, clientId: data.client_id, actor, client });
+    data.client_id = await resolveOrCreateClientId({ clientId: data.client_id, clientName: data.client_name, clientPhone: data.client_phone, actor, client });
+    data.patient_id = await resolveOrCreatePatientId({
+      patientId: data.patient_id,
+      patientName: data.patient_name,
+      patientSex: data.patient_sex,
+      patientWeight: data.patient_weight,
+      patientBreed: data.patient_breed,
+      patientBirthDate: data.patient_birth_date,
+      clientId: data.client_id,
+      actor,
+      client
+    });
 
     const patient = await getOwnedPatient(data.patient_id, actor, client);
     const resolvedClientId = resolveOptionalAppointmentClientId(data, patient);

@@ -244,10 +244,16 @@ export function MedicalConsultationsPage() {
   const [prescriptionPdfBlob, setPrescriptionPdfBlob] = useState<Blob | null>(null);
   const [patientValue, setPatientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
   // Only sent when patientValue creates a brand-new patient inline (no
-  // patientValue.id) — NameAutocomplete itself has no species/sex fields,
-  // see resolveOrCreatePatientId in clinicalService.js.
+  // patientValue.id) — NameAutocomplete itself has no species/sex/weight/
+  // breed/birth_date fields, see resolveOrCreatePatientId in clinicalService.js.
   const [newPatientSex, setNewPatientSex] = useState("Macho");
+  const [newPatientWeight, setNewPatientWeight] = useState("");
+  const [newPatientBreed, setNewPatientBreed] = useState("");
+  const [newPatientBirthDate, setNewPatientBirthDate] = useState("");
   const [clientValue, setClientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
+  // Only sent when clientValue creates a brand-new client inline (no
+  // clientValue.id) — see resolveOrCreateClientId in clinicalService.js.
+  const [newClientPhone, setNewClientPhone] = useState("");
   const [form, setForm] = useState<ConsultationFormState>(emptyForm);
   const [prescriptionForm, setPrescriptionForm] = useState<PrescriptionFormState>(emptyPrescriptionForm);
   const [mode, setMode] = useState<"create" | "edit">("create");
@@ -458,7 +464,11 @@ export function MedicalConsultationsPage() {
     setForm({ ...emptyForm, consultation_date: new Date().toISOString().slice(0, 16) });
     setPatientValue(emptyPatientValue);
     setNewPatientSex("Macho");
+    setNewPatientWeight("");
+    setNewPatientBreed("");
+    setNewPatientBirthDate("");
     setClientValue(emptyPatientValue);
+    setNewClientPhone("");
     setPrescriptionForm(emptyPrescriptionForm);
     administeredSearch.reset();
     dispensedSearch.reset();
@@ -697,7 +707,15 @@ export function MedicalConsultationsPage() {
       const path = mode === "edit" && selectedId ? `/medical-consultations/${selectedId}` : "/medical-consultations";
       const payload: Record<string, unknown> = {
         ...form,
-        ...(patientValue.id ? { patient_id: patientValue.id } : { patient_name: patientValue.name.trim(), patient_sex: newPatientSex }),
+        ...(patientValue.id
+          ? { patient_id: patientValue.id }
+          : {
+            patient_name: patientValue.name.trim(),
+            patient_sex: newPatientSex,
+            patient_weight: newPatientWeight.trim() || undefined,
+            patient_breed: newPatientBreed.trim() || undefined,
+            patient_birth_date: newPatientBirthDate || undefined
+          }),
         // client is independent and optional here (Bug 1) — createConsultation
         // has no automatic patient->client fallback the way appointments do,
         // so this has to be resolved explicitly. Unconfirmed free text is
@@ -706,7 +724,7 @@ export function MedicalConsultationsPage() {
         ...(clientValue.id
           ? { client_id: clientValue.id }
           : clientValue.confirmedNew && clientValue.name.trim()
-            ? { client_name: clientValue.name.trim() }
+            ? { client_name: clientValue.name.trim(), client_phone: newClientPhone.trim() || undefined }
             : {}),
         appointment_id: form.appointment_id ? Number(form.appointment_id) : null,
         temperature: form.temperature.trim() ? Number(form.temperature) : null
@@ -968,17 +986,41 @@ export function MedicalConsultationsPage() {
 
           <form className="grid-form" onSubmit={handleSubmit}>
             <NameAutocomplete kind="patient" label={humanPatientsOnly ? "Paciente" : "Paciente / mascota"} onChange={setPatientValue} required token={token} value={patientValue} />
-            {!patientValue.id ? (
-              <label>
-                Sexo
-                <select value={newPatientSex} onChange={(event) => setNewPatientSex(event.target.value)}>
-                  <option value="Macho">Macho</option>
-                  <option value="Hembra">Hembra</option>
-                </select>
-              </label>
-            ) : null}
             {!humanPatientsOnly ? (
               <NameAutocomplete kind="client" label="Cliente" onChange={setClientValue} token={token} value={clientValue} />
+            ) : null}
+            {!patientValue.id || (!humanPatientsOnly && !clientValue.id) ? (
+              <div className="auth-grid-form">
+                {!patientValue.id ? (
+                  <>
+                    <label>
+                      Sexo
+                      <select value={newPatientSex} onChange={(event) => setNewPatientSex(event.target.value)}>
+                        <option value="Macho">Macho</option>
+                        <option value="Hembra">Hembra</option>
+                      </select>
+                    </label>
+                    <label>
+                      Peso (kg)
+                      <input type="number" min="0" step="0.1" value={newPatientWeight} onChange={(event) => setNewPatientWeight(event.target.value)} />
+                    </label>
+                    <label>
+                      Raza
+                      <input value={newPatientBreed} onChange={(event) => setNewPatientBreed(event.target.value)} />
+                    </label>
+                    <label>
+                      Fecha de nacimiento
+                      <input type="date" value={newPatientBirthDate} onChange={(event) => setNewPatientBirthDate(event.target.value)} />
+                    </label>
+                  </>
+                ) : null}
+                {!humanPatientsOnly && !clientValue.id ? (
+                  <label>
+                    Teléfono del cliente
+                    <input type="tel" value={newClientPhone} onChange={(event) => setNewClientPhone(event.target.value)} />
+                  </label>
+                ) : null}
+              </div>
             ) : null}
             {patientValue.id ? (
               <label>

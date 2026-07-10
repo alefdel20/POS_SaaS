@@ -27,8 +27,14 @@ const createValidation = [
   // Only used when patient_name creates a brand-new patient inline — see
   // resolveOrCreatePatientId in clinicalService.js.
   body("patient_sex").optional({ values: "falsy" }).isIn(["Macho", "Hembra"]),
+  body("patient_weight").optional({ values: "falsy" }).isFloat({ min: 0, max: 500 }),
+  body("patient_breed").optional({ values: "falsy" }).trim(),
+  body("patient_birth_date").optional({ values: "falsy" }).isISO8601(),
   body("client_id").optional({ values: "falsy" }).isInt(),
   body("client_name").optional({ values: "falsy" }).trim(),
+  // Only used when client_name creates a brand-new client inline — see
+  // resolveOrCreateClientId in clinicalService.js.
+  body("client_phone").optional({ values: "falsy" }).trim(),
   body("doctor_user_id").optional({ values: "falsy" }).isInt(),
   body("appointment_date").optional({ values: "falsy" }).isISO8601(),
   body("fecha").optional({ values: "falsy" }).isISO8601(),

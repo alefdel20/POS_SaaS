@@ -23,11 +23,17 @@ const createValidation = [
   // Only used when patient_name creates a brand-new patient inline — see
   // resolveOrCreatePatientId in clinicalService.js.
   body("patient_sex").optional({ values: "falsy" }).isIn(["Macho", "Hembra"]),
+  body("patient_weight").optional({ values: "falsy" }).isFloat({ min: 0, max: 500 }),
+  body("patient_breed").optional({ values: "falsy" }).trim(),
+  body("patient_birth_date").optional({ values: "falsy" }).isISO8601(),
   // client_id is optional as of migration 47 — a patient attended before a
   // responsible party is resolved is a valid state, same criterion already
   // applied to appointments.client_id (migration 46).
   body("client_id").optional({ values: "falsy" }).isInt(),
   body("client_name").optional({ values: "falsy" }).trim(),
+  // Only used when client_name creates a brand-new client inline — see
+  // resolveOrCreateClientId in clinicalService.js.
+  body("client_phone").optional({ values: "falsy" }).trim(),
   // appointment_id is optional — declares which appointment this consultation
   // resulted from, if any (migration 47). No heuristics: omitted means the
   // consultation stays unlinked, same as a walk-in.

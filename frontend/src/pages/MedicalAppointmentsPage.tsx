@@ -77,9 +77,12 @@ export function MedicalAppointmentsPage() {
   const [detail, setDetail] = useState<ClinicalAppointment | null>(null);
   const [patientValue, setPatientValue] = useState<NameAutocompleteValue>(emptyPatientValue);
   // Only sent when patientValue creates a brand-new patient inline (no
-  // patientValue.id) — NameAutocomplete itself has no species/sex fields,
-  // see resolveOrCreatePatientId in clinicalService.js.
+  // patientValue.id) — NameAutocomplete itself has no species/sex/weight/
+  // breed/birth_date fields, see resolveOrCreatePatientId in clinicalService.js.
   const [newPatientSex, setNewPatientSex] = useState("Macho");
+  const [newPatientWeight, setNewPatientWeight] = useState("");
+  const [newPatientBreed, setNewPatientBreed] = useState("");
+  const [newPatientBirthDate, setNewPatientBirthDate] = useState("");
   const [linkedConsultationId, setLinkedConsultationId] = useState<number | null>(null);
   const [form, setForm] = useState<AppointmentFormState>({
     ...emptyForm,
@@ -224,6 +227,9 @@ export function MedicalAppointmentsPage() {
     });
     setPatientValue(emptyPatientValue);
     setNewPatientSex("Macho");
+    setNewPatientWeight("");
+    setNewPatientBreed("");
+    setNewPatientBirthDate("");
   }
 
   function startEdit() {
@@ -250,7 +256,15 @@ export function MedicalAppointmentsPage() {
         token,
         body: JSON.stringify({
           ...form,
-          ...(patientValue.id ? { patient_id: patientValue.id } : { patient_name: patientValue.name.trim(), patient_sex: newPatientSex }),
+          ...(patientValue.id
+            ? { patient_id: patientValue.id }
+            : {
+              patient_name: patientValue.name.trim(),
+              patient_sex: newPatientSex,
+              patient_weight: newPatientWeight.trim() || undefined,
+              patient_breed: newPatientBreed.trim() || undefined,
+              patient_birth_date: newPatientBirthDate || undefined
+            }),
           doctor_user_id: form.doctor_user_id ? Number(form.doctor_user_id) : undefined
         })
       });
@@ -422,13 +436,27 @@ export function MedicalAppointmentsPage() {
         <form className="grid-form" onSubmit={handleSubmit}>
           <NameAutocomplete kind="patient" label="Paciente" onChange={setPatientValue} required token={token} value={patientValue} />
           {!patientValue.id ? (
-            <label>
-              Sexo
-              <select value={newPatientSex} onChange={(event) => setNewPatientSex(event.target.value)}>
-                <option value="Macho">Macho</option>
-                <option value="Hembra">Hembra</option>
-              </select>
-            </label>
+            <div className="auth-grid-form">
+              <label>
+                Sexo
+                <select value={newPatientSex} onChange={(event) => setNewPatientSex(event.target.value)}>
+                  <option value="Macho">Macho</option>
+                  <option value="Hembra">Hembra</option>
+                </select>
+              </label>
+              <label>
+                Peso (kg)
+                <input type="number" min="0" step="0.1" value={newPatientWeight} onChange={(event) => setNewPatientWeight(event.target.value)} />
+              </label>
+              <label>
+                Raza
+                <input value={newPatientBreed} onChange={(event) => setNewPatientBreed(event.target.value)} />
+              </label>
+              <label>
+                Fecha de nacimiento
+                <input type="date" value={newPatientBirthDate} onChange={(event) => setNewPatientBirthDate(event.target.value)} />
+              </label>
+            </div>
           ) : null}
           <label>
             Responsable
