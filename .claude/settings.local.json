@@ -82,7 +82,10 @@
       "Bash(where magick *)",
       "Bash(python -c \"import fitz\")",
       "Bash(python3 -c ' *)",
-      "Bash(xargs -I{} sh -c 'echo ==={}; wc -l {}')"
+      "Bash(xargs -I{} sh -c 'echo ==={}; wc -l {}')",
+      "Bash(sed -E 's/^\\([0-9]+\\).*/\\\\1/')",
+      "Read(//c/Users/tatue/Documents/**)",
+      "Bash(WHATSAPP_VERIFY_TOKEN=x WHATSAPP_PHONE_NUMBER_ID=x DEEPSEEK_API_KEY=x DB_HOST=x DB_PORT=5432 DB_NAME=x DB_USER=x DB_PASSWORD=x ALE_WHATSAPP=x node -e ' *)"
     ]
   }
 }

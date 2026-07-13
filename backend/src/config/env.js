@@ -9,6 +9,7 @@ module.exports = {
   jwtSecret: process.env.JWT_SECRET || process.env.SESSION_SECRET,
   n8nWebhookUrl: process.env.N8N_WEBHOOK_URL || "",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
+  ankodeInternalToken: process.env.ANKODE_INTERNAL_TOKEN || null,
   db: {
     host: process.env.DB_HOST || "localhost",
     port: Number(process.env.DB_PORT || 5432),

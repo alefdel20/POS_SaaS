@@ -391,5 +391,9 @@ module.exports = {
   getPreventiveEventDetail,
   createPreventiveEvent,
   updatePreventiveEvent,
-  setPreventiveEventStatus
+  setPreventiveEventStatus,
+  // Exposed for internalReminderService.js — keeps the dashboard reminder
+  // mirror (reminders / healthcare.reminders) in sync after a direct write to
+  // healthcare.preventive_events, same as the CRUD flow above does.
+  syncPreventiveReminder
 };

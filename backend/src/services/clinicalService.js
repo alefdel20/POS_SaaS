@@ -3469,5 +3469,16 @@ module.exports = {
   createAppointment,
   updateAppointment,
   getClinicalHistory,
-  exportClinicalHistoryPdf
+  exportClinicalHistoryPdf,
+  // Exposed for internalReminderService.js (ankode-agent reschedule flow) so
+  // it reuses the exact same conflict-detection/locking/reminder-sync logic
+  // the normal appointment CRUD flow uses, instead of re-implementing it
+  // against public.appointments.
+  mapAppointment,
+  getOwnedAppointment,
+  ensureAppointmentAvailability,
+  ensureDoctorAppointmentAvailability,
+  acquireAppointmentAreaLock,
+  acquireAppointmentDoctorLock,
+  syncAppointmentReminder
 };

@@ -20,6 +20,7 @@ const historyRoutes = require("./routes/historyRoutes");
 const dailyCutRoutes = require("./routes/dailyCutRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
 const automationRoutes = require("./routes/automationRoutes");
+const internalReminderRoutes = require("./routes/internalReminderRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const creditCollectionRoutes = require("./routes/creditCollectionRoutes");
 const catalogClientRoutes = require("./routes/clientRoutes");
@@ -89,6 +90,7 @@ const routes = [
   { path: "/auth", router: authRoutes, auth: false, limiter: loginLimiter },
   { path: "/menu", router: publicMenuRoutes, auth: false },
   { path: "/automation", router: automationRoutes, auth: false },
+  { path: "/internal", router: internalReminderRoutes, auth: false },
   { path: "/openpay", router: openPayRoutes, auth: false },
   { path: "/web-services", router: webServicesRoutes, auth: false },
   { path: "/users", router: userRoutes, auth: true },

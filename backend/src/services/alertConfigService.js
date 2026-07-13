@@ -1,19 +1,11 @@
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
-const { resolvePlanKey } = require("../config/planFeatures");
-
-async function requirePremiumPlan(businessId) {
-  const { rows } = await pool.query(
-    `SELECT plan_name FROM business_subscriptions WHERE business_id = $1 LIMIT 1`,
-    [businessId]
-  );
-  const planKey = resolvePlanKey(rows[0]?.plan_name);
-  if (planKey !== "premium" && planKey !== "enterprise") {
-    throw new ApiError(403, "Esta función requiere un plan Premium o superior");
-  }
-  return planKey;
-}
+// requirePremiumPlan moved to planFeatures.js — it's plan-generic, not
+// alert-specific (see internalReminderService.js for the other consumer).
+// Re-exported below unchanged so any existing import of it from this module
+// keeps working.
+const { requirePremiumPlan } = require("../config/planFeatures");
 
 async function getAlertConfig(actor) {
   const businessId = requireActorBusinessId(actor);

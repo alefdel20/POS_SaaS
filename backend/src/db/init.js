@@ -3695,7 +3695,25 @@ async function ensureHealthcareStructuralSync(client) {
     // evaluates when the column is NULL; no CHECK on this table mentions
     // product_id (prescription_items_type_check/_status_check/_qty_check all
     // reference other columns).
-    "ALTER TABLE healthcare.prescription_items ALTER COLUMN product_id DROP NOT NULL"
+    "ALTER TABLE healthcare.prescription_items ALTER COLUMN product_id DROP NOT NULL",
+
+    // Migration 56 — internal reminders for ankode-agent (WhatsApp). Reminder
+    // tracking columns are TIMESTAMPTZ (not a status enum) — "sent"/
+    // "not_applicable" is recorded in metadata.reminder_log by
+    // internalReminderService.js, the *_sent_at columns only gate whether
+    // GET /internal/reminders/due surfaces the event again. appointment_id has
+    // a plain (non-composite) FK to public.appointments(id): appointments.
+    // business_id is nullable on legacy rows (12-clinical-vertical.sql), so
+    // there is no (id, business_id) unique index to hang a composite FK off of.
+    "ALTER TABLE healthcare.preventive_events ADD COLUMN IF NOT EXISTS reminder_7d_sent_at TIMESTAMPTZ",
+    "ALTER TABLE healthcare.preventive_events ADD COLUMN IF NOT EXISTS reminder_0d_sent_at TIMESTAMPTZ",
+    "ALTER TABLE healthcare.preventive_events ADD COLUMN IF NOT EXISTS appointment_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_healthcare_preventive_events_appointment ON healthcare.preventive_events (appointment_id)",
+    "CREATE INDEX IF NOT EXISTS idx_healthcare_preventive_events_reminder_pending ON healthcare.preventive_events (business_id, next_due_date) WHERE status <> 'cancelled' AND is_active = TRUE",
+
+    // Migration 56 — whatsapp_opt_in defaults to false: an existing pet_owner
+    // was never asked for WhatsApp consent, it must never be assumed.
+    "ALTER TABLE healthcare.pet_owners ADD COLUMN IF NOT EXISTS whatsapp_opt_in BOOLEAN NOT NULL DEFAULT false"
   ]);
 
   // Migration 51 — healthcare.reminders constraints. Runs here (inside
@@ -3824,6 +3842,27 @@ async function ensureHealthcareStructuralSync(client) {
           ADD CONSTRAINT fk_healthcare_prescriptions_owner
           FOREIGN KEY (owner_id, business_id)
           REFERENCES healthcare.pet_owners (id, business_id);
+      END IF;
+    END $$;
+    `
+  );
+
+  // Migration 56 — FK guard for healthcare.preventive_events.appointment_id.
+  // Body copied verbatim from infra/postgres/56-internal-reminders-ankode.sql.
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_healthcare_preventive_events_appointment'
+          AND conrelid = 'healthcare.preventive_events'::regclass
+      ) THEN
+        ALTER TABLE healthcare.preventive_events
+          ADD CONSTRAINT fk_healthcare_preventive_events_appointment
+          FOREIGN KEY (appointment_id)
+          REFERENCES public.appointments (id);
       END IF;
     END $$;
     `
