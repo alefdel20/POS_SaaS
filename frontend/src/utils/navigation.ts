@@ -363,7 +363,16 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
                           ? "/health/admin/finances"
                           : item.label === "Corte Diario"
                             ? "/health/admin/daily-cut"
-                            : "/health/admin/credit-collections",
+                            : item.label === "Credito y Cobranza"
+                              ? "/health/admin/credit-collections"
+                              // Fallback: keep the link's own `to` unchanged instead of
+                              // hardcoding a path. Any admin label not explicitly listed
+                              // above (Alertas, Sucursales, Remates, Dashboard Financiero,
+                              // and any future addition to ADMIN_LINKS) used to silently
+                              // land on /health/admin/credit-collections here — same
+                              // pattern the retail block below already uses (its own
+                              // fallback is `item.to`, not a hardcoded path).
+                              : item.to,
               activeMatch: item.activeMatch
             })).filter((item) => !(normalizeRole(role) === "clinico" && item.label === "Perfil"))
           ]

@@ -374,10 +374,20 @@ async function initializeBusinessSubscriptionForNewBusiness(business, actorId, i
   let rows;
 
   if (isTrial) {
+    // plan_name = 'Premium' during the 7-day trial (both self-service
+    // registration and the superusuario "create business" panel go through
+    // this branch) so the trial genuinely grants full Premium access —
+    // resolvePlanKey('Premium') -> "premium", same value requirePremiumPlan
+    // checks against. businessService.js's createBusiness still overrides
+    // this afterwards if the admin payload explicitly sets a different
+    // plan_name. Degrading back to Básico once trial_ends_at passes is
+    // handled at read time in requirePremiumPlan (planFeatures.js), not by
+    // mutating this row — see that function's comment for why.
     ({ rows } = await client.query(
       `INSERT INTO business_subscriptions (
          business_id,
          plan_type,
+         plan_name,
          billing_anchor_date,
          next_payment_date,
          grace_period_days,
@@ -395,10 +405,11 @@ async function initializeBusinessSubscriptionForNewBusiness(business, actorId, i
          report_whatsapp_enabled,
          report_email_enabled
        )
-       VALUES ($1, 'monthly', $2, $3, 0, FALSE, 'Alta inicial del negocio - período de prueba', NOW(), NOW() + INTERVAL '7 days', $4, $4,
+       VALUES ($1, 'monthly', 'Premium', $2, $3, 0, FALSE, 'Alta inicial del negocio - período de prueba', NOW(), NOW() + INTERVAL '7 days', $4, $4,
                NULL, NULL, NULL, NULL, NULL, TRUE, FALSE)
        ON CONFLICT (business_id) DO UPDATE
          SET plan_type = EXCLUDED.plan_type,
+             plan_name = EXCLUDED.plan_name,
              billing_anchor_date = EXCLUDED.billing_anchor_date,
              next_payment_date = EXCLUDED.next_payment_date,
              enforcement_enabled = EXCLUDED.enforcement_enabled,
