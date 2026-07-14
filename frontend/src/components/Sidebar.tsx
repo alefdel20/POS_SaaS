@@ -703,9 +703,12 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
         });
 
         // Espera al siguiente frame para que el grupo ya este expandido en el DOM
-        // antes de hacer scroll, y que quede visible sin buscarlo manualmente.
+        // antes de hacer scroll. Usamos "start" (no "nearest") a proposito: si no,
+        // el navegador no mueve el scroll cuando el elemento ya es parcialmente
+        // visible, y la categoria recien abierta queda a media pantalla en vez de
+        // ser el foco inmediato.
         requestAnimationFrame(() => {
-          groupRefs.current.get(targetKey)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          groupRefs.current.get(targetKey)?.scrollIntoView({ behavior: "smooth", block: "start" });
         });
         break;
       }
@@ -714,8 +717,10 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
   }, [focusRequest, treeSections]);
 
   const handleToggle = useCallback((key: string, siblings?: string[]) => {
+    let didOpen = false;
     setExpandedItems((current) => {
       const willOpen = !current[key];
+      didOpen = willOpen;
       if (willOpen && siblings?.length) {
         const next = { ...current };
         siblings.forEach((siblingKey) => {
@@ -730,6 +735,15 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
       };
     });
     setOpenContextMenuKey(null);
+
+    // Mismo scroll-to-start que al abrir desde el rail, pero disparado por un clic
+    // directo en el panel. `groupRefs` solo tiene entradas para los grupos de primer
+    // nivel del arbol principal, asi que esto no afecta a "Mas usado" ni a Configuracion.
+    if (didOpen && groupRefs.current.has(key)) {
+      requestAnimationFrame(() => {
+        groupRefs.current.get(key)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
   }, []);
 
   const handleNavigate = useCallback(() => {
