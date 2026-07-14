@@ -17,6 +17,9 @@ export function AppLayout() {
   const tourRef = useRef<OnboardingTourHandle | null>(null);
   const shouldAutoStart = Boolean(user && user.tutorial_seen === false);
   const hasRailSidebar = user?.pos_type === "Veterinaria";
+  // El rail solo ocupa espacio propio cuando esta visible; mientras el panel esta
+  // abierto el rail se oculta (ver VeterinariaSidebarRail) y no hay que reservarle margen.
+  const isRailVisible = hasRailSidebar && !isSidebarOpen;
 
   const releaseSidebarFocus = useCallback(() => {
     const sidebar = document.getElementById("app-sidebar");
@@ -93,7 +96,7 @@ export function AppLayout() {
   }, [closeSidebar, isSidebarOpen]);
 
   return (
-    <div className={`app-shell ${hasRailSidebar ? "has-rail-sidebar" : ""}`}>
+    <div className={`app-shell ${isRailVisible ? "has-rail-sidebar" : ""}`}>
       <Sidebar isOpen={isSidebarOpen} onClose={closeSidebar} onOpen={openSidebar} />
       {isSidebarOpen ? <div aria-hidden="true" className="sidebar-overlay" onClick={closeSidebar} /> : null}
       <div className="app-main">

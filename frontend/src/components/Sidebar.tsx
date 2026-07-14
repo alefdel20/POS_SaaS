@@ -749,7 +749,7 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
   return (
     <aside
       aria-hidden={!isOpen}
-      className={`sidebar sidebar-panel ${isOpen ? "open" : ""}`}
+      className={`sidebar ${isOpen ? "open" : ""}`}
       data-tour="sidebar"
       id="app-sidebar"
       onClick={handleSidebarClick}
@@ -967,70 +967,72 @@ function VeterinariaSidebarRail({ isOpen, onClose, onOpen, sections, badges, cur
 
   return (
     <>
-      <nav aria-label="Menú principal" className="sidebar-rail">
-        <Link aria-label="Ir al panel comercial" className="sidebar-rail-logo" to="/dashboard">
-          <AnkodeLogo alt="ANKODE K" size={28} variant="icon" />
-        </Link>
+      {!isOpen ? (
+        <nav aria-label="Menú principal" className="sidebar-rail">
+          <Link aria-label="Ir al panel comercial" className="sidebar-rail-logo" to="/dashboard">
+            <AnkodeLogo alt="ANKODE K" size={28} variant="icon" />
+          </Link>
 
-        <button
-          aria-label="Buscar en el menú"
-          className="sidebar-rail-btn"
-          onClick={() => requestOpen({ kind: "search", nonce: Date.now() })}
-          title="Buscar"
-          type="button"
-        >
-          <span aria-hidden="true">🔍</span>
-        </button>
-
-        {pinnedItem ? (
           <button
-            aria-label="Atención médica o clínica"
-            className="sidebar-rail-btn sidebar-rail-btn-highlight"
-            onClick={() => requestOpen({ kind: "masUsado", nonce: Date.now() })}
-            title="Atención médica o clínica"
-            type="button"
-          >
-            <span aria-hidden="true">🩺</span>
-          </button>
-        ) : null}
-
-        {railGroups.map((item) => (
-          <button
-            aria-label={item.label}
+            aria-label="Buscar en el menú"
             className="sidebar-rail-btn"
-            key={item.label}
-            onClick={() => requestOpen({ kind: "group", label: item.label, nonce: Date.now() })}
-            title={item.label}
+            onClick={() => requestOpen({ kind: "search", nonce: Date.now() })}
+            title="Buscar"
             type="button"
           >
-            <span aria-hidden="true">{BRANCH_ICONS[item.label] || "📁"}</span>
+            <span aria-hidden="true">🔍</span>
           </button>
-        ))}
 
-        <div className="sidebar-rail-spacer" />
+          {pinnedItem ? (
+            <button
+              aria-label="Atención médica o clínica"
+              className="sidebar-rail-btn sidebar-rail-btn-highlight"
+              onClick={() => requestOpen({ kind: "masUsado", nonce: Date.now() })}
+              title="Atención médica o clínica"
+              type="button"
+            >
+              <span aria-hidden="true">🩺</span>
+            </button>
+          ) : null}
 
-        {alertsItem?.to ? (
+          {railGroups.map((item) => (
+            <button
+              aria-label={item.label}
+              className="sidebar-rail-btn"
+              key={item.label}
+              onClick={() => requestOpen({ kind: "group", label: item.label, nonce: Date.now() })}
+              title={item.label}
+              type="button"
+            >
+              <span aria-hidden="true">{BRANCH_ICONS[item.label] || "📁"}</span>
+            </button>
+          ))}
+
+          <div className="sidebar-rail-spacer" />
+
+          {alertsItem?.to ? (
+            <button
+              aria-label="Alertas"
+              className="sidebar-rail-btn"
+              onClick={() => requestOpen()}
+              title="Alertas"
+              type="button"
+            >
+              <span aria-hidden="true">🔔</span>
+            </button>
+          ) : null}
+
           <button
-            aria-label="Alertas"
+            aria-label="Configuración"
             className="sidebar-rail-btn"
-            onClick={() => requestOpen()}
-            title="Alertas"
+            onClick={() => requestOpen({ kind: "configuracion", nonce: Date.now() })}
+            title="Configuración"
             type="button"
           >
-            <span aria-hidden="true">🔔</span>
+            <span aria-hidden="true">⚙️</span>
           </button>
-        ) : null}
-
-        <button
-          aria-label="Configuración"
-          className="sidebar-rail-btn"
-          onClick={() => requestOpen({ kind: "configuracion", nonce: Date.now() })}
-          title="Configuración"
-          type="button"
-        >
-          <span aria-hidden="true">⚙️</span>
-        </button>
-      </nav>
+        </nav>
+      ) : null}
 
       <VeterinariaSidebar
         alertsItem={alertsItem}

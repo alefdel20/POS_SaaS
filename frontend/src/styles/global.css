@@ -192,12 +192,9 @@ td {
   visibility: visible;
 }
 
-/* Panel expandido del rail de Veterinaria: se despliega junto al rail (no lo cubre). */
-.sidebar.sidebar-panel {
-  left: var(--sidebar-rail-width);
-  width: min(320px, calc(92vw - var(--sidebar-rail-width)));
-}
-
+/* Solo cuando el rail esta visible (panel colapsado) el contenido reserva su ancho;
+   mientras el panel esta abierto el rail se oculta y el panel ocupa desde el borde
+   izquierdo, igual que el sidebar del resto de los pos_type. */
 .app-shell.has-rail-sidebar .app-main {
   margin-left: var(--sidebar-rail-width);
 }
@@ -558,6 +555,7 @@ td {
   display: grid;
   gap: 0.6rem;
   padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
   border-top: 1px solid var(--border);
 }
 
@@ -598,7 +596,7 @@ td {
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--panel);
-  padding: 0.6rem;
+  padding: 0.65rem;
 }
 
 .app-main {
