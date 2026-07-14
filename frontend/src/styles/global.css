@@ -569,12 +569,13 @@ td {
 .sidebar-footer-config-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.65rem 0.85rem;
+  gap: 0.35rem;
+  padding: 0.65rem 0.6rem;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
+  font-size: 0.85rem;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -589,6 +590,7 @@ td {
 
 .sidebar-footer-config-toggle {
   flex: 1;
+  min-width: 0;
   justify-content: center;
 }
 
