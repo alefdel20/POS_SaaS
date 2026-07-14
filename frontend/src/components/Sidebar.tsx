@@ -233,6 +233,11 @@ type SidebarBranchProps = {
   setOpenContextMenuKey: (key: string | null) => void;
   level?: number;
   accordionSiblings?: string[];
+  // Solo usados por el nodo de primer nivel del panel de Veterinaria: resalta con
+  // acento violeta/azul la categoria que quedo abierta (por rail o por clic directo)
+  // y expone el contenedor via ref para poder hacerle scrollIntoView.
+  highlighted?: boolean;
+  containerRef?: (el: HTMLDivElement | null) => void;
 };
 
 // Renderer generico de nodos del arbol, compartido por el layout legacy y el nuevo.
@@ -252,7 +257,9 @@ function SidebarBranch({
   openContextMenuKey,
   setOpenContextMenuKey,
   level = 0,
-  accordionSiblings
+  accordionSiblings,
+  highlighted = false,
+  containerRef
 }: SidebarBranchProps) {
   const isActive = itemMatchesPath(item, pathname);
   const hasActiveDescendant = itemHasActiveDescendant(item, pathname);
@@ -269,7 +276,7 @@ function SidebarBranch({
       : undefined;
 
     return (
-      <div className={`nav-tree-item nav-tree-level-${level}`}>
+      <div className={`nav-tree-item nav-tree-level-${level} ${highlighted ? "nav-tree-item-highlighted" : ""}`} ref={containerRef}>
         <button
           aria-controls={submenuId}
           aria-expanded={isOpen}
@@ -565,6 +572,14 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
   const [searchQuery, setSearchQuery] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  // Contenedores de los grupos de primer nivel del arbol principal (Catalogo, Clientes y
+  // pacientes, etc.), indexados por nodeKey. Se usan para el scrollIntoView al abrir un
+  // grupo desde el rail.
+  const groupRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const registerGroupRef = useCallback((key: string) => (el: HTMLDivElement | null) => {
+    if (el) groupRefs.current.set(key, el);
+    else groupRefs.current.delete(key);
+  }, []);
 
   const searchIndex = useMemo(() => {
     const leaves: SearchLeaf[] = [];
@@ -685,6 +700,12 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
             next[key] = key === targetKey;
           });
           return next;
+        });
+
+        // Espera al siguiente frame para que el grupo ya este expandido en el DOM
+        // antes de hacer scroll, y que quede visible sin buscarlo manualmente.
+        requestAnimationFrame(() => {
+          groupRefs.current.get(targetKey)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
         });
         break;
       }
@@ -848,6 +869,12 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
                 <div className="nav-tree">
                   {section.items.map((item, itemIndex) => {
                     const itemKey = buildNodeKey(sectionKey, item, itemIndex);
+                    const isGroupItem = Boolean(item.children?.length);
+                    // El resaltado sigue al ultimo grupo de primer nivel abierto, sea por
+                    // click en el rail (focusRequest) o por click directo en el panel: como
+                    // el acordeon de este nivel es exclusivo, alcanza con mirar cual esta abierto.
+                    const isHighlighted = isGroupItem
+                      && (itemHasActiveDescendant(item, location.pathname) || Boolean(expandedItems[itemKey]));
                     return (
                       <SidebarBranch
                         item={item}
@@ -863,6 +890,8 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
                         pathname={location.pathname}
                         setOpenContextMenuKey={setOpenContextMenuKey}
                         accordionSiblings={item.children?.length ? groupSiblingKeys : undefined}
+                        highlighted={isHighlighted}
+                        containerRef={isGroupItem ? registerGroupRef(itemKey) : undefined}
                       />
                     );
                   })}

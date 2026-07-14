@@ -10,6 +10,7 @@
   --warning-text: #ffd5a6;
   --danger: #ff7b7b;
   --ankode-violet: #6d28d9;
+  --ankode-violet-rgb: 109, 40, 217;
   --ankode-violet-soft: #8b5cf6;
   --ankode-green: #22c55e;
   --ankode-white: #f8fafc;
@@ -346,6 +347,17 @@ td {
 .nav-tree-item {
   display: grid;
   gap: 0.45rem;
+}
+
+/* Resalta el grupo de primer nivel recien abierto (por rail o por clic directo), en el
+   panel de Veterinaria. Usa el acento violeta/azul de marca (--ankode-violet-rgb) en vez
+   del teal de --accent-rgb que ya usa el bloque "Mas usado", para que se note que son
+   dos cosas distintas. */
+.nav-tree-item-highlighted {
+  padding: 0.5rem 0.5rem 0.6rem;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--ankode-violet-rgb), 0.35);
+  background: rgba(var(--ankode-violet-rgb), 0.09);
 }
 
 .nav-tree-toggle {
