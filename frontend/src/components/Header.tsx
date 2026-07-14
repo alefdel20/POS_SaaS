@@ -11,9 +11,10 @@ type HeaderProps = {
   isSidebarOpen: boolean;
   onMenuToggle: () => void;
   menuToggleRef?: RefObject<HTMLButtonElement | null>;
+  showMenuToggle?: boolean;
 };
 
-export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderProps) {
+export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef, showMenuToggle = true }: HeaderProps) {
   const { token, user, logout, setSession } = useAuth();
   const [pendingSummary, setPendingSummary] = useState<ProductUpdateRequestPendingSummary | null>(null);
   const headerTitle = user?.business_pos_type || "POS";
@@ -133,17 +134,19 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef }: HeaderPro
       ) : null}
       <header className="header">
         <div className="header-left">
-          <button
-            aria-controls="app-sidebar"
-            aria-expanded={isSidebarOpen}
-            className="button ghost menu-toggle"
-            onClick={onMenuToggle}
-            ref={menuToggleRef}
-            type="button"
-          >
-            <span aria-hidden="true" className="menu-toggle-icon">☰</span>
-            <span>Menú</span>
-          </button>
+          {showMenuToggle ? (
+            <button
+              aria-controls="app-sidebar"
+              aria-expanded={isSidebarOpen}
+              className="button ghost menu-toggle"
+              onClick={onMenuToggle}
+              ref={menuToggleRef}
+              type="button"
+            >
+              <span aria-hidden="true" className="menu-toggle-icon">☰</span>
+              <span>Menú</span>
+            </button>
+          ) : null}
           <div className="header-brand-block" data-tour="user-menu">
             <p className="header-title">{headerTitle}</p>
             <p className="header-subtitle">

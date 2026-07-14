@@ -19,6 +19,7 @@
   --modal-backdrop: rgba(2, 6, 23, 0.7);
   --modal-panel: rgba(15, 23, 42, 0.96);
   --modal-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  --sidebar-rail-width: 64px;
 }
 
 :root,
@@ -189,6 +190,96 @@ td {
   transform: translateX(0);
   pointer-events: auto;
   visibility: visible;
+}
+
+/* Panel expandido del rail de Veterinaria: se despliega junto al rail (no lo cubre). */
+.sidebar.sidebar-panel {
+  left: var(--sidebar-rail-width);
+  width: min(320px, calc(92vw - var(--sidebar-rail-width)));
+}
+
+.app-shell.has-rail-sidebar .app-main {
+  margin-left: var(--sidebar-rail-width);
+}
+
+.sidebar-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--sidebar-rail-width);
+  z-index: 61;
+  padding: 0.85rem 0;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sidebar-rail-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem;
+  margin-bottom: 0.35rem;
+  border-radius: 12px;
+}
+
+.sidebar-rail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.15rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar-rail-btn:hover {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.28);
+}
+
+.sidebar-rail-btn-highlight {
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: rgba(var(--accent-rgb), 0.4);
+}
+
+.sidebar-rail-spacer {
+  flex: 1;
+}
+
+.sidebar-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sidebar-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sidebar-close-btn:hover {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.28);
+  color: var(--text);
 }
 
 .sidebar-header {

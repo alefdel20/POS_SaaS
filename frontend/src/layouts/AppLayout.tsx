@@ -16,6 +16,7 @@ export function AppLayout() {
   const menuToggleRef = useRef<HTMLButtonElement | null>(null);
   const tourRef = useRef<OnboardingTourHandle | null>(null);
   const shouldAutoStart = Boolean(user && user.tutorial_seen === false);
+  const hasRailSidebar = user?.pos_type === "Veterinaria";
 
   const releaseSidebarFocus = useCallback(() => {
     const sidebar = document.getElementById("app-sidebar");
@@ -47,6 +48,10 @@ export function AppLayout() {
       return !current;
     });
   }, [releaseSidebarFocus]);
+
+  const openSidebar = useCallback(() => {
+    setIsSidebarOpen(true);
+  }, []);
 
   useEffect(() => {
     closeSidebar();
@@ -88,11 +93,11 @@ export function AppLayout() {
   }, [closeSidebar, isSidebarOpen]);
 
   return (
-    <div className="app-shell">
-      <Sidebar isOpen={isSidebarOpen} onClose={closeSidebar} />
+    <div className={`app-shell ${hasRailSidebar ? "has-rail-sidebar" : ""}`}>
+      <Sidebar isOpen={isSidebarOpen} onClose={closeSidebar} onOpen={openSidebar} />
       {isSidebarOpen ? <div aria-hidden="true" className="sidebar-overlay" onClick={closeSidebar} /> : null}
       <div className="app-main">
-        <Header isSidebarOpen={isSidebarOpen} menuToggleRef={menuToggleRef} onMenuToggle={toggleSidebar} />
+        <Header isSidebarOpen={isSidebarOpen} menuToggleRef={menuToggleRef} onMenuToggle={toggleSidebar} showMenuToggle={!hasRailSidebar} />
         <main className="content">
           <Outlet />
         </main>

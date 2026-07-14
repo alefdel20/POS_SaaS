@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { AnkodeLogo } from "./AnkodeLogo";
 import { useAuth } from "../context/AuthContext";
 import { apiRequest } from "../api/client";
@@ -530,22 +530,41 @@ function LegacySidebar({ isOpen, onClose, sections, badges, currentRole }: Sideb
   );
 }
 
+// Solicitud de foco disparada desde un icono del rail (VeterinariaSidebarRail): al
+// expandir el panel, indica que ademas hay que abrir/enfocar algo especifico.
+type RailFocusRequest =
+  | { kind: "search"; nonce: number }
+  | { kind: "masUsado"; nonce: number }
+  | { kind: "group"; label: string; nonce: number }
+  | { kind: "configuracion"; nonce: number };
+
+type VeterinariaSidebarPanelProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  badges: Record<string, number>;
+  currentRole?: string | null;
+  treeSections: SidebarVisualSection[];
+  configItems: SidebarVisualItem[];
+  alertsItem: SidebarVisualItem | null;
+  pinnedItem: SidebarVisualItem | null;
+  focusRequest?: RailFocusRequest | null;
+};
+
 // ---------------------------------------------------------------------------
 // Layout nuevo (solo pos_type === "Veterinaria"): buscador, bloque "Mas usado"
 // fijo, agrupacion "Catalogo" con acordeon exclusivo, y "Configuracion" al pie.
+// Se monta como panel expandido junto al rail (VeterinariaSidebarRail); la
+// estructura visual (treeSections/configItems/alertsItem/pinnedItem) se calcula
+// una sola vez en el rail y se recibe aqui por props.
 // ---------------------------------------------------------------------------
-function VeterinariaSidebar({ isOpen, onClose, sections, badges, currentRole }: SidebarNavProps) {
+function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections, configItems, alertsItem, pinnedItem, focusRequest }: VeterinariaSidebarPanelProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
   const [openContextMenuKey, setOpenContextMenuKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
-
-  const { treeSections, configItems, alertsItem, pinnedItem } = useMemo(
-    () => buildVisualStructure(sections),
-    [sections]
-  );
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const searchIndex = useMemo(() => {
     const leaves: SearchLeaf[] = [];
@@ -632,6 +651,47 @@ function VeterinariaSidebar({ isOpen, onClose, sections, badges, currentRole }: 
     });
   }, [location.pathname, treeSections, configItems, pinnedItem]);
 
+  // Reacciona a un click en un icono del rail: enfoca el buscador, abre el panel de
+  // Configuracion, o expande el grupo de primer nivel correspondiente (cerrando a sus
+  // hermanos, igual que el resto del acordeon de un solo nivel).
+  useEffect(() => {
+    if (!focusRequest) return;
+
+    if (focusRequest.kind === "search") {
+      searchInputRef.current?.focus();
+      return;
+    }
+
+    if (focusRequest.kind === "configuracion") {
+      setConfigOpen(true);
+      return;
+    }
+
+    if (focusRequest.kind === "group") {
+      for (let sectionIndex = 0; sectionIndex < treeSections.length; sectionIndex += 1) {
+        const section = treeSections[sectionIndex];
+        const sectionKey = `section-${sectionIndex}-${section.title}`;
+        const itemIndex = section.items.findIndex((item) => item.label === focusRequest.label);
+        if (itemIndex === -1) continue;
+
+        const groupKeys = section.items
+          .map((item, idx) => (item.children?.length ? buildNodeKey(sectionKey, item, idx) : null))
+          .filter((key): key is string => Boolean(key));
+        const targetKey = buildNodeKey(sectionKey, section.items[itemIndex], itemIndex);
+
+        setExpandedItems((current) => {
+          const next = { ...current };
+          groupKeys.forEach((key) => {
+            next[key] = key === targetKey;
+          });
+          return next;
+        });
+        break;
+      }
+    }
+    // "masUsado" no requiere accion extra: el bloque "Mas usado" ya esta siempre visible al abrir el panel.
+  }, [focusRequest, treeSections]);
+
   const handleToggle = useCallback((key: string, siblings?: string[]) => {
     setExpandedItems((current) => {
       const willOpen = !current[key];
@@ -689,15 +749,18 @@ function VeterinariaSidebar({ isOpen, onClose, sections, badges, currentRole }: 
   return (
     <aside
       aria-hidden={!isOpen}
-      className={`sidebar ${isOpen ? "open" : ""}`}
+      className={`sidebar sidebar-panel ${isOpen ? "open" : ""}`}
       data-tour="sidebar"
       id="app-sidebar"
       onClick={handleSidebarClick}
     >
       <div className="sidebar-header">
-        <div className="sidebar-brand">
-          <AnkodeLogo className="sidebar-logo" size={30} variant="icon" alt="ANKODE K" />
-          <div className="brand">Menú</div>
+        <div className="sidebar-header-row">
+          <div className="sidebar-brand">
+            <AnkodeLogo className="sidebar-logo" size={30} variant="icon" alt="ANKODE K" />
+            <div className="brand">Menú</div>
+          </div>
+          <button aria-label="Cerrar menú" className="sidebar-close-btn" onClick={onClose} type="button">✕</button>
         </div>
         {canAccessDashboard(currentRole) ? (
           <NavLink className="brand-subtitle brand-subtitle-link" to="/dashboard">Panel comercial</NavLink>
@@ -715,6 +778,7 @@ function VeterinariaSidebar({ isOpen, onClose, sections, badges, currentRole }: 
             onChange={handleSearchChange}
             onKeyDown={handleSearchKeyDown}
             placeholder="Buscar en el menú..."
+            ref={searchInputRef}
             type="search"
             value={searchQuery}
           />
@@ -860,15 +924,139 @@ function VeterinariaSidebar({ isOpen, onClose, sections, badges, currentRole }: 
   );
 }
 
+type VeterinariaSidebarRailProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onOpen?: () => void;
+  sections: SidebarMenuSection[];
+  badges: Record<string, number>;
+  currentRole?: string | null;
+};
+
+// Rail angosto de solo iconos, fijo a la izquierda, siempre visible para
+// pos_type === "Veterinaria" (reemplaza al boton "Menu" del Header). Un click en
+// cualquier icono (excepto el logo, que navega directo) expande el panel completo
+// (VeterinariaSidebar) con la seccion correspondiente ya abierta.
+function VeterinariaSidebarRail({ isOpen, onClose, onOpen, sections, badges, currentRole }: VeterinariaSidebarRailProps) {
+  const [focusRequest, setFocusRequest] = useState<RailFocusRequest | null>(null);
+
+  const { treeSections, configItems, alertsItem, pinnedItem } = useMemo(
+    () => buildVisualStructure(sections),
+    [sections]
+  );
+
+  // Un icono por cada grupo de primer nivel, sin duplicar Atencion medica
+  // (ya tiene su propio icono destacado en el rail).
+  const railGroups = useMemo(() => {
+    const seen = new Set<string>();
+    const groups: SidebarVisualItem[] = [];
+    treeSections.forEach((section) => {
+      section.items.forEach((item) => {
+        if (!item.children?.length || item.label === PINNED_LABEL || seen.has(item.label)) return;
+        seen.add(item.label);
+        groups.push(item);
+      });
+    });
+    return groups;
+  }, [treeSections]);
+
+  const requestOpen = useCallback((request?: RailFocusRequest) => {
+    if (request) setFocusRequest(request);
+    onOpen?.();
+  }, [onOpen]);
+
+  return (
+    <>
+      <nav aria-label="Menú principal" className="sidebar-rail">
+        <Link aria-label="Ir al panel comercial" className="sidebar-rail-logo" to="/dashboard">
+          <AnkodeLogo alt="ANKODE K" size={28} variant="icon" />
+        </Link>
+
+        <button
+          aria-label="Buscar en el menú"
+          className="sidebar-rail-btn"
+          onClick={() => requestOpen({ kind: "search", nonce: Date.now() })}
+          title="Buscar"
+          type="button"
+        >
+          <span aria-hidden="true">🔍</span>
+        </button>
+
+        {pinnedItem ? (
+          <button
+            aria-label="Atención médica o clínica"
+            className="sidebar-rail-btn sidebar-rail-btn-highlight"
+            onClick={() => requestOpen({ kind: "masUsado", nonce: Date.now() })}
+            title="Atención médica o clínica"
+            type="button"
+          >
+            <span aria-hidden="true">🩺</span>
+          </button>
+        ) : null}
+
+        {railGroups.map((item) => (
+          <button
+            aria-label={item.label}
+            className="sidebar-rail-btn"
+            key={item.label}
+            onClick={() => requestOpen({ kind: "group", label: item.label, nonce: Date.now() })}
+            title={item.label}
+            type="button"
+          >
+            <span aria-hidden="true">{BRANCH_ICONS[item.label] || "📁"}</span>
+          </button>
+        ))}
+
+        <div className="sidebar-rail-spacer" />
+
+        {alertsItem?.to ? (
+          <button
+            aria-label="Alertas"
+            className="sidebar-rail-btn"
+            onClick={() => requestOpen()}
+            title="Alertas"
+            type="button"
+          >
+            <span aria-hidden="true">🔔</span>
+          </button>
+        ) : null}
+
+        <button
+          aria-label="Configuración"
+          className="sidebar-rail-btn"
+          onClick={() => requestOpen({ kind: "configuracion", nonce: Date.now() })}
+          title="Configuración"
+          type="button"
+        >
+          <span aria-hidden="true">⚙️</span>
+        </button>
+      </nav>
+
+      <VeterinariaSidebar
+        alertsItem={alertsItem}
+        badges={badges}
+        configItems={configItems}
+        currentRole={currentRole}
+        focusRequest={focusRequest}
+        isOpen={isOpen}
+        onClose={onClose}
+        pinnedItem={pinnedItem}
+        treeSections={treeSections}
+      />
+    </>
+  );
+}
+
 type SidebarProps = {
   isOpen: boolean;
   onClose: () => void;
+  onOpen?: () => void;
 };
 
 // Punto unico donde se decide el layout por pos_type. Hoy solo "Veterinaria" usa
-// el rediseño (buscador/Mas usado/Catalogo/Configuracion); cualquier otro rubro
-// cae al layout original. Para expandir el rediseño a otro rubro, agregarlo aqui.
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
+// el rediseño (rail + buscador/Mas usado/Catalogo/Configuracion); cualquier otro
+// rubro cae al layout original. Para expandir el rediseño a otro rubro, agregarlo aqui.
+export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
   const { user, token } = useAuth();
   const currentRole = user?.role;
   const canShowCreditCollections = canUseCreditCollections(user?.pos_type);
@@ -913,7 +1101,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   }, [token, user?.business_id, user?.role]);
 
   if (user?.pos_type === "Veterinaria") {
-    return <VeterinariaSidebar badges={badges} currentRole={currentRole} isOpen={isOpen} onClose={onClose} sections={sections} />;
+    return <VeterinariaSidebarRail badges={badges} currentRole={currentRole} isOpen={isOpen} onClose={onClose} onOpen={onOpen} sections={sections} />;
   }
 
   return <LegacySidebar badges={badges} currentRole={currentRole} isOpen={isOpen} onClose={onClose} sections={sections} />;
