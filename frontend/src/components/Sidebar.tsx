@@ -39,21 +39,6 @@ const NEW_TAB_ALLOWED_ROUTES = new Set<string>([
   "/health/admin/summary"
 ]);
 
-// Estas tres categorias se agrupan visualmente bajo "Catalogo" (punto 3 del rediseño),
-// pero siguen siendo nodos independientes en los datos de navegacion.
-const CATALOG_LABELS = ["Alimentos", "Accesorios", "Medicamentos e insumos"];
-const PINNED_LABEL = "Atencion medica o clinica";
-const ADMIN_LABEL_PATTERN = /^administraci/i;
-
-const BRANCH_ICONS: Record<string, string> = {
-  "Catalogo": "🗂️",
-  "Alimentos": "🦴",
-  "Accesorios": "🛍️",
-  "Medicamentos e insumos": "💉",
-  "Atencion medica o clinica": "🩺",
-  "Clientes y pacientes": "👥"
-};
-
 function itemMatchesPath(item: SidebarMenuItem, pathname: string) {
   const matches = item.activeMatch || (item.to ? [item.to] : []);
   return matches.some((match) => pathname === match);
@@ -119,9 +104,15 @@ function canOpenInNewTab(item: SidebarMenuItem) {
   return item.to ? NEW_TAB_ALLOWED_ROUTES.has(item.to) : false;
 }
 
+// ---------------------------------------------------------------------------
+// Todo lo de abajo hasta SidebarBranch es compartido entre el layout legacy
+// (todos los pos_type) y el layout nuevo (solo Veterinaria, ver mas abajo).
+// ---------------------------------------------------------------------------
+
 // Tipo puramente visual: superset de SidebarMenuItem que solo agrega la marca
 // "accordionGroup" para que sus hijos se comporten como acordeon de un solo nivel abierto.
-// No se exporta ni se usa fuera del sidebar: las rutas/roles siguen viviendo en navigation.ts.
+// Usado unicamente por VeterinariaSidebar: no se exporta ni se usa fuera del sidebar,
+// las rutas/roles siguen viviendo en navigation.ts.
 type SidebarVisualItem = Omit<SidebarMenuItem, "children"> & {
   accordionGroup?: boolean;
   children?: SidebarVisualItem[];
@@ -130,6 +121,21 @@ type SidebarVisualItem = Omit<SidebarMenuItem, "children"> & {
 type SidebarVisualSection = {
   title: string;
   items: SidebarVisualItem[];
+};
+
+// Estas tres categorias se agrupan visualmente bajo "Catalogo" (solo Veterinaria),
+// pero siguen siendo nodos independientes en los datos de navegacion.
+const CATALOG_LABELS = ["Alimentos", "Accesorios", "Medicamentos e insumos"];
+const PINNED_LABEL = "Atencion medica o clinica";
+const ADMIN_LABEL_PATTERN = /^administraci/i;
+
+const BRANCH_ICONS: Record<string, string> = {
+  "Catalogo": "🗂️",
+  "Alimentos": "🦴",
+  "Accesorios": "🛍️",
+  "Medicamentos e insumos": "💉",
+  "Atencion medica o clinica": "🩺",
+  "Clientes y pacientes": "👥"
 };
 
 function extractAlerts(items: SidebarVisualItem[]): { alerts: SidebarVisualItem | null; rest: SidebarVisualItem[] } {
@@ -146,6 +152,7 @@ function extractAlerts(items: SidebarVisualItem[]): { alerts: SidebarVisualItem 
 
 // Reorganiza los datos de navigation.ts en la nueva jerarquia visual (Catalogo, Mas usado,
 // Configuracion) sin tocar labels, rutas ni roles de los nodos originales.
+// Solo se invoca para pos_type === "Veterinaria".
 function buildVisualStructure(sections: SidebarMenuSection[]) {
   let configItems: SidebarVisualItem[] = [];
   let alertsItem: SidebarVisualItem | null = null;
@@ -228,6 +235,10 @@ type SidebarBranchProps = {
   accordionSiblings?: string[];
 };
 
+// Renderer generico de nodos del arbol, compartido por el layout legacy y el nuevo.
+// `accordionGroup`/`accordionSiblings` solo los usa VeterinariaSidebar; si nunca se
+// pasan (layout legacy) el comportamiento es identico al original: cada nodo se
+// expande/colapsa de forma independiente.
 function SidebarBranch({
   item,
   nodeKey,
@@ -381,28 +392,155 @@ function SidebarBranch({
   );
 }
 
-type SidebarProps = {
+type SidebarNavProps = {
   isOpen: boolean;
   onClose: () => void;
+  sections: SidebarMenuSection[];
+  badges: Record<string, number>;
+  currentRole?: string | null;
 };
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
-  const { user, token } = useAuth();
+// ---------------------------------------------------------------------------
+// Layout original (todos los pos_type excepto Veterinaria): arbol plano tal
+// cual lo entrega getSidebarSectionsForVertical, sin buscador ni agrupaciones.
+// Es intencionalmente una copia fiel del Sidebar previo al rediseño, para que
+// sea trivial de comparar/revertir si algo se necesita ajustar.
+// ---------------------------------------------------------------------------
+function LegacySidebar({ isOpen, onClose, sections, badges, currentRole }: SidebarNavProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const currentRole = user?.role;
-  const canShowCreditCollections = canUseCreditCollections(user?.pos_type);
-  const canShowAlerts = user?.plan_features?.stock_alerts !== false;
-  const [badges, setBadges] = useState<Record<string, number>>({});
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+  const [openContextMenuKey, setOpenContextMenuKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOpenContextMenuKey(null);
+  }, [isOpen, location.pathname]);
+
+  useEffect(() => {
+    setExpandedItems((current) => {
+      const next = { ...current };
+      let hasChanges = false;
+
+      function markActiveBranches(item: SidebarMenuItem, itemKey: string): boolean {
+        const selfActive = itemMatchesPath(item, location.pathname);
+        if (!item.children?.length) {
+          return selfActive;
+        }
+
+        const childActive = item.children.some((child, childIndex) => markActiveBranches(child, buildNodeKey(itemKey, child, childIndex)));
+        if (childActive && !next[itemKey]) {
+          next[itemKey] = true;
+          hasChanges = true;
+        }
+        return selfActive || childActive;
+      }
+
+      sections.forEach((section, sectionIndex) => {
+        const sectionKey = `section-${sectionIndex}-${section.title}`;
+        section.items.forEach((item, itemIndex) => {
+          markActiveBranches(item, buildNodeKey(sectionKey, item, itemIndex));
+        });
+      });
+
+      return hasChanges ? next : current;
+    });
+  }, [location.pathname, sections]);
+
+  const handleToggle = useCallback((key: string) => {
+    setExpandedItems((current) => ({
+      ...current,
+      [key]: !current[key]
+    }));
+    setOpenContextMenuKey(null);
+  }, []);
+
+  const handleNavigate = useCallback(() => {
+    onClose();
+  }, [onClose]);
+
+  const handleOpenInCurrentTab = useCallback((to: string) => {
+    setOpenContextMenuKey(null);
+    navigate(to);
+    onClose();
+  }, [navigate, onClose]);
+
+  const handleOpenInNewTab = useCallback((to: string) => {
+    setOpenContextMenuKey(null);
+    window.open(to, "_blank");
+  }, []);
+
+  const handleSidebarClick = useCallback((event: MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (!target.closest("[data-context-menu='true']")) {
+      setOpenContextMenuKey(null);
+    }
+  }, []);
+
+  return (
+    <aside
+      aria-hidden={!isOpen}
+      className={`sidebar ${isOpen ? "open" : ""}`}
+      data-tour="sidebar"
+      id="app-sidebar"
+      onClick={handleSidebarClick}
+    >
+      <div className="sidebar-header">
+        <div className="sidebar-brand">
+          <AnkodeLogo className="sidebar-logo" size={30} variant="icon" alt="ANKODE K" />
+          <div className="brand">Menú</div>
+        </div>
+        {canAccessDashboard(currentRole) ? (
+          <NavLink className="brand-subtitle brand-subtitle-link" to="/dashboard">Panel comercial</NavLink>
+        ) : (
+          <p className="brand-subtitle">Panel comercial</p>
+        )}
+      </div>
+      <nav className="nav-list">
+        {sections.map((section, sectionIndex) => {
+          const sectionKey = `section-${sectionIndex}-${section.title}`;
+          return (
+            <div className="nav-section" key={section.title}>
+              <p className="nav-section-title">{section.title}</p>
+              <div className="nav-tree">
+                {section.items.map((item, itemIndex) => {
+                  const itemKey = buildNodeKey(sectionKey, item, itemIndex);
+                  return (
+                    <SidebarBranch
+                      item={item}
+                      key={itemKey}
+                      nodeKey={itemKey}
+                      badges={badges}
+                      expandedItems={expandedItems}
+                      onNavigate={handleNavigate}
+                      onOpenHere={handleOpenInCurrentTab}
+                      onOpenInNewTab={handleOpenInNewTab}
+                      onToggle={handleToggle}
+                      openContextMenuKey={openContextMenuKey}
+                      pathname={location.pathname}
+                      setOpenContextMenuKey={setOpenContextMenuKey}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Layout nuevo (solo pos_type === "Veterinaria"): buscador, bloque "Mas usado"
+// fijo, agrupacion "Catalogo" con acordeon exclusivo, y "Configuracion" al pie.
+// ---------------------------------------------------------------------------
+function VeterinariaSidebar({ isOpen, onClose, sections, badges, currentRole }: SidebarNavProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
   const [openContextMenuKey, setOpenContextMenuKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
-
-  const sections = useMemo(
-    () => getSidebarSectionsForVertical(user?.pos_type, currentRole, canShowCreditCollections, canShowAlerts),
-    [canShowAlerts, canShowCreditCollections, currentRole, user?.pos_type]
-  );
 
   const { treeSections, configItems, alertsItem, pinnedItem } = useMemo(
     () => buildVisualStructure(sections),
@@ -424,38 +562,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     if (!trimmedQuery) return [];
     return searchIndex.filter((leaf) => leaf.label.toLowerCase().includes(trimmedQuery)).slice(0, 20);
   }, [searchIndex, trimmedQuery]);
-
-  useEffect(() => {
-    if (!token || !user?.business_id || !isManagementRole(user.role)) {
-      setBadges({});
-      return;
-    }
-
-    let cancelled = false;
-    async function loadBadges() {
-      const response = await apiRequest<ProductUpdateRequestPendingSummary>("/product-update-requests/pending-summary", { token });
-      if (!cancelled) {
-        setBadges({
-          "/product-update-requests": response.pending_count
-        });
-      }
-    }
-
-    function refreshBadges() {
-      loadBadges().catch(() => {
-        if (!cancelled) {
-          setBadges({});
-        }
-      });
-    }
-
-    refreshBadges();
-    window.addEventListener("product-update-requests:refresh-banner", refreshBadges);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("product-update-requests:refresh-banner", refreshBadges);
-    };
-  }, [token, user?.business_id, user?.role]);
 
   useEffect(() => {
     setOpenContextMenuKey(null);
@@ -752,4 +858,63 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       </div>
     </aside>
   );
+}
+
+type SidebarProps = {
+  isOpen: boolean;
+  onClose: () => void;
+};
+
+// Punto unico donde se decide el layout por pos_type. Hoy solo "Veterinaria" usa
+// el rediseño (buscador/Mas usado/Catalogo/Configuracion); cualquier otro rubro
+// cae al layout original. Para expandir el rediseño a otro rubro, agregarlo aqui.
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
+  const { user, token } = useAuth();
+  const currentRole = user?.role;
+  const canShowCreditCollections = canUseCreditCollections(user?.pos_type);
+  const canShowAlerts = user?.plan_features?.stock_alerts !== false;
+  const [badges, setBadges] = useState<Record<string, number>>({});
+
+  const sections = useMemo(
+    () => getSidebarSectionsForVertical(user?.pos_type, currentRole, canShowCreditCollections, canShowAlerts),
+    [canShowAlerts, canShowCreditCollections, currentRole, user?.pos_type]
+  );
+
+  useEffect(() => {
+    if (!token || !user?.business_id || !isManagementRole(user.role)) {
+      setBadges({});
+      return;
+    }
+
+    let cancelled = false;
+    async function loadBadges() {
+      const response = await apiRequest<ProductUpdateRequestPendingSummary>("/product-update-requests/pending-summary", { token });
+      if (!cancelled) {
+        setBadges({
+          "/product-update-requests": response.pending_count
+        });
+      }
+    }
+
+    function refreshBadges() {
+      loadBadges().catch(() => {
+        if (!cancelled) {
+          setBadges({});
+        }
+      });
+    }
+
+    refreshBadges();
+    window.addEventListener("product-update-requests:refresh-banner", refreshBadges);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("product-update-requests:refresh-banner", refreshBadges);
+    };
+  }, [token, user?.business_id, user?.role]);
+
+  if (user?.pos_type === "Veterinaria") {
+    return <VeterinariaSidebar badges={badges} currentRole={currentRole} isOpen={isOpen} onClose={onClose} sections={sections} />;
+  }
+
+  return <LegacySidebar badges={badges} currentRole={currentRole} isOpen={isOpen} onClose={onClose} sections={sections} />;
 }
