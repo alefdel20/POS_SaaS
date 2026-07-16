@@ -116,7 +116,7 @@ export function getHealthcareSidebarTitle(posType?: string | null) {
 }
 
 export function getMedicalHistoryNavLabel(posType?: string | null) {
-  return usesHumanPatientsOnly(posType) ? "Carnet" : "Calendario / Cardex";
+  return usesHumanPatientsOnly(posType) ? "Carnet" : "Calendario";
 }
 
 export function getPatientSearchPlaceholder(posType?: string | null) {

@@ -314,8 +314,6 @@ export function AlertsPage() {
             <p className="muted">Notificaciones para productos sin movimiento.</p>
           </div>
         </div>
-        {alertConfigError ? <p className="error-text">{alertConfigError}</p> : null}
-        {alertConfigInfo ? <p className="success-text">{alertConfigInfo}</p> : null}
         {!alertConfigLoaded ? (
           <p className="muted">Cargando configuracion...</p>
         ) : (
@@ -341,9 +339,8 @@ export function AlertsPage() {
               </span>
             </label>
 
-            <fieldset style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "0.75rem 1rem" }}>
-              <legend style={{ fontSize: 13, fontWeight: 600, padding: "0 0.5rem" }}>Notificarme por:</legend>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 6 }}>
+            <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
                 <input
                   type="checkbox"
                   checked={alertChannels.includes("whatsapp")}
@@ -351,15 +348,15 @@ export function AlertsPage() {
                 />
                 WhatsApp
               </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 6 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
                 <input
                   type="checkbox"
                   checked={alertChannels.includes("email")}
                   onChange={() => toggleAlertChannel("email")}
                 />
-                Email
+                Correo electrónico
               </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
                 <input
                   type="checkbox"
                   checked={alertChannels.includes("in_app")}
@@ -367,9 +364,9 @@ export function AlertsPage() {
                 />
                 In-app (notificaciones internas)
               </label>
-            </fieldset>
+            </div>
 
-            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
               <input
                 type="checkbox"
                 checked={alertEnabled}
@@ -378,9 +375,13 @@ export function AlertsPage() {
               Alertas habilitadas
             </label>
 
-            <button className="button" disabled={alertConfigSaving || alertChannels.length === 0} onClick={saveAlertConfig} type="button">
-              {alertConfigSaving ? "Guardando..." : "Guardar configuracion"}
-            </button>
+            <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
+              <button className="button" disabled={alertConfigSaving || alertChannels.length === 0} onClick={saveAlertConfig} type="button">
+                {alertConfigSaving ? "Guardando..." : "Guardar configuracion"}
+              </button>
+              {alertConfigError ? <p className="error-text">{alertConfigError}</p> : null}
+              {alertConfigInfo ? <p className="success-text">{alertConfigInfo}</p> : null}
+            </div>
           </>
         )}
       </div>

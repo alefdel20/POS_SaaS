@@ -320,7 +320,8 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
               label: "Historial medico",
               children: [
                 { label: "Carnet", to: "/health/medical-history/carnet", roles: "clinical", activeMatch: withAlias("/health/medical-history/carnet", "/medical-history") },
-                { label: getMedicalHistoryNavLabel(posType), to: "/health/medical-history/calendar", roles: "clinical", activeMatch: ["/health/medical-history/calendar"] }
+                { label: getMedicalHistoryNavLabel(posType), to: "/health/medical-history/calendar", roles: "clinical", activeMatch: ["/health/medical-history/calendar"] },
+                { label: "Cardex", to: "/health/medical-history/cardex", roles: "clinical", activeMatch: ["/health/medical-history/cardex"] }
               ]
             }
           ]
