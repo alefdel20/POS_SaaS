@@ -89,11 +89,11 @@ export function CarnetPage() {
           params.set("patient_id", patientId);
           params.set("date_from", new Date().toISOString().slice(0, 10));
           params.set("status", "scheduled");
-          return apiRequest<ClinicalAppointment[]>(`/medical-appointments?${params.toString()}`, { token });
+          return apiRequest<{ date: string; items: ClinicalAppointment[] }>(`/medical-appointments?${params.toString()}`, { token });
         })()
       ]);
       setBusinessProfile(profileResponse);
-      const sortedAppointments = [...appointmentResponse].sort((a, b) =>
+      const sortedAppointments = [...appointmentResponse.items].sort((a, b) =>
         `${a.appointment_date}T${a.start_time}`.localeCompare(`${b.appointment_date}T${b.start_time}`)
       );
       setNextAppointment(sortedAppointments[0] || null);
@@ -229,7 +229,7 @@ export function CarnetPage() {
         )}
 
         {showFullRecord && selectedPatient ? (
-          <div className="clinical-summary-grid">
+          <div className="full-record-grid">
             {fullRecordLoading ? <p className="muted">Cargando expediente completo...</p> : null}
 
             <div className="info-card compact-box">
