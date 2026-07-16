@@ -115,10 +115,6 @@ export function getHealthcareSidebarTitle(posType?: string | null) {
   return isVeterinaryPos(posType) ? "Area Salud / Veterinaria" : "Area Salud";
 }
 
-export function getMedicalHistoryNavLabel(posType?: string | null) {
-  return usesHumanPatientsOnly(posType) ? "Carnet" : "Calendario";
-}
-
 export function getPatientSearchPlaceholder(posType?: string | null) {
   return usesHumanPatientsOnly(posType)
     ? "Buscar paciente por nombre o telefono"

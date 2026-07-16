@@ -1,6 +1,6 @@
 import type { PosType } from "../types";
 import { canAccessBusinesses, canAccessClinical, canAccessDailyCut, canAccessFinancialDashboard, canAccessInvoices, canAccessRestaurantKds, canAccessRestaurantStaff, canAccessSales, canViewUsers, isManagementRole, normalizeRole, ROLE_MANAGER } from "./roles";
-import { getClinicalPatientLabel, getHealthcareSidebarTitle, getMedicalHistoryNavLabel, hidesAesthetics, usesPatientLabel, usesHumanPatientsOnly } from "./pos";
+import { getClinicalPatientLabel, getHealthcareSidebarTitle, hidesAesthetics, usesPatientLabel, usesHumanPatientsOnly } from "./pos";
 
 export type SidebarRoleGroup = "sales" | "users" | "dailyCut" | "management" | "gerente" | "clinical" | "profile" | "invoices" | "businesses" | "financialDashboard" | "restaurantStaff" | "kitchen" | "all";
 
@@ -30,11 +30,10 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Remates", to: "/remate", roles: "gerente", activeMatch: ["/remate"] },
   { label: "Facturas", to: "/invoices", roles: "invoices", activeMatch: ["/invoices"] },
   {
-    label: "Recordatorios",
+    label: "Calendario",
     roles: "all",
     children: [
       { label: "Recordatorios", to: "/reminders", roles: "all", activeMatch: ["/reminders", "/retail/admin/reminders", "/health/admin/reminders"] },
-      { label: "Nuevo", to: "/reminders/new", roles: "all", activeMatch: ["/reminders/new", "/retail/admin/reminders/new", "/health/admin/reminders/new"] },
       { label: "Calendario", to: "/reminders/calendar", roles: "all", activeMatch: ["/reminders/calendar", "/retail/admin/reminders/calendar", "/health/admin/reminders/calendar"] }
     ]
   },
@@ -108,7 +107,6 @@ function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | nu
         }
       }
 
-      if (humanPatientsOnly && nextItem.to === "/health/medical-history/calendar") return null;
       if (humanPatientsOnly && nextItem.to === "/clients") return null;
       return nextItem;
     })
@@ -316,9 +314,14 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
               label: "Historial medico",
               children: [
                 { label: "Carnet", to: "/health/medical-history/carnet", roles: "clinical", activeMatch: withAlias("/health/medical-history/carnet", "/medical-history") },
-                { label: getMedicalHistoryNavLabel(posType), to: "/health/medical-history/calendar", roles: "clinical", activeMatch: ["/health/medical-history/calendar"] },
                 { label: "Cardex", to: "/health/medical-history/cardex", roles: "clinical", activeMatch: ["/health/medical-history/cardex"] }
               ]
+            },
+            {
+              label: "Calendario",
+              to: "/health/admin/reminders/calendar",
+              roles: "all",
+              activeMatch: ["/health/admin/reminders", "/health/admin/reminders/calendar", "/health/medical-history/calendar"]
             }
           ]
         },
@@ -340,38 +343,38 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
         {
           label: "Administracion",
           children: [
-            ...getAdminLinksByRole(role).map((item) => ({
-              ...item,
-              to: item.label === "Resumen"
-                ? "/health/admin/summary"
-                : item.label === "Aprobaciones"
-                  ? "/health/admin/approvals"
-                : item.label === "Usuarios"
-                  ? "/health/admin/users"
-                    : item.label === "Perfil"
-                      ? "/health/admin/profile"
-                      : item.label === "Negocios"
-                        ? "/businesses"
-                      : item.label === "Recordatorios"
-                        ? "/health/admin/reminders"
-                        : item.label === "Facturas"
-                          ? "/health/admin/invoices"
-                        : item.label === "Finanzas"
-                          ? "/health/admin/finances"
-                          : item.label === "Corte Diario"
-                            ? "/health/admin/daily-cut"
-                            : item.label === "Credito y Cobranza"
-                              ? "/health/admin/credit-collections"
-                              // Fallback: keep the link's own `to` unchanged instead of
-                              // hardcoding a path. Any admin label not explicitly listed
-                              // above (Alertas, Sucursales, Remates, Dashboard Financiero,
-                              // and any future addition to ADMIN_LINKS) used to silently
-                              // land on /health/admin/credit-collections here — same
-                              // pattern the retail block below already uses (its own
-                              // fallback is `item.to`, not a hardcoded path).
-                              : item.to,
-              activeMatch: item.activeMatch
-            })).filter((item) => !(normalizeRole(role) === "clinico" && item.label === "Perfil"))
+            ...getAdminLinksByRole(role)
+              .filter((item) => item.label !== "Calendario")
+              .map((item) => ({
+                ...item,
+                to: item.label === "Resumen"
+                  ? "/health/admin/summary"
+                  : item.label === "Aprobaciones"
+                    ? "/health/admin/approvals"
+                  : item.label === "Usuarios"
+                    ? "/health/admin/users"
+                      : item.label === "Perfil"
+                        ? "/health/admin/profile"
+                        : item.label === "Negocios"
+                          ? "/businesses"
+                          : item.label === "Facturas"
+                            ? "/health/admin/invoices"
+                          : item.label === "Finanzas"
+                            ? "/health/admin/finances"
+                            : item.label === "Corte Diario"
+                              ? "/health/admin/daily-cut"
+                              : item.label === "Credito y Cobranza"
+                                ? "/health/admin/credit-collections"
+                                // Fallback: keep the link's own `to` unchanged instead of
+                                // hardcoding a path. Any admin label not explicitly listed
+                                // above (Alertas, Sucursales, Remates, Dashboard Financiero,
+                                // and any future addition to ADMIN_LINKS) used to silently
+                                // land on /health/admin/credit-collections here — same
+                                // pattern the retail block below already uses (its own
+                                // fallback is `item.to`, not a hardcoded path).
+                                : item.to,
+                activeMatch: item.activeMatch
+              })).filter((item) => !(normalizeRole(role) === "clinico" && item.label === "Perfil"))
           ]
         }
       ]

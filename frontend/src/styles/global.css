@@ -1615,6 +1615,30 @@ td {
   margin-top: 0;
 }
 
+.calendar-month-nav {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+}
+
+.calendar-month-nav strong {
+  text-align: center;
+}
+
+.calendar-weekday-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.calendar-weekday-label {
+  text-align: center;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 0.35rem 0;
+}
+
 .template-picker-label {
   display: block;
   font-weight: 600;

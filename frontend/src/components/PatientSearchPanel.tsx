@@ -10,9 +10,9 @@ interface PatientSearchPanelProps {
   onSelectPatient: (patient: ClinicalPatientSummary) => void;
 }
 
-// Shared across CarnetPage/ClinicalCalendarPage/CardexPage — owns its own
-// /patients fetch and text-filter state so none of the three pages duplicate
-// that logic. Deliberately does NOT include the client dropdown or date-range
+// Shared across CarnetPage/CardexPage — owns its own /patients fetch and
+// text-filter state so neither page duplicates that logic. Deliberately does
+// NOT include the client dropdown or date-range
 // filters from the old MedicalHistoryPage: those only ever fed the Carnet
 // history query/PDF export, not patient selection itself, so they stay local
 // to CarnetPage instead of being dragged into this shared component.

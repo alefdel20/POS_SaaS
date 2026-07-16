@@ -12,7 +12,6 @@ import { LoginPage } from "../pages/LoginPage";
 import { MedicalAppointmentsPage } from "../pages/MedicalAppointmentsPage";
 import { MedicalConsultationsPage } from "../pages/MedicalConsultationsPage";
 import { CarnetPage } from "../pages/CarnetPage";
-import { ClinicalCalendarPage } from "../pages/ClinicalCalendarPage";
 import { CardexPage } from "../pages/CardexPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { PatientsPage } from "../pages/PatientsPage";
@@ -86,13 +85,10 @@ export function AppRouter() {
               <Route path="/health/products/medications/new" element={<ProductsPage />} />
             </Route>
             <Route path="/reminders" element={<RemindersPage />} />
-            <Route path="/reminders/new" element={<RemindersPage />} />
             <Route path="/reminders/calendar" element={<RemindersPage />} />
             <Route path="/retail/admin/reminders" element={<RemindersPage />} />
-            <Route path="/retail/admin/reminders/new" element={<RemindersPage />} />
             <Route path="/retail/admin/reminders/calendar" element={<RemindersPage />} />
             <Route path="/health/admin/reminders" element={<RemindersPage />} />
-            <Route path="/health/admin/reminders/new" element={<RemindersPage />} />
             <Route path="/health/admin/reminders/calendar" element={<RemindersPage />} />
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.users]} />}>
               <Route path="/users" element={<UsersPage />} />
@@ -177,7 +173,7 @@ export function AppRouter() {
               <Route path="/health/consultations/recetas" element={<MedicalConsultationsPage />} />
               <Route path="/medical-history" element={<Navigate replace to="/health/medical-history/carnet" />} />
               <Route path="/health/medical-history/carnet" element={<CarnetPage />} />
-              <Route path="/health/medical-history/calendar" element={<ClinicalCalendarPage />} />
+              <Route path="/health/medical-history/calendar" element={<Navigate replace to="/health/admin/reminders/calendar" />} />
               <Route path="/health/medical-history/cardex" element={<CardexPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.invoices]} />}>

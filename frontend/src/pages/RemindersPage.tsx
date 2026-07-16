@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalPatientSummary, Reminder } from "../types";
@@ -24,7 +24,7 @@ const emptyReminder = {
 const weekdayLabels = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
 
 function normalizeReminderBasePath(pathname: string) {
-  return pathname.replace(/\/(new|calendar)$/, "");
+  return pathname.replace(/\/calendar$/, "");
 }
 
 function normalizeDateKey(value?: string | null) {
@@ -123,12 +123,12 @@ function getReminderCategoryLabel(reminder: Reminder) {
 export function RemindersPage() {
   const { token } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
   const [form, setForm] = useState(emptyReminder);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -136,7 +136,6 @@ export function RemindersPage() {
   const [selectedDate, setSelectedDate] = useState(getTodayKey());
   const [selectedMonth, setSelectedMonth] = useState(getTodayKey().slice(0, 7));
   const basePath = normalizeReminderBasePath(location.pathname);
-  const isNewRoute = location.pathname.endsWith("/new");
   const isCalendarRoute = location.pathname.endsWith("/calendar");
 
   const remindersByDate = useMemo(
@@ -211,7 +210,8 @@ export function RemindersPage() {
   }, [selectedDate, selectedMonth]);
 
   useEffect(() => {
-    if (!isNewRoute || editingId) return;
+    if (isCalendarRoute || editingId || searchParams.get("compose") !== "1") return;
+    setShowForm(true);
     const presetDate = normalizeDateKey(searchParams.get("date"));
     if (!presetDate) return;
     const startValue = `${presetDate}T09:00`;
@@ -220,7 +220,7 @@ export function RemindersPage() {
       due_date: presetDate,
       start_date: current.start_date || startValue
     }));
-  }, [isNewRoute, editingId, searchParams]);
+  }, [isCalendarRoute, editingId, searchParams]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -256,15 +256,13 @@ export function RemindersPage() {
       });
       const nextSelectedDate = normalizedDueDate || selectedDate;
       resetForm();
+      setShowForm(false);
       setSelectedDate(nextSelectedDate);
       setSelectedMonth(nextSelectedDate.slice(0, 7));
       if (isCalendarRoute) {
         await loadCalendarEvents(nextSelectedDate.slice(0, 7));
       } else {
         await loadReminders();
-      }
-      if (currentEditingId) {
-        navigate(basePath);
       }
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el recordatorio");
@@ -313,7 +311,7 @@ export function RemindersPage() {
     const nextDate = resolveReminderDateKey(reminder) || getTodayKey();
     setSelectedDate(nextDate);
     setSelectedMonth(nextDate.slice(0, 7));
-    navigate(`${basePath}/new`);
+    setShowForm(true);
   }
 
   async function deleteReminder(id: number) {
@@ -334,17 +332,97 @@ export function RemindersPage() {
     }
   }
 
+  function openForm() {
+    resetForm();
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    resetForm();
+    setShowForm(false);
+  }
+
   const sharedHeader = (
     <div className="panel-header">
       <div>
-        <h2>Recordatorios</h2>
-        <p className="muted">Cada subruta ahora muestra solo su vista correspondiente y mantiene la misma data actual.</p>
+        <h2>Calendario</h2>
+        <p className="muted">Recordatorios administrativos y clinicos, y la vista de calendario del negocio.</p>
       </div>
       <div className="inline-actions">
-        <Link className={`button ghost ${!isNewRoute && !isCalendarRoute ? "active-filter" : ""}`} to={basePath}>Recordatorios</Link>
-        <Link className={`button ghost ${isNewRoute ? "active-filter" : ""}`} to={`${basePath}/new${isCalendarRoute ? `?date=${selectedDate}` : ""}`}>Nuevo</Link>
+        <Link className={`button ghost ${!isCalendarRoute ? "active-filter" : ""}`} to={basePath}>Recordatorios</Link>
         <Link className={`button ghost ${isCalendarRoute ? "active-filter" : ""}`} to={`${basePath}/calendar`}>Calendario</Link>
       </div>
+    </div>
+  );
+
+  const reminderForm = (
+    <div className="info-card">
+      <form className="grid-form" onSubmit={handleSubmit}>
+        <div className="panel-header">
+          <div>
+            <h3>{editingId ? "Editar recordatorio" : "Nuevo recordatorio"}</h3>
+            <p className="muted">{editingId ? `Editando #${editingId}` : "Registra un nuevo recordatorio sin salir de la lista."}</p>
+          </div>
+          <button className="button ghost" onClick={closeForm} type="button">Cancelar</button>
+        </div>
+        <label>
+          Titulo
+          <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required />
+        </label>
+        <label>
+          Notas
+          <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+        </label>
+        <label>
+          Estado
+          <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "pending" | "in_progress" | "completed" | "cancelled" })}>
+            {REMINDER_STATUSES.map((status) => <option key={status} value={status}>{getReminderStatusLabel(status)}</option>)}
+          </select>
+        </label>
+        <label>
+          Categoria
+          <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value as "administrative" | "clinical", patient_id: event.target.value === "clinical" ? form.patient_id : "" })}>
+            {REMINDER_CATEGORIES.map((category) => <option key={category} value={category}>{category === "clinical" ? "Clinico" : "Administrativo"}</option>)}
+          </select>
+        </label>
+        <label>
+          Etiqueta
+          <select
+            value={form.provider_category}
+            onChange={(event) => setForm({ ...form, provider_category: event.target.value })}
+          >
+            <option value="administrative">Administrativo</option>
+            <option value="providers">Proveedores</option>
+          </select>
+        </label>
+        {form.category === "clinical" ? (
+          <label>
+            Paciente
+            <select value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value })}>
+              <option value="">Sin paciente</option>
+              {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}</option>)}
+            </select>
+          </label>
+        ) : null}
+        <label>
+          Vencimiento
+          <input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} />
+          <small className="muted">Formato visible: dd/mm/aaaa · Fecha: {form.due_date ? dateLabel(form.due_date) : "--/--/----"}</small>
+        </label>
+        <label>
+          Fecha inicio
+          <input type="datetime-local" value={form.start_date} onChange={(event) => setForm({ ...form, start_date: event.target.value, due_date: event.target.value ? event.target.value.slice(0, 10) : form.due_date })} />
+          <small className="muted">Formato visible: dd/mm/aaaa HH:mm · Fecha: {form.start_date ? shortDateTime(form.start_date) : "--/--/---- --:--"}</small>
+        </label>
+        <label>
+          Fecha fin (opcional)
+          <input type="datetime-local" value={form.end_date} onChange={(event) => setForm({ ...form, end_date: event.target.value })} />
+          <small className="muted">Formato visible: dd/mm/aaaa HH:mm · Fecha: {form.end_date ? shortDateTime(form.end_date) : "--/--/---- --:--"}</small>
+        </label>
+        <button className="button" disabled={saving} type="submit">
+          {saving ? "Guardando..." : editingId ? "Actualizar recordatorio" : "Guardar recordatorio"}
+        </button>
+      </form>
     </div>
   );
 
@@ -362,7 +440,7 @@ export function RemindersPage() {
             <div className="inline-actions">
               <button className={`button ghost ${calendarView === "month" ? "active-filter" : ""}`} onClick={() => setCalendarView("month")} type="button">Vista mensual</button>
               <button className={`button ghost ${calendarView === "day" ? "active-filter" : ""}`} onClick={() => setCalendarView("day")} type="button">Vista diaria</button>
-              <Link className="button ghost" to={`${basePath}/new?date=${selectedDate}`}>Nuevo recordatorio</Link>
+              <Link className="button ghost" to={`${basePath}?compose=1&date=${selectedDate}`}>Nuevo recordatorio</Link>
             </div>
           </div>
 
@@ -370,17 +448,17 @@ export function RemindersPage() {
 
           {!loading && calendarView === "month" ? (
             <div className="stack-list">
-              <div className="panel-header">
+              <div className="calendar-month-nav">
                 <button className="button ghost" onClick={() => setSelectedMonth((current) => shiftMonth(current, -1))} type="button">Mes anterior</button>
                 <strong>{formatMonthLabel(selectedMonth)}</strong>
                 <button className="button ghost" onClick={() => setSelectedMonth((current) => shiftMonth(current, 1))} type="button">Mes siguiente</button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "0.5rem" }}>
+              <div className="calendar-weekday-row">
                 {weekdayLabels.map((label) => (
-                  <div className="info-card compact-box" key={label} style={{ textAlign: "center", fontWeight: 700 }}>
-                    {label}
-                  </div>
+                  <span className="calendar-weekday-label" key={label}>{label}</span>
                 ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "0.5rem" }}>
                 {monthCells.map((cell) => {
                   const dayItems = cell.outside ? [] : remindersByDate[cell.key] || [];
                   const isSelected = !cell.outside && cell.key === selectedDate;
@@ -480,10 +558,20 @@ export function RemindersPage() {
         </div>
       ) : null}
 
-      {!isNewRoute && !isCalendarRoute ? (
+      {!isCalendarRoute ? (
         <div className="panel">
           {sharedHeader}
           {error ? <p className="error-text">{error}</p> : null}
+          <div className="panel-header">
+            <div>
+              <h3>Recordatorios</h3>
+              <p className="muted">Lista de recordatorios administrativos y clinicos del negocio.</p>
+            </div>
+            {!showForm ? (
+              <button className="button ghost" onClick={openForm} type="button">Nuevo recordatorio</button>
+            ) : null}
+          </div>
+          {showForm ? reminderForm : null}
           {loading ? <p className="muted">Cargando recordatorios...</p> : null}
           {!loading ? (
             <div className="stack-list">
@@ -511,94 +599,12 @@ export function RemindersPage() {
               {!reminders.length ? (
                 <div className="empty-state-card">
                   <strong>No hay recordatorios registrados.</strong>
-                  <span className="muted">Usa la vista Nuevo para crear el primero sin mezclar formulario ni calendario.</span>
+                  <span className="muted">Usa el boton "Nuevo recordatorio" para crear el primero.</span>
                 </div>
               ) : null}
             </div>
           ) : null}
         </div>
-      ) : null}
-
-      {isNewRoute ? (
-        <form className="panel grid-form" onSubmit={handleSubmit}>
-          {sharedHeader}
-          {error ? <p className="error-text">{error}</p> : null}
-          <div className="panel-header">
-            <div>
-              <h2>{editingId ? "Editar recordatorio" : "Nuevo recordatorio"}</h2>
-              <p className="muted">{editingId ? `Editando #${editingId}` : "Vista dedicada para registrar recordatorios sin mezclar listado ni calendario."}</p>
-            </div>
-            {editingId ? (
-              <button
-                className="button ghost"
-                onClick={() => {
-                  resetForm();
-                  navigate(basePath);
-                }}
-                type="button"
-              >
-                Cancelar
-              </button>
-            ) : null}
-          </div>
-          <label>
-            Titulo
-            <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required />
-          </label>
-          <label>
-            Notas
-            <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-          </label>
-          <label>
-            Estado
-            <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "pending" | "in_progress" | "completed" | "cancelled" })}>
-              {REMINDER_STATUSES.map((status) => <option key={status} value={status}>{getReminderStatusLabel(status)}</option>)}
-            </select>
-          </label>
-          <label>
-            Categoria
-            <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value as "administrative" | "clinical", patient_id: event.target.value === "clinical" ? form.patient_id : "" })}>
-              {REMINDER_CATEGORIES.map((category) => <option key={category} value={category}>{category === "clinical" ? "Clinico" : "Administrativo"}</option>)}
-            </select>
-          </label>
-          <label>
-            Etiqueta
-            <select
-              value={form.provider_category}
-              onChange={(event) => setForm({ ...form, provider_category: event.target.value })}
-            >
-              <option value="administrative">Administrativo</option>
-              <option value="providers">Proveedores</option>
-            </select>
-          </label>
-          {form.category === "clinical" ? (
-            <label>
-              Paciente
-              <select value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value })}>
-                <option value="">Sin paciente</option>
-                {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}</option>)}
-              </select>
-            </label>
-          ) : null}
-          <label>
-            Vencimiento
-            <input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} />
-            <small className="muted">Formato visible: dd/mm/aaaa · Fecha: {form.due_date ? dateLabel(form.due_date) : "--/--/----"}</small>
-          </label>
-          <label>
-            Fecha inicio
-            <input type="datetime-local" value={form.start_date} onChange={(event) => setForm({ ...form, start_date: event.target.value, due_date: event.target.value ? event.target.value.slice(0, 10) : form.due_date })} />
-            <small className="muted">Formato visible: dd/mm/aaaa HH:mm · Fecha: {form.start_date ? shortDateTime(form.start_date) : "--/--/---- --:--"}</small>
-          </label>
-          <label>
-            Fecha fin (opcional)
-            <input type="datetime-local" value={form.end_date} onChange={(event) => setForm({ ...form, end_date: event.target.value })} />
-            <small className="muted">Formato visible: dd/mm/aaaa HH:mm · Fecha: {form.end_date ? shortDateTime(form.end_date) : "--/--/---- --:--"}</small>
-          </label>
-          <button className="button" disabled={saving} type="submit">
-            {saving ? "Guardando..." : editingId ? "Actualizar recordatorio" : "Guardar recordatorio"}
-          </button>
-        </form>
       ) : null}
     </section>
   );
