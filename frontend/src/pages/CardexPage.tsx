@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
+import { PatientSearchPanel } from "../components/PatientSearchPanel";
 import { useAuth } from "../context/AuthContext";
 import type { CardexEntry, ClinicalPatientSummary } from "../types";
 import { shortDate } from "../utils/format";
@@ -41,7 +42,7 @@ export function CardexPage() {
   const { token } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const patientId = searchParams.get("patient_id") || "";
-  const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<ClinicalPatientSummary | null>(null);
   const [entries, setEntries] = useState<CardexEntry[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -49,18 +50,6 @@ export function CardexPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  const selectedPatient = patients.find((patient) => String(patient.id) === patientId) || null;
-
-  async function loadPatients() {
-    if (!token) return;
-    try {
-      const response = await apiRequest<ClinicalPatientSummary[]>("/patients", { token });
-      setPatients(response);
-    } catch {
-      setPatients([]);
-    }
-  }
 
   async function loadEntries() {
     if (!token || !patientId) {
@@ -77,10 +66,6 @@ export function CardexPage() {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
-    loadPatients().catch(() => undefined);
-  }, [token]);
 
   useEffect(() => {
     loadEntries().catch(() => undefined);
@@ -118,7 +103,17 @@ export function CardexPage() {
   }
 
   return (
-    <section className="page-grid">
+    <section className="page-grid two-columns">
+      <PatientSearchPanel
+        selectedPatientId={patientId}
+        onSelectPatient={(patient) => {
+          setSelectedPatient(patient);
+          const params = new URLSearchParams(searchParams);
+          params.set("patient_id", String(patient.id));
+          setSearchParams(params, { replace: true });
+        }}
+      />
+
       <div className="panel">
         <div className="panel-header">
           <div>
@@ -133,27 +128,13 @@ export function CardexPage() {
         </div>
         {error ? <p className="error-text">{error}</p> : null}
 
-        {!patientId ? (
-          <label>
-            Paciente
-            <select
-              onChange={(event) => {
-                const params = new URLSearchParams(searchParams);
-                if (event.target.value) {
-                  params.set("patient_id", event.target.value);
-                } else {
-                  params.delete("patient_id");
-                }
-                setSearchParams(params, { replace: true });
-              }}
-              value={patientId}
-            >
-              <option value="">Selecciona un paciente</option>
-              {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}</option>)}
-            </select>
-          </label>
+        {selectedPatient ? (
+          <p className="muted"><strong>Paciente:</strong> {selectedPatient.name}</p>
         ) : (
-          <p className="muted"><strong>Paciente:</strong> {selectedPatient?.name || `#${patientId}`}</p>
+          <div className="empty-state-card">
+            <strong>Selecciona un paciente desde la lista.</strong>
+            <span className="muted">Su cardex se abrira aqui mismo.</span>
+          </div>
         )}
 
         {showForm && patientId ? (

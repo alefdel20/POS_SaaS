@@ -1,43 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiDownload, apiRequest } from "../api/client";
+import { PatientSearchPanel } from "../components/PatientSearchPanel";
 import { useAuth } from "../context/AuthContext";
-import type { ClinicalAppointment, ClinicalClientSummary, ClinicalHistoryResponse, ClinicalPatientSummary, CompanyProfile, Reminder } from "../types";
+import type { ClinicalAppointment, ClinicalClientSummary, ClinicalHistoryResponse, ClinicalPatientSummary, CompanyProfile } from "../types";
 import { resolveUploadedAssetUrl } from "../utils/assets";
-import { buildMonthCells, formatMonthLabel, shiftMonth } from "../utils/calendarGrid";
-import { dateLabel, shortDate, shortDateTime } from "../utils/format";
-import { getMedicalHistoryViewFromPath } from "../utils/navigation";
-import { getPatientSearchPlaceholder, showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
-import { getMexicoCityDateInputValue, getMonthInputRange } from "../utils/timezone";
+import { shortDate, shortDateTime } from "../utils/format";
+import { showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
 
-const weekdayLabels = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
-
-function normalizeDateKey(value?: string | null) {
-  return value ? value.slice(0, 10) : "";
-}
-
-function resolveReminderDateKey(reminder: Reminder) {
-  const dueDate = normalizeDateKey(reminder.due_date);
-  if (dueDate) return dueDate;
-  const metadata = reminder.metadata || {};
-  const startAt = typeof metadata.start_at === "string"
-    ? metadata.start_at
-    : (typeof metadata.calendar_start_at === "string" ? metadata.calendar_start_at : "");
-  return startAt ? getMexicoCityDateInputValue(startAt) : "";
-}
-
-export function MedicalHistoryPage() {
+export function CarnetPage() {
   const { token, user } = useAuth();
-  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const historyView = getMedicalHistoryViewFromPath(location.pathname);
   const [clients, setClients] = useState<ClinicalClientSummary[]>([]);
-  const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<ClinicalPatientSummary | null>(null);
   const [history, setHistory] = useState<ClinicalHistoryResponse | null>(null);
   const [patientId, setPatientId] = useState(searchParams.get("patient_id") || "");
   const [clientId, setClientId] = useState(searchParams.get("client_id") || "");
-  const [patientSearch, setPatientSearch] = useState("");
   const [dateFrom, setDateFrom] = useState(searchParams.get("date_from") || "");
   const [dateTo, setDateTo] = useState(searchParams.get("date_to") || "");
   const [loading, setLoading] = useState(false);
@@ -47,50 +26,16 @@ export function MedicalHistoryPage() {
   const [businessProfile, setBusinessProfile] = useState<CompanyProfile | null>(null);
   const [nextAppointment, setNextAppointment] = useState<ClinicalAppointment | null>(null);
   const [fullRecordLoading, setFullRecordLoading] = useState(false);
-  const [calendarReminders, setCalendarReminders] = useState<Reminder[]>([]);
-  const [calendarView, setCalendarView] = useState<"month" | "day">("month");
-  const [calendarLoading, setCalendarLoading] = useState(false);
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState(getMexicoCityDateInputValue());
-  const [selectedCalendarMonth, setSelectedCalendarMonth] = useState(getMexicoCityDateInputValue().slice(0, 7));
   const humanPatientsOnly = usesHumanPatientsOnly(user?.pos_type);
   const showSpecies = showsPatientSpecies(user?.pos_type);
 
-  const filteredPatients = useMemo(() => {
-    const term = patientSearch.trim().toLowerCase();
-    if (!term) return patients;
-    return patients.filter((patient) =>
-      `${patient.name} ${patient.client_name || ""} ${humanPatientsOnly ? `${patient.client_phone || ""} ${patient.client_email || ""}` : `${patient.species || ""} ${patient.breed || ""}`}`.toLowerCase().includes(term)
-    );
-  }, [humanPatientsOnly, patientSearch, patients]);
+  const vaccinations = history?.preventive_events?.filter((event) => event.event_type === "vaccination") || [];
+  const dewormings = history?.preventive_events?.filter((event) => event.event_type === "deworming") || [];
 
-  const selectedPatient = patients.find((patient) => String(patient.id) === patientId) || null;
-  const vaccinations = useMemo(
-    () => history?.preventive_events?.filter((event) => event.event_type === "vaccination") || [],
-    [history]
-  );
-  const dewormings = useMemo(
-    () => history?.preventive_events?.filter((event) => event.event_type === "deworming") || [],
-    [history]
-  );
-  const calendarRemindersByDate = useMemo(
-    () => calendarReminders.reduce<Record<string, Reminder[]>>((accumulator, reminder) => {
-      const key = resolveReminderDateKey(reminder) || "Sin fecha";
-      accumulator[key] = [...(accumulator[key] || []), reminder];
-      return accumulator;
-    }, {}),
-    [calendarReminders]
-  );
-  const monthCells = useMemo(() => buildMonthCells(selectedCalendarMonth), [selectedCalendarMonth]);
-  const selectedDayReminders = calendarRemindersByDate[selectedCalendarDate] || [];
-
-  async function loadOptions() {
+  async function loadClients() {
     if (!token) return;
-    const [clientResponse, patientResponse] = await Promise.all([
-      apiRequest<ClinicalClientSummary[]>("/clients", { token }),
-      apiRequest<ClinicalPatientSummary[]>("/patients", { token })
-    ]);
-    setClients(clientResponse);
-    setPatients(patientResponse);
+    const response = await apiRequest<ClinicalClientSummary[]>("/clients", { token });
+    setClients(response);
   }
 
   async function loadHistory() {
@@ -111,19 +56,16 @@ export function MedicalHistoryPage() {
   }
 
   useEffect(() => {
-    loadOptions().catch((loadError) => {
+    loadClients().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar opciones");
     });
   }, [token]);
 
   useEffect(() => {
-    if (patientId && !clientId) {
-      const selected = patients.find((patient) => String(patient.id) === patientId);
-      if (selected?.client_id) {
-        setClientId(String(selected.client_id));
-      }
+    if (selectedPatient?.client_id && !clientId) {
+      setClientId(String(selectedPatient.client_id));
     }
-  }, [clientId, patientId, patients]);
+  }, [selectedPatient, clientId]);
 
   useEffect(() => {
     loadHistory().catch((loadError) => {
@@ -169,39 +111,6 @@ export function MedicalHistoryPage() {
     setShowFullRecord((current) => !current);
   }
 
-  async function loadCalendarReminders(monthKey: string) {
-    if (!token || !patientId) {
-      setCalendarReminders([]);
-      return;
-    }
-    const monthRange = getMonthInputRange(monthKey);
-    if (!monthRange) return;
-    setCalendarLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("start_date", monthRange.start);
-      params.set("end_date", monthRange.end);
-      params.set("patient_id", patientId);
-      const response = await apiRequest<Reminder[]>(`/reminders/calendar?${params.toString()}`, { token });
-      setCalendarReminders(response);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el calendario");
-    } finally {
-      setCalendarLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (historyView !== "calendar") return;
-    loadCalendarReminders(selectedCalendarMonth).catch(() => undefined);
-  }, [token, patientId, historyView, selectedCalendarMonth]);
-
-  useEffect(() => {
-    if (!selectedCalendarDate.startsWith(selectedCalendarMonth)) {
-      setSelectedCalendarDate(`${selectedCalendarMonth}-01`);
-    }
-  }, [selectedCalendarDate, selectedCalendarMonth]);
-
   async function handleDownloadPdf() {
     if (!token || !patientId) return;
     try {
@@ -246,29 +155,14 @@ export function MedicalHistoryPage() {
   return (
     <section className="page-grid two-columns">
       <div className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Historial medico</h2>
-            <p className="muted">Selecciona un paciente dentro de este modulo para abrir su expediente.</p>
-          </div>
-          <div className="inline-actions">
-            <button className="button" disabled={!patientId} onClick={handleDownloadPdf} type="button">Descargar PDF</button>
-            <details className="share-actions">
-              <summary className={`button ghost ${!patientId ? "button-disabled" : ""}`}>Compartir</summary>
-              <div className="share-actions-menu">
-                <button className="button ghost" disabled={!patientId} onClick={() => handleShare("whatsapp")} type="button">WhatsApp</button>
-                <button className="button ghost" disabled={!patientId} onClick={() => handleShare("email")} type="button">Correo</button>
-              </div>
-            </details>
-          </div>
-        </div>
-        {error ? <p className="error-text">{error}</p> : null}
-        {info ? <p className="success-text">{info}</p> : null}
+        <PatientSearchPanel
+          selectedPatientId={patientId}
+          onSelectPatient={(patient) => {
+            setSelectedPatient(patient);
+            setPatientId(String(patient.id));
+          }}
+        />
         <div className="form-section-grid">
-          <label className="form-span-2">
-            Buscar paciente
-            <input placeholder={getPatientSearchPlaceholder(user?.pos_type)} value={patientSearch} onChange={(event) => setPatientSearch(event.target.value)} />
-          </label>
           {!humanPatientsOnly ? (
             <label>
               Cliente
@@ -287,62 +181,27 @@ export function MedicalHistoryPage() {
             <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
           </label>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Paciente</th>
-                {humanPatientsOnly ? (
-                  <>
-                    <th>Telefono</th>
-                    <th>Consultas</th>
-                    <th>Correo</th>
-                  </>
-                ) : (
-                  <>
-                    <th>Cliente</th>
-                    <th>Especie / raza</th>
-                    <th>Consultas</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPatients.map((patient) => (
-                <tr className={String(patient.id) === patientId ? "table-row-active" : ""} key={patient.id} onClick={() => setPatientId(String(patient.id))}>
-                  <td>{patient.name}</td>
-                  {humanPatientsOnly ? (
-                    <>
-                      <td>{patient.client_phone || "-"}</td>
-                      <td>{patient.consultation_count}</td>
-                      <td>{patient.client_email || "-"}</td>
-                    </>
-                  ) : (
-                    <>
-                      <td>{patient.client_name}</td>
-                      <td>{showSpecies ? `${patient.species || "-"} / ${patient.breed || "-"}` : "-"}</td>
-                      <td>{patient.consultation_count}</td>
-                    </>
-                  )}
-                </tr>
-              ))}
-              {!filteredPatients.length ? (
-                <tr>
-                  <td className="muted" colSpan={4}>No se encontraron pacientes para este filtro.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
       </div>
 
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h2>{historyView === "calendar" ? "Calendario clinico" : "Carnet clinico"}</h2>
-            <p className="muted">La experiencia se mantiene dentro del modulo Historial medico.</p>
+            <h2>{humanPatientsOnly ? "Carnet clinico" : "Carnet veterinario"}</h2>
+          </div>
+          <div className="inline-actions">
+            <button className="button" disabled={!patientId} onClick={handleDownloadPdf} type="button">Descargar PDF</button>
+            <details className="share-actions">
+              <summary className={`button ghost ${!patientId ? "button-disabled" : ""}`}>Compartir</summary>
+              <div className="share-actions-menu">
+                <button className="button ghost" disabled={!patientId} onClick={() => handleShare("whatsapp")} type="button">WhatsApp</button>
+                <button className="button ghost" disabled={!patientId} onClick={() => handleShare("email")} type="button">Correo</button>
+              </div>
+            </details>
           </div>
         </div>
+        {error ? <p className="error-text">{error}</p> : null}
+        {info ? <p className="success-text">{info}</p> : null}
+
         {selectedPatient ? (
           <div className="info-card">
             <p><strong>Paciente:</strong> {selectedPatient.name}</p>
@@ -462,150 +321,33 @@ export function MedicalHistoryPage() {
         ) : null}
         {loading ? <p className="muted">Cargando historial...</p> : null}
 
-        {historyView === "calendar" ? (
-          !selectedPatient ? (
-            <div className="empty-state-card">
-              <strong>Selecciona un paciente para ver su calendario.</strong>
-              <span className="muted">El calendario clinico se filtra por el paciente elegido en la lista.</span>
-            </div>
-          ) : (
-            <div className="stack-list">
+        <div className="timeline-list">
+          {history?.timeline.map((entry) => (
+            <div className="timeline-card timeline-card-static" key={entry.id}>
+              <div className="panel-header">
+                <strong>{entry.patient_name}</strong>
+                <span className="muted">{shortDateTime(entry.consultation_date)}</span>
+              </div>
+              {!humanPatientsOnly ? <p><strong>Cliente:</strong> {entry.client_name}</p> : null}
+              <p><strong>Motivo:</strong> {entry.motivo_consulta}</p>
+              <p><strong>Diagnostico:</strong> {entry.diagnostico}</p>
+              <p><strong>Tratamiento:</strong> {entry.tratamiento}</p>
+              {entry.prescriptions?.length ? (
+                <div>
+                  <p><strong>Recetas asociadas:</strong> {entry.prescriptions.length}</p>
+                  {entry.prescriptions.map((prescription) => (
+                    <p className="muted" key={`prescription-${prescription.id}`}>
+                      Receta #{prescription.id} · {prescription.items.length} medicamento(s) · {prescription.status}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
               <div className="inline-actions">
-                <button className={`button ghost ${calendarView === "month" ? "active-filter" : ""}`} onClick={() => setCalendarView("month")} type="button">Vista mensual</button>
-                <button className={`button ghost ${calendarView === "day" ? "active-filter" : ""}`} onClick={() => setCalendarView("day")} type="button">Vista diaria</button>
+                <button className="button ghost" onClick={() => navigate(`/medical-consultations?consultation=${entry.id}`)} type="button">Ver consulta</button>
               </div>
-
-              {calendarLoading ? <p className="muted">Cargando calendario...</p> : null}
-
-              {!calendarLoading && calendarView === "month" ? (
-                <div className="stack-list">
-                  <div className="panel-header">
-                    <button className="button ghost" onClick={() => setSelectedCalendarMonth((current) => shiftMonth(current, -1))} type="button">Mes anterior</button>
-                    <strong>{formatMonthLabel(selectedCalendarMonth)}</strong>
-                    <button className="button ghost" onClick={() => setSelectedCalendarMonth((current) => shiftMonth(current, 1))} type="button">Mes siguiente</button>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "0.5rem" }}>
-                    {weekdayLabels.map((label) => (
-                      <div className="info-card compact-box" key={label} style={{ textAlign: "center", fontWeight: 700 }}>
-                        {label}
-                      </div>
-                    ))}
-                    {monthCells.map((cell) => {
-                      const dayItems = cell.outside ? [] : calendarRemindersByDate[cell.key] || [];
-                      const isSelected = !cell.outside && cell.key === selectedCalendarDate;
-                      return (
-                        <button
-                          className={`info-card compact-box ${isSelected ? "active-filter" : ""}`}
-                          disabled={cell.outside}
-                          key={cell.key}
-                          onClick={() => {
-                            if (cell.outside) return;
-                            setSelectedCalendarDate(cell.key);
-                          }}
-                          style={{ minHeight: "8.5rem", textAlign: "left", opacity: cell.outside ? 0.45 : 1 }}
-                          type="button"
-                        >
-                          <strong>{cell.dayNumber || ""}</strong>
-                          {!cell.outside ? (
-                            <div style={{ display: "grid", gap: "0.35rem", marginTop: "0.5rem" }}>
-                              {dayItems.slice(0, 2).map((reminder) => (
-                                <span className="pill" key={`calendar-month-pill-${reminder.id}`} style={{ justifyContent: "flex-start", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {reminder.title}
-                                </span>
-                              ))}
-                              {dayItems.length > 2 ? <span className="muted">+{dayItems.length - 2} mas</span> : null}
-                            </div>
-                          ) : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="info-card">
-                    <strong>{dateLabel(selectedCalendarDate)}</strong>
-                    {selectedDayReminders.length ? (
-                      <div className="stack-list">
-                        {selectedDayReminders.map((reminder) => (
-                          <article className="reminder-card" key={`calendar-selected-${reminder.id}`}>
-                            <div>
-                              <strong>{reminder.title}</strong>
-                              <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="muted">No hay eventos para este dia.</p>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-
-              {!calendarLoading && calendarView === "day" ? (
-                <div className="stack-list">
-                  <div className="inline-actions">
-                    <label>
-                      Fecha
-                      <input
-                        type="date"
-                        value={selectedCalendarDate}
-                        onChange={(event) => {
-                          setSelectedCalendarDate(event.target.value);
-                          setSelectedCalendarMonth(event.target.value.slice(0, 7));
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <div className="info-card">
-                    <strong>Agenda del dia: {dateLabel(selectedCalendarDate)}</strong>
-                    {selectedDayReminders.length ? (
-                      <div className="stack-list" style={{ marginTop: "1rem" }}>
-                        {selectedDayReminders.map((reminder) => (
-                          <article className="reminder-card" key={`calendar-agenda-${reminder.id}`}>
-                            <div>
-                              <strong>{reminder.title}</strong>
-                              <p className="muted reminder-notes">{reminder.notes || "Sin notas"}</p>
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="muted">No hay eventos programados para esta fecha.</p>
-                    )}
-                  </div>
-                </div>
-              ) : null}
             </div>
-          )
-        ) : (
-          <div className="timeline-list">
-            {history?.timeline.map((entry) => (
-              <div className="timeline-card timeline-card-static" key={entry.id}>
-                <div className="panel-header">
-                  <strong>{entry.patient_name}</strong>
-                  <span className="muted">{shortDateTime(entry.consultation_date)}</span>
-                </div>
-                {!humanPatientsOnly ? <p><strong>Cliente:</strong> {entry.client_name}</p> : null}
-                <p><strong>Motivo:</strong> {entry.motivo_consulta}</p>
-                <p><strong>Diagnostico:</strong> {entry.diagnostico}</p>
-                <p><strong>Tratamiento:</strong> {entry.tratamiento}</p>
-                {entry.prescriptions?.length ? (
-                  <div>
-                    <p><strong>Recetas asociadas:</strong> {entry.prescriptions.length}</p>
-                    {entry.prescriptions.map((prescription) => (
-                      <p className="muted" key={`prescription-${prescription.id}`}>
-                        Receta #{prescription.id} · {prescription.items.length} medicamento(s) · {prescription.status}
-                      </p>
-                    ))}
-                  </div>
-                ) : null}
-                <div className="inline-actions">
-                  <button className="button ghost" onClick={() => navigate(`/medical-consultations?consultation=${entry.id}`)} type="button">Ver consulta</button>
-                  <button className="button ghost" onClick={() => setPatientId(String(entry.patient_id))} type="button">Ver expediente</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
 
         {history?.prescriptions?.length ? (
           <div className="timeline-list">

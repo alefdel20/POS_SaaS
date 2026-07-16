@@ -190,10 +190,6 @@ export function getAppointmentAreaFromPath(pathname: string): "ESTETICA" | "CLIN
   return null;
 }
 
-export function getMedicalHistoryViewFromPath(pathname: string): "carnet" | "calendar" {
-  if (pathname.startsWith("/health/medical-history/calendar")) return "calendar";
-  return "carnet";
-}
 
 export function getConsultationModeFromPath(pathname: string): "consultations" | "recipes" {
   if (pathname.startsWith("/health/consultations/recetas")) return "recipes";
