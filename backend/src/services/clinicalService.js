@@ -987,7 +987,15 @@ const PATIENT_MIRROR_FIELDS = `
        COALESCE(hcp.birth_date, hcpet.birth_date, p.birth_date) AS birth_date,
        COALESCE(hcpet.weight_kg, NULLIF(hcp.metadata->>'weight_kg', '')::numeric, p.weight) AS weight,
        COALESCE(hcp.allergies_summary, hcpet.allergies_summary, p.allergies) AS allergies,
-       COALESCE(hcpet.notes, hcp.metadata->>'notes_snapshot', p.notes) AS notes`;
+       COALESCE(hcpet.notes, hcp.metadata->>'notes_snapshot', p.notes) AS notes,
+       hcp.blood_type,
+       hcp.occupation,
+       hcp.emergency_contact_name,
+       hcp.emergency_contact_phone,
+       hcp.chronic_conditions_summary,
+       hcpet.color_markings,
+       hcpet.microchip_number,
+       hcpet.sterilized`;
 
 // Every hcp.*/hcpet.* column referenced above (directly or via ->>) has to be
 // listed here — GROUP BY p.id alone only covers p.*, Postgres has no way to
@@ -995,7 +1003,9 @@ const PATIENT_MIRROR_FIELDS = `
 // used by getOwnedConsultation's "GROUP BY mc.id, p.name, c.name" above).
 const PATIENT_MIRROR_GROUP_BY = `
        hcp.first_name, hcp.last_name, hcp.phone, hcp.sex, hcp.birth_date, hcp.metadata, hcp.allergies_summary,
-       hcpet.name, hcpet.breed, hcpet.sex, hcpet.birth_date, hcpet.weight_kg, hcpet.allergies_summary, hcpet.notes, hcpet.metadata`;
+       hcp.blood_type, hcp.occupation, hcp.emergency_contact_name, hcp.emergency_contact_phone, hcp.chronic_conditions_summary,
+       hcpet.name, hcpet.breed, hcpet.sex, hcpet.birth_date, hcpet.weight_kg, hcpet.allergies_summary, hcpet.notes, hcpet.metadata,
+       hcpet.color_markings, hcpet.microchip_number, hcpet.sterilized`;
 
 const CLIENT_MIRROR_JOIN = `
      LEFT JOIN healthcare.pet_owners hpo

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router-do
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalPatientSummary, Reminder } from "../types";
+import { buildMonthCells, formatMonthLabel, shiftMonth } from "../utils/calendarGrid";
 import { REMINDER_CATEGORIES, REMINDER_STATUSES } from "../utils/domainEnums";
 import { currency, dateLabel, shortDateTime } from "../utils/format";
 import { getReminderStatusLabel } from "../utils/uiLabels";
@@ -60,51 +61,6 @@ function dedupeReminders(items: Reminder[]) {
 
 function getTodayKey() {
   return getMexicoCityDateInputValue();
-}
-
-function parseMonthKey(monthKey: string) {
-  const [year, month] = monthKey.split("-").map(Number);
-  return { year, month };
-}
-
-function shiftMonth(monthKey: string, delta: number) {
-  const { year, month } = parseMonthKey(monthKey);
-  const totalMonths = year * 12 + (month - 1) + delta;
-  const nextYear = Math.floor(totalMonths / 12);
-  const nextMonth = (totalMonths % 12) + 1;
-  return `${nextYear}-${String(nextMonth).padStart(2, "0")}`;
-}
-
-function formatMonthLabel(monthKey: string) {
-  const { year, month } = parseMonthKey(monthKey);
-  return new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric", timeZone: "America/Mexico_City" })
-    .format(new Date(Date.UTC(year, month - 1, 1, 12, 0, 0)));
-}
-
-function buildMonthCells(monthKey: string) {
-  const { year, month } = parseMonthKey(monthKey);
-  const firstWeekday = new Date(Date.UTC(year, month - 1, 1, 12, 0, 0)).getUTCDay();
-  const daysInMonth = new Date(Date.UTC(year, month, 0, 12, 0, 0)).getUTCDate();
-  const cells: Array<{ key: string; dayNumber: number; outside: boolean }> = [];
-
-  for (let index = 0; index < firstWeekday; index += 1) {
-    cells.push({ key: `empty-start-${index}`, dayNumber: 0, outside: true });
-  }
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    const key = `${monthKey}-${String(day).padStart(2, "0")}`;
-    cells.push({
-      key,
-      dayNumber: day,
-      outside: false
-    });
-  }
-
-  while (cells.length % 7 !== 0) {
-    cells.push({ key: `empty-end-${cells.length}`, dayNumber: 0, outside: true });
-  }
-
-  return cells;
 }
 
 function normalizeReminderText(value: unknown) {

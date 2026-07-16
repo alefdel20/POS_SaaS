@@ -12,6 +12,7 @@ import { LoginPage } from "../pages/LoginPage";
 import { MedicalAppointmentsPage } from "../pages/MedicalAppointmentsPage";
 import { MedicalConsultationsPage } from "../pages/MedicalConsultationsPage";
 import { MedicalHistoryPage } from "../pages/MedicalHistoryPage";
+import { CardexPage } from "../pages/CardexPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { PatientsPage } from "../pages/PatientsPage";
 import { AlertsPage } from "../pages/AlertsPage";
@@ -176,6 +177,7 @@ export function AppRouter() {
               <Route path="/medical-history" element={<MedicalHistoryPage />} />
               <Route path="/health/medical-history/carnet" element={<MedicalHistoryPage />} />
               <Route path="/health/medical-history/calendar" element={<MedicalHistoryPage />} />
+              <Route path="/health/medical-history/cardex" element={<CardexPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.invoices]} />}>
               <Route path="/invoices" element={<InvoicesPage />} />

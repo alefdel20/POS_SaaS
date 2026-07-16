@@ -590,6 +590,14 @@ export interface ClinicalPatientSummary {
   client_name?: string | null;
   client_phone?: string | null;
   client_email?: string | null;
+  blood_type?: string | null;
+  occupation?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  chronic_conditions_summary?: string | null;
+  color_markings?: string | null;
+  microchip_number?: string | null;
+  sterilized?: boolean | null;
 }
 
 export interface ClinicalConsultation {
@@ -729,6 +737,26 @@ export interface MedicalPreventiveEvent {
   next_due_date?: string | null;
   status: "scheduled" | "completed" | "cancelled";
   notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CardexEntry {
+  id: number;
+  business_id: number;
+  patient_id: number;
+  patient_name?: string | null;
+  event_type: "consultation" | "treatment" | "surgery" | "hospitalization" | "lab" | "prescription" | "vaccination" | "deworming";
+  event_date: string;
+  weight_kg?: number | null;
+  temperature_c?: number | null;
+  heart_rate_bpm?: number | null;
+  respiratory_rate_bpm?: number | null;
+  diagnosis?: string | null;
+  notes?: string | null;
+  status: "completed" | "pending" | "cancelled";
+  attachments?: unknown[];
+  veterinarian_user_id?: number | null;
   created_at: string;
   updated_at: string;
 }

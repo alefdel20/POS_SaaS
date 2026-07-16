@@ -5,6 +5,7 @@ const { saveAuditLog } = require("./auditLogService");
 const { upsertAutomaticReminder, removeAutomaticReminder } = require("./reminderService");
 const { normalizePreventiveEventStatus, normalizePreventiveEventType } = require("../utils/domainEnums");
 const { resolveHealthcareSubject, subjectTranslationJoin } = require("../utils/healthcareSubjectTranslation");
+const { mirrorPreventiveEventToCardex } = require("./healthcareCardexService");
 
 // Fase 2 pilot of the public.* -> healthcare.* cutover. Lives in its own file
 // (instead of clinicalService.js) on purpose: this module writes to
@@ -234,6 +235,7 @@ async function createPreventiveEvent(payload, actor) {
 
     const event = await getOwnedPreventiveEvent(rows[0].id, actor, client);
     await syncPreventiveReminder(event, actor, client);
+    await mirrorPreventiveEventToCardex(event, actor, client);
 
     await saveAuditLog({
       business_id: businessId,
@@ -317,6 +319,7 @@ async function updatePreventiveEvent(id, payload, actor) {
 
     const event = await getOwnedPreventiveEvent(id, actor, client);
     await syncPreventiveReminder(event, actor, client);
+    await mirrorPreventiveEventToCardex(event, actor, client);
 
     await saveAuditLog({
       business_id: businessId,

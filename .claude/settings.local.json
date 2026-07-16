@@ -101,7 +101,8 @@
       "Bash(rm \"C:/Users/tatue/Documents/POS_SaaS/pos-app/frontend/src/__verify_sidebar.ts\")",
       "Bash(rm -f \"C:/Users/tatue/AppData/Local/Temp/claude/C--Users-tatue-Documents-POS-SaaS-pos-app/ccefc483-0e87-4687-87f8-6e4ba1108397/scratchpad/verify_sidebar_routes.ts\")",
       "Bash(cygpath -w /tmp/original_sidebar.tsx)",
-      "Bash(echo \"TSC EXIT: $?\")"
+      "Bash(echo \"TSC EXIT: $?\")",
+      "Bash(echo \"EXIT_CODE=$?\")"
     ]
   }
 }

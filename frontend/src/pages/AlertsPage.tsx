@@ -54,10 +54,24 @@ export function AlertsPage() {
 
   const [stockAlertMorning, setStockAlertMorning] = useState<number | null>(null);
   const [stockAlertEvening, setStockAlertEvening] = useState<number | null>(null);
+  // inventory_alert_hour(_evening) no longer have an edit UI here (replaced by
+  // the threshold_days/channels block below, backed by alert_configs) but the
+  // values still round-trip through state and through saveAlertHours' payload
+  // below — /subscription/alert-hours does a full UPDATE ... SET, not a
+  // partial/COALESCE one, so omitting these two fields from that PUT would
+  // silently null out whatever was already saved on the next stock-hours save.
   const [inventoryAlertHour, setInventoryAlertHour] = useState<number | null>(null);
   const [inventoryAlertHourEvening, setInventoryAlertHourEvening] = useState<number | null>(null);
   const [savingAlertHours, setSavingAlertHours] = useState(false);
   const [alertHoursSaved, setAlertHoursSaved] = useState(false);
+
+  const [alertThreshold, setAlertThreshold] = useState(21);
+  const [alertChannels, setAlertChannels] = useState<string[]>(["whatsapp"]);
+  const [alertEnabled, setAlertEnabled] = useState(true);
+  const [alertConfigSaving, setAlertConfigSaving] = useState(false);
+  const [alertConfigInfo, setAlertConfigInfo] = useState("");
+  const [alertConfigError, setAlertConfigError] = useState("");
+  const [alertConfigLoaded, setAlertConfigLoaded] = useState(false);
 
   const currentRole = normalizeRole(user?.role);
   const [planName, setPlanName] = useState<string | null>(null);
@@ -89,6 +103,50 @@ export function AlertsPage() {
     load();
     return () => { cancelled = true; };
   }, [token]);
+
+  useEffect(() => {
+    if (!token || !isPremiumPlan) return;
+    apiRequest<{ threshold_days: number; notification_channels: string[]; enabled: boolean }>("/alert-config", { token })
+      .then((config) => {
+        if (config) {
+          setAlertThreshold(config.threshold_days ?? 21);
+          setAlertChannels(Array.isArray(config.notification_channels) ? config.notification_channels : ["whatsapp"]);
+          setAlertEnabled(config.enabled !== false);
+        }
+        setAlertConfigLoaded(true);
+      })
+      .catch(() => setAlertConfigLoaded(true));
+  }, [token, isPremiumPlan]);
+
+  async function saveAlertConfig() {
+    if (!token) return;
+    try {
+      setAlertConfigSaving(true);
+      setAlertConfigError("");
+      setAlertConfigInfo("");
+      await apiRequest("/alert-config", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          alertType: "low_rotation",
+          thresholdDays: alertThreshold,
+          notificationChannels: alertChannels,
+          enabled: alertEnabled
+        })
+      });
+      setAlertConfigInfo("Configuracion de alertas guardada correctamente");
+    } catch (saveError) {
+      setAlertConfigError(saveError instanceof Error ? saveError.message : "No fue posible guardar la configuracion de alertas");
+    } finally {
+      setAlertConfigSaving(false);
+    }
+  }
+
+  function toggleAlertChannel(channel: string) {
+    setAlertChannels((current) =>
+      current.includes(channel) ? current.filter((c) => c !== channel) : [...current, channel]
+    );
+  }
 
   async function saveReportConfig() {
     if (!token) return;
@@ -240,50 +298,91 @@ export function AlertsPage() {
           </label>
         </div>
 
-        {/* Sección 3: Inventario estancado (mismo botón "Guardar alertas") */}
-        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "1rem", marginTop: "0.5rem" }}>
-          <div className="panel-header" style={{ padding: 0, marginBottom: "0.75rem" }}>
-            <div>
-              <p style={{ fontWeight: 600, margin: 0 }}>Inventario estancado</p>
-              <p className="muted" style={{ margin: 0 }}>Te avisamos cuando un producto lleva 21+ días sin movimiento.</p>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-            <label style={{ flex: 1 }}>
-              Alerta mañana
-              <select
-                disabled={savingAlertHours}
-                value={inventoryAlertHour === null ? "" : String(inventoryAlertHour)}
-                onChange={(event) => setInventoryAlertHour(event.target.value === "" ? null : Number(event.target.value))}
-              >
-                <option value="">Sin alerta</option>
-                {MORNING_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
-            <label style={{ flex: 1 }}>
-              Alerta noche
-              <select
-                disabled={savingAlertHours}
-                value={inventoryAlertHourEvening === null ? "" : String(inventoryAlertHourEvening)}
-                onChange={(event) => setInventoryAlertHourEvening(event.target.value === "" ? null : Number(event.target.value))}
-              >
-                <option value="">Sin alerta</option>
-                {EVENING_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </div>
-
         <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap", marginTop: "0.5rem" }}>
           <button className="button" disabled={savingAlertHours} onClick={saveAlertHours} type="button">
             {savingAlertHours ? "Guardando..." : "Guardar alertas"}
           </button>
           {alertHoursSaved ? <p className="success-text">Alertas actualizadas correctamente</p> : null}
         </div>
+      </div>
+
+      {/* Sección 3: Inventario estancado — umbral configurable + canales, respaldado por alert_configs (antes vivía en Perfil) */}
+      <div className="panel grid-form">
+        <div className="panel-header">
+          <div>
+            <h2>Inventario estancado</h2>
+            <p className="muted">Notificaciones para productos sin movimiento.</p>
+          </div>
+        </div>
+        {alertConfigError ? <p className="error-text">{alertConfigError}</p> : null}
+        {alertConfigInfo ? <p className="success-text">{alertConfigInfo}</p> : null}
+        {!alertConfigLoaded ? (
+          <p className="muted">Cargando configuracion...</p>
+        ) : (
+          <>
+            <label>
+              <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>Umbral de dias sin movimiento</span>
+                <strong style={{ color: "var(--accent)", fontSize: 15 }}>{alertThreshold} dias</strong>
+              </span>
+              <input
+                type="range"
+                min={7}
+                max={60}
+                step={1}
+                value={alertThreshold}
+                onChange={(e) => setAlertThreshold(Number(e.target.value))}
+                title={`Productos sin venta en ${alertThreshold} dias apareceran marcados`}
+                style={{ width: "100%", accentColor: "var(--accent)" }}
+              />
+              <span className="muted" style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                <span>7 dias</span>
+                <span>60 dias</span>
+              </span>
+            </label>
+
+            <fieldset style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "0.75rem 1rem" }}>
+              <legend style={{ fontSize: 13, fontWeight: 600, padding: "0 0.5rem" }}>Notificarme por:</legend>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={alertChannels.includes("whatsapp")}
+                  onChange={() => toggleAlertChannel("whatsapp")}
+                />
+                WhatsApp
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={alertChannels.includes("email")}
+                  onChange={() => toggleAlertChannel("email")}
+                />
+                Email
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={alertChannels.includes("in_app")}
+                  onChange={() => toggleAlertChannel("in_app")}
+                />
+                In-app (notificaciones internas)
+              </label>
+            </fieldset>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={alertEnabled}
+                onChange={(e) => setAlertEnabled(e.target.checked)}
+              />
+              Alertas habilitadas
+            </label>
+
+            <button className="button" disabled={alertConfigSaving || alertChannels.length === 0} onClick={saveAlertConfig} type="button">
+              {alertConfigSaving ? "Guardando..." : "Guardar configuracion"}
+            </button>
+          </>
+        )}
       </div>
     </section>
   );

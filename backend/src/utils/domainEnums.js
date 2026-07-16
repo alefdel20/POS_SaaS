@@ -78,6 +78,44 @@ const PREVENTIVE_EVENT_TYPE_ALIASES = {
   desparasitación: "deworming"
 };
 
+const CARDEX_EVENT_TYPES = [
+  "consultation", "treatment", "surgery", "hospitalization", "lab", "prescription", "vaccination", "deworming"
+];
+const CARDEX_EVENT_TYPE_ALIASES = {
+  consultation: "consultation",
+  consulta: "consultation",
+  treatment: "treatment",
+  tratamiento: "treatment",
+  surgery: "surgery",
+  cirugia: "surgery",
+  cirugía: "surgery",
+  hospitalization: "hospitalization",
+  hospitalizacion: "hospitalization",
+  hospitalización: "hospitalization",
+  lab: "lab",
+  laboratorio: "lab",
+  prescription: "prescription",
+  receta: "prescription",
+  vaccination: "vaccination",
+  vacuna: "vaccination",
+  vacunacion: "vaccination",
+  vacunación: "vaccination",
+  deworming: "deworming",
+  desparasitacion: "deworming",
+  desparasitación: "deworming"
+};
+
+const CARDEX_STATUSES = ["completed", "pending", "cancelled"];
+const CARDEX_STATUS_ALIASES = {
+  completed: "completed",
+  completado: "completed",
+  pending: "pending",
+  pendiente: "pending",
+  cancelled: "cancelled",
+  canceled: "cancelled",
+  cancelado: "cancelled"
+};
+
 const PREVENTIVE_EVENT_STATUSES = ["scheduled", "completed", "cancelled"];
 const PREVENTIVE_EVENT_STATUS_ALIASES = {
   scheduled: "scheduled",
@@ -124,6 +162,14 @@ function normalizePreventiveEventStatus(value) {
   return normalizeFromAliases(value, PREVENTIVE_EVENT_STATUS_ALIASES);
 }
 
+function normalizeCardexEventType(value) {
+  return normalizeFromAliases(value, CARDEX_EVENT_TYPE_ALIASES);
+}
+
+function normalizeCardexStatus(value) {
+  return normalizeFromAliases(value, CARDEX_STATUS_ALIASES);
+}
+
 module.exports = {
   USER_ROLES,
   CLINICAL_POS_TYPES,
@@ -133,11 +179,15 @@ module.exports = {
   PRESCRIPTION_STATUSES,
   PREVENTIVE_EVENT_TYPES,
   PREVENTIVE_EVENT_STATUSES,
+  CARDEX_EVENT_TYPES,
+  CARDEX_STATUSES,
   normalizeUserRole,
   normalizeProductCatalogType,
   normalizeReminderCategory,
   normalizeReminderStatus,
   normalizePrescriptionStatus,
   normalizePreventiveEventType,
-  normalizePreventiveEventStatus
+  normalizePreventiveEventStatus,
+  normalizeCardexEventType,
+  normalizeCardexStatus
 };

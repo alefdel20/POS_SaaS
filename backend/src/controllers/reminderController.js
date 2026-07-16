@@ -13,6 +13,7 @@ const listValidation = [
 const listCalendarValidation = [
   query("start_date").isISO8601(),
   query("end_date").isISO8601(),
+  query("patient_id").optional().isInt(),
   validateRequest
 ];
 const createValidation = [

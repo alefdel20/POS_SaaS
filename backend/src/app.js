@@ -38,6 +38,7 @@ const clinicalAppointmentRoutes = require("./routes/clinicalAppointmentRoutes");
 const clinicalHistoryRoutes = require("./routes/clinicalHistoryRoutes");
 const medicalPrescriptionRoutes = require("./routes/medicalPrescriptionRoutes");
 const medicalPreventiveEventRoutes = require("./routes/medicalPreventiveEventRoutes");
+const healthcareCardexRoutes = require("./routes/healthcareCardexRoutes");
 const productUpdateRequestRoutes = require("./routes/productUpdateRequestRoutes");
 const openPayRoutes = require("./routes/openPayRoutes");
 const webServicesRoutes = require("./routes/webServices");
@@ -120,6 +121,7 @@ const routes = [
   { path: "/medical-history", router: clinicalHistoryRoutes, auth: true },
   { path: "/medical-prescriptions", router: medicalPrescriptionRoutes, auth: true },
   { path: "/medical-preventive-events", router: medicalPreventiveEventRoutes, auth: true },
+  { path: "/health/cardex", router: healthcareCardexRoutes, auth: true },
   { path: "/restaurant", router: restaurantRoutes, auth: true },
   { path: "/branches", router: branchRoutes, auth: true },
   { path: "/subscription", router: subscriptionRoutes, auth: true },

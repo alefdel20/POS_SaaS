@@ -261,6 +261,18 @@ async function listReminders(actor, filters = {}) {
 async function listCalendarEvents(actor, filters = {}) {
   const businessId = getBusinessId(actor);
   const { startDate, endDate } = normalizeRangeBoundaries(filters);
+  const patientId = filters.patient_id ? Number(filters.patient_id) : null;
+
+  // When patient_id is present, this calendar is scoped to a single patient
+  // (Historial médico), so the non-clinical sources (expenses, owner loans,
+  // fixed expenses, subscription events) don't apply — they have no patient
+  // association — and are skipped entirely instead of querying and discarding.
+  const reminderParams = [businessId, startDate, endDate];
+  let reminderPatientCondition = "";
+  if (patientId) {
+    reminderParams.push(patientId);
+    reminderPatientCondition = `AND reminders.patient_id = $${reminderParams.length}`;
+  }
 
   const [reminderRows, expenseRows, ownerLoanRows, fixedExpenseRows, subscriptionEvents] = await Promise.all([
     pool.query(
@@ -272,10 +284,11 @@ async function listCalendarEvents(actor, filters = {}) {
          AND reminders.due_date BETWEEN $2::date AND $3::date
          AND (reminders.source_key IS NULL OR reminders.source_key NOT LIKE 'finance:%')
          AND COALESCE(reminders.reminder_type, '') NOT IN ('finance_expense', 'finance_owner_loan', 'finance_fixed_expense')
+         ${reminderPatientCondition}
        ORDER BY reminders.is_completed ASC, reminders.due_date ASC, reminders.created_at DESC`,
-      [businessId, startDate, endDate]
+      reminderParams
     ),
-    pool.query(
+    patientId ? Promise.resolve({ rows: [] }) : pool.query(
       `SELECT id, concept, category, amount, date, notes, payment_method
        FROM expenses
        WHERE business_id = $1
@@ -284,7 +297,7 @@ async function listCalendarEvents(actor, filters = {}) {
        ORDER BY date ASC, id ASC`,
       [businessId, startDate, endDate]
     ),
-    pool.query(
+    patientId ? Promise.resolve({ rows: [] }) : pool.query(
       `SELECT id, amount, type, balance, date, notes
        FROM owner_loans
        WHERE business_id = $1
@@ -293,7 +306,7 @@ async function listCalendarEvents(actor, filters = {}) {
        ORDER BY date ASC, id ASC`,
       [businessId, startDate, endDate]
     ),
-    pool.query(
+    patientId ? Promise.resolve({ rows: [] }) : pool.query(
       `SELECT id, name, category, default_amount, frequency, due_day, notes, base_date, created_at
        FROM fixed_expenses
        WHERE business_id = $1
@@ -301,7 +314,7 @@ async function listCalendarEvents(actor, filters = {}) {
        ORDER BY id ASC`,
       [businessId]
     ),
-    listSubscriptionCalendarEvents(actor, startDate, endDate)
+    patientId ? Promise.resolve([]) : listSubscriptionCalendarEvents(actor, startDate, endDate)
   ]);
 
   const unified = [];

@@ -163,15 +163,7 @@ export function ProfilePage() {
   const [csdKeyFile, setCsdKeyFile] = useState<File | null>(null);
   const [csdPassword, setCsdPassword] = useState("");
   const [liveActivating, setLiveActivating] = useState(false);
-  const [alertThreshold, setAlertThreshold] = useState(21);
-  const [alertChannels, setAlertChannels] = useState<string[]>(["whatsapp"]);
-  const [alertEnabled, setAlertEnabled] = useState(true);
-  const [alertSaving, setAlertSaving] = useState(false);
-  const [alertInfo, setAlertInfo] = useState("");
-  const [alertError, setAlertError] = useState("");
-  const [alertLoaded, setAlertLoaded] = useState(false);
   const currentRole = normalizeRole(user?.role);
-  const isPremiumPlan = user?.plan_key === "premium" || user?.plan_key === "enterprise";
 
   async function loadProfile() {
     if (!token) return;
@@ -198,51 +190,6 @@ export function ProfilePage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el perfil");
     });
   }, [token, isDoctor]);
-
-  useEffect(() => {
-    if (!token || isDoctor || !isPremiumPlan) return;
-    apiRequest<{ threshold_days: number; notification_channels: string[]; enabled: boolean }>("/alert-config", { token })
-      .then((config) => {
-        if (config) {
-          setAlertThreshold(config.threshold_days ?? 21);
-          setAlertChannels(Array.isArray(config.notification_channels) ? config.notification_channels : ["whatsapp"]);
-          setAlertEnabled(config.enabled !== false);
-        }
-        setAlertLoaded(true);
-      })
-      .catch(() => setAlertLoaded(true));
-  }, [token, isDoctor, isPremiumPlan]);
-
-  async function saveAlertConfig(event: FormEvent) {
-    event.preventDefault();
-    if (!token) return;
-    try {
-      setAlertSaving(true);
-      setAlertError("");
-      setAlertInfo("");
-      await apiRequest("/alert-config", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          alertType: "low_rotation",
-          thresholdDays: alertThreshold,
-          notificationChannels: alertChannels,
-          enabled: alertEnabled
-        })
-      });
-      setAlertInfo("Configuracion de alertas guardada correctamente");
-    } catch (saveError) {
-      setAlertError(saveError instanceof Error ? saveError.message : "No fue posible guardar la configuracion de alertas");
-    } finally {
-      setAlertSaving(false);
-    }
-  }
-
-  function toggleAlertChannel(channel: string) {
-    setAlertChannels((current) =>
-      current.includes(channel) ? current.filter((c) => c !== channel) : [...current, channel]
-    );
-  }
 
   useEffect(() => {
     if (!token || isDoctor) return;
@@ -1360,85 +1307,6 @@ export function ProfilePage() {
         )}
       </div>
 
-      {isPremiumPlan && !isDoctor && (
-        <form className="panel grid-form" onSubmit={saveAlertConfig}>
-          <div className="panel-header">
-            <div>
-              <h2>Alerta de baja rotacion de inventario</h2>
-              <p className="muted">Notificaciones para productos sin movimiento. Solo disponible en Plan Premium.</p>
-            </div>
-          </div>
-          {alertError ? <p className="error-text">{alertError}</p> : null}
-          {alertInfo ? <p className="success-text">{alertInfo}</p> : null}
-          {!alertLoaded ? (
-            <p className="muted">Cargando configuracion...</p>
-          ) : (
-            <>
-              <label>
-                <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>Umbral de dias sin movimiento</span>
-                  <strong style={{ color: "var(--accent)", fontSize: 15 }}>{alertThreshold} dias</strong>
-                </span>
-                <input
-                  type="range"
-                  min={7}
-                  max={60}
-                  step={1}
-                  value={alertThreshold}
-                  onChange={(e) => setAlertThreshold(Number(e.target.value))}
-                  title={`Productos sin venta en ${alertThreshold} dias apareceran marcados`}
-                  style={{ width: "100%", accentColor: "var(--accent)" }}
-                />
-                <span className="muted" style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                  <span>7 dias</span>
-                  <span>60 dias</span>
-                </span>
-              </label>
-
-              <fieldset style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "0.75rem 1rem" }}>
-                <legend style={{ fontSize: 13, fontWeight: 600, padding: "0 0.5rem" }}>Notificarme por:</legend>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={alertChannels.includes("whatsapp")}
-                    onChange={() => toggleAlertChannel("whatsapp")}
-                  />
-                  WhatsApp
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={alertChannels.includes("email")}
-                    onChange={() => toggleAlertChannel("email")}
-                  />
-                  Email
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={alertChannels.includes("in_app")}
-                    onChange={() => toggleAlertChannel("in_app")}
-                  />
-                  In-app (notificaciones internas)
-                </label>
-              </fieldset>
-
-              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={alertEnabled}
-                  onChange={(e) => setAlertEnabled(e.target.checked)}
-                />
-                Alertas habilitadas
-              </label>
-
-              <button className="button" disabled={alertSaving || alertChannels.length === 0} type="submit">
-                {alertSaving ? "Guardando..." : "Guardar configuracion"}
-              </button>
-            </>
-          )}
-        </form>
-      )}
     </section>
   );
 }
