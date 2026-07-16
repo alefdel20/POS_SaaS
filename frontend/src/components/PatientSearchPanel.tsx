@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { PatientCreateForm } from "./PatientCreateForm";
 import type { ClinicalPatientSummary } from "../types";
 import { getPatientSearchPlaceholder, showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
 
@@ -20,6 +21,7 @@ export function PatientSearchPanel({ selectedPatientId, onSelectPatient }: Patie
   const [patients, setPatients] = useState<ClinicalPatientSummary[]>([]);
   const [patientSearch, setPatientSearch] = useState("");
   const [error, setError] = useState("");
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const humanPatientsOnly = usesHumanPatientsOnly(user?.pos_type);
   const showSpecies = showsPatientSpecies(user?.pos_type);
 
@@ -47,6 +49,13 @@ export function PatientSearchPanel({ selectedPatientId, onSelectPatient }: Patie
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  function handlePatientCreated(patient: ClinicalPatientSummary) {
+    setPatients((current) => [patient, ...current]);
+    setShowCreateForm(false);
+    setPatientSearch("");
+    onSelectPatient(patient);
+  }
+
   return (
     <div className="panel">
       <div className="panel-header">
@@ -54,65 +63,82 @@ export function PatientSearchPanel({ selectedPatientId, onSelectPatient }: Patie
           <h2>Buscar paciente</h2>
           <p className="muted">Selecciona un paciente para continuar.</p>
         </div>
+        <div className="inline-actions">
+          <button className="button ghost" onClick={() => setShowCreateForm((current) => !current)} type="button">
+            {showCreateForm ? "Cancelar" : "Crear paciente nuevo"}
+          </button>
+        </div>
       </div>
       {error ? <p className="error-text">{error}</p> : null}
-      <div className="form-section-grid">
-        <label className="form-span-2">
-          Buscar paciente
-          <input placeholder={getPatientSearchPlaceholder(user?.pos_type)} value={patientSearch} onChange={(event) => setPatientSearch(event.target.value)} />
-        </label>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Paciente</th>
-              {humanPatientsOnly ? (
-                <>
-                  <th>Telefono</th>
-                  <th>Consultas</th>
-                  <th>Correo</th>
-                </>
-              ) : (
-                <>
-                  <th>Cliente</th>
-                  <th>Especie / raza</th>
-                  <th>Consultas</th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredPatients.map((patient) => (
-              <tr
-                className={String(patient.id) === selectedPatientId ? "table-row-active" : ""}
-                key={patient.id}
-                onClick={() => onSelectPatient(patient)}
-              >
-                <td>{patient.name}</td>
-                {humanPatientsOnly ? (
-                  <>
-                    <td>{patient.client_phone || "-"}</td>
-                    <td>{patient.consultation_count}</td>
-                    <td>{patient.client_email || "-"}</td>
-                  </>
-                ) : (
-                  <>
-                    <td>{patient.client_name}</td>
-                    <td>{showSpecies ? `${patient.species || "-"} / ${patient.breed || "-"}` : "-"}</td>
-                    <td>{patient.consultation_count}</td>
-                  </>
-                )}
-              </tr>
-            ))}
-            {!filteredPatients.length ? (
-              <tr>
-                <td className="muted" colSpan={4}>No se encontraron pacientes para este filtro.</td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+
+      {showCreateForm ? (
+        <PatientCreateForm onCancel={() => setShowCreateForm(false)} onCreated={handlePatientCreated} />
+      ) : (
+        <>
+          <div className="form-section-grid">
+            <label className="form-span-2">
+              Buscar paciente
+              <input placeholder={getPatientSearchPlaceholder(user?.pos_type)} value={patientSearch} onChange={(event) => setPatientSearch(event.target.value)} />
+            </label>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Paciente</th>
+                  {humanPatientsOnly ? (
+                    <>
+                      <th>Telefono</th>
+                      <th>Consultas</th>
+                      <th>Correo</th>
+                    </>
+                  ) : (
+                    <>
+                      <th>Cliente</th>
+                      <th>Especie / raza</th>
+                      <th>Consultas</th>
+                    </>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPatients.map((patient) => (
+                  <tr
+                    className={String(patient.id) === selectedPatientId ? "table-row-active" : ""}
+                    key={patient.id}
+                    onClick={() => onSelectPatient(patient)}
+                  >
+                    <td>{patient.name}</td>
+                    {humanPatientsOnly ? (
+                      <>
+                        <td>{patient.client_phone || "-"}</td>
+                        <td>{patient.consultation_count}</td>
+                        <td>{patient.client_email || "-"}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td>{patient.client_name}</td>
+                        <td>{showSpecies ? `${patient.species || "-"} / ${patient.breed || "-"}` : "-"}</td>
+                        <td>{patient.consultation_count}</td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+                {!filteredPatients.length ? (
+                  <tr>
+                    <td className="muted" colSpan={4}>
+                      No se encontraron pacientes para este filtro.{" "}
+                      <button className="button ghost btn-link" onClick={() => setShowCreateForm(true)} type="button">
+                        Crear paciente nuevo
+                      </button>
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

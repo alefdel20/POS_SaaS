@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { AssignPatientResponsible } from "../components/AssignPatientResponsible";
-import { NameAutocomplete, NameAutocompleteValue } from "../components/NameAutocomplete";
+import { PatientCreateForm } from "../components/PatientCreateForm";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalPatientDetail, ClinicalPatientSummary, MedicalPreventiveEvent, Product } from "../types";
 import { PREVENTIVE_EVENT_STATUSES, PREVENTIVE_EVENT_TYPES } from "../utils/domainEnums";
@@ -82,7 +82,6 @@ export function PatientsPage() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState<PatientFormState>(emptyForm);
-  const [clientValue, setClientValue] = useState<NameAutocompleteValue>({ id: null, name: "" });
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [preventiveForm, setPreventiveForm] = useState<PreventiveFormState>(emptyPreventiveForm);
   const [saving, setSaving] = useState(false);
@@ -163,24 +162,21 @@ export function PatientsPage() {
     resetFeedback();
     setMode("create");
     setForm(emptyForm);
-    setClientValue({ id: null, name: "" });
   }
 
   function startEdit() {
     resetFeedback();
     setMode("edit");
     setForm(detailToForm(detail));
-    setClientValue({ id: null, name: "" });
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!token) return;
+    if (!token || !selectedId) return;
 
     try {
       setSaving(true);
       resetFeedback();
-      const clientName = clientValue.name.trim();
       const payload = {
         ...form,
         species: showSpecies ? form.species : "",
@@ -188,33 +184,26 @@ export function PatientsPage() {
         weight: form.weight ? Number(form.weight) : null,
         phone: form.phone.trim() || null,
         allergies: form.allergies,
-        is_active: form.is_active,
-        ...(mode !== "edit" && clientValue.id ? { client_id: clientValue.id } : {}),
-        // Unconfirmed free text is dropped, not sent — the user must click
-        // "Crear como cliente nuevo" first (see NameAutocomplete), so a
-        // stray unmatched search doesn't silently create a duplicate client.
-        ...(mode !== "edit" && !clientValue.id && clientValue.confirmedNew && clientName ? { client_name: clientName } : {})
+        is_active: form.is_active
       };
-      const method = mode === "edit" && selectedId ? "PUT" : "POST";
-      const path = mode === "edit" && selectedId ? `/patients/${selectedId}` : "/patients";
-      await apiRequest<ClinicalPatientSummary>(path, {
-        method,
+      await apiRequest<ClinicalPatientSummary>(`/patients/${selectedId}`, {
+        method: "PUT",
         token,
         body: JSON.stringify(payload)
       });
-      setInfo(mode === "edit" ? "Paciente actualizado" : "Paciente creado");
+      setInfo("Paciente actualizado");
       await loadPatients(search);
-      if (mode === "edit" && selectedId) {
-        await loadDetail(selectedId);
-      } else {
-        setForm(emptyForm);
-        setClientValue({ id: null, name: "" });
-      }
+      await loadDetail(selectedId);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "No fue posible guardar el paciente");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handlePatientCreated(patient: ClinicalPatientSummary) {
+    setInfo("Paciente creado");
+    await loadPatients(search);
   }
 
   async function handlePreventiveSubmit(event: FormEvent) {
@@ -328,6 +317,9 @@ export function PatientsPage() {
           ) : null}
         </div>
 
+        {mode === "create" ? (
+          <PatientCreateForm onCreated={handlePatientCreated} />
+        ) : (
         <form className="grid-form" onSubmit={handleSubmit}>
           <label>
             Nombre Completo *
@@ -337,14 +329,10 @@ export function PatientsPage() {
             Teléfono
             <input type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
           </label>
-          {mode !== "edit" ? (
-            <NameAutocomplete kind="client" label="Responsable" onChange={setClientValue} token={token} value={clientValue} />
-          ) : (
-            <label>
-              Responsable
-              <input disabled value={detail?.client_name || "Sin responsable"} />
-            </label>
-          )}
+          <label>
+            Responsable
+            <input disabled value={detail?.client_name || "Sin responsable"} />
+          </label>
           {showSpecies ? (
             <>
               <label>
@@ -352,10 +340,10 @@ export function PatientsPage() {
                 <input
                   value={form.species}
                   onChange={(event) => setForm({ ...form, species: event.target.value })}
-                  disabled={mode === "edit"}
-                  title={mode === "edit" ? "La especie no se puede cambiar después de creado el paciente" : undefined}
+                  disabled
+                  title="La especie no se puede cambiar después de creado el paciente"
                 />
-                {mode === "edit" ? <span className="muted">No se puede cambiar después de creado.</span> : null}
+                <span className="muted">No se puede cambiar después de creado.</span>
               </label>
               <label>
                 Raza
@@ -394,10 +382,11 @@ export function PatientsPage() {
             <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </label>
           <div className="inline-actions">
-            <button className="button" disabled={saving} type="submit">{saving ? "Guardando..." : mode === "edit" ? "Guardar cambios" : "Crear paciente"}</button>
-            {mode === "edit" ? <button className="button ghost" onClick={startCreate} type="button">Cancelar edicion</button> : null}
+            <button className="button" disabled={saving} type="submit">{saving ? "Guardando..." : "Guardar cambios"}</button>
+            <button className="button ghost" onClick={startCreate} type="button">Cancelar edicion</button>
           </div>
         </form>
+        )}
 
         {detail ? (
           <>

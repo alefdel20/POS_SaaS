@@ -36,7 +36,16 @@ export function ClinicalCalendarPage() {
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(getMexicoCityDateInputValue());
   const [selectedCalendarMonth, setSelectedCalendarMonth] = useState(getMexicoCityDateInputValue().slice(0, 7));
 
-  const calendarRemindersByDate = calendarReminders.reduce<Record<string, Reminder[]>>((accumulator, reminder) => {
+  // Patient search is an optional filter over the already-loaded business
+  // calendar, not a requirement to see anything — same principle as
+  // /reminders/calendar (RemindersPage.tsx), which shows everything
+  // immediately. patient_id is deliberately NOT sent to the server; filtering
+  // happens client-side over the full month's events instead, so switching
+  // patients doesn't require another round-trip.
+  const visibleReminders = patientId
+    ? calendarReminders.filter((reminder) => String(reminder.patient_id ?? "") === patientId)
+    : calendarReminders;
+  const calendarRemindersByDate = visibleReminders.reduce<Record<string, Reminder[]>>((accumulator, reminder) => {
     const key = resolveReminderDateKey(reminder) || "Sin fecha";
     accumulator[key] = [...(accumulator[key] || []), reminder];
     return accumulator;
@@ -45,10 +54,7 @@ export function ClinicalCalendarPage() {
   const selectedDayReminders = calendarRemindersByDate[selectedCalendarDate] || [];
 
   async function loadCalendarReminders(monthKey: string) {
-    if (!token || !patientId) {
-      setCalendarReminders([]);
-      return;
-    }
+    if (!token) return;
     const monthRange = getMonthInputRange(monthKey);
     if (!monthRange) return;
     setCalendarLoading(true);
@@ -56,7 +62,6 @@ export function ClinicalCalendarPage() {
       const params = new URLSearchParams();
       params.set("start_date", monthRange.start);
       params.set("end_date", monthRange.end);
-      params.set("patient_id", patientId);
       const response = await apiRequest<Reminder[]>(`/reminders/calendar?${params.toString()}`, { token });
       setCalendarReminders(response);
     } catch (loadError) {
@@ -68,7 +73,7 @@ export function ClinicalCalendarPage() {
 
   useEffect(() => {
     loadCalendarReminders(selectedCalendarMonth).catch(() => undefined);
-  }, [token, patientId, selectedCalendarMonth]);
+  }, [token, selectedCalendarMonth]);
 
   useEffect(() => {
     if (!selectedCalendarDate.startsWith(selectedCalendarMonth)) {
@@ -90,18 +95,28 @@ export function ClinicalCalendarPage() {
         <div className="panel-header">
           <div>
             <h2>Calendario clinico</h2>
-            {selectedPatient ? <p className="muted">Paciente: {selectedPatient.name}</p> : null}
+            {selectedPatient ? (
+              <p className="muted">
+                Filtrado por paciente: {selectedPatient.name}{" "}
+                <button
+                  className="button ghost btn-link"
+                  onClick={() => {
+                    setSelectedPatient(null);
+                    setPatientId("");
+                  }}
+                  type="button"
+                >
+                  Quitar filtro
+                </button>
+              </p>
+            ) : (
+              <p className="muted">Todos los eventos del negocio. Busca un paciente para filtrar.</p>
+            )}
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
 
-        {!selectedPatient ? (
-          <div className="empty-state-card">
-            <strong>Selecciona un paciente para ver su calendario.</strong>
-            <span className="muted">El calendario clinico se filtra por el paciente elegido en la lista.</span>
-          </div>
-        ) : (
-          <div className="stack-list">
+        <div className="stack-list">
             <div className="inline-actions">
               <button className={`button ghost ${calendarView === "month" ? "active-filter" : ""}`} onClick={() => setCalendarView("month")} type="button">Vista mensual</button>
               <button className={`button ghost ${calendarView === "day" ? "active-filter" : ""}`} onClick={() => setCalendarView("day")} type="button">Vista diaria</button>
@@ -207,7 +222,6 @@ export function ClinicalCalendarPage() {
               </div>
             ) : null}
           </div>
-        )}
       </div>
     </section>
   );

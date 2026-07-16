@@ -103,7 +103,10 @@
       "Bash(cygpath -w /tmp/original_sidebar.tsx)",
       "Bash(echo \"TSC EXIT: $?\")",
       "Bash(echo \"EXIT_CODE=$?\")",
-      "Bash(echo \"TSC_EXIT=$?\")"
+      "Bash(echo \"TSC_EXIT=$?\")",
+      "Bash(git show *)",
+      "Read(//tmp/**)",
+      "Bash(echo \"EXIT=$?\")"
     ]
   }
 }
