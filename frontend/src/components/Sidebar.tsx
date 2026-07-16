@@ -109,12 +109,10 @@ function canOpenInNewTab(item: SidebarMenuItem) {
 // (todos los pos_type) y el layout nuevo (solo Veterinaria, ver mas abajo).
 // ---------------------------------------------------------------------------
 
-// Tipo puramente visual: superset de SidebarMenuItem que solo agrega la marca
-// "accordionGroup" para que sus hijos se comporten como acordeon de un solo nivel abierto.
-// Usado unicamente por VeterinariaSidebar: no se exporta ni se usa fuera del sidebar,
-// las rutas/roles siguen viviendo en navigation.ts.
+// Tipo puramente visual: superset de SidebarMenuItem usado unicamente por
+// VeterinariaSidebar: no se exporta ni se usa fuera del sidebar, las
+// rutas/roles siguen viviendo en navigation.ts.
 type SidebarVisualItem = Omit<SidebarMenuItem, "children"> & {
-  accordionGroup?: boolean;
   children?: SidebarVisualItem[];
 };
 
@@ -126,7 +124,14 @@ type SidebarVisualSection = {
 // Estas tres categorias se agrupan visualmente bajo "Catalogo" (solo Veterinaria),
 // pero siguen siendo nodos independientes en los datos de navegacion.
 const CATALOG_LABELS = ["Alimentos", "Accesorios", "Medicamentos e insumos"];
-const PINNED_LABEL = "Atencion medica o clinica";
+const CLINICAL_GROUP_LABEL = "Atencion medica o clinica";
+// "Mas usado" es una lista curada de items individuales (no la categoria
+// clinica completa clonada) — estos dos son hijos de CLINICAL_GROUP_LABEL,
+// se combinan con los hijos de "Catalogo" (ver buildVisualStructure). Los
+// nodos referenciados aqui son los MISMOS objetos que ya aparecen en su
+// ubicacion normal del arbol, asi que "Mas usado" es un acceso directo, no
+// una copia de la categoria.
+const PINNED_CLINICAL_CHILD_LABELS = ["Citas", "Consultas"];
 const ADMIN_LABEL_PATTERN = /^administraci/i;
 
 const BRANCH_ICONS: Record<string, string> = {
@@ -156,7 +161,7 @@ function extractAlerts(items: SidebarVisualItem[]): { alerts: SidebarVisualItem 
 function buildVisualStructure(sections: SidebarMenuSection[]) {
   let configItems: SidebarVisualItem[] = [];
   let alertsItem: SidebarVisualItem | null = null;
-  let pinnedItem: SidebarVisualItem | null = null;
+  let pinnedItems: SidebarVisualItem[] = [];
 
   const treeSections: SidebarVisualSection[] = [];
 
@@ -172,13 +177,20 @@ function buildVisualStructure(sections: SidebarMenuSection[]) {
       .filter((item) => CATALOG_LABELS.includes(item.label))
       .sort((a, b) => CATALOG_LABELS.indexOf(a.label) - CATALOG_LABELS.indexOf(b.label));
 
+    const clinicalGroup = section.items.find((item) => item.label === CLINICAL_GROUP_LABEL);
+    const clinicalPinnedChildren = (clinicalGroup?.children || [])
+      .filter((child) => PINNED_CLINICAL_CHILD_LABELS.includes(child.label))
+      .sort((a, b) => PINNED_CLINICAL_CHILD_LABELS.indexOf(a.label) - PINNED_CLINICAL_CHILD_LABELS.indexOf(b.label));
+
+    pinnedItems = pinnedItems.concat(clinicalPinnedChildren, catalogChildren);
+
     const items: SidebarVisualItem[] = [];
     let catalogInserted = false;
 
     section.items.forEach((item) => {
       if (CATALOG_LABELS.includes(item.label)) {
         if (!catalogInserted) {
-          items.push({ label: "Catalogo", accordionGroup: true, children: catalogChildren });
+          items.push({ label: "Catalogo", children: catalogChildren });
           catalogInserted = true;
         }
         return;
@@ -191,10 +203,6 @@ function buildVisualStructure(sections: SidebarMenuSection[]) {
         return;
       }
 
-      if (item.label === PINNED_LABEL && !pinnedItem) {
-        pinnedItem = item;
-      }
-
       items.push(item);
     });
 
@@ -203,7 +211,7 @@ function buildVisualStructure(sections: SidebarMenuSection[]) {
     }
   });
 
-  return { treeSections, configItems, alertsItem, pinnedItem };
+  return { treeSections, configItems, alertsItem, pinnedItems };
 }
 
 type SearchLeaf = { label: string; to: string; breadcrumb: string };
@@ -241,9 +249,12 @@ type SidebarBranchProps = {
 };
 
 // Renderer generico de nodos del arbol, compartido por el layout legacy y el nuevo.
-// `accordionGroup`/`accordionSiblings` solo los usa VeterinariaSidebar; si nunca se
-// pasan (layout legacy) el comportamiento es identico al original: cada nodo se
-// expande/colapsa de forma independiente.
+// El acordeon (un solo submenu hermano abierto a la vez) es siempre-on en todos
+// los niveles: cada grupo calcula las claves de sus propios hijos-grupo y se las
+// pasa como `accordionSiblings`, y el padre le pasa a este nodo sus propias
+// `accordionSiblings` (via la seccion/fold que lo renderiza). Si nadie pasa
+// `accordionSiblings` al nodo raiz de un nivel, ese nivel simplemente no colapsa
+// hermanos (toggle independiente), pero eso ya no deberia pasar en ningun layout.
 function SidebarBranch({
   item,
   nodeKey,
@@ -271,9 +282,7 @@ function SidebarBranch({
   const icon = BRANCH_ICONS[item.label];
 
   if (item.children?.length) {
-    const childAccordionSiblings = item.accordionGroup
-      ? item.children.map((child, childIndex) => buildNodeKey(nodeKey, child, childIndex))
-      : undefined;
+    const childAccordionSiblings = item.children.map((child, childIndex) => buildNodeKey(nodeKey, child, childIndex));
 
     return (
       <div className={`nav-tree-item nav-tree-level-${level} ${highlighted ? "nav-tree-item-highlighted" : ""}`} ref={containerRef}>
@@ -418,46 +427,90 @@ function LegacySidebar({ isOpen, onClose, sections, badges, currentRole }: Sideb
   const navigate = useNavigate();
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
   const [openContextMenuKey, setOpenContextMenuKey] = useState<string | null>(null);
+  const sidebarRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setOpenContextMenuKey(null);
   }, [isOpen, location.pathname]);
+
+  // Vuelve el scroll del panel al tope en cada navegacion: sin esto, si el
+  // usuario estaba desplazado hasta el fondo (ej. Configuracion) y navega,
+  // el sidebar se queda scrolleado y la nueva seccion activa puede quedar
+  // fuera de vista.
+  useEffect(() => {
+    sidebarRef.current?.scrollTo({ top: 0 });
+  }, [location.pathname]);
 
   useEffect(() => {
     setExpandedItems((current) => {
       const next = { ...current };
       let hasChanges = false;
 
-      function markActiveBranches(item: SidebarMenuItem, itemKey: string): boolean {
-        const selfActive = itemMatchesPath(item, location.pathname);
-        if (!item.children?.length) {
-          return selfActive;
+      // Acordeon recursivo: en cada nivel, si un grupo hermano queda activo por
+      // ruta se expande y los demas grupos hermanos (que no llevan a la rama
+      // activa) se colapsan — mismo criterio que VeterinariaSidebar.
+      function markActiveBranches(items: SidebarMenuItem[], parentKey: string): boolean {
+        let anyActive = false;
+        const activeGroupKeys: string[] = [];
+
+        items.forEach((item, index) => {
+          const itemKey = buildNodeKey(parentKey, item, index);
+          const selfActive = itemMatchesPath(item, location.pathname);
+          let childActive = false;
+
+          if (item.children?.length) {
+            childActive = markActiveBranches(item.children, itemKey);
+            if (childActive) {
+              if (!next[itemKey]) {
+                next[itemKey] = true;
+                hasChanges = true;
+              }
+              activeGroupKeys.push(itemKey);
+            }
+          }
+
+          if (selfActive || childActive) anyActive = true;
+        });
+
+        if (activeGroupKeys.length) {
+          items.forEach((item, index) => {
+            if (!item.children?.length) return;
+            const itemKey = buildNodeKey(parentKey, item, index);
+            if (!activeGroupKeys.includes(itemKey) && next[itemKey]) {
+              next[itemKey] = false;
+              hasChanges = true;
+            }
+          });
         }
 
-        const childActive = item.children.some((child, childIndex) => markActiveBranches(child, buildNodeKey(itemKey, child, childIndex)));
-        if (childActive && !next[itemKey]) {
-          next[itemKey] = true;
-          hasChanges = true;
-        }
-        return selfActive || childActive;
+        return anyActive;
       }
 
       sections.forEach((section, sectionIndex) => {
         const sectionKey = `section-${sectionIndex}-${section.title}`;
-        section.items.forEach((item, itemIndex) => {
-          markActiveBranches(item, buildNodeKey(sectionKey, item, itemIndex));
-        });
+        markActiveBranches(section.items, sectionKey);
       });
 
       return hasChanges ? next : current;
     });
   }, [location.pathname, sections]);
 
-  const handleToggle = useCallback((key: string) => {
-    setExpandedItems((current) => ({
-      ...current,
-      [key]: !current[key]
-    }));
+  const handleToggle = useCallback((key: string, siblings?: string[]) => {
+    setExpandedItems((current) => {
+      const willOpen = !current[key];
+      if (willOpen && siblings?.length) {
+        const next = { ...current };
+        siblings.forEach((siblingKey) => {
+          if (siblingKey !== key) next[siblingKey] = false;
+        });
+        next[key] = true;
+        return next;
+      }
+      return {
+        ...current,
+        [key]: !current[key]
+      };
+    });
     setOpenContextMenuKey(null);
   }, []);
 
@@ -490,6 +543,7 @@ function LegacySidebar({ isOpen, onClose, sections, badges, currentRole }: Sideb
       data-tour="sidebar"
       id="app-sidebar"
       onClick={handleSidebarClick}
+      ref={sidebarRef}
     >
       <div className="sidebar-header">
         <div className="sidebar-brand">
@@ -505,6 +559,9 @@ function LegacySidebar({ isOpen, onClose, sections, badges, currentRole }: Sideb
       <nav className="nav-list">
         {sections.map((section, sectionIndex) => {
           const sectionKey = `section-${sectionIndex}-${section.title}`;
+          const groupSiblingKeys = section.items
+            .map((item, itemIndex) => (item.children?.length ? buildNodeKey(sectionKey, item, itemIndex) : null))
+            .filter((key): key is string => Boolean(key));
           return (
             <div className="nav-section" key={section.title}>
               <p className="nav-section-title">{section.title}</p>
@@ -525,6 +582,7 @@ function LegacySidebar({ isOpen, onClose, sections, badges, currentRole }: Sideb
                       openContextMenuKey={openContextMenuKey}
                       pathname={location.pathname}
                       setOpenContextMenuKey={setOpenContextMenuKey}
+                      accordionSiblings={item.children?.length ? groupSiblingKeys : undefined}
                     />
                   );
                 })}
@@ -553,7 +611,7 @@ type VeterinariaSidebarPanelProps = {
   treeSections: SidebarVisualSection[];
   configItems: SidebarVisualItem[];
   alertsItem: SidebarVisualItem | null;
-  pinnedItem: SidebarVisualItem | null;
+  pinnedItems: SidebarVisualItem[];
   focusRequest?: RailFocusRequest | null;
 };
 
@@ -561,10 +619,10 @@ type VeterinariaSidebarPanelProps = {
 // Layout nuevo (solo pos_type === "Veterinaria"): buscador, bloque "Mas usado"
 // fijo, agrupacion "Catalogo" con acordeon exclusivo, y "Configuracion" al pie.
 // Se monta como panel expandido junto al rail (VeterinariaSidebarRail); la
-// estructura visual (treeSections/configItems/alertsItem/pinnedItem) se calcula
+// estructura visual (treeSections/configItems/alertsItem/pinnedItems) se calcula
 // una sola vez en el rail y se recibe aqui por props.
 // ---------------------------------------------------------------------------
-function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections, configItems, alertsItem, pinnedItem, focusRequest }: VeterinariaSidebarPanelProps) {
+function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections, configItems, alertsItem, pinnedItems, focusRequest }: VeterinariaSidebarPanelProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
@@ -572,6 +630,7 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
   const [searchQuery, setSearchQuery] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const sidebarRef = useRef<HTMLElement | null>(null);
   // Contenedores de los grupos de primer nivel del arbol principal (Catalogo, Clientes y
   // pacientes, etc.), indexados por nodeKey. Se usan para el scrollIntoView al abrir un
   // grupo desde el rail.
@@ -597,6 +656,23 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
     return searchIndex.filter((leaf) => leaf.label.toLowerCase().includes(trimmedQuery)).slice(0, 20);
   }, [searchIndex, trimmedQuery]);
 
+  // Claves hermanas para el acordeon dentro de "Mas usado" y "Configuracion":
+  // ambos son listas planas de primer nivel propio (no comparten padre con el
+  // arbol principal), asi que cada una necesita su propio set de siblings.
+  const pinnedAccordionKeys = useMemo(
+    () => pinnedItems
+      .map((item, itemIndex) => (item.children?.length ? buildNodeKey("pinned-root", item, itemIndex) : null))
+      .filter((key): key is string => Boolean(key)),
+    [pinnedItems]
+  );
+
+  const configAccordionKeys = useMemo(
+    () => configItems
+      .map((item, itemIndex) => (item.children?.length ? buildNodeKey("config-root", item, itemIndex) : null))
+      .filter((key): key is string => Boolean(key)),
+    [configItems]
+  );
+
   useEffect(() => {
     setOpenContextMenuKey(null);
   }, [isOpen, location.pathname]);
@@ -605,16 +681,24 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
     setSearchQuery("");
   }, [location.pathname]);
 
+  // Vuelve el scroll del panel al tope en cada navegacion: sin esto, si el
+  // usuario estaba desplazado hasta el fondo (ej. Configuracion) y navega,
+  // el sidebar se queda scrolleado y la nueva seccion activa puede quedar
+  // fuera de vista.
+  useEffect(() => {
+    sidebarRef.current?.scrollTo({ top: 0 });
+  }, [location.pathname]);
+
   useEffect(() => {
     setExpandedItems((current) => {
       const next = { ...current };
       let hasChanges = false;
 
       // Devuelve true si el propio item o alguno de sus descendientes coincide con la ruta activa.
-      // Cuando `enforceSingleOpen` es true, colapsa a los hermanos que no contienen la rama activa
-      // (acordeon de un solo nivel abierto: Catalogo/Atencion medica/Clientes y pacientes en el
-      // primer nivel, y Alimentos/Accesorios/Medicamentos dentro de Catalogo).
-      function markActiveBranches(items: SidebarVisualItem[], parentKey: string, enforceSingleOpen: boolean): boolean {
+      // El acordeon es siempre-on: en cada nivel, colapsa a los hermanos-grupo que no
+      // contienen la rama activa (Catalogo/Clientes y pacientes en el primer nivel,
+      // Alimentos/Accesorios/Medicamentos dentro de Catalogo, etc.).
+      function markActiveBranches(items: SidebarVisualItem[], parentKey: string): boolean {
         let anyActive = false;
         const activeGroupKeys: string[] = [];
 
@@ -624,7 +708,7 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
           let childActive = false;
 
           if (item.children?.length) {
-            childActive = markActiveBranches(item.children, itemKey, Boolean(item.accordionGroup));
+            childActive = markActiveBranches(item.children, itemKey);
             if (childActive) {
               if (!next[itemKey]) {
                 next[itemKey] = true;
@@ -637,7 +721,7 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
           if (selfActive || childActive) anyActive = true;
         });
 
-        if (enforceSingleOpen && activeGroupKeys.length) {
+        if (activeGroupKeys.length) {
           items.forEach((item, index) => {
             if (!item.children?.length) return;
             const itemKey = buildNodeKey(parentKey, item, index);
@@ -653,18 +737,18 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
 
       treeSections.forEach((section, sectionIndex) => {
         const sectionKey = `section-${sectionIndex}-${section.title}`;
-        markActiveBranches(section.items, sectionKey, true);
+        markActiveBranches(section.items, sectionKey);
       });
 
-      if (pinnedItem?.children?.length) {
-        markActiveBranches(pinnedItem.children, "pinned-root", false);
+      if (pinnedItems.length) {
+        markActiveBranches(pinnedItems, "pinned-root");
       }
 
-      markActiveBranches(configItems, "config-root", false);
+      markActiveBranches(configItems, "config-root");
 
       return hasChanges ? next : current;
     });
-  }, [location.pathname, treeSections, configItems, pinnedItem]);
+  }, [location.pathname, treeSections, configItems, pinnedItems]);
 
   // Reacciona a un click en un icono del rail: enfoca el buscador, abre el panel de
   // Configuracion, o expande el grupo de primer nivel correspondiente (cerrando a sus
@@ -788,6 +872,7 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
       data-tour="sidebar"
       id="app-sidebar"
       onClick={handleSidebarClick}
+      ref={sidebarRef}
     >
       <div className="sidebar-header">
         <div className="sidebar-header-row">
@@ -839,14 +924,11 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
         ) : null}
       </div>
 
-      {!isSearching && pinnedItem?.children?.length ? (
+      {!isSearching && pinnedItems.length ? (
         <div className="nav-section nav-section-pinned">
           <p className="nav-section-title">Más usado</p>
-          <div className="nav-pinned-heading">
-            <span aria-hidden="true">🩺</span> {pinnedItem.label === PINNED_LABEL ? "Atención médica o clínica" : pinnedItem.label}
-          </div>
           <div className="nav-tree">
-            {pinnedItem.children.map((child, childIndex) => {
+            {pinnedItems.map((child, childIndex) => {
               const childKey = buildNodeKey("pinned-root", child, childIndex);
               return (
                 <SidebarBranch
@@ -862,6 +944,7 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
                   openContextMenuKey={openContextMenuKey}
                   pathname={location.pathname}
                   setOpenContextMenuKey={setOpenContextMenuKey}
+                  accordionSiblings={pinnedAccordionKeys}
                 />
               );
             })}
@@ -956,6 +1039,7 @@ function VeterinariaSidebar({ isOpen, onClose, badges, currentRole, treeSections
                     openContextMenuKey={openContextMenuKey}
                     pathname={location.pathname}
                     setOpenContextMenuKey={setOpenContextMenuKey}
+                    accordionSiblings={configAccordionKeys}
                   />
                 );
               })}
@@ -983,19 +1067,18 @@ type VeterinariaSidebarRailProps = {
 function VeterinariaSidebarRail({ isOpen, onClose, onOpen, sections, badges, currentRole }: VeterinariaSidebarRailProps) {
   const [focusRequest, setFocusRequest] = useState<RailFocusRequest | null>(null);
 
-  const { treeSections, configItems, alertsItem, pinnedItem } = useMemo(
+  const { treeSections, configItems, alertsItem, pinnedItems } = useMemo(
     () => buildVisualStructure(sections),
     [sections]
   );
 
-  // Un icono por cada grupo de primer nivel, sin duplicar Atencion medica
-  // (ya tiene su propio icono destacado en el rail).
+  // Un icono por cada grupo de primer nivel del arbol principal.
   const railGroups = useMemo(() => {
     const seen = new Set<string>();
     const groups: SidebarVisualItem[] = [];
     treeSections.forEach((section) => {
       section.items.forEach((item) => {
-        if (!item.children?.length || item.label === PINNED_LABEL || seen.has(item.label)) return;
+        if (!item.children?.length || seen.has(item.label)) return;
         seen.add(item.label);
         groups.push(item);
       });
@@ -1026,15 +1109,15 @@ function VeterinariaSidebarRail({ isOpen, onClose, onOpen, sections, badges, cur
             <span aria-hidden="true">🔍</span>
           </button>
 
-          {pinnedItem ? (
+          {pinnedItems.length ? (
             <button
-              aria-label="Atención médica o clínica"
+              aria-label="Más usado"
               className="sidebar-rail-btn sidebar-rail-btn-highlight"
               onClick={() => requestOpen({ kind: "masUsado", nonce: Date.now() })}
-              title="Atención médica o clínica"
+              title="Más usado"
               type="button"
             >
-              <span aria-hidden="true">🩺</span>
+              <span aria-hidden="true">⭐</span>
             </button>
           ) : null}
 
@@ -1085,7 +1168,7 @@ function VeterinariaSidebarRail({ isOpen, onClose, onOpen, sections, badges, cur
         focusRequest={focusRequest}
         isOpen={isOpen}
         onClose={onClose}
-        pinnedItem={pinnedItem}
+        pinnedItems={pinnedItems}
         treeSections={treeSections}
       />
     </>

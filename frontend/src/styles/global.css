@@ -557,12 +557,6 @@ td {
   background: rgba(var(--accent-rgb), 0.07);
 }
 
-.nav-pinned-heading {
-  padding: 0 0.35rem 0.4rem;
-  font-weight: 600;
-  font-size: 0.85rem;
-}
-
 .sidebar-footer {
   display: grid;
   gap: 0.6rem;
