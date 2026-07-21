@@ -838,6 +838,23 @@ export function MedicalConsultationsPage() {
     }
   }
 
+  // Reuses the same pre-fetched blob as Descargar/Compartir — opens it in a
+  // new tab so the browser's native PDF viewer (with its own print button)
+  // handles it. The endpoint requires an Authorization header, so the blob
+  // URL is the only way to view it without re-implementing auth on a raw
+  // window.open(apiUrl).
+  function handlePrintPrescription() {
+    if (!prescription) return;
+    resetFeedback();
+    if (!prescriptionPdfBlob) {
+      setError("La receta todavía se está preparando, espera un segundo e intenta de nuevo.");
+      return;
+    }
+    const url = URL.createObjectURL(prescriptionPdfBlob);
+    window.open(url, "_blank");
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
   function shareFallbackMessage(patientName: string) {
     return `Aquí tienes la receta de ${patientName}. Revisa tus descargas y adjúntala.`;
   }
@@ -1152,6 +1169,7 @@ export function MedicalConsultationsPage() {
                   </div>
                   <div className="inline-actions">
                     <button className="button ghost" onClick={handleDownloadPrescriptionPdf} type="button">Descargar PDF</button>
+                    <button className="button ghost" onClick={handlePrintPrescription} type="button">Imprimir receta</button>
                     {canAccessSales(user?.role) ? (
                       <button className="button ghost" onClick={() => navigate(`/sales?prescription_id=${prescription.id}`)} type="button">
                         Generar venta desde receta
@@ -1198,7 +1216,7 @@ export function MedicalConsultationsPage() {
                   <div className="info-card">
                     <p><strong>Ventas generadas:</strong> {prescription.linked_sales.length}</p>
                     {prescription.linked_sales.map((saleLink) => (
-                      <p className="muted" key={`sale-link-${saleLink.id}`}>Venta #{saleLink.sale_id} · {saleLink.sale_date} · {saleLink.total}</p>
+                      <p className="muted" key={`sale-link-${saleLink.id}`}>Venta #{saleLink.sale_id} · {formatDate(saleLink.sale_date)} · {saleLink.total}</p>
                     ))}
                   </div>
                 ) : null}
