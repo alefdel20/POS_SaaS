@@ -7,6 +7,14 @@ const VARGAS_BUSINESS_ID = 11;
 const VARGAS_SLUG_KEY = "vargas";
 const ALLOWED_UNITS = new Set(["pieza", "kg", "litro", "caja"]);
 
+// Producto-servicio con precio libre por linea (unit_price en saleService.js,
+// sin cambios ahi). catalog_type se siembra NULL a proposito para que no
+// aparezca en los catalogos Alimentos/Accesorios/Medicamentos e insumos del
+// sidebar — el backfill de enum en init.js excluye explicitamente este SKU
+// para que ese NULL no se sobreescriba en cada arranque (ver migracion 58).
+const VETERINARY_CONSULTATION_SKU = "SERV-CONSULTA";
+const VETERINARY_CONSULTATION_STOCK = 999999;
+
 function stripAccents(value) {
   return String(value || "")
     .normalize("NFD")
@@ -93,9 +101,45 @@ async function markSeedRun(client, { businessId, catalogKey = null, insertedCoun
   );
 }
 
+// Independiente del catalogo prediseñado (Alimentos/Accesorios/Medicamentos):
+// corre para CUALQUIER negocio Veterinaria, incluido Vargas (la exclusion de
+// Vargas es solo sobre el catalogo de productos fisicos, no sobre este
+// producto-servicio). sku es unico por business_id (uq_products_business_sku,
+// indice parcial WHERE sku IS NOT NULL en init.js), asi que es seguro repetir
+// el mismo SKU "SERV-CONSULTA" entre distintos negocios.
+async function seedVeterinaryConsultationProduct(client, business) {
+  const businessId = Number(business.id);
+  const rawPosType = normalizePosType(business?.pos_type) || String(business?.pos_type || "").trim();
+  if (rawPosType !== "Veterinaria") return;
+
+  const { rows: existingRows } = await client.query(
+    `SELECT id FROM products WHERE business_id = $1 AND UPPER(sku) = UPPER($2)`,
+    [businessId, VETERINARY_CONSULTATION_SKU]
+  );
+  if (existingRows.length > 0) return;
+
+  await client.query(
+    `INSERT INTO products (
+      name, sku, category, description, price, cost_price, unidad_de_venta,
+      stock, stock_minimo, stock_maximo, status, catalog_type, is_active, business_id
+    ) VALUES ($1, $2, $3, $4, 0, 0, $5, $6, 0, 0, 'activo', NULL, TRUE, $7)`,
+    [
+      "Consulta veterinaria",
+      VETERINARY_CONSULTATION_SKU,
+      "Servicios",
+      "",
+      "pieza",
+      VETERINARY_CONSULTATION_STOCK,
+      businessId
+    ]
+  );
+}
+
 async function seedInitialCatalogForBusiness(client, business) {
   const businessId = Number(business.id);
   const businessName = String(business.name || "").trim();
+
+  await seedVeterinaryConsultationProduct(client, business);
 
   if (isVargasBusiness(business)) {
     await markSeedRun(client, {

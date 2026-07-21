@@ -1789,7 +1789,14 @@ async function ensureConstraints(client) {
         THEN 'accessories'
         ELSE COALESCE(catalog_type, 'accessories')
       END
-      WHERE catalog_type IS NULL OR BTRIM(catalog_type) = '';
+      WHERE (catalog_type IS NULL OR BTRIM(catalog_type) = '')
+        -- Migration 58: producto-servicio "Consulta veterinaria" (sku
+        -- SERV-CONSULTA) se siembra con catalog_type NULL a proposito, para
+        -- que no aparezca en los catalogos Alimentos/Accesorios/Medicamentos
+        -- e insumos del sidebar. Sin esta exclusion, este backfill (que
+        -- corre en cada arranque) lo reclasificaria a 'accessories' porque
+        -- su nombre no matchea ningun patron de arriba.
+        AND UPPER(COALESCE(sku, '')) <> 'SERV-CONSULTA';
       GET DIAGNOSTICS normalized_catalog_type_count = ROW_COUNT;
 
       -- Rename legacy human-terminology sex values to veterinary terms
@@ -4054,6 +4061,35 @@ async function ensureHealthcareCardexEntries(client) {
   );
 }
 
+// Migration 58 — backfill producto-servicio "Consulta veterinaria" para
+// negocios pos_type = 'Veterinaria' ya existentes. Body copied verbatim from
+// infra/postgres/58-veterinary-consultation-service-product.sql (sin las
+// queries de verificacion, que no aplican al boot). Idempotente via
+// NOT EXISTS en (business_id, UPPER(sku)) — negocios nuevos ya reciben este
+// producto via initialCatalogSeedService.seedVeterinaryConsultationProduct(),
+// esto solo cubre a los que ya tenian su catalogo sembrado antes de ese
+// cambio.
+async function ensureVeterinaryConsultationServiceProduct(client) {
+  await execQuery(
+    client,
+    `
+    INSERT INTO products (
+      name, sku, category, description, price, cost_price, unidad_de_venta,
+      stock, stock_minimo, stock_maximo, status, catalog_type, is_active, business_id
+    )
+    SELECT
+      'Consulta veterinaria', 'SERV-CONSULTA', 'Servicios', '', 0, 0, 'pieza',
+      999999, 0, 0, 'activo', NULL, TRUE, b.id
+    FROM businesses b
+    WHERE b.pos_type = 'Veterinaria'
+      AND NOT EXISTS (
+        SELECT 1 FROM products p
+        WHERE p.business_id = b.id AND UPPER(p.sku) = 'SERV-CONSULTA'
+      )
+    `
+  );
+}
+
 async function ensureSupportUsers(client) {
   const { rows } = await execQuery(
     client,
@@ -4154,6 +4190,9 @@ async function ensureDatabaseCompatibility() {
 
     console.info("[DB-COMPAT] ensureHealthcareCardexEntries");
     await ensureHealthcareCardexEntries(client);
+
+    console.info("[DB-COMPAT] ensureVeterinaryConsultationServiceProduct");
+    await ensureVeterinaryConsultationServiceProduct(client);
 
     console.info("[DB-COMPAT] ensureSupportUsers");
     await ensureSupportUsers(client);

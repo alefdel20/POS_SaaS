@@ -1062,11 +1062,11 @@ export function MedicalConsultationsPage() {
               <textarea required value={form.motivo_consulta} onChange={(event) => setForm({ ...form, motivo_consulta: event.target.value })} />
             </label>
             <label>
-              Diagnostico *
+              Dx. *
               <textarea required value={form.diagnostico} onChange={(event) => setForm({ ...form, diagnostico: event.target.value })} />
             </label>
             <label>
-              Tratamiento *
+              Tx. *
               <textarea required value={form.tratamiento} onChange={(event) => setForm({ ...form, tratamiento: event.target.value })} />
             </label>
             <label>
@@ -1130,8 +1130,8 @@ export function MedicalConsultationsPage() {
                   <p><strong>Nacimiento:</strong> {detailPatient?.birth_date || "-"}</p>
                   <p><strong>Fecha:</strong> {shortDateTime(detail.consultation_date)}</p>
                   <p><strong>Motivo:</strong> {detail.motivo_consulta}</p>
-                  <p><strong>Diagnostico:</strong> {detail.diagnostico}</p>
-                  <p><strong>Tratamiento:</strong> {detail.tratamiento}</p>
+                  <p><strong>Dx.:</strong> {detail.diagnostico}</p>
+                  <p><strong>Tx.:</strong> {detail.tratamiento}</p>
                   {detail.temperature !== null && detail.temperature !== undefined ? <p><strong>Temperatura:</strong> {detail.temperature} °C</p> : null}
                   <p><strong>Receta asociada:</strong> {detail.has_prescription ? `Si, ${detail.prescription_count || 0} receta(s)` : "No"}</p>
                   {detail.appointment_id ? (

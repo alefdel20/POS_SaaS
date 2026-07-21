@@ -126,12 +126,12 @@ type SidebarVisualSection = {
 const CATALOG_LABELS = ["Alimentos", "Accesorios", "Medicamentos e insumos"];
 const CLINICAL_GROUP_LABEL = "Atencion medica o clinica";
 // "Mas usado" es una lista curada de items individuales (no la categoria
-// clinica completa clonada) — estos dos son hijos de CLINICAL_GROUP_LABEL,
-// se combinan con los hijos de "Catalogo" (ver buildVisualStructure). Los
-// nodos referenciados aqui son los MISMOS objetos que ya aparecen en su
-// ubicacion normal del arbol, asi que "Mas usado" es un acceso directo, no
-// una copia de la categoria.
-const PINNED_CLINICAL_CHILD_LABELS = ["Citas", "Consultas"];
+// clinica completa clonada) — estos tres son hijos de CLINICAL_GROUP_LABEL,
+// ya no se combinan con los hijos de "Catalogo" (esos viven solo bajo
+// "Catalogo", ver buildVisualStructure). Los nodos referenciados aqui son
+// los MISMOS objetos que ya aparecen en su ubicacion normal del arbol, asi
+// que "Mas usado" es un acceso directo, no una copia de la categoria.
+const PINNED_CLINICAL_CHILD_LABELS = ["Citas", "Consultas", "Calendario"];
 const ADMIN_LABEL_PATTERN = /^administraci/i;
 
 const BRANCH_ICONS: Record<string, string> = {
@@ -182,7 +182,7 @@ function buildVisualStructure(sections: SidebarMenuSection[]) {
       .filter((child) => PINNED_CLINICAL_CHILD_LABELS.includes(child.label))
       .sort((a, b) => PINNED_CLINICAL_CHILD_LABELS.indexOf(a.label) - PINNED_CLINICAL_CHILD_LABELS.indexOf(b.label));
 
-    pinnedItems = pinnedItems.concat(clinicalPinnedChildren, catalogChildren);
+    pinnedItems = pinnedItems.concat(clinicalPinnedChildren);
 
     const items: SidebarVisualItem[] = [];
     let catalogInserted = false;
