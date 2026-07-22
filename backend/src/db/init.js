@@ -119,6 +119,7 @@ async function ensureSchema(client) {
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_deactivated_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mode_updated_by INTEGER REFERENCES users(id)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS tutorial_seen BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS cobro_directo BOOLEAN NOT NULL DEFAULT FALSE",
 
     "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(40)",
@@ -296,6 +297,40 @@ async function ensureSchema(client) {
     "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS changed_fields JSONB NOT NULL DEFAULT '[]'::jsonb",
     "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
     "ALTER TABLE product_update_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+
+    // Migration 60 — cola "recetas/consultas pendientes de cobro" del flujo
+    // veterinario "Pasar a cobro". A diferencia de product_update_requests
+    // (arriba), el FK a businesses(id) y el CHECK de status SI se espejan
+    // aqui (ver ensureConstraints mas abajo) — no se repite ese gap.
+    `CREATE TABLE IF NOT EXISTS prescription_checkout_requests (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      consultation_id INTEGER NOT NULL REFERENCES consultations(id),
+      prescription_id INTEGER REFERENCES medical_prescriptions(id),
+      requested_by_user_id INTEGER NOT NULL REFERENCES users(id),
+      charge_consultation BOOLEAN NOT NULL DEFAULT FALSE,
+      consultation_amount NUMERIC(12, 5),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      sale_id INTEGER REFERENCES sales(id),
+      completed_by_user_id INTEGER REFERENCES users(id),
+      completed_at TIMESTAMP,
+      cancelled_reason TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS business_id INTEGER",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS consultation_id INTEGER",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS prescription_id INTEGER",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS requested_by_user_id INTEGER",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS charge_consultation BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS consultation_amount NUMERIC(12, 5)",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS sale_id INTEGER",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS completed_by_user_id INTEGER",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS cancelled_reason TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+    "ALTER TABLE prescription_checkout_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
 
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS business_id INTEGER",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS send_reminder BOOLEAN NOT NULL DEFAULT FALSE",
@@ -1720,6 +1755,39 @@ async function ensureConstraints(client) {
     `
   );
 
+  // Migration 60 — prescription_checkout_requests: FK a businesses(id) y
+  // CHECK de status, espejados aqui (a diferencia de product_update_requests,
+  // que dejo este mismo par de constraints sin espejar en init.js).
+  await execQuery(
+    client,
+    `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_prescription_checkout_requests_business'
+          AND conrelid = 'prescription_checkout_requests'::regclass
+      ) THEN
+        ALTER TABLE prescription_checkout_requests
+        ADD CONSTRAINT fk_prescription_checkout_requests_business
+        FOREIGN KEY (business_id) REFERENCES businesses(id);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'prescription_checkout_requests_status_check'
+          AND conrelid = 'prescription_checkout_requests'::regclass
+      ) THEN
+        ALTER TABLE prescription_checkout_requests
+        ADD CONSTRAINT prescription_checkout_requests_status_check
+        CHECK (status IN ('pending', 'completed', 'cancelled'));
+      END IF;
+    END $$;
+    `
+  );
+
   console.log("[DB-FIX] Cleaning controlled enum values...");
   await execQuery(
     client,
@@ -2203,6 +2271,8 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_product_update_requests_business_status_created ON product_update_requests(business_id, status, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_product_update_requests_business_requester_created ON product_update_requests(business_id, requested_by_user_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_product_update_requests_product_id ON product_update_requests(product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_prescription_checkout_requests_business_status_created ON prescription_checkout_requests(business_id, status, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_prescription_checkout_requests_consultation_id ON prescription_checkout_requests(consultation_id)",
     "CREATE INDEX IF NOT EXISTS idx_product_suppliers_business_id ON product_suppliers(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_sales_business_id ON sales(business_id)",
     "CREATE INDEX IF NOT EXISTS idx_sales_business_sale_date_status ON sales(business_id, sale_date, status)",

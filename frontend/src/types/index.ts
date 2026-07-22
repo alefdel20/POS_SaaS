@@ -25,6 +25,7 @@ export interface User {
   next_appointments?: number;
   is_active: boolean;
   must_change_password?: boolean;
+  cobro_directo?: boolean;
   support_mode_active?: boolean;
   tutorial_seen?: boolean;
   has_ai_access?: boolean;
@@ -401,6 +402,49 @@ export interface ProductUpdateRequestBatchResponse {
     success: number;
     failed: number;
   };
+}
+
+export interface PrescriptionCheckoutRequest {
+  id: number;
+  business_id: number;
+  consultation_id: number;
+  consultation_reason?: string | null;
+  patient_id: number | null;
+  patient_name?: string | null;
+  prescription_id: number | null;
+  requested_by_user_id: number;
+  requested_by_name?: string | null;
+  charge_consultation: boolean;
+  consultation_amount: number | null;
+  status: "pending" | "completed" | "cancelled";
+  sale_id: number | null;
+  completed_by_user_id: number | null;
+  completed_by_name?: string | null;
+  completed_at?: string | null;
+  cancelled_reason: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PrescriptionCheckoutRequestListResponse {
+  items: PrescriptionCheckoutRequest[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface PrescriptionCheckoutRequestPendingSummary {
+  pending_count: number;
+  recent: Array<{
+    id: number;
+    consultation_id: number;
+    consultation_reason?: string | null;
+    requested_by_name?: string | null;
+    created_at: string;
+  }>;
 }
 
 export interface ProductImportPreviewRow {

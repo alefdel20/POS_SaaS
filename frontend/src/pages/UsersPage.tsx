@@ -57,6 +57,7 @@ export function UsersPage() {
   const canCreateUsers = currentRole === "superusuario" || currentRole === "admin" || currentRole === "gerente";
   const canResetPasswords = currentRole === "superusuario";
   const canEditRoles = currentRole === "superusuario";
+  const canEditCobroDirecto = currentRole === "superusuario" || currentRole === "admin";
   const currentBusinessId = currentUser?.business_id;
   const canManageUserAcrossBusinesses = currentRole === "superusuario";
 
@@ -194,6 +195,35 @@ export function UsersPage() {
       loadUsers();
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "No fue posible actualizar el rol");
+    }
+  }
+
+  async function updateCobroDirecto(user: User, value: boolean) {
+    if (!token || !canEditCobroDirecto) return;
+    if (!canManageUserAcrossBusinesses && currentBusinessId && user.business_id !== currentBusinessId) {
+      setError("No puedes modificar usuarios de otro negocio");
+      setInfo("");
+      return;
+    }
+    try {
+      setError("");
+      setInfo("");
+      await apiRequest<User>(`/users/${user.id}`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({
+          username: user.username,
+          email: user.email,
+          full_name: user.full_name,
+          role: user.role,
+          business_id: user.business_id,
+          is_active: user.is_active,
+          cobro_directo: value
+        })
+      });
+      loadUsers();
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "No fue posible actualizar el modo de cobro");
     }
   }
 
@@ -337,6 +367,7 @@ export function UsersPage() {
                 <th>Nombre</th>
                 <th>Usuario</th>
                 <th>Rol</th>
+                <th>Cobro directo</th>
                 <th>Negocio</th>
                 <th>Sucursal</th>
                 <th>POS</th>
@@ -367,6 +398,23 @@ export function UsersPage() {
                       </select>
                     ) : (
                       getRoleLabel(user.role)
+                    )}
+                  </td>
+                  <td>
+                    {normalizeRole(user.role) === "clinico" ? (
+                      canEditCobroDirecto && !isProtectedSupportUser(user) ? (
+                        <input
+                          checked={Boolean(user.cobro_directo)}
+                          disabled={Boolean(!canManageUserAcrossBusinesses && currentBusinessId && user.business_id !== currentBusinessId)}
+                          onChange={(event) => updateCobroDirecto(user, event.target.checked)}
+                          title={!canManageUserAcrossBusinesses && currentBusinessId && user.business_id !== currentBusinessId ? "No puedes modificar usuarios de otro negocio" : undefined}
+                          type="checkbox"
+                        />
+                      ) : (
+                        user.cobro_directo ? "Si" : "No"
+                      )
+                    ) : (
+                      "—"
                     )}
                   </td>
                   <td>{user.business_name || "-"}</td>

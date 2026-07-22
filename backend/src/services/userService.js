@@ -305,6 +305,9 @@ async function updateUser(id, payload, actor) {
   const targetPosType = current.business_pos_type || current.pos_type || null;
   if (payload.role && !canAssignRole(actorRole, nextRole, targetPosType)) throw new ApiError(403, "Forbidden role assignment");
   if (!isSuperUser(actor) && current.role === "superusuario") throw new ApiError(403, "Forbidden");
+  // cobro_directo solo tiene sentido para clinico — si el rol resultante no lo es,
+  // se fuerza a false para no dejar un true huerfano tras un cambio de rol.
+  const nextCobroDirecto = nextRole === "clinico" ? (payload.cobro_directo ?? current.cobro_directo ?? false) : false;
 
   const client = await pool.connect();
   try {
@@ -330,8 +333,9 @@ async function updateUser(id, payload, actor) {
            is_active = $12,
            must_change_password = $13,
            password_changed_at = CASE WHEN $14::boolean THEN NOW() ELSE password_changed_at END,
+           cobro_directo = $15,
            updated_at = NOW()
-       WHERE id = $15 AND business_id = $16
+       WHERE id = $16 AND business_id = $17
        RETURNING *`,
       [
         payload.username ?? current.username,
@@ -348,6 +352,7 @@ async function updateUser(id, payload, actor) {
         nextIsActive,
         payload.must_change_password ?? current.must_change_password ?? false,
         Boolean(payload.password),
+        nextCobroDirecto,
         id,
         current.business_id
       ]

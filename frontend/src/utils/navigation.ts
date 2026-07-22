@@ -26,6 +26,7 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Aprobaciones", to: "/product-update-requests", roles: "management", activeMatch: ["/product-update-requests", "/retail/admin/approvals", "/health/admin/approvals"] },
   { label: "Credito y Cobranza", to: "/credit-collections", roles: "gerente", activeMatch: ["/credit-collections"] },
   { label: "Corte Diario", to: "/daily-cut", roles: "dailyCut", activeMatch: ["/daily-cut"] },
+  { label: "Recetas pendientes de cobro", to: "/prescription-checkout-requests", roles: "dailyCut", activeMatch: ["/prescription-checkout-requests"] },
   { label: "Finanzas", to: "/finances", roles: "gerente", activeMatch: ["/finances"] },
   { label: "Remates", to: "/remate", roles: "gerente", activeMatch: ["/remate"] },
   { label: "Facturas", to: "/invoices", roles: "invoices", activeMatch: ["/invoices"] },

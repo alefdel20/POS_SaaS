@@ -34,6 +34,7 @@ const updateValidation = [
   body("password").optional().isLength({ min: 8 }),
   body("is_active").optional().isBoolean(),
   body("must_change_password").optional().isBoolean(),
+  body("cobro_directo").optional().isBoolean(),
   validateRequest
 ];
 const statusValidation = [body("is_active").isBoolean(), validateRequest];

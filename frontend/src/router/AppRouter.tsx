@@ -11,6 +11,8 @@ import { FinancesPage } from "../pages/FinancesPage";
 import { LoginPage } from "../pages/LoginPage";
 import { MedicalAppointmentsPage } from "../pages/MedicalAppointmentsPage";
 import { MedicalConsultationsPage } from "../pages/MedicalConsultationsPage";
+import { PrescriptionCheckoutPage } from "../pages/PrescriptionCheckoutPage";
+import { PrescriptionCheckoutQueuePage } from "../pages/PrescriptionCheckoutQueuePage";
 import { CarnetPage } from "../pages/CarnetPage";
 import { CardexPage } from "../pages/CardexPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -65,6 +67,7 @@ export function AppRouter() {
               <Route path="/health/sales/food" element={<SalesPage />} />
               <Route path="/health/sales/accessories" element={<SalesPage />} />
               <Route path="/health/sales/medications" element={<SalesPage />} />
+              <Route path="/prescription-checkout-requests" element={<PrescriptionCheckoutQueuePage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} />}>
               <Route path="/products/restock" element={<ProductsPage />} />
@@ -171,6 +174,7 @@ export function AppRouter() {
               <Route path="/medical-consultations" element={<MedicalConsultationsPage />} />
               <Route path="/health/consultations" element={<MedicalConsultationsPage />} />
               <Route path="/health/consultations/recetas" element={<MedicalConsultationsPage />} />
+              <Route path="/health/consultations/checkout" element={<PrescriptionCheckoutPage />} />
               <Route path="/medical-history" element={<Navigate replace to="/health/medical-history/carnet" />} />
               <Route path="/health/medical-history/carnet" element={<CarnetPage />} />
               <Route path="/health/medical-history/calendar" element={<Navigate replace to="/health/admin/reminders/calendar" />} />

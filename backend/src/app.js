@@ -40,6 +40,7 @@ const medicalPrescriptionRoutes = require("./routes/medicalPrescriptionRoutes");
 const medicalPreventiveEventRoutes = require("./routes/medicalPreventiveEventRoutes");
 const healthcareCardexRoutes = require("./routes/healthcareCardexRoutes");
 const productUpdateRequestRoutes = require("./routes/productUpdateRequestRoutes");
+const prescriptionCheckoutRequestRoutes = require("./routes/prescriptionCheckoutRequestRoutes");
 const openPayRoutes = require("./routes/openPayRoutes");
 const webServicesRoutes = require("./routes/webServices");
 const subscriptionRoutes = require("./routes/subscriptionRoutes");
@@ -97,6 +98,7 @@ const routes = [
   { path: "/users", router: userRoutes, auth: true },
   { path: "/products", router: productRoutes, auth: true },
   { path: "/product-update-requests", router: productUpdateRequestRoutes, auth: true },
+  { path: "/prescription-checkout-requests", router: prescriptionCheckoutRequestRoutes, auth: true },
   { path: "/suppliers", router: supplierRoutes, auth: true },
   { path: "/sales", router: saleRoutes, auth: true },
   { path: "/history", router: historyRoutes, auth: true },

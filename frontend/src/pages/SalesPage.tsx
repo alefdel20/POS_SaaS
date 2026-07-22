@@ -2,7 +2,7 @@ import { Fragment, type KeyboardEvent, useEffect, useMemo, useRef, useState } fr
 import { useLocation, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { CompanyProfile, DebtorSuggestion, MedicalPrescription, Product, Sale, SaleDetail, SaleReceipt, Supplier } from "../types";
+import type { CompanyProfile, DebtorSuggestion, MedicalPrescription, PrescriptionCheckoutRequest, Product, Sale, SaleDetail, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { hasAnyRole, isCashierRole, isManagementRole, ROLE_ADMIN, ROLE_MANAGER, ROLE_SUPERUSER } from "../utils/roles";
@@ -264,6 +264,7 @@ export function SalesPage() {
   const [kits, setKits] = useState<Kit[]>([]);
   const [kitSearch, setKitSearch] = useState("");
   const [prescriptionSeedId, setPrescriptionSeedId] = useState<number | null>(Number(searchParams.get("prescription_id") || 0) || null);
+  const [checkoutRequestId, setCheckoutRequestId] = useState<number | null>(Number(searchParams.get("checkout_request_id") || 0) || null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const debtorSuggestionRequestRef = useRef(0);
 
@@ -567,6 +568,16 @@ export function SalesPage() {
     });
   }, [prescriptionSeedId, token]);
 
+  useEffect(() => {
+    if (!checkoutRequestId) {
+      return;
+    }
+
+    loadCheckoutRequestIntoCart(checkoutRequestId).catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar la solicitud de cobro en venta");
+    });
+  }, [checkoutRequestId, token]);
+
   const [cartDiscountType, setCartDiscountType] = useState<"percentage" | "fixed" | "">("");
   const [cartDiscountValue, setCartDiscountValue] = useState("");
 
@@ -767,6 +778,35 @@ export function SalesPage() {
     }
     if (nextWarnings.length) {
       setWarnings(nextWarnings);
+    }
+  }
+
+  // Independiente de loadPrescriptionIntoCart (no la modifica) — orquesta el
+  // seed desde la cola "Pasar a cobro": reusa loadPrescriptionIntoCart tal
+  // cual para los medicamentos, y agrega aparte la linea de consulta (dato
+  // que no vive en medical_prescriptions, solo en prescription_checkout_requests).
+  async function loadCheckoutRequestIntoCart(checkoutRequestId: number) {
+    if (!token) return;
+    const request = await apiRequest<PrescriptionCheckoutRequest>(`/prescription-checkout-requests/${checkoutRequestId}`, { token });
+
+    if (request.prescription_id) {
+      await loadPrescriptionIntoCart(request.prescription_id);
+    }
+
+    if (request.charge_consultation) {
+      try {
+        const products = await apiRequest<Product[]>(`/products?search=${encodeURIComponent("SERV-CONSULTA")}&activeOnly=true`, { token });
+        const consultationProduct = products.find((product) => product.sku?.toUpperCase() === "SERV-CONSULTA") || products[0] || null;
+        if (consultationProduct) {
+          const amount = request.consultation_amount ?? 0;
+          const seededProduct: Product = { ...consultationProduct, price: amount, effective_price: amount };
+          setCart((current) => [...current, { type: "product", product: seededProduct, quantity: 1 }]);
+        } else {
+          setWarnings((prev) => [...prev, "Producto de consulta no configurado para este negocio, contacta soporte."]);
+        }
+      } catch {
+        setWarnings((prev) => [...prev, "No fue posible cargar el producto de consulta."]);
+      }
     }
   }
 
@@ -1065,6 +1105,22 @@ export function SalesPage() {
       setLastSaleItems(cart);
       setLastSale(response.sale);
 
+      // La venta ya se cobro en este punto — si esto falla, NO se revierte
+      // ni se muestra como error bloqueante, solo se agrega a warnings para
+      // que caja sepa que debe marcar la solicitud como completada a mano.
+      if (checkoutRequestId && response.sale?.id) {
+        try {
+          await apiRequest(`/prescription-checkout-requests/${checkoutRequestId}/complete`, {
+            method: "POST",
+            token,
+            body: JSON.stringify({ sale_id: response.sale.id })
+          });
+        } catch (completeError) {
+          const msg = completeError instanceof Error ? completeError.message : "Error desconocido";
+          setWarnings((prev) => [...prev, `La venta se registro correctamente, pero no fue posible marcar la solicitud de cobro como completada: ${msg}`]);
+        }
+      }
+
       // Timbrar CFDI si addon activo y la venta requiere factura
       if (cfdiAddonActive && saleType === "invoice" && response.sale?.id) {
         try {
@@ -1099,8 +1155,10 @@ export function SalesPage() {
 
       resetSaleForm();
       setPrescriptionSeedId(null);
+      setCheckoutRequestId(null);
       setSearchParams((current) => {
         current.delete("prescription_id");
+        current.delete("checkout_request_id");
         return current;
       }, { replace: true });
       await loadProducts(search);

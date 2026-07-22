@@ -8,7 +8,6 @@ import type { ClinicalAppointment, ClinicalConsultation, ClinicalPatientDetail, 
 import { formatDate, shortDateTime } from "../utils/format";
 import { getConsultationModeFromPath } from "../utils/navigation";
 import { showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
-import { canAccessSales } from "../utils/roles";
 
 type ConsultationFormState = {
   appointment_id: string;
@@ -1143,6 +1142,13 @@ export function MedicalConsultationsPage() {
                     </p>
                   ) : null}
                   <div className="inline-actions">
+                    <button
+                      className="button ghost"
+                      onClick={() => navigate(`/health/consultations/checkout?consultation_id=${detail.id}&prescription_id=${prescription?.id ?? ""}`)}
+                      type="button"
+                    >
+                      Pasar a cobro
+                    </button>
                     <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver bitacora clinica</button>
                     <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver historial medico</button>
                     {!humanPatientsOnly ? <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver cliente</button> : null}
@@ -1170,11 +1176,6 @@ export function MedicalConsultationsPage() {
                   <div className="inline-actions">
                     <button className="button ghost" onClick={handleDownloadPrescriptionPdf} type="button">Descargar PDF</button>
                     <button className="button ghost" onClick={handlePrintPrescription} type="button">Imprimir receta</button>
-                    {canAccessSales(user?.role) ? (
-                      <button className="button ghost" onClick={() => navigate(`/sales?prescription_id=${prescription.id}`)} type="button">
-                        Generar venta desde receta
-                      </button>
-                    ) : null}
                     {supportsFileShare ? (
                       <button className="button ghost" onClick={handleNativeShare} type="button">Compartir</button>
                     ) : (
