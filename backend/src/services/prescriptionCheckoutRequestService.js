@@ -5,6 +5,10 @@ const { normalizeRole } = require("../utils/roles");
 const { saveAuditLog } = require("./auditLogService");
 
 const REQUEST_STATUS = new Set(["pending", "completed", "cancelled"]);
+// Mismo set que requireClinicalAccess (authMiddleware.js) / ROUTE_ROLES.clinical
+// (frontend/src/utils/roles.ts) — quien puede operar el modulo clinico en
+// general, no solo el rol 'clinico'.
+const CREATE_ROLES = new Set(["superusuario", "admin", "clinico"]);
 const COMPLETION_ROLES = new Set(["superusuario", "admin", "gerente", "cajero"]);
 const CANCEL_MANAGEMENT_ROLES = new Set(["superusuario", "admin", "gerente"]);
 
@@ -215,7 +219,7 @@ async function getPendingPrescriptionCheckoutSummary(businessId) {
 async function createPrescriptionCheckoutRequest(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const role = normalizeRole(actor?.role);
-  if (role !== "clinico") {
+  if (!CREATE_ROLES.has(role)) {
     throw new ApiError(403, "Forbidden");
   }
 

@@ -12,7 +12,11 @@ router.get("/pending-summary", requireRole(["superusuario", "superadmin", "admin
 // Debe ir DESPUES de "/pending-summary" — Express matchea rutas en orden y
 // "/:id" antes capturaria "pending-summary" como si fuera un id.
 router.get("/:id", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.getByIdValidation, controller.getPrescriptionCheckoutRequestById);
-router.post("/", requireRole(["clinico"]), controller.createValidation, controller.createPrescriptionCheckoutRequest);
+// Mismo set que requireClinicalAccess (authMiddleware.js) / ROUTE_ROLES.clinical
+// (frontend/src/utils/roles.ts) — quien puede operar el modulo clinico en
+// general, no solo "clinico". MedicalConsultationsPage.tsx (origen del boton
+// "Pasar a cobro") ya es accesible a superusuario/admin/clinico.
+router.post("/", requireRole(["superusuario", "admin", "clinico"]), controller.createValidation, controller.createPrescriptionCheckoutRequest);
 router.post("/:id/complete", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.completeValidation, controller.completePrescriptionCheckoutRequest);
 router.post("/:id/cancel", requireRole(["clinico", "superusuario", "superadmin", "admin", "gerente"]), controller.cancelValidation, controller.cancelPrescriptionCheckoutRequest);
 
