@@ -131,7 +131,12 @@ const CLINICAL_GROUP_LABEL = "Atencion medica o clinica";
 // "Catalogo", ver buildVisualStructure). Los nodos referenciados aqui son
 // los MISMOS objetos que ya aparecen en su ubicacion normal del arbol, asi
 // que "Mas usado" es un acceso directo, no una copia de la categoria.
+// PINNED_ADMIN_LABELS sigue el mismo patron pero para hijos del grupo
+// "Administracion": el item pineado sigue existiendo tambien en
+// Configuracion (no se remueve de configItems), solo se agrega una
+// referencia extra al mismo objeto en "Mas usado".
 const PINNED_CLINICAL_CHILD_LABELS = ["Citas", "Consultas", "Calendario"];
+const PINNED_ADMIN_LABELS = ["Recetas pendientes de cobro"];
 const ADMIN_LABEL_PATTERN = /^administraci/i;
 
 const BRANCH_ICONS: Record<string, string> = {
@@ -182,7 +187,11 @@ function buildVisualStructure(sections: SidebarMenuSection[]) {
       .filter((child) => PINNED_CLINICAL_CHILD_LABELS.includes(child.label))
       .sort((a, b) => PINNED_CLINICAL_CHILD_LABELS.indexOf(a.label) - PINNED_CLINICAL_CHILD_LABELS.indexOf(b.label));
 
-    pinnedItems = pinnedItems.concat(clinicalPinnedChildren);
+    const adminGroup = section.items.find((item) => ADMIN_LABEL_PATTERN.test(item.label));
+    const pinnedAdminChildren = (adminGroup?.children || [])
+      .filter((child) => PINNED_ADMIN_LABELS.includes(child.label));
+
+    pinnedItems = pinnedItems.concat(clinicalPinnedChildren, pinnedAdminChildren);
 
     const items: SidebarVisualItem[] = [];
     let catalogInserted = false;
