@@ -273,6 +273,7 @@ export function MedicalConsultationsPage() {
   const humanPatientsOnly = usesHumanPatientsOnly(user?.pos_type);
   const visibleConsultations = search.trim() ? consultations : consultations.slice(0, 5);
   const formRef = useRef<HTMLDivElement | null>(null);
+  const errorRef = useRef<HTMLParagraphElement | null>(null);
 
   // GET /medical-appointments defaults to TODAY's appointments when no date
   // filter is given (see listAppointments in clinicalService.js) — date_from
@@ -416,6 +417,16 @@ export function MedicalConsultationsPage() {
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [showForm]);
+
+  // The error message lives above the form (list panel, always mounted) —
+  // without this, a validation error triggered by "Guardar" (bottom of a
+  // long form) is invisible until the vet scrolls up manually. Runs for
+  // every setError call, not just the new Tx./administered check below.
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [error]);
 
   // Deep link from MedicalAppointmentsPage ("Crear consulta desde esta cita")
   // — prefills patient + origin appointment without the user re-selecting
@@ -602,7 +613,8 @@ export function MedicalConsultationsPage() {
   // to add the first one.
   function renderPrescriptionCategorySection(
     category: PrescriptionItemForm["item_category"],
-    search: ReturnType<typeof useMedicationSearch>
+    search: ReturnType<typeof useMedicationSearch>,
+    searchLabel: string = "Agregar medicamento"
   ) {
     const rows = prescriptionForm.items
       .map((item, index) => ({ item, index }))
@@ -670,7 +682,7 @@ export function MedicalConsultationsPage() {
         ) : null}
         <div className="autocomplete-wrap">
           <label>
-            Agregar medicamento
+            {searchLabel}
             <input
               autoComplete="off"
               onChange={(event) => search.setQuery(event.target.value)}
@@ -725,6 +737,10 @@ export function MedicalConsultationsPage() {
     if (!token) return;
     if (!patientValue.id && !patientValue.confirmedNew) {
       setError("Selecciona un paciente existente o confirma la creación de uno nuevo con “Crear como paciente nuevo”.");
+      return;
+    }
+    if (!form.tratamiento.trim()) {
+      setError("Agrega al menos un medicamento usado en consulta para completar el tratamiento (Tx.).");
       return;
     }
 
@@ -987,7 +1003,7 @@ export function MedicalConsultationsPage() {
             <button className="button" onClick={startCreate} type="button">Nueva consulta</button>
           </div>
         </div>
-        {error ? <p className="error-text">{error}</p> : null}
+        {error ? <p className="error-text" ref={errorRef}>{error}</p> : null}
         {info ? <p className="success-text">{info}</p> : null}
         <div className="table-wrap">
           <table>
@@ -1098,12 +1114,8 @@ export function MedicalConsultationsPage() {
               Dx. *
               <textarea required value={form.diagnostico} onChange={(event) => setForm({ ...form, diagnostico: event.target.value })} />
             </label>
-            <label>
-              Tx. *
-              <textarea required value={form.tratamiento} onChange={(event) => setForm({ ...form, tratamiento: event.target.value })} />
-            </label>
             <div className="form-span-2">
-              {renderPrescriptionCategorySection("administered", administeredSearch)}
+              {renderPrescriptionCategorySection("administered", administeredSearch, "Tx.")}
             </div>
             <label>
               Temperatura (°C)
