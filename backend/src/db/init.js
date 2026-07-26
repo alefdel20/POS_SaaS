@@ -777,6 +777,7 @@ async function ensureSchema(client) {
       doctor_user_id INTEGER REFERENCES users(id),
       diagnosis TEXT NOT NULL DEFAULT '',
       indications TEXT NOT NULL DEFAULT '',
+      historia_clinica TEXT NOT NULL DEFAULT '',
       status VARCHAR(20) NOT NULL DEFAULT 'draft',
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_by INTEGER REFERENCES users(id),
@@ -790,6 +791,9 @@ async function ensureSchema(client) {
     "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS doctor_user_id INTEGER REFERENCES users(id)",
     "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS diagnosis TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS indications TEXT NOT NULL DEFAULT ''",
+    // Migration 61 — historia clinica / anamnesis (Hx.), impresa antes de
+    // Dx. en la receta. Ver infra/postgres/61-prescriptions-historia-clinica.sql.
+    "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS historia_clinica TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'draft'",
     "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
     "ALTER TABLE medical_prescriptions ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)",
@@ -2726,6 +2730,7 @@ async function ensureHealthcareSchemaBase(client) {
       valid_until TIMESTAMPTZ,
       indications_general TEXT NOT NULL DEFAULT '',
       diagnosis_summary TEXT NOT NULL DEFAULT '',
+      historia_clinica TEXT NOT NULL DEFAULT '',
       issue_status VARCHAR(20) NOT NULL DEFAULT 'issued',
       regulatory_scope VARCHAR(20) NOT NULL DEFAULT 'standard',
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -3790,7 +3795,12 @@ async function ensureHealthcareStructuralSync(client) {
 
     // Migration 56 — whatsapp_opt_in defaults to false: an existing pet_owner
     // was never asked for WhatsApp consent, it must never be assumed.
-    "ALTER TABLE healthcare.pet_owners ADD COLUMN IF NOT EXISTS whatsapp_opt_in BOOLEAN NOT NULL DEFAULT false"
+    "ALTER TABLE healthcare.pet_owners ADD COLUMN IF NOT EXISTS whatsapp_opt_in BOOLEAN NOT NULL DEFAULT false",
+
+    // Migration 61 — historia clinica / anamnesis (Hx.) mirror, same field
+    // added to public.medical_prescriptions. See
+    // infra/postgres/61-prescriptions-historia-clinica.sql.
+    "ALTER TABLE healthcare.prescriptions ADD COLUMN IF NOT EXISTS historia_clinica TEXT NOT NULL DEFAULT ''"
   ]);
 
   // Migration 51 — healthcare.reminders constraints. Runs here (inside

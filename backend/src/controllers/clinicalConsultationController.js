@@ -52,6 +52,7 @@ const createValidation = [
   body("prescription").optional().isObject(),
   body("prescription.diagnosis").optional({ values: "falsy" }).trim(),
   body("prescription.indications").optional({ values: "falsy" }).trim(),
+  body("prescription.historia_clinica").optional({ values: "falsy" }).trim(),
   body("prescription.status").optional({ values: "falsy" }).isIn(PRESCRIPTION_STATUSES),
   body("prescription.items").optional().isArray(),
   body("prescription.items.*.product_id").optional({ values: "falsy" }).isInt(),

@@ -752,6 +752,7 @@ export interface MedicalPrescription {
   client_name?: string | null;
   diagnosis?: string | null;
   indications?: string | null;
+  historia_clinica?: string | null;
   status: "draft" | "issued" | "cancelled";
   created_at: string;
   updated_at: string;

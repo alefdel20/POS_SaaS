@@ -80,6 +80,12 @@ const PRESCRIPTION_ITEM_CATEGORY_LABELS: Record<PrescriptionItemForm["item_categ
 
 type PrescriptionFormState = {
   status: "draft" | "issued" | "cancelled";
+  // Historia clinica / anamnesis (Hx.) — lives only on medical_prescriptions,
+  // unlike Dx./Tx. which are duplicated from the consultation's own
+  // diagnostico/tratamiento (see payload.prescription assembly below). No
+  // consultations column exists for it, so it round-trips straight from/to
+  // the prescription via prescriptionToForm, not via ConsultationFormState.
+  historia_clinica: string;
   items: PrescriptionItemForm[];
 };
 
@@ -95,6 +101,7 @@ const emptyForm: ConsultationFormState = {
 
 const emptyPrescriptionForm: PrescriptionFormState = {
   status: "issued",
+  historia_clinica: "",
   items: []
 };
 
@@ -130,6 +137,7 @@ function prescriptionToForm(prescription: MedicalPrescription | null): Prescript
   if (!prescription) return emptyPrescriptionForm;
   return {
     status: prescription.status,
+    historia_clinica: prescription.historia_clinica || "",
     items: prescription.items.map((item) => ({
       product_id: item.product_id,
       medication_name_snapshot: item.medication_name_snapshot,
@@ -737,6 +745,7 @@ export function MedicalConsultationsPage() {
       payload.prescription = {
         diagnosis: form.diagnostico,
         indications: form.tratamiento,
+        historia_clinica: prescriptionForm.historia_clinica,
         status: prescriptionForm.status,
         items: prescriptionForm.items.map((item) => ({
           product_id: item.product_id,
@@ -1059,6 +1068,10 @@ export function MedicalConsultationsPage() {
             <label>
               Motivo de consulta *
               <textarea required value={form.motivo_consulta} onChange={(event) => setForm({ ...form, motivo_consulta: event.target.value })} />
+            </label>
+            <label>
+              Hx.
+              <textarea value={prescriptionForm.historia_clinica} onChange={(event) => setPrescriptionForm({ ...prescriptionForm, historia_clinica: event.target.value })} />
             </label>
             <label>
               Dx. *

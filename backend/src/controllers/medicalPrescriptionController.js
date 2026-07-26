@@ -31,6 +31,7 @@ const createValidation = [
   body("consultation_id").optional({ values: "falsy" }).isInt(),
   body("diagnosis").optional().trim(),
   body("indications").optional().trim(),
+  body("historia_clinica").optional().trim(),
   body("status").optional().isIn(PRESCRIPTION_STATUSES),
   ...prescriptionItemValidation,
   validateRequest

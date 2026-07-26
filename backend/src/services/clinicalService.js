@@ -242,6 +242,7 @@ function buildPrescriptionPayload(payload = {}) {
     consultation_id: consultationId,
     diagnosis: normalizeText(payload.diagnosis),
     indications: normalizeText(payload.indications),
+    historia_clinica: normalizeText(payload.historia_clinica),
     status,
     items: normalizedItems
   };
@@ -1711,21 +1712,21 @@ async function savePrescriptionForConsultation({ prescriptionPayload, patientId,
 
     const { rows } = await client.query(
       `UPDATE medical_prescriptions
-       SET diagnosis = $1, indications = $2, status = $3, updated_by = $4, updated_at = NOW()
-       WHERE id = $5 AND business_id = $6
+       SET diagnosis = $1, indications = $2, historia_clinica = $3, status = $4, updated_by = $5, updated_at = NOW()
+       WHERE id = $6 AND business_id = $7
        RETURNING *`,
-      [data.diagnosis, data.indications, data.status, actor.id, existing.id, businessId]
+      [data.diagnosis, data.indications, data.historia_clinica, data.status, actor.id, existing.id, businessId]
     );
     await client.query("DELETE FROM medical_prescription_items WHERE prescription_id = $1", [existing.id]);
     prescriptionRow = rows[0];
   } else {
     const { rows } = await client.query(
       `INSERT INTO medical_prescriptions (
-        business_id, patient_id, consultation_id, doctor_user_id, diagnosis, indications, status, created_by, updated_by
+        business_id, patient_id, consultation_id, doctor_user_id, diagnosis, indications, historia_clinica, status, created_by, updated_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
       RETURNING *`,
-      [businessId, data.patient_id, consultationId, actor.id, data.diagnosis, data.indications, data.status, actor.id]
+      [businessId, data.patient_id, consultationId, actor.id, data.diagnosis, data.indications, data.historia_clinica, data.status, actor.id]
     );
     prescriptionRow = rows[0];
   }
@@ -2050,11 +2051,11 @@ async function createPrescription(payload, actor) {
     const resolvedItems = await resolvePrescriptionItemSnapshots(data.items, actor, client);
     const { rows } = await client.query(
       `INSERT INTO medical_prescriptions (
-        business_id, patient_id, consultation_id, doctor_user_id, diagnosis, indications, status, created_by, updated_by
+        business_id, patient_id, consultation_id, doctor_user_id, diagnosis, indications, historia_clinica, status, created_by, updated_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
       RETURNING *`,
-      [businessId, data.patient_id, data.consultation_id, actor.id, data.diagnosis, data.indications, data.status, actor.id]
+      [businessId, data.patient_id, data.consultation_id, actor.id, data.diagnosis, data.indications, data.historia_clinica, data.status, actor.id]
     );
 
     const prescription = rows[0];
@@ -2119,12 +2120,13 @@ async function updatePrescription(id, payload, actor) {
            consultation_id = $2,
            diagnosis = $3,
            indications = $4,
-           status = $5,
-           updated_by = $6,
+           historia_clinica = $5,
+           status = $6,
+           updated_by = $7,
            updated_at = NOW()
-       WHERE id = $7 AND business_id = $8
+       WHERE id = $8 AND business_id = $9
        RETURNING *`,
-      [data.patient_id, data.consultation_id, data.diagnosis, data.indications, data.status, actor.id, id, businessId]
+      [data.patient_id, data.consultation_id, data.diagnosis, data.indications, data.historia_clinica, data.status, actor.id, id, businessId]
     );
     await client.query("DELETE FROM medical_prescription_items WHERE prescription_id = $1", [id]);
     // Carry-over match against `current` (fetched before BEGIN) — an item
@@ -3148,14 +3150,24 @@ function renderClassicPrescription(document, ctx) {
   document.roundedRect(contentX, infoBoxY, contentWidth, infoBoxHeight, 8).lineWidth(0.75).strokeColor("#9ca3af").stroke();
   document.strokeColor("#000000");
 
-  // --- Rp. / Dx. / Tx. box -------------------------------------------------
+  // --- Hx. / Rp. / Dx. / Tx. box -------------------------------------------
   const clinicalBoxY = infoBoxY + infoBoxHeight + 14;
   const sectionContentX = contentX + 44;
   const sectionContentWidth = contentWidth - 56;
 
-  document.font("Helvetica").fontSize(10).text("Rp.", contentX + 10, clinicalBoxY + 10);
+  // Hx. (historia clinica / anamnesis) — first section in the box, same
+  // single-block-of-text pattern as Dx./Tx. below (label + text with a fixed
+  // width, end Y read back from document.y so multi-line Hx text is measured
+  // correctly before the next section's start Y is computed).
+  document.font("Helvetica").fontSize(10).text("Hx.", contentX + 10, clinicalBoxY + 10);
+  document.fontSize(9).text(prescription.historia_clinica || "-", sectionContentX, clinicalBoxY + 10, { width: sectionContentWidth });
+  const hxEndY = document.y + 6;
+  document.moveTo(contentX + 10, hxEndY).lineTo(contentX + contentWidth - 10, hxEndY).lineWidth(0.5).strokeColor("#d4d4d8").stroke();
+  document.strokeColor("#000000");
+
+  document.font("Helvetica").fontSize(10).text("Rp.", contentX + 10, hxEndY + 8);
   document.fontSize(9);
-  let cursorY = clinicalBoxY + 10;
+  let cursorY = hxEndY + 8;
   const { administered, dispensed } = splitPrescriptionItemsByCategory(prescription.items);
   if (administered.length === 0 && dispensed.length === 0) {
     document.text("-", sectionContentX, cursorY, { width: sectionContentWidth });
@@ -3253,6 +3265,7 @@ function renderModernPrescription(document, ctx) {
 
   document.fillColor(accentColor).text("Diagnostico e indicaciones");
   document.fillColor("#000000");
+  document.text(`Historia clinica: ${prescription.historia_clinica || "-"}`);
   document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
   document.text(`Indicaciones generales: ${prescription.indications || "-"}`);
   document.moveDown();
@@ -3307,6 +3320,7 @@ function renderCompactPrescription(document, ctx) {
   document.text(`Medico: ${doctorName}${doctorLicense ? `    Cedula: ${doctorLicense}` : ""}`);
   document.text(`Paciente: ${patient.name}    Tutor: ${patient.client_name || "-"}    Fecha: ${prescription.created_at}    Estado: ${prescription.status}`);
   document.moveDown(0.5);
+  document.text(`Historia clinica: ${prescription.historia_clinica || "-"}`);
   document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
   document.text(`Indicaciones: ${prescription.indications || "-"}`);
   document.moveDown(0.5);
@@ -3373,6 +3387,7 @@ function renderCustomPrescription(document, ctx) {
   document.moveDown();
   drawPrescriptionPatientInfo(document, { patient, prescription });
   document.moveDown();
+  document.text(`Historia clinica: ${prescription.historia_clinica || "-"}`);
   document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
   document.text(`Indicaciones generales: ${prescription.indications || "-"}`);
   document.moveDown();

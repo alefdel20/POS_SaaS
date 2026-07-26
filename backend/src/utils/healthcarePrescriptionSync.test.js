@@ -113,6 +113,9 @@ function basicPublicPrescriptionRow(overrides = {}) {
   return {
     id: 300, business_id: 7, patient_id: 900, consultation_id: null,
     doctor_user_id: null, diagnosis: "Otitis", indications: "Aplicar 2 veces al dia",
+    // Migration 61 — historia clinica / anamnesis (Hx.). '' by default, same
+    // TEXT NOT NULL DEFAULT '' contract as diagnosis/indications.
+    historia_clinica: "",
     status: "issued", metadata: {}, created_by: 42, updated_by: 42,
     created_at: "2026-01-10T10:00:00.000Z", updated_at: "2026-01-10T10:00:00.000Z",
     ...overrides
@@ -141,7 +144,9 @@ test("syncPrescriptionToHealthcare: human prescription with no consultation_id i
   assert.ok(result);
   const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.prescriptions\b/i);
   assert.ok(insertCall);
-  const [businessId, sourcePrescriptionId, subjectType, patientId, petId, clinicalEncounterId, veterinaryEncounterId, , , , , issueStatus] = insertCall.params;
+  // Migration 61 inserted historia_clinica between diagnosis_summary and
+  // issue_status — one more skip than before issueStatus.
+  const [businessId, sourcePrescriptionId, subjectType, patientId, petId, clinicalEncounterId, veterinaryEncounterId, , , , , , issueStatus] = insertCall.params;
   assert.equal(businessId, 7);
   assert.equal(sourcePrescriptionId, 300);
   assert.equal(subjectType, "human");
@@ -153,6 +158,33 @@ test("syncPrescriptionToHealthcare: human prescription with no consultation_id i
   // consultation_id is null -> resolvePrescriptionEncounterId must never even query the encounter tables
   assert.equal(findCall(mockClient.calls, /^SELECT id FROM healthcare\.clinical_encounters\b/i), undefined);
   assert.equal(findCall(mockClient.calls, /^SELECT id FROM healthcare\.veterinary_encounters\b/i), undefined);
+});
+
+test("syncPrescriptionToHealthcare: historia_clinica (Hx.) reaches the INSERT as its own column, never NULL", async () => {
+  const mockClient = createPrescriptionSyncMockClient({
+    publicPatientRow: { id: 900, species: null },
+    healthcarePatientId: 5000
+  });
+  const row = basicPublicPrescriptionRow({
+    historia_clinica: "Antecedente de otitis recurrente, ultimo episodio hace 3 meses."
+  });
+
+  await syncPrescriptionToHealthcare(row, { id: 42 }, mockClient);
+
+  const insertCall = findCall(mockClient.calls, /^INSERT INTO healthcare\.prescriptions\b/i);
+  assert.match(insertCall.sql, /historia_clinica/, "historia_clinica must be one of the inserted columns");
+  assert.ok(
+    insertCall.params.includes("Antecedente de otitis recurrente, ultimo episodio hace 3 meses."),
+    "the Hx. text must be one of the bound INSERT params"
+  );
+
+  const mockClientBlank = createPrescriptionSyncMockClient({
+    publicPatientRow: { id: 900, species: null },
+    healthcarePatientId: 5000
+  });
+  await syncPrescriptionToHealthcare(basicPublicPrescriptionRow(), { id: 42 }, mockClientBlank);
+  const blankInsertCall = findCall(mockClientBlank.calls, /^INSERT INTO healthcare\.prescriptions\b/i);
+  assert.ok(blankInsertCall.params.includes(""), "blank historia_clinica must bind as '', matching TEXT NOT NULL DEFAULT ''");
 });
 
 test("syncPrescriptionToHealthcare: pet prescription with consultation_id resolves veterinary_encounter_id via source_consultation_id", async () => {
@@ -362,8 +394,28 @@ test("syncPrescriptionToHealthcareOnUpdate: issue_status mirrors the source stat
   await syncPrescriptionToHealthcareOnUpdate(row, { id: 42 }, mockClient);
 
   const updateCall = findCall(mockClient.calls, /^UPDATE healthcare\.prescriptions\b/i);
-  const issueStatus = updateCall.params[11];
+  // Migration 61 inserted historia_clinica (index 11) before issue_status,
+  // which shifted from index 11 to 12.
+  const issueStatus = updateCall.params[12];
   assert.equal(issueStatus, "cancelled");
+});
+
+test("syncPrescriptionToHealthcareOnUpdate: historia_clinica (Hx.) reaches the UPDATE as its own SET column", async () => {
+  const mockClient = createPrescriptionSyncMockClient({
+    publicPatientRow: { id: 900, species: null },
+    healthcarePatientId: 5000,
+    existingPrescriptionMirror: true
+  });
+  const row = basicPublicPrescriptionRow({ historia_clinica: "Se corrige anamnesis: sin antecedentes previos." });
+
+  await syncPrescriptionToHealthcareOnUpdate(row, { id: 42 }, mockClient);
+
+  const updateCall = findCall(mockClient.calls, /^UPDATE healthcare\.prescriptions\b/i);
+  assert.match(updateCall.sql, /historia_clinica\s*=\s*\$\d+/, "historia_clinica must be one of the SET columns");
+  assert.ok(
+    updateCall.params.includes("Se corrige anamnesis: sin antecedentes previos."),
+    "the updated Hx. text must be one of the bound UPDATE params"
+  );
 });
 
 // --- clinicalService: end-to-end wiring (via mocked pool.connect) ----------
@@ -396,11 +448,12 @@ function createEndToEndMockClient({ patientRow, existingPatientMirrorId = 5000, 
       return { rows: existingPatientMirrorId ? [{ id: existingPatientMirrorId }] : [] };
     }
     if (/^INSERT INTO medical_prescriptions\b/i.test(normalized)) {
-      const [businessId, patientId, consultationId, doctorUserId, diagnosis, indications, status, createdBy] = params;
+      // Migration 61 inserted historia_clinica between indications and status.
+      const [businessId, patientId, consultationId, doctorUserId, diagnosis, indications, historiaClinica, status, createdBy] = params;
       return {
         rows: [{
           id: nextId++, business_id: businessId, patient_id: patientId, consultation_id: consultationId,
-          doctor_user_id: doctorUserId, diagnosis, indications, status, metadata: {},
+          doctor_user_id: doctorUserId, diagnosis, indications, historia_clinica: historiaClinica, status, metadata: {},
           created_by: createdBy, updated_by: createdBy,
           created_at: "2026-01-10T10:00:00.000Z", updated_at: "2026-01-10T10:00:00.000Z"
         }]
@@ -419,12 +472,13 @@ function createEndToEndMockClient({ patientRow, existingPatientMirrorId = 5000, 
           }]
         };
       }
-      // updatePrescription's full UPDATE: [patientId, consultationId, diagnosis, indications, status, updatedBy, id, businessId]
-      const [patientId, consultationId, diagnosis, indications, status, updatedBy, id, businessId] = params;
+      // updatePrescription's full UPDATE: [patientId, consultationId, diagnosis, indications, historiaClinica, status, updatedBy, id, businessId]
+      // (migration 61 inserted historiaClinica between indications and status)
+      const [patientId, consultationId, diagnosis, indications, historiaClinica, status, updatedBy, id, businessId] = params;
       return {
         rows: [{
           id, business_id: businessId, patient_id: patientId, consultation_id: consultationId,
-          doctor_user_id: null, diagnosis, indications, status, metadata: {},
+          doctor_user_id: null, diagnosis, indications, historia_clinica: historiaClinica, status, metadata: {},
           created_by: updatedBy, updated_by: updatedBy,
           created_at: "2026-01-10T10:00:00.000Z", updated_at: "2026-01-10T10:00:01.000Z"
         }]
@@ -517,7 +571,9 @@ test("clinicalService.createPrescription: syncs into healthcare.prescriptions af
 
   const syncParams = calls[syncInsertIndex].params;
   assert.equal(syncParams[2], "human");
-  assert.equal(syncParams[11], "draft"); // default status from buildPrescriptionPayload
+  // Migration 61 inserted historia_clinica before issue_status, shifting it
+  // from index 11 to 12.
+  assert.equal(syncParams[12], "draft"); // default status from buildPrescriptionPayload
   assert.ok(created);
 });
 
@@ -581,6 +637,8 @@ test("clinicalService.setPrescriptionStatus: status-only change still re-syncs h
   const syncUpdateCall = findCall(calls, /^UPDATE healthcare\.prescriptions\b/i);
   assert.ok(statusUpdateCall, "expected the status-only UPDATE against medical_prescriptions");
   assert.ok(syncUpdateCall, "expected setPrescriptionStatus to also re-sync healthcare.prescriptions");
-  assert.equal(syncUpdateCall.params[11], "cancelled");
+  // Migration 61 inserted historia_clinica before issue_status, shifting it
+  // from index 11 to 12.
+  assert.equal(syncUpdateCall.params[12], "cancelled");
   assert.ok(calls.indexOf(statusUpdateCall) < calls.indexOf(syncUpdateCall), "sync must run after the status UPDATE, using its RETURNING row");
 });

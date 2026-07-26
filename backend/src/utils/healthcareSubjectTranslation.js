@@ -1266,6 +1266,7 @@ async function buildPrescriptionMirrorFields(publicPrescriptionRow, syncSource, 
     prescriptionDate: publicPrescriptionRow.created_at,
     indicationsGeneral: publicPrescriptionRow.indications || "",
     diagnosisSummary: publicPrescriptionRow.diagnosis || "",
+    historiaClinica: publicPrescriptionRow.historia_clinica || "",
     issueStatus: publicPrescriptionRow.status,
     metadataJson: JSON.stringify(metadata)
   };
@@ -1285,10 +1286,10 @@ async function insertPrescriptionMirror(fields, businessId, sourcePrescriptionId
        business_id, source_prescription_id, subject_type, patient_id, pet_id,
        clinical_encounter_id, veterinary_encounter_id, prescriber_user_id,
        document_folio_id, prescription_date, valid_until, indications_general,
-       diagnosis_summary, issue_status, regulatory_scope, metadata, status,
+       diagnosis_summary, historia_clinica, issue_status, regulatory_scope, metadata, status,
        is_active, created_by, updated_by
      )
-     SELECT $1, $2, $3, $4, $5, $6, $7, $8, NULL::BIGINT, $9, NULL::TIMESTAMPTZ, $10, $11, $12, 'standard', $13::jsonb, 'active', TRUE, $14, $14
+     SELECT $1, $2, $3, $4, $5, $6, $7, $8, NULL::BIGINT, $9, NULL::TIMESTAMPTZ, $10, $11, $12, $13, 'standard', $14::jsonb, 'active', TRUE, $15, $15
      WHERE NOT EXISTS (
        SELECT 1 FROM healthcare.prescriptions hpr
        WHERE hpr.source_prescription_id = $2 AND hpr.business_id = $1
@@ -1306,6 +1307,7 @@ async function insertPrescriptionMirror(fields, businessId, sourcePrescriptionId
       fields.prescriptionDate,
       fields.indicationsGeneral,
       fields.diagnosisSummary,
+      fields.historiaClinica,
       fields.issueStatus,
       fields.metadataJson,
       actorId
@@ -1337,9 +1339,10 @@ async function updatePrescriptionMirror(fields, businessId, sourcePrescriptionId
          prescription_date = $9,
          indications_general = $10,
          diagnosis_summary = $11,
-         issue_status = $12,
-         metadata = $13::jsonb,
-         updated_by = $14,
+         historia_clinica = $12,
+         issue_status = $13,
+         metadata = $14::jsonb,
+         updated_by = $15,
          updated_at = NOW()
      WHERE source_prescription_id = $2 AND business_id = $1
      RETURNING id`,
@@ -1355,6 +1358,7 @@ async function updatePrescriptionMirror(fields, businessId, sourcePrescriptionId
       fields.prescriptionDate,
       fields.indicationsGeneral,
       fields.diagnosisSummary,
+      fields.historiaClinica,
       fields.issueStatus,
       fields.metadataJson,
       actorId
