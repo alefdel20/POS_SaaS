@@ -522,6 +522,18 @@ export function MedicalConsultationsPage() {
         }
       ]
     }));
+    // "administered" es lo que el vet aplica en consulta — mismo hecho que
+    // normalmente ya describe a mano en Tx., asi que se anexa el nombre para
+    // no escribirlo dos veces. "dispensed" (se lo lleva el dueno) no tiene
+    // relacion con la nota de tratamiento, se deja fuera.
+    if (category === "administered") {
+      setForm((current) => ({
+        ...current,
+        tratamiento: current.tratamiento.trim()
+          ? `${current.tratamiento.trim()}, ${product.name}`
+          : product.name
+      }));
+    }
   }
 
   // "Medicamento fuera de catalogo" — texto libre SOLO para impresion,
@@ -552,6 +564,15 @@ export function MedicalConsultationsPage() {
         }
       ]
     }));
+    // Mismo criterio que addMedicationToPrescription — ver comentario ahi.
+    if (category === "administered") {
+      setForm((current) => ({
+        ...current,
+        tratamiento: current.tratamiento.trim()
+          ? `${current.tratamiento.trim()}, ${trimmed}`
+          : trimmed
+      }));
+    }
   }
 
   function updatePrescriptionItem(index: number, changes: Partial<PrescriptionItemForm>) {
