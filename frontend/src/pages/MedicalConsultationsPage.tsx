@@ -1081,6 +1081,9 @@ export function MedicalConsultationsPage() {
               Tx. *
               <textarea required value={form.tratamiento} onChange={(event) => setForm({ ...form, tratamiento: event.target.value })} />
             </label>
+            <div className="form-span-2">
+              {renderPrescriptionCategorySection("administered", administeredSearch)}
+            </div>
             <label>
               Temperatura (°C)
               <input type="number" step="0.1" min="20" max="45" value={form.temperature} onChange={(event) => setForm({ ...form, temperature: event.target.value })} />
@@ -1091,7 +1094,6 @@ export function MedicalConsultationsPage() {
             </label>
 
             <div className="form-span-2 invoice-grid">
-              {renderPrescriptionCategorySection("administered", administeredSearch)}
               {renderPrescriptionCategorySection("dispensed", dispensedSearch)}
             </div>
 
