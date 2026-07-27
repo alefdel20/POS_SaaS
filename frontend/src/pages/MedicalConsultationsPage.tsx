@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiDownload, apiRequest } from "../api/client";
 import { AssignPatientResponsible } from "../components/AssignPatientResponsible";
 import { NameAutocomplete, NameAutocompleteValue } from "../components/NameAutocomplete";
+import { UnconfirmedFieldsModal } from "../components/UnconfirmedFieldsModal";
 import { useAuth } from "../context/AuthContext";
 import type { ClinicalAppointment, ClinicalConsultation, ClinicalPatientDetail, MedicalPrescription, Product } from "../types";
 import { formatDate, shortDateTime } from "../utils/format";
@@ -106,6 +107,79 @@ const emptyPrescriptionForm: PrescriptionFormState = {
 };
 
 const emptyPatientValue: NameAutocompleteValue = { id: null, name: "" };
+
+// Popup de campos sin confirmar (Paciente/Cliente/Tx.) — ver computePendingFields
+// y computeTratamientoResolution en el componente. `kind` solo se usa para
+// derivar el label; UnconfirmedFieldsModal únicamente pinta label+detail.
+type PendingFieldKind = "patient" | "client" | "tratamiento";
+
+type PendingField = {
+  kind: PendingFieldKind;
+  label: string;
+  detail: string;
+};
+
+// Valores ya resueltos que submitConsultation recibe explícitamente en vez de
+// leer patientValue/clientValue/form.tratamiento/prescriptionForm.items del
+// closure — así el flujo de "Guardar así" (que dispara setState para dejar la
+// UI consistente y en el MISMO tick construye el payload) nunca depende de
+// que esos setState ya se hayan aplicado.
+type ResolvedSubmitValues = {
+  patient: NameAutocompleteValue;
+  client: NameAutocompleteValue;
+  tratamiento: string;
+  prescriptionItems: PrescriptionItemForm[];
+};
+
+// Misma concatenación que addMedicationToPrescription/addOutOfCatalogMedicationToPrescription
+// usan para anexar el nombre del medicamento a Tx. (ver esas funciones abajo)
+// — deliberadamente NO se llama a esas funciones aquí porque son 100% setState
+// (no devuelven el string resultante), y "Guardar así" necesita el valor
+// resuelto de forma sincrona para pasarlo a submitConsultation en el mismo
+// tick. Si esa concatenación cambia alguna vez, debe cambiar en los 3 sitios.
+function buildAppendedTratamiento(currentTratamiento: string, medicationName: string) {
+  const trimmedCurrent = currentTratamiento.trim();
+  return trimmedCurrent ? `${trimmedCurrent}, ${medicationName}` : medicationName;
+}
+
+// Espejo puro del item que arma addMedicationToPrescription (linea ~515) —
+// mismo motivo que buildAppendedTratamiento: se necesita el valor sin pasar
+// por setState para construirlo de forma sincrona.
+function buildCatalogPrescriptionItem(product: Product, category: PrescriptionItemForm["item_category"]): PrescriptionItemForm {
+  return {
+    product_id: product.id,
+    medication_name_snapshot: product.name,
+    presentation_snapshot: product.unidad_de_venta || product.category || "",
+    quantity: "1",
+    item_category: category,
+    deducts_stock: true,
+    stock_snapshot: product.stock ?? null,
+    dose: "",
+    frequency: "",
+    duration: "",
+    route_of_administration: "",
+    notes: ""
+  };
+}
+
+// Espejo puro del item que arma addOutOfCatalogMedicationToPrescription (linea ~555).
+function buildOutOfCatalogPrescriptionItem(name: string, category: PrescriptionItemForm["item_category"]): PrescriptionItemForm {
+  const trimmed = name.trim();
+  return {
+    product_id: null,
+    medication_name_snapshot: trimmed,
+    presentation_snapshot: "",
+    quantity: "1",
+    item_category: category,
+    deducts_stock: false,
+    stock_snapshot: null,
+    dose: "",
+    frequency: "",
+    duration: "",
+    route_of_administration: "",
+    notes: ""
+  };
+}
 
 function consultationToForm(consultation: ClinicalConsultation | null): ConsultationFormState {
   return {
@@ -269,6 +343,10 @@ export function MedicalConsultationsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  // null = popup cerrado. Array (incluso vacio en teoria, aunque handleSubmit
+  // solo lo abre con length > 0) = hay campos sin confirmar pendientes de
+  // "Editar" o "Guardar asi" — ver computePendingFields.
+  const [pendingFields, setPendingFields] = useState<PendingField[] | null>(null);
   const showSpecies = showsPatientSpecies(user?.pos_type);
   const humanPatientsOnly = usesHumanPatientsOnly(user?.pos_type);
   const visibleConsultations = search.trim() ? consultations : consultations.slice(0, 5);
@@ -461,6 +539,9 @@ export function MedicalConsultationsPage() {
   function resetFeedback() {
     setError("");
     setInfo("");
+    // Called from startCreate/startEdit/cancelForm/submitConsultation — closes
+    // any leftover popup from a previous submit attempt on the same form.
+    setPendingFields(null);
   }
 
   function startCreate() {
@@ -732,18 +813,88 @@ export function MedicalConsultationsPage() {
     );
   }
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (!token) return;
-    if (!patientValue.id && !patientValue.confirmedNew) {
-      setError("Selecciona un paciente existente o confirma la creación de uno nuevo con “Crear como paciente nuevo”.");
-      return;
-    }
-    if (!form.tratamiento.trim()) {
-      setError("Agrega al menos un medicamento usado en consulta para completar el tratamiento (Tx.).");
-      return;
+  // Resuelve el pendiente de Tx.: null si tratamiento ya tiene texto o si no
+  // hay nada escrito en el buscador administered (nada que resolver). Cuando
+  // hay pendiente, devuelve TODO lo necesario tanto para pintar el detail en
+  // el popup como para aplicarlo de verdad desde "Guardar así" — el mismo
+  // product/query se usa para ambos, capturado una sola vez en closures, para
+  // que el texto mostrado en el popup y lo que finalmente se guarda nunca
+  // puedan divergir.
+  //
+  // El boton "Agregar como fuera de catalogo" (linea ~716 mas abajo) solo
+  // existe en el DOM cuando suggestions.length === 0 — por eso, a diferencia
+  // de Paciente/Cliente, aqui no hay un click que "simular": cuando SI hay
+  // sugerencias de catalogo se toma la primera (decision de producto ya
+  // confirmada) en vez de forzar texto libre.
+  function computeTratamientoResolution(): {
+    detail: string;
+    tratamiento: string;
+    item: PrescriptionItemForm;
+    applyStateUpdate: () => void;
+  } | null {
+    if (form.tratamiento.trim()) return null;
+    const query = administeredSearch.query.trim();
+    if (!query) return null;
+
+    if (administeredSearch.suggestions.length > 0) {
+      const product = administeredSearch.suggestions[0];
+      return {
+        detail: `'${product.name}' se agregará del catálogo`,
+        tratamiento: buildAppendedTratamiento(form.tratamiento, product.name),
+        item: buildCatalogPrescriptionItem(product, "administered"),
+        applyStateUpdate: () => {
+          addMedicationToPrescription(product, "administered");
+          administeredSearch.reset();
+        }
+      };
     }
 
+    return {
+      detail: `'${query}' se agregará como medicamento fuera de catálogo`,
+      tratamiento: buildAppendedTratamiento(form.tratamiento, query),
+      item: buildOutOfCatalogPrescriptionItem(query, "administered"),
+      applyStateUpdate: () => {
+        addOutOfCatalogMedicationToPrescription(query, "administered");
+        administeredSearch.reset();
+      }
+    };
+  }
+
+  // Misma logica de "hay texto pero no se confirmo" ya validada en la
+  // investigacion previa para Paciente/Cliente, mas la resolucion de Tx. de
+  // arriba. Puramente de lectura — no dispara ningun setState.
+  function computePendingFields(): PendingField[] {
+    const pending: PendingField[] = [];
+    if (!patientValue.id && !patientValue.confirmedNew && patientValue.name.trim()) {
+      pending.push({
+        kind: "patient",
+        label: "Paciente / mascota",
+        detail: `'${patientValue.name.trim()}' se creará como paciente nuevo`
+      });
+    }
+    if (!clientValue.id && !clientValue.confirmedNew && clientValue.name.trim()) {
+      pending.push({
+        kind: "client",
+        label: "Cliente",
+        detail: `'${clientValue.name.trim()}' se creará como cliente nuevo`
+      });
+    }
+    const tratamientoResolution = computeTratamientoResolution();
+    if (tratamientoResolution) {
+      pending.push({ kind: "tratamiento", label: "Tx. (medicamento administrado)", detail: tratamientoResolution.detail });
+    }
+    return pending;
+  }
+
+  // Unica funcion que arma el payload y llama a la API — recibe los valores
+  // YA RESUELTOS explicitamente en vez de leer patientValue/clientValue/
+  // form.tratamiento/prescriptionForm.items del closure, para que "Guardar
+  // así" (que dispara setState justo antes, en el mismo tick, solo para dejar
+  // la UI consistente) nunca dependa de que React ya haya aplicado esos
+  // setState. El boton "Guardar" normal (sin pendientes) le pasa el estado
+  // actual tal cual, que en ese caso ya es el valor correcto.
+  async function submitConsultation(resolved: ResolvedSubmitValues) {
+    if (!token) return;
     try {
       setSaving(true);
       resetFeedback();
@@ -751,10 +902,11 @@ export function MedicalConsultationsPage() {
       const path = mode === "edit" && selectedId ? `/medical-consultations/${selectedId}` : "/medical-consultations";
       const payload: Record<string, unknown> = {
         ...form,
-        ...(patientValue.id
-          ? { patient_id: patientValue.id }
+        tratamiento: resolved.tratamiento,
+        ...(resolved.patient.id
+          ? { patient_id: resolved.patient.id }
           : {
-            patient_name: patientValue.name.trim(),
+            patient_name: resolved.patient.name.trim(),
             patient_sex: newPatientSex,
             patient_weight: newPatientWeight.trim() || undefined,
             patient_breed: newPatientBreed.trim() || undefined,
@@ -765,10 +917,10 @@ export function MedicalConsultationsPage() {
         // so this has to be resolved explicitly. Unconfirmed free text is
         // dropped rather than sent, same "don't silently create" rule as the
         // patient field.
-        ...(clientValue.id
-          ? { client_id: clientValue.id }
-          : clientValue.confirmedNew && clientValue.name.trim()
-            ? { client_name: clientValue.name.trim(), client_phone: newClientPhone.trim() || undefined }
+        ...(resolved.client.id
+          ? { client_id: resolved.client.id }
+          : resolved.client.confirmedNew && resolved.client.name.trim()
+            ? { client_name: resolved.client.name.trim(), client_phone: newClientPhone.trim() || undefined }
             : {}),
         appointment_id: form.appointment_id ? Number(form.appointment_id) : null,
         temperature: form.temperature.trim() ? Number(form.temperature) : null
@@ -781,10 +933,10 @@ export function MedicalConsultationsPage() {
       // Only an explicit switch to "Borrador" opts out of saving one.
       payload.prescription = {
         diagnosis: form.diagnostico,
-        indications: form.tratamiento,
+        indications: resolved.tratamiento,
         historia_clinica: prescriptionForm.historia_clinica,
         status: prescriptionForm.status,
-        items: prescriptionForm.items.map((item) => ({
+        items: resolved.prescriptionItems.map((item) => ({
           product_id: item.product_id,
           medication_name_snapshot: item.medication_name_snapshot,
           presentation_snapshot: item.presentation_snapshot,
@@ -816,6 +968,78 @@ export function MedicalConsultationsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!token) return;
+
+    // Antes que las validaciones duras de abajo: si hay texto sin confirmar
+    // en Paciente/Cliente/Tx., se pausa el submit y se muestra el popup en
+    // vez de bloquear directo o de guardar ignorando ese texto.
+    const pending = computePendingFields();
+    if (pending.length > 0) {
+      setPendingFields(pending);
+      return;
+    }
+
+    // Red de seguridad final — solo se alcanza cuando de verdad no hay ni
+    // seleccion/confirmacion NI texto pendiente (campo realmente vacio).
+    if (!patientValue.id && !patientValue.confirmedNew) {
+      setError("Selecciona un paciente existente o confirma la creación de uno nuevo con “Crear como paciente nuevo”.");
+      return;
+    }
+    if (!form.tratamiento.trim()) {
+      setError("Agrega al menos un medicamento usado en consulta para completar el tratamiento (Tx.).");
+      return;
+    }
+
+    await submitConsultation({
+      patient: patientValue,
+      client: clientValue,
+      tratamiento: form.tratamiento,
+      prescriptionItems: prescriptionForm.items
+    });
+  }
+
+  function handleEditPendingFields() {
+    setPendingFields(null);
+  }
+
+  async function handleSaveAnyway() {
+    const tratamientoResolution = computeTratamientoResolution();
+    const patientPending = !patientValue.id && !patientValue.confirmedNew && patientValue.name.trim().length > 0;
+    const clientPending = !clientValue.id && !clientValue.confirmedNew && clientValue.name.trim().length > 0;
+
+    // Valores resueltos calculados como constantes locales ANTES de disparar
+    // ningun setState — esto es lo que se le pasa a submitConsultation, nunca
+    // patientValue/clientValue/form.tratamiento/prescriptionForm.items leidos
+    // despues de los setState de abajo.
+    const resolvedPatient: NameAutocompleteValue = patientPending ? { ...patientValue, confirmedNew: true } : patientValue;
+    const resolvedClient: NameAutocompleteValue = clientPending ? { ...clientValue, confirmedNew: true } : clientValue;
+    const resolvedTratamiento = tratamientoResolution ? tratamientoResolution.tratamiento : form.tratamiento;
+    const resolvedPrescriptionItems = tratamientoResolution
+      ? [...prescriptionForm.items, tratamientoResolution.item]
+      : prescriptionForm.items;
+
+    // Mismos setState que los botones individuales "Crear como X nuevo" /
+    // "Agregar como fuera de catalogo" hubieran disparado — solo para que la
+    // UI (tabla de medicamentos, "Vinculado a..." debajo del input, etc.)
+    // quede consistente una vez cerrado el popup. submitConsultation ya
+    // recibio los valores resueltos arriba; no depende de que esto se
+    // aplique a tiempo.
+    if (patientPending) setPatientValue((current) => ({ ...current, confirmedNew: true }));
+    if (clientPending) setClientValue((current) => ({ ...current, confirmedNew: true }));
+    tratamientoResolution?.applyStateUpdate();
+
+    setPendingFields(null);
+
+    await submitConsultation({
+      patient: resolvedPatient,
+      client: resolvedClient,
+      tratamiento: resolvedTratamiento,
+      prescriptionItems: resolvedPrescriptionItems
+    });
   }
 
   async function handleStatus(nextStatus: boolean) {
@@ -1297,6 +1521,10 @@ export function MedicalConsultationsPage() {
           </div>
         </div>
       )}
+
+      {pendingFields ? (
+        <UnconfirmedFieldsModal items={pendingFields} onEdit={handleEditPendingFields} onSaveAnyway={handleSaveAnyway} />
+      ) : null}
     </section>
   );
 }

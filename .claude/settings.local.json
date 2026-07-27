@@ -106,7 +106,9 @@
       "Bash(echo \"TSC_EXIT=$?\")",
       "Bash(git show *)",
       "Read(//tmp/**)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(./node_modules/.bin/tsc --noEmit -p .)",
+      "Bash(npx --yes --package typescript tsc --noEmit -p .)"
     ]
   }
 }
