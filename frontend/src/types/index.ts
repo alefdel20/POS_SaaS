@@ -1168,6 +1168,10 @@ export interface DashboardSummary {
     }>;
     approval_path?: string;
     restock_path?: string;
+    restock_shortcuts?: Array<{
+      label: string;
+      path: string;
+    }>;
   };
 }
 

@@ -404,6 +404,27 @@ async function getTodayDailyCut(actor) {
   };
 }
 
+async function getHourlySales(date, actor) {
+  const businessId = requireActorBusinessId(actor);
+  const cutDate = normalizeBusinessDate(date, getLocalIsoDate());
+  const { rows } = await pool.query(
+    `SELECT
+       EXTRACT(HOUR FROM sales.sale_date)::int AS hour,
+       COALESCE(SUM(GREATEST(COALESCE(sales.total, 0), 0)), 0) AS total
+     FROM sales
+     WHERE sales.business_id = $1
+       AND sales.sale_date::date = $2::date
+       AND ${VALID_SALE_STATUS_SQL}
+     GROUP BY EXTRACT(HOUR FROM sales.sale_date)`,
+    [businessId, cutDate]
+  );
+  const totalsByHour = new Map(rows.map((row) => [Number(row.hour), Number(row.total)]));
+  return Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    total: totalsByHour.get(hour) || 0
+  }));
+}
+
 async function listMonthlyCuts(filters = {}, actor) {
   const businessId = requireActorBusinessId(actor);
   const { whereClause, values } = buildCutFilters(filters, 2);
@@ -658,4 +679,4 @@ async function getCurrentSession(actor) {
   };
 }
 
-module.exports = { recomputeDailyCut, listDailyCuts, getTodayDailyCut, exportDailyCutsExcel, listManualCuts, createManualCut, openCashRegister, getCurrentSession };
+module.exports = { recomputeDailyCut, listDailyCuts, getTodayDailyCut, getHourlySales, exportDailyCutsExcel, listManualCuts, createManualCut, openCashRegister, getCurrentSession };

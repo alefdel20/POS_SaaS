@@ -19,6 +19,7 @@ type FilterState = {
 
 type Denominations = Record<string, number>;
 type CashCutFilter = "all" | "cash" | "manual";
+type HourlySale = { hour: number; total: number };
 
 const BILL_DENOMINATIONS: number[] = [1000, 500, 200, 100, 50, 20];
 const COIN_DENOMINATIONS: number[] = [10, 5, 2, 1, 0.5];
@@ -93,6 +94,9 @@ export function DailyCutPage() {
   const [openingInput, setOpeningInput] = useState("");
   const [openingCash, setOpeningCash] = useState(false);
   const [sessionError, setSessionError] = useState("");
+  const [hourlySales, setHourlySales] = useState<HourlySale[]>(() =>
+    Array.from({ length: 24 }, (_, hour) => ({ hour, total: 0 }))
+  );
 
   async function loadCashSession() {
     if (!token) return;
@@ -129,6 +133,12 @@ export function DailyCutPage() {
     setManualCuts(response);
   }
 
+  async function loadHourlySales() {
+    if (!token) return;
+    const response = await apiRequest<HourlySale[]>("/daily-cuts/hourly", { token });
+    setHourlySales(response);
+  }
+
   useEffect(() => {
     if (!token) return;
     loadCashSession().catch(() => {});
@@ -149,6 +159,11 @@ export function DailyCutPage() {
       setUsers([]);
     }
   }, [token, user?.role]);
+
+  useEffect(() => {
+    if (!token || !hasSalesReports) return;
+    loadHourlySales().catch(() => {});
+  }, [token, hasSalesReports]);
 
   const todayCashReal = Number(today?.cash_real ?? today?.total_day ?? 0);
   const todayCreditGenerated = Number(today?.credit_generated ?? today?.credit_total ?? 0);
@@ -386,6 +401,7 @@ export function DailyCutPage() {
             <a href="/profile" className="button">Actualizar plan</a>
           </div>
         ) : (
+          <>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem", marginTop: "1rem" }}>
           {/* Donut — Distribución de ingresos */}
           <div className="panel" style={{ flex: "1 1 260px", minWidth: 0 }}>
@@ -466,12 +482,68 @@ export function DailyCutPage() {
                 </ResponsiveContainer>
               )}
             </div>
+            {/* Stat — Ticket promedio */}
+            <div className="panel" style={{ flex: 1 }}>
+              <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Ticket promedio</h3>
+              {!today || today.ticket_count === 0 ? (
+                <p className="muted" style={{ textAlign: "center", paddingTop: "2rem", paddingBottom: "2rem" }}>Sin ventas registradas hoy</p>
+              ) : (
+                <div className="stat-card" style={{ textAlign: "center", padding: "1rem 0" }}>
+                  <span className="stat-label">Total del día ÷ Tickets</span>
+                  <strong className="stat-value" style={{ fontSize: "1.75rem" }}>{currency(today.total_day / today.ticket_count)}</strong>
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Bar — Ventas por hora */}
+        <div className="panel" style={{ marginTop: "1rem" }}>
+          <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Ventas por hora (hoy)</h3>
+          {hourlySales.every((h) => h.total === 0) ? (
+            <p className="muted" style={{ textAlign: "center", paddingTop: "2rem", paddingBottom: "2rem" }}>Sin ventas registradas hoy</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={hourlySales}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
+                <XAxis dataKey="hour" tickFormatter={(h) => `${h}:00`} tick={{ fontSize: 10, fill: "#9ca3af" }} interval={1} />
+                <YAxis tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: "#9ca3af" }} width={42} />
+                <Tooltip formatter={(v) => currency(Number(v))} labelFormatter={(h) => `${h}:00 hrs`} />
+                <Bar dataKey="total" name="Ventas" radius={[4, 4, 0, 0]}>
+                  {hourlySales.map((entry, i) => (
+                    <Cell key={i} fill={entry.total > 0 ? "#6366f1" : "rgba(148,163,184,0.25)"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+          </>
         )}
 
         {previousComparableCut ? (
           <div className="info-card">
+            {hasSalesReports ? (
+              <>
+                <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Hoy vs. {shortDate(previousComparableCut.cut_date)}</h3>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart
+                    data={[
+                      { name: "Total del día", Hoy: today?.total_day || 0, Anterior: previousComparableCut.total_day },
+                      { name: "Ganancia", Hoy: today?.gross_profit || 0, Anterior: previousComparableCut.gross_profit },
+                    ]}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#9ca3af" }} />
+                    <YAxis tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: "#9ca3af" }} width={42} />
+                    <Tooltip formatter={(v) => currency(Number(v))} />
+                    <Legend />
+                    <Bar dataKey="Anterior" name={shortDate(previousComparableCut.cut_date)} fill="#9ca3af" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Hoy" name="Hoy" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </>
+            ) : null}
             <p>Comparado con {shortDate(previousComparableCut.cut_date)}: <strong>{totalComparison && totalComparison >= 0 ? "+" : ""}{currency(totalComparison || 0)}</strong> en total del dia.</p>
             <p>Diferencia en ganancia: <strong>{profitComparison && profitComparison >= 0 ? "+" : ""}{currency(profitComparison || 0)}</strong>.</p>
           </div>

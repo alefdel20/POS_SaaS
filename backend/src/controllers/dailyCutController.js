@@ -39,6 +39,15 @@ const getTodayDailyCut = asyncHandler(async (req, res) => {
   res.json(await dailyCutService.getTodayDailyCut(req.user));
 });
 
+const hourlyValidation = [
+  query("date").optional().isISO8601(),
+  validateRequest
+];
+
+const getHourlySales = asyncHandler(async (req, res) => {
+  res.json(await dailyCutService.getHourlySales(req.query.date, req.user));
+});
+
 const exportDailyCuts = asyncHandler(async (req, res) => {
   const { buffer, filename } = await dailyCutService.exportDailyCutsExcel(req.query.period || "daily", req.query, req.user);
 
@@ -76,8 +85,10 @@ module.exports = {
   listValidation,
   exportValidation,
   manualCutValidation,
+  hourlyValidation,
   listDailyCuts,
   getTodayDailyCut,
+  getHourlySales,
   exportDailyCuts,
   listManualCuts,
   createManualCut,

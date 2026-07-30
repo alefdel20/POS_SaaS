@@ -47,6 +47,7 @@ export function DashboardPage() {
   const isHealthManagementPos = user?.pos_type === "FarmaciaConsultorio" || user?.pos_type === "Veterinaria" || user?.pos_type === "Dentista" || user?.pos_type === "ClinicaChica" || user?.pos_type === "Farmacia";
   const approvalPath = summary?.operations?.approval_path || (isHealthManagementPos ? "/health/admin/approvals" : "/retail/admin/approvals");
   const restockPath = summary?.operations?.restock_path || (user?.pos_type === "FarmaciaConsultorio" || user?.pos_type === "Farmacia" ? "/health/products/medications/restock" : user?.pos_type === "Veterinaria" || user?.pos_type === "Dentista" || user?.pos_type === "ClinicaChica" ? "/health/products/accessories/restock" : "/retail/products/restock");
+  const restockShortcuts = summary?.operations?.restock_shortcuts || [];
   const shouldShowFiscalBlock = Boolean(profile?.has_fiscal_profile || Number(summary?.stamps_available ?? profile?.stamps_available ?? 0) > 0);
 
   const primaryCards = useMemo(() => {
@@ -109,13 +110,21 @@ export function DashboardPage() {
                 >
                   {adminApprovals?.pending != null ? `Solicitudes pendientes (${adminApprovals.pending})` : "Solicitudes pendientes"}
                 </Link>
-                <Link
-                  className="button ghost"
-                  style={summary?.low_stock_products === 0 ? { opacity: 0.5 } : undefined}
-                  to={restockPath}
-                >
-                  {summary?.low_stock_products != null ? `Stock bajo (${summary.low_stock_products})` : "Stock bajo"}
-                </Link>
+                {restockShortcuts.length ? (
+                  restockShortcuts.map((shortcut) => (
+                    <Link className="button ghost" key={shortcut.path} to={shortcut.path}>
+                      {shortcut.label}
+                    </Link>
+                  ))
+                ) : (
+                  <Link
+                    className="button ghost"
+                    style={summary?.low_stock_products === 0 ? { opacity: 0.5 } : undefined}
+                    to={restockPath}
+                  >
+                    {summary?.low_stock_products != null ? `Stock bajo (${summary.low_stock_products})` : "Stock bajo"}
+                  </Link>
+                )}
               </>
             ) : null}
           </div>

@@ -214,23 +214,31 @@ async function getSummary(actor) {
   return summaryPayload;
 }
 
+function hasFoodAccessoriesSplit(posType) {
+  return String(posType || "") === "Veterinaria";
+}
+
 async function getOperationalSummary({ actor, businessId, today, role, isClinicalVertical }) {
   if (role === "cajero") {
     const requestSummary = await getProductUpdateRequestSummary(actor);
+    const cajeroShortcuts = [
+      { label: "Ir a ventas", path: "/sales" },
+      {
+        label: "Ver reabastecimiento",
+        path: actor?.pos_type === "FarmaciaConsultorio"
+          ? "/health/products/medications/restock"
+          : isHealthcareVertical(actor?.pos_type)
+            ? "/health/products/accessories/restock"
+            : "/retail/products/restock"
+      }
+    ];
+    if (hasFoodAccessoriesSplit(actor?.pos_type)) {
+      cajeroShortcuts.push({ label: "Ver reabastecimiento — Alimentos", path: "/health/products/food/restock" });
+    }
     return {
       role: "cajero",
       approvals: requestSummary,
-      shortcuts: [
-        { label: "Ir a ventas", path: "/sales" },
-        {
-          label: "Ver reabastecimiento",
-          path: actor?.pos_type === "FarmaciaConsultorio"
-            ? "/health/products/medications/restock"
-            : isHealthcareVertical(actor?.pos_type)
-              ? "/health/products/accessories/restock"
-              : "/retail/products/restock"
-        }
-      ]
+      shortcuts: cajeroShortcuts
     };
   }
 
@@ -374,6 +382,12 @@ async function getOperationalSummary({ actor, businessId, today, role, isClinica
       : isHealthcareVertical(actor?.pos_type)
         ? "/health/products/accessories/restock"
         : "/retail/products/restock",
+    restock_shortcuts: hasFoodAccessoriesSplit(actor?.pos_type)
+      ? [
+          { label: "Accesorios", path: "/health/products/accessories/restock" },
+          { label: "Alimentos", path: "/health/products/food/restock" }
+        ]
+      : undefined,
     appointments_today: todayAppointmentsResult.rows,
     recent_manual_cuts: recentManualCutsResult.rows.map((row) => ({
       id: Number(row.id),
