@@ -21,6 +21,7 @@
   --modal-panel: rgba(15, 23, 42, 0.96);
   --modal-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
   --sidebar-rail-width: 64px;
+  --sidebar-width: 320px;
 }
 
 :root,
@@ -174,7 +175,7 @@ td {
   gap: 1.25rem;
   position: fixed;
   inset: 0 auto 0 0;
-  width: min(320px, 88vw);
+  width: min(var(--sidebar-width), 88vw);
   z-index: 60;
   padding: 1.5rem;
   border-right: 1px solid var(--border);
@@ -198,6 +199,15 @@ td {
    izquierdo, igual que el sidebar del resto de los pos_type. */
 .app-shell.has-rail-sidebar .app-main {
   margin-left: var(--sidebar-rail-width);
+}
+
+/* Push-layout: en >=1024px (ver useMediaQuery en AppLayout.tsx) el sidebar abierto
+   (legacy o el panel expandido de Veterinaria, comparten .sidebar/.sidebar.open)
+   reserva su propio ancho en vez de flotar encima del contenido con overlay. El
+   sidebar sigue siendo position:fixed (igual que .sidebar-rail ya hace) - el "push"
+   lo logra este margen, no un cambio de flujo del documento. */
+.app-shell.sidebar-push-open .app-main {
+  margin-left: var(--sidebar-width);
 }
 
 .sidebar-rail {
@@ -613,6 +623,7 @@ td {
   min-height: 100vh;
   min-width: 0;
   overflow-x: hidden;
+  transition: margin-left 0.2s ease;
 }
 
 .header,
