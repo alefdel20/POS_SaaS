@@ -1722,72 +1722,88 @@ export function ProductsPage() {
     const resolvedName = productName ?? form.name;
     const resolvedBarcode = productBarcode ?? form.barcode;
 
-    if (!resolvedId || !resolvedBarcode || !token) {
+    if (!resolvedId || !token) {
       return;
     }
 
-    const response = await fetch(`${apiBaseUrl}/products/${resolvedId}/barcode.svg`, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-    if (!response.ok) {
-      throw new Error("No fue posible cargar el código de barras");
-    }
-    const svgBlob = await response.blob();
-    const svgUrl = window.URL.createObjectURL(svgBlob);
+    setError("");
 
+    if (!resolvedBarcode) {
+      setError("Este producto no tiene un código de barras asignado.");
+      return;
+    }
+
+    // Abrimos la ventana ANTES del fetch, de forma sincrona dentro del mismo tick
+    // del clic: si se abre despues de un await, el navegador ya no la reconoce
+    // como iniciada por el usuario y la bloquea sin avisar (window.open retorna
+    // null en silencio). Ver investigacion del bug de codigo de barras.
     const printWindow = window.open("", "_blank", "noopener,noreferrer,width=520,height=420");
     if (!printWindow) {
-      window.URL.revokeObjectURL(svgUrl);
+      setError("Tu navegador bloqueó la ventana. Habilita popups para este sitio e intenta de nuevo.");
       return;
     }
 
-    const esc = (v: string) =>
-      v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    const escapedName = esc(resolvedName);
-    const escapedBarcode = esc(resolvedBarcode);
-    const escapedBusiness = esc(user?.business_name || "");
+    try {
+      const response = await fetch(`${apiBaseUrl}/products/${resolvedId}/barcode.svg`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        throw new Error("No fue posible cargar el código de barras");
+      }
+      const svgBlob = await response.blob();
+      const svgUrl = window.URL.createObjectURL(svgBlob);
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>Etiqueta ${escapedBarcode}</title>
-          <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { background: #f5f5f5; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: Arial, sans-serif; }
-            .label { width: 62mm; height: 38mm; background: #fff; border: 1px solid #ccc; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 2mm 3mm 1.5mm; position: relative; overflow: hidden; }
-            .business { position: absolute; top: 1.5mm; right: 2mm; font-size: 8px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38mm; text-align: right; }
-            .product-name { font-size: 11px; font-weight: bold; text-align: center; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; width: 100%; margin-top: 3.5mm; }
-            .barcode-img { width: 90%; height: auto; display: block; }
-            .barcode-num { font-family: "Courier New", monospace; font-size: 10px; text-align: center; letter-spacing: 1px; }
-            .no-print { margin-top: 14px; padding: 5px 20px; font-size: 13px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
-            @media print {
-              body { background: white; display: block; min-height: unset; }
-              .label { border: none; width: 62mm; height: 38mm; }
-              .no-print { display: none; }
-              @page { size: 62mm 38mm; margin: 0; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="label">
-            <span class="business">${escapedBusiness}</span>
-            <p class="product-name">${escapedName}</p>
-            <img class="barcode-img" alt="${escapedBarcode}" src="${svgUrl}" />
-            <p class="barcode-num">${escapedBarcode}</p>
-          </div>
-          <button class="no-print" onclick="window.close()">Cerrar</button>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-      setTimeout(() => window.URL.revokeObjectURL(svgUrl), 1000);
-    }, 300);
+      const esc = (v: string) =>
+        v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const escapedName = esc(resolvedName);
+      const escapedBarcode = esc(resolvedBarcode);
+      const escapedBusiness = esc(user?.business_name || "");
+
+      printWindow.document.write(`
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>Etiqueta ${escapedBarcode}</title>
+            <style>
+              * { box-sizing: border-box; margin: 0; padding: 0; }
+              body { background: #f5f5f5; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: Arial, sans-serif; }
+              .label { width: 62mm; height: 38mm; background: #fff; border: 1px solid #ccc; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 2mm 3mm 1.5mm; position: relative; overflow: hidden; }
+              .business { position: absolute; top: 1.5mm; right: 2mm; font-size: 8px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38mm; text-align: right; }
+              .product-name { font-size: 11px; font-weight: bold; text-align: center; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; width: 100%; margin-top: 3.5mm; }
+              .barcode-img { width: 90%; height: auto; display: block; }
+              .barcode-num { font-family: "Courier New", monospace; font-size: 10px; text-align: center; letter-spacing: 1px; }
+              .no-print { margin-top: 14px; padding: 5px 20px; font-size: 13px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+              @media print {
+                body { background: white; display: block; min-height: unset; }
+                .label { border: none; width: 62mm; height: 38mm; }
+                .no-print { display: none; }
+                @page { size: 62mm 38mm; margin: 0; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="label">
+              <span class="business">${escapedBusiness}</span>
+              <p class="product-name">${escapedName}</p>
+              <img class="barcode-img" alt="${escapedBarcode}" src="${svgUrl}" />
+              <p class="barcode-num">${escapedBarcode}</p>
+            </div>
+            <button class="no-print" onclick="window.close()">Cerrar</button>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        setTimeout(() => window.URL.revokeObjectURL(svgUrl), 1000);
+      }, 300);
+    } catch (barcodeError) {
+      printWindow.close();
+      setError(barcodeError instanceof Error ? barcodeError.message : "No fue posible imprimir el código de barras");
+    }
   }
 
   async function exportProducts(format: "excel" | "pdf") {
