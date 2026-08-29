@@ -67,6 +67,8 @@ export function AppRouter() {
               <Route path="/health/sales/food" element={<SalesPage />} />
               <Route path="/health/sales/accessories" element={<SalesPage />} />
               <Route path="/health/sales/medications" element={<SalesPage />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.sales]} posTypes={["Veterinaria"]} />}>
               <Route path="/prescription-checkout-requests" element={<PrescriptionCheckoutQueuePage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} />}>

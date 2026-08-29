@@ -26,7 +26,6 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Aprobaciones", to: "/product-update-requests", roles: "management", activeMatch: ["/product-update-requests", "/retail/admin/approvals", "/health/admin/approvals"] },
   { label: "Credito y Cobranza", to: "/credit-collections", roles: "gerente", activeMatch: ["/credit-collections"] },
   { label: "Corte Diario", to: "/daily-cut", roles: "dailyCut", activeMatch: ["/daily-cut"] },
-  { label: "Recetas pendientes de cobro", to: "/prescription-checkout-requests", roles: "dailyCut", activeMatch: ["/prescription-checkout-requests"] },
   { label: "Finanzas", to: "/finances", roles: "gerente", activeMatch: ["/finances"] },
   { label: "Remates", to: "/remate", roles: "gerente", activeMatch: ["/remate"] },
   { label: "Facturas", to: "/invoices", roles: "invoices", activeMatch: ["/invoices"] },
@@ -44,6 +43,16 @@ const ADMIN_LINKS: SidebarMenuItem[] = [
   { label: "Alertas", to: "/alertas", roles: "profile", activeMatch: ["/alertas"] },
   { label: "Perfil", to: "/profile", roles: "profile", activeMatch: ["/profile", "/retail/admin/profile", "/health/admin/profile", "/health/doctor/profile"] }
 ];
+
+// Exclusivo de Veterinaria (filtrado en filterByBusinessContext) - no vive en
+// ADMIN_LINKS porque ese array es compartido entre retail y healthcare, y este
+// item no aplica a ningun otro giro (ni siquiera al resto de healthcare).
+const VETERINARY_PRESCRIPTION_CHECKOUT_LINK: SidebarMenuItem = {
+  label: "Recetas pendientes de cobro",
+  to: "/prescription-checkout-requests",
+  roles: "dailyCut",
+  activeMatch: ["/prescription-checkout-requests"]
+};
 
 function getAdminLinksByRole(role?: string | null): SidebarMenuItem[] {
   const normalizedRole = normalizeRole(role);
@@ -84,6 +93,7 @@ function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | nu
   const shouldHideAesthetics = hidesAesthetics(posType);
   const patientLabelOnly = usesPatientLabel(posType);
   const humanPatientsOnly = usesHumanPatientsOnly(posType);
+  const isNotVeterinaria = posType !== "Veterinaria";
 
   return items
     .map((item) => {
@@ -92,6 +102,7 @@ function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | nu
 
       if (shouldHideAesthetics && nextItem.to === "/health/appointments/estetica") return null;
       if (patientLabelOnly && nextItem.to === "/health/clients") return null;
+      if (isNotVeterinaria && nextItem.to === "/prescription-checkout-requests") return null;
       if (normalizeRole(role) === "cajero") {
         if (
           nextItem.to === "/products/restock"
@@ -344,7 +355,7 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
         {
           label: "Administracion",
           children: [
-            ...getAdminLinksByRole(role)
+            ...[...getAdminLinksByRole(role), VETERINARY_PRESCRIPTION_CHECKOUT_LINK]
               .filter((item) => item.label !== "Calendario")
               .map((item) => ({
                 ...item,

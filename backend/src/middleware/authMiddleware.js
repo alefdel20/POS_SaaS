@@ -106,6 +106,21 @@ function requireRole(roles) {
   };
 }
 
+function requirePosType(posTypes) {
+  const allowed = new Set(posTypes);
+  return (req, res, next) => {
+    if (!req.user) {
+      return next(new ApiError(401, "Autenticación requerida"));
+    }
+
+    if (!allowed.has(req.user.pos_type)) {
+      return next(new ApiError(403, "Acceso denegado"));
+    }
+
+    next();
+  };
+}
+
 function requireClinicalAccess(req, res, next) {
   if (!req.user) {
     return next(new ApiError(401, "Autenticación requerida"));
@@ -122,5 +137,6 @@ function requireClinicalAccess(req, res, next) {
 module.exports = {
   requireAuth,
   requireRole,
+  requirePosType,
   requireClinicalAccess,
 };
