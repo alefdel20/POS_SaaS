@@ -1338,6 +1338,9 @@ export function SalesPage() {
                   )}
                   <strong>{product.name}</strong>
                 </div>
+                {user?.pos_type === "Papeleria" && product.description ? (
+                  <small className="muted">{product.description}</small>
+                ) : null}
                 {product.is_on_sale ? (
                   <div className="price-stack">
                     <span className="price-original">{currency(product.price)}</span>
