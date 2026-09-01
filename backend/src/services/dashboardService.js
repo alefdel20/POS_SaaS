@@ -25,11 +25,25 @@ async function getSummary(actor) {
   const [summaryResult, topProductsResult, lowStockItems, profileResult] = await Promise.all([
     pool.query(
       `WITH sales_today AS (
-         SELECT COALESCE(SUM(total), 0) AS amount
-         FROM sales
-         WHERE business_id = $1
-           AND sale_date = $2::date
-           AND ${VALID_SALE_STATUS_SQL}
+         SELECT
+           COALESCE((
+             SELECT SUM(sales.total)
+             FROM sales
+             WHERE sales.business_id = $1
+               AND sales.sale_date = $2::date
+               AND sales.payment_method <> 'credit'
+               AND ${VALID_SALE_STATUS_SQL}
+           ), 0)
+           +
+           COALESCE((
+             SELECT SUM(credit_payments.amount)
+             FROM credit_payments
+             INNER JOIN sales ON sales.id = credit_payments.sale_id AND sales.business_id = credit_payments.business_id
+             WHERE credit_payments.business_id = $1
+               AND credit_payments.payment_date = $2::date
+               AND sales.payment_method = 'credit'
+               AND ${VALID_SALE_STATUS_SQL}
+           ), 0) AS amount
        ),
        sales_week AS (
          SELECT COALESCE(SUM(total), 0) AS amount
