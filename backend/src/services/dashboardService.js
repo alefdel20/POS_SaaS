@@ -36,6 +36,15 @@ async function getSummary(actor) {
            ), 0)
            +
            COALESCE((
+             SELECT SUM(LEAST(GREATEST(sales.initial_payment, 0), sales.total))
+             FROM sales
+             WHERE sales.business_id = $1
+               AND sales.sale_date = $2::date
+               AND sales.payment_method = 'credit'
+               AND ${VALID_SALE_STATUS_SQL}
+           ), 0)
+           +
+           COALESCE((
              SELECT SUM(credit_payments.amount)
              FROM credit_payments
              INNER JOIN sales ON sales.id = credit_payments.sale_id AND sales.business_id = credit_payments.business_id

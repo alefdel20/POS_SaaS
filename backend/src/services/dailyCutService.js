@@ -97,7 +97,7 @@ const CUT_METRICS_CTE_SQL = `
         ELSE 0
       END AS credit_generated_component,
       0::NUMERIC AS credit_collected_component,
-      CASE WHEN sale_rows.payment_method <> 'credit' THEN sale_rows.sale_total ELSE 0 END AS net_sale_component,
+      CASE WHEN sale_rows.payment_method <> 'credit' THEN sale_rows.sale_total ELSE sale_rows.initial_payment_amount END AS net_sale_component,
       sale_rows.invoice_count,
       sale_rows.ticket_count,
       (sale_rows.sale_total - sale_rows.sale_total_cost) AS gross_profit_component,
