@@ -1410,7 +1410,15 @@ export function SalesPage() {
             <select
               data-hotkey="cart-discount"
               value={cartDiscountType}
-              onChange={(e) => { setCartDiscountType(e.target.value as typeof cartDiscountType); setCartDiscountValue(""); }}
+              onChange={(e) => {
+                const nextType = e.target.value as typeof cartDiscountType;
+                setCartDiscountType(nextType);
+                if (nextType === "percentage" && Number(cartDiscountValue) > 100) {
+                  setCartDiscountValue("100");
+                } else {
+                  setCartDiscountValue("");
+                }
+              }}
               style={{ minWidth: 130 }}
             >
               <option value="">Sin descuento</option>
@@ -1422,10 +1430,25 @@ export function SalesPage() {
                 type="number"
                 inputMode="decimal"
                 min={0}
+                max={cartDiscountType === "percentage" ? 100 : undefined}
                 step="0.01"
                 placeholder={cartDiscountType === "percentage" ? "0–100" : "0.00"}
                 value={cartDiscountValue}
-                onChange={(e) => setCartDiscountValue(e.target.value)}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const numericValue = Number(raw);
+                  if (raw !== "" && Number.isFinite(numericValue)) {
+                    if (numericValue < 0) {
+                      setCartDiscountValue("0");
+                      return;
+                    }
+                    if (cartDiscountType === "percentage" && numericValue > 100) {
+                      setCartDiscountValue("100");
+                      return;
+                    }
+                  }
+                  setCartDiscountValue(raw);
+                }}
                 style={{ width: 90 }}
               />
             ) : null}
