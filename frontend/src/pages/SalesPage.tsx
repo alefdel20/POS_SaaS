@@ -4,6 +4,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { CompanyProfile, DebtorSuggestion, MedicalPrescription, PrescriptionCheckoutRequest, Product, Sale, SaleDetail, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
+import { escapeHtml, printHtmlDocument } from "../utils/print";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { canApplyDiscount, hasAnyRole, isCashierRole, isManagementRole, ROLE_ADMIN, ROLE_MANAGER, ROLE_SUPERUSER } from "../utils/roles";
 import SaleReturnModal from "../components/SaleReturnModal";
@@ -1210,20 +1211,6 @@ export function SalesPage() {
       return;
     }
 
-    const escapeHtml = (value: string | number | null | undefined) =>
-      String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-
-    const ticketWindow = window.open("", "_blank", "width=420,height=720");
-    if (!ticketWindow) {
-      setError("El navegador bloque� la ventana de impresi�n. Permite popups e intenta nuevamente.");
-      return;
-    }
-
     const itemsHtml = lastSaleItems.map((item) => {
       if (item.type === "kit") {
         return `<tr><td>${escapeHtml(item.kit.name)} (Kit)</td><td>${escapeHtml(String(item.quantity))} pieza</td><td>${escapeHtml(currency(getKitEffectivePrice(item.kit)))}</td></tr>`;
@@ -1231,49 +1218,36 @@ export function SalesPage() {
       return `<tr><td>${escapeHtml(item.product.name)}</td><td>${escapeHtml(formatSaleQuantity(item.quantity, item.product.unidad_de_venta))}</td><td>${escapeHtml(currency(item.product.effective_price ?? item.product.price))}</td></tr>`;
     }).join("");
 
-    try {
-      ticketWindow.document.write(`
-        <html>
-          <head>
-            <title>Ticket ${escapeHtml(lastSale.id)}</title>
-            <style>
-              body { font-family: Arial, sans-serif; padding: 16px; }
-              h1 { font-size: 18px; margin: 0 0 8px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-              td, th { font-size: 12px; text-align: left; padding: 4px 0; border-bottom: 1px solid #ddd; }
-            </style>
-          </head>
-          <body>
-            <h1>${escapeHtml(profile?.company_name || profile?.fiscal_business_name || "POS APP")}</h1>
-            <p>Folio: ${escapeHtml(lastSale.id)}</p>
-            <p>Fecha: ${escapeHtml(shortDateTime(lastSale.created_at))}</p>
-            <p>Cajero: ${escapeHtml(lastSale.cashier_name || user?.full_name || "-")}</p>
-            <p>Pago: ${escapeHtml(getPaymentMethodLabel(lastSale.payment_method))}</p>
-            <table>
-              <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio</th></tr></thead>
-              <tbody>${itemsHtml}</tbody>
-            </table>
-            <p><strong>Total: ${escapeHtml(currency(lastSale.total))}</strong></p>
-          </body>
-        </html>
-      `);
-      ticketWindow.document.close();
-      ticketWindow.focus();
-      window.setTimeout(() => {
-        try {
-          if (!ticketWindow || ticketWindow.closed) {
-            setError("La ventana de impresi�n ya no est� disponible.");
-            return;
-          }
-          ticketWindow.print();
-        } catch {
-          setError("No fue posible iniciar la impresi�n del ticket.");
+    const bodyHtml = `
+      <style>
+        @page { size: 58mm auto; margin: 0; }
+        body { font-family: Arial, sans-serif; padding: 4px; }
+        h1 { font-size: 13px; margin: 0 0 6px; }
+        p { font-size: 10px; margin: 2px 0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        td, th { font-size: 9px; text-align: left; padding: 2px 0; border-bottom: 1px solid #ddd; }
+        @media print {
+          body { width: 58mm; margin: 0; padding: 4px; }
         }
-      }, 200);
-    } catch {
-      ticketWindow.close();
-      setError("No fue posible preparar la ventana de impresi�n del ticket.");
-    }
+      </style>
+      <h1>${escapeHtml(profile?.company_name || profile?.fiscal_business_name || "POS APP")}</h1>
+      <p>Folio: ${escapeHtml(lastSale.id)}</p>
+      <p>Fecha: ${escapeHtml(shortDateTime(lastSale.created_at))}</p>
+      <p>Cajero: ${escapeHtml(lastSale.cashier_name || user?.full_name || "-")}</p>
+      <p>Pago: ${escapeHtml(getPaymentMethodLabel(lastSale.payment_method))}</p>
+      <table>
+        <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio</th></tr></thead>
+        <tbody>${itemsHtml}</tbody>
+      </table>
+      <p><strong>Total: ${escapeHtml(currency(lastSale.total))}</strong></p>
+    `;
+
+    printHtmlDocument({
+      title: `Ticket ${lastSale.id}`,
+      bodyHtml,
+      features: "width=420,height=720",
+      onBlocked: () => setError("El navegador bloqueó la ventana de impresión. Permite popups e intenta nuevamente.")
+    });
   }
 
   return (
