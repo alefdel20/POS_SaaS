@@ -923,6 +923,7 @@ export interface CompanyProfile {
   signature_image_path?: string | null;
   prescription_background_path?: string | null;
   prescription_template?: "clasico" | "moderno" | "compacto" | "personalizado";
+  printer_name?: string | null;
   bank_name?: string | null;
   bank_clabe?: string | null;
   bank_beneficiary?: string | null;

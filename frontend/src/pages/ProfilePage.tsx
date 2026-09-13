@@ -19,6 +19,7 @@ type ProfileFormState = {
   theme: "light" | "dark";
   accent_palette: "default" | "ocean" | "forest" | "ember";
   prescription_template: PrescriptionTemplateKey;
+  printer_name: string;
   bank_name: string;
   bank_clabe: string;
   bank_beneficiary: string;
@@ -57,6 +58,7 @@ const emptyForm: ProfileFormState = {
   theme: "dark",
   accent_palette: "default",
   prescription_template: "clasico",
+  printer_name: "",
   bank_name: "",
   bank_clabe: "",
   bank_beneficiary: "",
@@ -85,6 +87,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
     theme: profile?.theme || "dark",
     accent_palette: profile?.accent_palette || "default",
     prescription_template: profile?.prescription_template || "clasico",
+    printer_name: profile?.printer_name || "",
     bank_name: profile?.bank_name || "",
     bank_clabe: profile?.bank_clabe || "",
     bank_beneficiary: profile?.bank_beneficiary || "",
@@ -104,7 +107,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
 }
 
 const sectionFields = {
-  general: ["owner_name", "company_name", "phone", "email", "address", "professional_license", "theme", "accent_palette", "prescription_template"],
+  general: ["owner_name", "company_name", "phone", "email", "address", "professional_license", "theme", "accent_palette", "prescription_template", "printer_name"],
   banking: ["bank_name", "bank_clabe", "bank_beneficiary", "card_terminal", "card_bank", "card_instructions", "card_commission"],
   fiscal: ["fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address"],
   stamps: ["pac_provider", "pac_mode", "stamps_available", "stamp_alert_threshold"]
@@ -689,7 +692,8 @@ export function ProfilePage() {
         professional_license: formData.professional_license,
         theme: formData.theme,
         accent_palette: formData.accent_palette,
-        prescription_template: formData.prescription_template
+        prescription_template: formData.prescription_template,
+        printer_name: formData.printer_name
       })}>
         <div className="panel-header">
           <div>
@@ -721,6 +725,11 @@ export function ProfilePage() {
           Cedula profesional
           <input value={formData.professional_license} onChange={(event) => updateField("professional_license", event.target.value)} />
         </label>
+        <label>
+          Nombre de la impresora (QZ Tray)
+          <input value={formData.printer_name} onChange={(event) => updateField("printer_name", event.target.value)} />
+        </label>
+        <p className="muted">Debe coincidir exactamente con el nombre de la impresora configurada en tu sistema.</p>
         <label>
           Tema
           <select value={formData.theme} onChange={(event) => updateField("theme", event.target.value as "light" | "dark")}>

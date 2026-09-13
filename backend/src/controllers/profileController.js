@@ -13,6 +13,7 @@ const generalValidation = [
   body("accent_palette").optional().isIn(["default", "ocean", "forest", "ember"]),
   body("professional_license").optional({ values: "falsy" }).trim(),
   body("prescription_template").optional().isIn(["clasico", "moderno", "compacto", "personalizado"]),
+  body("printer_name").optional({ values: "falsy" }).trim(),
   body("reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];

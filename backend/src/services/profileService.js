@@ -37,6 +37,7 @@ function mapProfile(profile, subscription = null) {
     prescription_template: ["clasico", "moderno", "compacto", "personalizado"].includes(generalSettings.prescription_template)
       ? generalSettings.prescription_template
       : "clasico",
+    printer_name: generalSettings.printer_name || null,
     bank_name: profile.bank_name,
     bank_clabe: profile.bank_clabe,
     bank_beneficiary: profile.bank_beneficiary,
@@ -246,6 +247,9 @@ async function updateProfileSection(payload, actor, section) {
       generalSettings.prescription_template = ["clasico", "moderno", "compacto", "personalizado"].includes(payload.prescription_template)
         ? payload.prescription_template
         : "clasico";
+    }
+    if (section === "general" && payload.printer_name !== undefined) {
+      generalSettings.printer_name = payload.printer_name || "";
     }
     if (section === "banking") {
       Object.assign(updates, { bank_name: payload.bank_name ?? current.bank_name, bank_clabe: payload.bank_clabe ?? current.bank_clabe, bank_beneficiary: payload.bank_beneficiary ?? current.bank_beneficiary });
