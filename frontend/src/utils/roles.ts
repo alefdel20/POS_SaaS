@@ -37,6 +37,10 @@ export function isManagementRole(role?: string | null) {
   return hasAnyRole(role, ROUTE_ROLES.management);
 }
 
+export function canApplyDiscount(role?: string | null) {
+  return isManagementRole(role) || normalizeRole(role) === ROLE_MANAGER;
+}
+
 export function canAccessClinical(role?: string | null) {
   return hasAnyRole(role, ROUTE_ROLES.clinical);
 }

@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import type { CompanyProfile, DebtorSuggestion, MedicalPrescription, PrescriptionCheckoutRequest, Product, Sale, SaleDetail, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
-import { hasAnyRole, isCashierRole, isManagementRole, ROLE_ADMIN, ROLE_MANAGER, ROLE_SUPERUSER } from "../utils/roles";
+import { canApplyDiscount, hasAnyRole, isCashierRole, isManagementRole, ROLE_ADMIN, ROLE_MANAGER, ROLE_SUPERUSER } from "../utils/roles";
 import SaleReturnModal from "../components/SaleReturnModal";
 import { resolveProductImageUrl } from "../utils/assets";
 import { canUseCreditCollections, canUseExpiryDate, getDefaultUnitForPosType } from "../utils/pos";
@@ -1405,7 +1405,7 @@ export function SalesPage() {
           <h2>Carrito</h2>
           <button className="button ghost" onClick={resetSaleForm} type="button">Limpiar</button>
         </div>
-        {isManagementRole(user?.role) ? (
+        {canApplyDiscount(user?.role) ? (
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
             <select
               data-hotkey="cart-discount"

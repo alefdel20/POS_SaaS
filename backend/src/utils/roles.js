@@ -9,6 +9,11 @@ function isManagementRole(role) {
   return normalizedRole === "superusuario" || normalizedRole === "admin";
 }
 
+function canApplyDiscount(role) {
+  const normalizedRole = normalizeRole(role);
+  return isManagementRole(role) || normalizedRole === "gerente";
+}
+
 function getAssignableRoles(actorRole, posType = null) {
   const normalizedRole = normalizeRole(actorRole);
   const isClinical = CLINICAL_POS_TYPES.includes(posType);
@@ -45,6 +50,7 @@ function canAssignRole(actorRole, targetRole, posType = null) {
 module.exports = {
   normalizeRole,
   isManagementRole,
+  canApplyDiscount,
   getAssignableRoles,
   canAssignRole
 };

@@ -3,7 +3,7 @@ const ApiError = require("../utils/ApiError");
 const { recomputeDailyCut } = require("./dailyCutService");
 const { ensureAutomaticReminders, ensureLowStockRemindersForProductIds } = require("./reminderService");
 const { requireActorBusinessId } = require("../utils/tenant");
-const { isManagementRole } = require("../utils/roles");
+const { canApplyDiscount } = require("../utils/roles");
 const { getMexicoCityDate, getMexicoCityTime } = require("../utils/timezone");
 const { createAdministrativeInvoiceFromSale } = require("./adminInvoiceService");
 const { saveAuditLog } = require("./auditLogService");
@@ -601,7 +601,7 @@ async function createSale(payload, user, branchId = null) {
     const cartDiscountValue = Number(payload.cart_discount_value || 0);
     let cartDiscountAmount = 0;
 
-    if (cartDiscountType && cartDiscountValue > 0 && !isManagementRole(user.role)) {
+    if (cartDiscountType && cartDiscountValue > 0 && !canApplyDiscount(user.role)) {
       throw new ApiError(403, "No tienes permiso para aplicar descuentos");
     }
 
