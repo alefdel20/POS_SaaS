@@ -56,6 +56,7 @@ const createValidation = [
   body("items.*.unit_price").optional().isFloat({ min: 0, maxDecimalPlaces: 5 }),
   body("cart_discount_type").optional({ values: "falsy" }).isIn(["percentage", "fixed"]),
   body("cart_discount_value").optional({ values: "falsy" }).isFloat({ min: 0 }),
+  body("cart_discount_value").if(body("cart_discount_type").equals("percentage")).isFloat({ min: 0, max: 100 }),
   validateRequest
 ];
 
