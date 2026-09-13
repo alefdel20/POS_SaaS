@@ -7,7 +7,6 @@ import { OnboardingTour, type OnboardingTourHandle } from "../components/Onboard
 import { WhatsNewModal } from "../components/WhatsNewModal";
 import { useAuth } from "../context/AuthContext";
 import { useHotkeys } from "../hooks/useHotkeys";
-import { useMediaQuery } from "../hooks/useMediaQuery";
 
 export function AppLayout() {
   const { user } = useAuth();
@@ -21,12 +20,7 @@ export function AppLayout() {
   // El rail solo ocupa espacio propio cuando esta visible; mientras el panel esta
   // abierto el rail se oculta (ver VeterinariaSidebarRail) y no hay que reservarle margen.
   const isRailVisible = hasRailSidebar && !isSidebarOpen;
-  const isDesktopPush = useMediaQuery("(min-width: 1024px)");
-  // En >=1024px el sidebar legacy (no-Veterinaria) pasa a push-layout permanente:
-  // siempre visible, sin overlay. El rail de Veterinaria no se fuerza a abrirse -
-  // su colapsado/expandido sigue dependiendo solo de isSidebarOpen, igual que hoy.
-  const isPushSidebarForced = isDesktopPush && !hasRailSidebar;
-  const isSidebarVisible = isSidebarOpen || isPushSidebarForced;
+  const isSidebarVisible = isSidebarOpen;
 
   const releaseSidebarFocus = useCallback(() => {
     const sidebar = document.getElementById("app-sidebar");
@@ -103,11 +97,11 @@ export function AppLayout() {
   }, [closeSidebar, isSidebarOpen]);
 
   return (
-    <div className={`app-shell ${isRailVisible ? "has-rail-sidebar" : ""} ${isDesktopPush && isSidebarVisible ? "sidebar-push-open" : ""}`}>
+    <div className={`app-shell ${isRailVisible ? "has-rail-sidebar" : ""}`}>
       <Sidebar isOpen={isSidebarVisible} onClose={closeSidebar} onOpen={openSidebar} />
-      {isSidebarOpen && !isDesktopPush ? <div aria-hidden="true" className="sidebar-overlay" onClick={closeSidebar} /> : null}
+      {isSidebarOpen ? <div aria-hidden="true" className="sidebar-overlay" onClick={closeSidebar} /> : null}
       <div className="app-main">
-        <Header isSidebarOpen={isSidebarVisible} menuToggleRef={menuToggleRef} onMenuToggle={toggleSidebar} showMenuToggle={!hasRailSidebar && !isDesktopPush} />
+        <Header isSidebarOpen={isSidebarVisible} menuToggleRef={menuToggleRef} onMenuToggle={toggleSidebar} showMenuToggle={!hasRailSidebar} />
         <main className="content">
           <Outlet />
         </main>
