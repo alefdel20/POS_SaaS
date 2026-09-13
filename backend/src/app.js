@@ -54,6 +54,8 @@ const alertConfigRoutes = require("./routes/alertConfigRoutes");
 const publicMenuRoutes = require("./routes/publicMenuRoutes");
 const cfdiRoutes = require("./routes/cfdiRoutes");
 const kitRoutes = require("./routes/kitRoutes");
+const printCertificateRoutes = require("./routes/printCertificateRoutes");
+const printRoutes = require("./routes/printRoutes");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -131,7 +133,9 @@ const routes = [
   { path: "/ai-chat", router: aiChatRoutes, auth: true },
   { path: "/reports/gross-profit", router: grossProfitRoutes, auth: true },
   { path: "/alert-config", router: alertConfigRoutes, auth: true },
-  { path: "/kits", router: kitRoutes, auth: true }
+  { path: "/kits", router: kitRoutes, auth: true },
+  { path: "/print", router: printCertificateRoutes, auth: false },
+  { path: "/print", router: printRoutes, auth: true }
 ];
 
 routes.forEach((route) => {
