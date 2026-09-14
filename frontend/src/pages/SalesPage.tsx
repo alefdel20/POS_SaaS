@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import type { CompanyProfile, DebtorSuggestion, MedicalPrescription, PrescriptionCheckoutRequest, Product, Sale, SaleDetail, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
 import { escapeHtml, printHtmlDocument } from "../utils/print";
+import { connectQz, isQzConnected, printTicketViaQz } from "../utils/qzTray";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { canApplyDiscount, hasAnyRole, isCashierRole, isManagementRole, ROLE_ADMIN, ROLE_MANAGER, ROLE_SUPERUSER } from "../utils/roles";
 import SaleReturnModal from "../components/SaleReturnModal";
@@ -229,6 +230,7 @@ export function SalesPage() {
   const { cfdiAddonActive } = useCfdiAddon();
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerNameInput, setCustomerNameInput] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -1206,7 +1208,7 @@ export function SalesPage() {
     }
   }
 
-  function printLastTicket() {
+  async function printLastTicket() {
     if (!lastSale) {
       return;
     }
@@ -1242,12 +1244,31 @@ export function SalesPage() {
       <p><strong>Total: ${escapeHtml(currency(lastSale.total))}</strong></p>
     `;
 
-    printHtmlDocument({
-      title: `Ticket ${lastSale.id}`,
-      bodyHtml,
-      features: "width=420,height=720",
-      onBlocked: () => setError("El navegador bloqueó la ventana de impresión. Permite popups e intenta nuevamente.")
-    });
+    const printInBrowser = () => {
+      printHtmlDocument({
+        title: `Ticket ${lastSale.id}`,
+        bodyHtml,
+        features: "width=420,height=720",
+        onBlocked: () => setError("El navegador bloqueó la ventana de impresión. Permite popups e intenta nuevamente.")
+      });
+    };
+
+    const printerName = profile?.printer_name;
+    if (printerName && token) {
+      try {
+        if (!isQzConnected()) {
+          await connectQz(token);
+        }
+        await printTicketViaQz(printerName, bodyHtml);
+        return;
+      } catch (qzError) {
+        setInfo("No fue posible imprimir en silencio, abriendo el diálogo de impresión normal");
+        printInBrowser();
+        return;
+      }
+    }
+
+    printInBrowser();
   }
 
   return (
@@ -1592,6 +1613,7 @@ export function SalesPage() {
               <h3>Ticket / comprobante interno</h3>
               <button className="button ghost" onClick={printLastTicket} type="button">Imprimir ticket</button>
             </div>
+            {info ? <p className="success-text">{info}</p> : null}
             <p>Venta #{lastSale.id} | {shortDateTime(lastSale.created_at)}</p>
             <p>Total: {currency(lastSale.total)}</p>
             <p>Metodo: {getPaymentMethodLabel(lastSale.payment_method)}</p>

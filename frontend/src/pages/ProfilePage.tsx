@@ -8,7 +8,6 @@ import { setStoredTheme } from "../services/storage";
 import type { CompanyProfile, DoctorProfile } from "../types";
 import { resolveUploadedAssetUrl } from "../utils/assets";
 import { normalizeRole } from "../utils/roles";
-import { connectQz } from "../utils/qzTray";
 
 type ProfileFormState = {
   owner_name: string;
@@ -139,9 +138,6 @@ export function ProfilePage() {
   });
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
-  // Temporary: remove this state, its handler below, and the "Probar conexión
-  // con QZ Tray" button once Stage 4 wires printLastTicket to the real flow.
-  const [qzTesting, setQzTesting] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [changePlanModal, setChangePlanModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string>('');
@@ -634,24 +630,6 @@ export function ProfilePage() {
     }
   }
 
-  // Temporary: remove once Stage 4 wires printLastTicket to the real flow.
-  async function testQzConnection() {
-    if (!token) {
-      return;
-    }
-    setError("");
-    setInfo("");
-    setQzTesting(true);
-    try {
-      await connectQz(token);
-      setInfo("Conectado correctamente");
-    } catch (qzError) {
-      setError(qzError instanceof Error ? qzError.message : "No fue posible conectar con QZ Tray");
-    } finally {
-      setQzTesting(false);
-    }
-  }
-
   return (
     <section className="page-grid">
       <div className="panel">
@@ -752,16 +730,6 @@ export function ProfilePage() {
           <input value={formData.printer_name} onChange={(event) => updateField("printer_name", event.target.value)} />
         </label>
         <p className="muted">Debe coincidir exactamente con el nombre de la impresora configurada en tu sistema.</p>
-        {/* Temporary: remove this button once Stage 4 wires printLastTicket to the real QZ Tray flow. */}
-        <button
-          className="button ghost"
-          disabled={qzTesting}
-          onClick={testQzConnection}
-          style={{ fontSize: 13, marginTop: 8 }}
-          type="button"
-        >
-          {qzTesting ? "Conectando..." : "Probar conexión con QZ Tray"}
-        </button>
         <label>
           Tema
           <select value={formData.theme} onChange={(event) => updateField("theme", event.target.value as "light" | "dark")}>

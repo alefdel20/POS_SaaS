@@ -64,3 +64,22 @@ export function connectQz(token: string): Promise<void> {
 export function isQzConnected(): boolean {
   return qz.websocket.isActive();
 }
+
+// Data shape confirmed against the installed qz-tray v2.3.0 source
+// (node_modules/qz-tray/qz-tray.js): type defaults to 'raw' and flavor
+// defaults to 'file' if omitted, so both must be set explicitly here -
+// otherwise QZ either expects options.language (raw) or treats `data` as
+// a file path/URL (file flavor) instead of an inline HTML string.
+export function printTicketViaQz(printerName: string, bodyHtml: string): Promise<void> {
+  if (!isQzConnected()) {
+    throw new Error("QZ Tray no está conectado");
+  }
+
+  const config = qz.configs.create(printerName, {
+    size: { width: 58, height: 297 },
+    units: "mm",
+    scaleContent: true
+  });
+
+  return qz.print(config, [{ type: "pixel", format: "html", flavor: "plain", data: bodyHtml }]);
+}
