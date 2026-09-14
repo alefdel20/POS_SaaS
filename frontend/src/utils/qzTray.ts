@@ -47,6 +47,8 @@ export function configureQz(token: string) {
   }
   configured = true;
 
+  qz.security.setSignatureAlgorithm("SHA512");
+
   qz.security.setCertificatePromise((resolve: (value: string) => void, reject: (reason: unknown) => void) => {
     fetchCertificate().then(resolve).catch(reject);
   });
