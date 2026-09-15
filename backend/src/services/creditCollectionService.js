@@ -505,36 +505,41 @@ async function settleGroup(saleIds, actor) {
     return n;
   });
 
+  const orderedIds = [...validIds].sort((a, b) => a - b);
+
   const client = await pool.connect();
   const settledIds = [];
 
   try {
     await client.query("BEGIN");
 
-    for (const saleId of validIds) {
-      const { rows: saleRows } = await client.query(
-        `SELECT *
-         FROM sales
-         WHERE id = $1
-           AND business_id = $2
-           AND payment_method = 'credit'
-           AND COALESCE(status, 'completed') <> 'cancelled'
-           AND balance_due > 0
-         FOR UPDATE`,
-        [saleId, businessId]
-      );
+    const { rows: saleRows } = await client.query(
+      `SELECT *
+       FROM sales
+       WHERE id = ANY($1::int[])
+         AND business_id = $2
+         AND payment_method = 'credit'
+         AND COALESCE(status, 'completed') <> 'cancelled'
+         AND balance_due > 0
+       FOR UPDATE`,
+      [orderedIds, businessId]
+    );
+    const saleById = new Map(saleRows.map((row) => [row.id, row]));
 
-      const sale = saleRows[0];
+    const { rows: totalsRows } = await client.query(
+      `SELECT sale_id, COALESCE(SUM(amount), 0) AS paid
+       FROM credit_payments
+       WHERE sale_id = ANY($1::int[]) AND business_id = $2
+       GROUP BY sale_id`,
+      [orderedIds, businessId]
+    );
+    const paidBySaleId = new Map(totalsRows.map((row) => [row.sale_id, row.paid]));
+
+    for (const saleId of validIds) {
+      const sale = saleById.get(saleId);
       if (!sale) continue;
 
-      const { rows: totalsRows } = await client.query(
-        `SELECT COALESCE(SUM(amount), 0) AS paid
-         FROM credit_payments
-         WHERE sale_id = $1 AND business_id = $2`,
-        [saleId, businessId]
-      );
-
-      const totalPaidSoFar = roundMoney(Number(sale.initial_payment || 0) + Number(totalsRows[0]?.paid || 0));
+      const totalPaidSoFar = roundMoney(Number(sale.initial_payment || 0) + Number(paidBySaleId.get(saleId) || 0));
       const authoritativeBalance = normalizeBalanceDue(roundMoney(Number(sale.total || 0)) - totalPaidSoFar);
 
       if (authoritativeBalance <= MONEY_EPSILON) continue;

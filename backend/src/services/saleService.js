@@ -732,53 +732,105 @@ async function createSale(payload, user, branchId = null) {
       await client.query("UPDATE company_stamp_movements SET related_sale_id = $1 WHERE id = $2 AND business_id = $3", [sale.id, stampMovement.id, businessId]);
     }
 
-    for (const item of normalizedItems) {
-      if (item.kitId) {
-        // Kit sale: one sale_items row with kit_id, product_id NULL
-        await client.query(
-          `INSERT INTO sale_items (sale_id, kit_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
-           VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9)`,
-          [sale.id, item.kitId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
-        );
-        // Deduct stock from each component (negative allowed, same as individual products)
-        const { rows: kitComponentRows } = await client.query(
-          "SELECT product_id, quantity AS component_qty FROM product_kit_items WHERE kit_id = $1 AND business_id = $2",
-          [item.kitId, businessId]
-        );
-        for (const component of kitComponentRows) {
-          const deduct = multiplyMoney(Number(component.component_qty), item.quantity);
-          await client.query(
-            "UPDATE products SET stock = stock - $1 WHERE id = $2 AND business_id = $3",
-            [deduct, component.product_id, businessId]
-          );
-        }
-      } else {
-        // Regular product sale: unchanged flow, only RETURNING id added so
-        // dispensacion (below) can link this exact sale_item.
-        const { rows: saleItemRows } = await client.query(
-          `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           RETURNING id`,
-          [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
-        );
-        await client.query("UPDATE products SET stock = stock - $1 WHERE id = $2 AND business_id = $3", [item.quantity, item.productId, businessId]);
+    const regularLines = normalizedItems.filter((item) => !item.kitId);
+    const kitLines = normalizedItems.filter((item) => item.kitId);
 
-        // Fase 5, Parte B: dispensacion — opt-in per line, only runs when the
-        // sale_item explicitly declared prescription_item_id. A normal sale
-        // never sets this and never reaches this branch.
-        if (item.prescriptionItemId) {
-          await recordPrescriptionItemDispensing({
-            prescriptionItemId: item.prescriptionItemId,
-            saleItemId: saleItemRows[0].id,
-            saleId: sale.id,
-            productId: item.productId,
-            quantity: item.quantity,
-            businessId,
-            actor: user,
-            client
-          });
-        }
+    // Items needing dispensacion must come back with their own sale_item.id,
+    // which a batched INSERT...SELECT...RETURNING cannot correlate reliably
+    // (RETURNING only exposes the target table's columns, not an extra
+    // unnest ordinal), so they keep the original one-row-at-a-time insert.
+    // Everything else (the common case) is batched.
+    const regularLinesWithPrescription = regularLines.filter((item) => item.prescriptionItemId);
+    const regularLinesWithoutPrescription = regularLines.filter((item) => !item.prescriptionItemId);
+
+    // Stock deductions are aggregated per product_id before the batched UPDATE:
+    // UPDATE...FROM picks an arbitrary matching source row when a target row
+    // joins more than once, so two VALUES rows for the same product would
+    // silently drop one deduction instead of summing them.
+    const regularStockDeductions = new Map();
+    for (const item of regularLines) {
+      regularStockDeductions.set(item.productId, (regularStockDeductions.get(item.productId) || 0) + item.quantity);
+    }
+
+    if (regularLinesWithoutPrescription.length > 0) {
+      await client.query(
+        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
+         SELECT $1, v.product_id, $2, v.quantity, v.unit_price, v.unit_cost, v.subtotal, v.unidad_de_venta, v.product_name_snapshot
+         FROM unnest($3::int[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[], $8::text[], $9::text[])
+           AS v(product_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)`,
+        [
+          sale.id,
+          businessId,
+          regularLinesWithoutPrescription.map((item) => item.productId),
+          regularLinesWithoutPrescription.map((item) => item.quantity),
+          regularLinesWithoutPrescription.map((item) => item.unitPrice),
+          regularLinesWithoutPrescription.map((item) => item.unitCost),
+          regularLinesWithoutPrescription.map((item) => item.subtotal),
+          regularLinesWithoutPrescription.map((item) => item.unidadDeVenta),
+          regularLinesWithoutPrescription.map((item) => item.productName)
+        ]
+      );
+    }
+
+    // Fase 5, Parte B: dispensacion — opt-in per line, only runs when the
+    // sale_item explicitly declared prescription_item_id. A normal sale
+    // never sets this and never reaches this branch.
+    for (const item of regularLinesWithPrescription) {
+      const { rows: saleItemRows } = await client.query(
+        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id`,
+        [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
+      );
+      await recordPrescriptionItemDispensing({
+        prescriptionItemId: item.prescriptionItemId,
+        saleItemId: saleItemRows[0].id,
+        saleId: sale.id,
+        productId: item.productId,
+        quantity: item.quantity,
+        businessId,
+        actor: user,
+        client
+      });
+    }
+
+    // Kit sale: one sale_items row with kit_id, product_id NULL. Kept
+    // per-kit (kits never carry prescription_item_id) since a kit line also
+    // needs its own component lookup before its stock deduction can be added
+    // to the aggregate below.
+    const kitStockDeductions = new Map();
+    for (const item of kitLines) {
+      await client.query(
+        `INSERT INTO sale_items (sale_id, kit_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
+         VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9)`,
+        [sale.id, item.kitId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
+      );
+      const { rows: kitComponentRows } = await client.query(
+        "SELECT product_id, quantity AS component_qty FROM product_kit_items WHERE kit_id = $1 AND business_id = $2",
+        [item.kitId, businessId]
+      );
+      for (const component of kitComponentRows) {
+        const deduct = multiplyMoney(Number(component.component_qty), item.quantity);
+        kitStockDeductions.set(component.product_id, (kitStockDeductions.get(component.product_id) || 0) + deduct);
       }
+    }
+
+    // Deduct stock in two batched UPDATEs (negative allowed, same as before).
+    if (regularStockDeductions.size > 0) {
+      await client.query(
+        `UPDATE products SET stock = stock - v.qty
+         FROM unnest($1::int[], $2::numeric[]) AS v(id, qty)
+         WHERE products.id = v.id AND products.business_id = $3`,
+        [[...regularStockDeductions.keys()], [...regularStockDeductions.values()], businessId]
+      );
+    }
+    if (kitStockDeductions.size > 0) {
+      await client.query(
+        `UPDATE products SET stock = stock - v.qty
+         FROM unnest($1::int[], $2::numeric[]) AS v(id, qty)
+         WHERE products.id = v.id AND products.business_id = $3`,
+        [[...kitStockDeductions.keys()], [...kitStockDeductions.values()], businessId]
+      );
     }
 
     if (requiresAdministrativeInvoice) {
