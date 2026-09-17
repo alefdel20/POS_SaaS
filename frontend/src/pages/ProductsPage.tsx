@@ -29,11 +29,9 @@ import {
   isVeterinaryPos
 } from "../utils/pos";
 import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
+import { SALE_UNITS, isIntegerUnit, type SaleUnit } from "../constants/saleUnits";
 
 const NEW_PRODUCT_DRAFT_VERSION = 1;
-
-const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
-type SaleUnit = typeof SALE_UNITS[number];
 
 type ProductSupplierFormState = {
   supplier_id: string;
@@ -168,10 +166,10 @@ function validateQuantityByUnitInput(value: number, unit: SaleUnit, label: strin
   if (Number.isNaN(value) || value < 0) {
     throw new Error(`${label} debe ser numérico y válido`);
   }
-  if ((unit === "pieza" || unit === "caja") && !Number.isInteger(value)) {
+  if (isIntegerUnit(unit) && !Number.isInteger(value)) {
     throw new Error(`${label} debe ser entero para ${unit}`);
   }
-  if ((unit === "kg" || unit === "litro") && hasMoreThanThreeDecimals(value)) {
+  if (!isIntegerUnit(unit) && hasMoreThanThreeDecimals(value)) {
     throw new Error(`${label} solo acepta hasta 3 decimales para ${unit}`);
   }
 }
@@ -382,7 +380,7 @@ function validateImageFile(file: File) {
 
 function formatRestockQuantity(value: number, unit?: string | null) {
   const resolvedUnit = getResolvedSaleUnit(unit);
-  if (resolvedUnit === "pieza" || resolvedUnit === "caja") {
+  if (isIntegerUnit(resolvedUnit)) {
     return `${Math.trunc(value)} ${resolvedUnit}`;
   }
   return `${value.toFixed(3)} ${resolvedUnit}`;
@@ -395,11 +393,11 @@ function parseRestockDraftQuantity(value: string, unit?: string | null) {
   }
 
   const resolvedUnit = getResolvedSaleUnit(unit);
-  if ((resolvedUnit === "pieza" || resolvedUnit === "caja") && !Number.isInteger(parsed)) {
+  if (isIntegerUnit(resolvedUnit) && !Number.isInteger(parsed)) {
     return null;
   }
 
-  if ((resolvedUnit === "kg" || resolvedUnit === "litro") && Math.abs(parsed * 1000 - Math.round(parsed * 1000)) > 1e-9) {
+  if (!isIntegerUnit(resolvedUnit) && Math.abs(parsed * 1000 - Math.round(parsed * 1000)) > 1e-9) {
     return null;
   }
 
@@ -1996,7 +1994,7 @@ export function ProductsPage() {
               ))}
             </select>
           </label>
-          {(form.unidad_de_venta === "caja" || form.unidad_de_venta === "kg" || form.unidad_de_venta === "litro") ? (
+          {form.unidad_de_venta ? (
             <label>
               Contenido por unidad
               <input
@@ -2086,15 +2084,15 @@ export function ProductsPage() {
           </label>
           <label>
             {requiredLabel("Stock")}
-            <input type="number" min="0" step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
+            <input type="number" min="0" step={isIntegerUnit(getResolvedSaleUnit(form.unidad_de_venta)) ? "1" : "0.001"} value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
           </label>
           <label>
             {requiredLabel("Stock mínimo")}
-            <input type="number" min="0" step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_minimo} onChange={(event) => setForm({ ...form, stock_minimo: event.target.value })} required />
+            <input type="number" min="0" step={isIntegerUnit(getResolvedSaleUnit(form.unidad_de_venta)) ? "1" : "0.001"} value={form.stock_minimo} onChange={(event) => setForm({ ...form, stock_minimo: event.target.value })} required />
           </label>
           <label>
             {requiredLabel("Stock máximo")}
-            <input type="number" min="0" onKeyDown={handleStockMaximoEnter} step={getResolvedSaleUnit(form.unidad_de_venta) === "kg" || getResolvedSaleUnit(form.unidad_de_venta) === "litro" ? "0.001" : "1"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
+            <input type="number" min="0" onKeyDown={handleStockMaximoEnter} step={isIntegerUnit(getResolvedSaleUnit(form.unidad_de_venta)) ? "1" : "0.001"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
           </label>
           {showExpiryField ? (
             <>
@@ -2636,7 +2634,7 @@ export function ProductsPage() {
 	                    <input
 	                      disabled={Boolean(restockSavingIds[item.id]) || isSavingRestockBatch}
 	                      min="0"
-	                      step={getResolvedSaleUnit(item.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.unidad_de_venta) === "litro" ? "0.001" : "1"}
+	                      step={isIntegerUnit(getResolvedSaleUnit(item.unidad_de_venta)) ? "1" : "0.001"}
 	                      type="number"
 	                      value={getRestockDraftValue(item.id)}
 	                      onChange={(event) => setRestockDraftValue(item.id, event.target.value)}

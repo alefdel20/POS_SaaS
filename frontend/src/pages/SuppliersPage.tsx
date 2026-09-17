@@ -13,6 +13,7 @@ import type {
 } from "../types";
 import { currency, shortDateTime } from "../utils/format";
 import { getCatalogScopeFromPath, getCatalogScopeLabel } from "../utils/navigation";
+import { SALE_UNITS, type SaleUnit } from "../constants/saleUnits";
 
 type SupplierSummary = {
   id: number;
@@ -42,7 +43,7 @@ type CreateProductForm = {
   name: string;
   description: string;
   category: string;
-  unidad_de_venta: "pieza" | "kg" | "litro" | "caja";
+  unidad_de_venta: SaleUnit;
   price: string;
   cost_price: string;
   stock: string;
@@ -948,10 +949,9 @@ export function SuppliersPage() {
               <label>
                 Unidad
                 <select value={createProductForm.unidad_de_venta} onChange={(event) => setCreateProductForm((current) => current ? { ...current, unidad_de_venta: event.target.value as CreateProductForm["unidad_de_venta"] } : current)}>
-                  <option value="pieza">pieza</option>
-                  <option value="kg">kg</option>
-                  <option value="litro">litro</option>
-                  <option value="caja">caja</option>
+                  {SALE_UNITS.map((unit) => (
+                    <option key={unit} value={unit}>{unit}</option>
+                  ))}
                 </select>
               </label>
               <label>

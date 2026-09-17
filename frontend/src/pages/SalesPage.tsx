@@ -13,9 +13,8 @@ import { resolveProductImageUrl } from "../utils/assets";
 import { canUseCreditCollections, canUseExpiryDate, getDefaultUnitForPosType } from "../utils/pos";
 import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
 import { useCfdiAddon } from "../hooks/useCfdiAddon";
+import { SALE_UNITS, isIntegerUnit, type SaleUnit } from "../constants/saleUnits";
 
-const SALE_UNITS = ["pieza", "kg", "litro", "caja"] as const;
-type SaleUnit = typeof SALE_UNITS[number];
 const AUTO_IEPS_CATEGORIES = new Set(["dulces", "refrescos", "botanas", "cigarros", "alcohol"]);
 
 interface KitItem {
@@ -153,10 +152,10 @@ function validateQuantityByUnit(value: number, unit: SaleUnit, label: string) {
   if (Number.isNaN(value) || value < 0) {
     throw new Error(`${label} debe ser numérico y válido`);
   }
-  if ((unit === "pieza" || unit === "caja") && !Number.isInteger(value)) {
+  if (isIntegerUnit(unit) && !Number.isInteger(value)) {
     throw new Error(`${label} debe ser entero para ${unit}`);
   }
-  if ((unit === "kg" || unit === "litro") && hasMoreThanThreeDecimals(value)) {
+  if (!isIntegerUnit(unit) && hasMoreThanThreeDecimals(value)) {
     throw new Error(`${label} solo acepta hasta 3 decimales para ${unit}`);
   }
 }
@@ -181,7 +180,7 @@ function recalculateGain(costPrice: string, price: string) {
 
 function formatSaleQuantity(quantity: number, unit?: string | null) {
   const resolvedUnit = getResolvedSaleUnit(unit);
-  if (resolvedUnit === "pieza" || resolvedUnit === "caja") {
+  if (isIntegerUnit(resolvedUnit)) {
     return `${Math.trunc(quantity)} ${resolvedUnit}`;
   }
   return `${quantity.toFixed(3)} ${resolvedUnit}`;
@@ -693,7 +692,7 @@ export function SalesPage() {
     }
 
     const unit = getResolvedSaleUnit(product.unidad_de_venta);
-    const step = unit === "kg" || unit === "litro" ? 0.001 : 1;
+    const step = isIntegerUnit(unit) ? 1 : 0.001;
 
     setCart((current) => {
       const existing = current.find((item) => item.type === "product" && item.product.id === product.id);
@@ -882,7 +881,7 @@ export function SalesPage() {
       const target = current.find((item) => item.type === "product" && item.product.id === productId);
       if (!target || target.type !== "product") return current;
       const unit = getResolvedSaleUnit(target.product.unidad_de_venta);
-      if ((unit === "pieza" || unit === "caja") && !Number.isInteger(quantity)) {
+      if (isIntegerUnit(unit) && !Number.isInteger(quantity)) {
         return current;
       }
       return current.map((item) => (item.type === "product" && item.product.id === productId ? { ...item, quantity: roundQuantity(quantity) } : item));
@@ -1558,17 +1557,17 @@ export function SalesPage() {
                     </td>
                     <td>
                       <div className="quantity-control">
-                        <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity - (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)))} type="button">-</button>
+                        <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity - (isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? 1 : 0.001)))} type="button">-</button>
                         <input
                           min="0"
                           inputMode="decimal"
-                          step={getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? "0.001" : "1"}
+                          step={isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? "1" : "0.001"}
                           type="number"
                           value={item.quantity}
                           onChange={(event) => updateQuantity(item.product.id, Number(event.target.value))}
                         />
                         <span>{getResolvedSaleUnit(item.product.unidad_de_venta)}</span>
-                        <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity + (getResolvedSaleUnit(item.product.unidad_de_venta) === "kg" || getResolvedSaleUnit(item.product.unidad_de_venta) === "litro" ? 0.001 : 1)))} type="button">+</button>
+                        <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity + (isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? 1 : 0.001)))} type="button">+</button>
                       </div>
                     </td>
                     <td>
@@ -1797,7 +1796,7 @@ export function SalesPage() {
                 <input
                   min="0"
                   inputMode="decimal"
-                  step={getResolvedSaleUnit(quickProductForm.unidad_de_venta) === "kg" || getResolvedSaleUnit(quickProductForm.unidad_de_venta) === "litro" ? "0.001" : "1"}
+                  step={isIntegerUnit(getResolvedSaleUnit(quickProductForm.unidad_de_venta)) ? "1" : "0.001"}
                   type="number"
                   value={quickProductForm.stock}
                   onChange={(event) => setQuickProductForm({ ...quickProductForm, stock: event.target.value })}

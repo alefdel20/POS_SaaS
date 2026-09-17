@@ -1,3 +1,5 @@
+import type { SaleUnit } from "../constants/saleUnits";
+
 export type Role = "superusuario" | "superadmin" | "admin" | "gerente" | "clinico" | "soporte" | "support" | "cajero" | "cashier" | "user" | "cocina" | "kitchen";
 export type BusinessType = "Tienda" | "Tlapaleria" | "Papeleria" | "Veterinaria" | "Dentista" | "Farmacia" | "FarmaciaConsultorio" | "ClinicaChica" | "Otro";
 export type PosType = string;
@@ -149,7 +151,7 @@ export interface SupplierCatalogImportPreviewRow {
     supplier_product_name: string;
     supplier_description: string;
     supplier_category: string;
-    supplier_unit: "pieza" | "kg" | "litro" | "caja";
+    supplier_unit: SaleUnit;
     purchase_cost: string;
     currency: string;
     pack_size: string;
@@ -222,7 +224,7 @@ export interface SupplierCatalogItem {
   supplier_product_name: string;
   supplier_description: string;
   supplier_category: string;
-  supplier_unit: "pieza" | "kg" | "litro" | "caja";
+  supplier_unit: SaleUnit;
   purchase_cost: number;
   previous_purchase_cost: number | null;
   currency: string;
@@ -279,7 +281,7 @@ export interface Product {
   sku: string;
   barcode: string;
   image_path?: string | null;
-  unidad_de_venta?: "pieza" | "kg" | "litro" | "caja" | null;
+  unidad_de_venta?: SaleUnit | null;
   porcentaje_ganancia?: number | null;
   category?: string | null;
   catalog_type?: "accessories" | "medications" | null;
@@ -458,7 +460,7 @@ export interface ProductImportPreviewRow {
     sku: string;
     barcode: string;
     stock: string;
-    unidad_de_venta: "pieza" | "kg" | "litro" | "caja";
+    unidad_de_venta: SaleUnit;
     supplier_name: string;
     stock_minimo: string;
   };
@@ -508,7 +510,7 @@ export interface RestockProductItem {
   stock_minimo: number;
   stock_maximo: number;
   cost_price: number;
-  unidad_de_venta?: "pieza" | "kg" | "litro" | "caja" | null;
+  unidad_de_venta?: SaleUnit | null;
   supplier_name?: string | null;
   supplier_whatsapp?: string | null;
   recent_purchase_cost?: number | null;

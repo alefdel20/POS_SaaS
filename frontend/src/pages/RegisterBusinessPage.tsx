@@ -6,6 +6,7 @@ import type { BusinessType, RegisterBusinessPayload } from "../types";
 import { getDefaultRouteForRole } from "../utils/roles";
 import { POS_TYPE_OPTIONS, getPosTypeLabel } from "../utils/pos";
 import { apiRequest } from "../api/client";
+import { SALE_UNITS } from "../constants/saleUnits";
 
 const ROLE_OPTIONS = [
   { value: "admin", label: "Administrador" },
@@ -142,7 +143,7 @@ export function RegisterBusinessPage() {
               </label>
               <div className="info-card form-span-2">
                 <h3>Base inicial que se configurará</h3>
-                <p>Unidades por defecto: pieza, kg, litro y caja.</p>
+                <p>Unidades por defecto: {SALE_UNITS.join(", ")}.</p>
                 <p>Corte Diario quedará activo para este giro.</p>
                 <p>Crédito y Cobranza: {selectedPosType === "Dentista" ? "no disponible" : "disponible"}.</p>
               </div>
