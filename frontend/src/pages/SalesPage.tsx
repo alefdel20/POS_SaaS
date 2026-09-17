@@ -698,16 +698,13 @@ export function SalesPage() {
       return;
     }
 
-    const unit = getResolvedSaleUnit(product.unidad_de_venta);
-    const step = isIntegerUnit(unit) ? 1 : 0.001;
-
     setCart((current) => {
       const existing = current.find((item) => item.type === "product" && item.product.id === product.id);
       if (existing) {
-        const updatedItem = { ...existing, quantity: roundQuantity(existing.quantity + step) };
+        const updatedItem = { ...existing, quantity: roundQuantity(existing.quantity + 1) };
         return [updatedItem, ...current.filter((item) => !(item.type === "product" && item.product.id === product.id))];
       }
-      return [{ type: "product" as const, product, quantity: step }, ...current];
+      return [{ type: "product" as const, product, quantity: 1 }, ...current];
     });
     setScannerSelectionId(product.id);
   }
