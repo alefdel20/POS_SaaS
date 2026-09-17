@@ -4,7 +4,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { CompanyProfile, DebtorSuggestion, MedicalPrescription, PrescriptionCheckoutRequest, Product, Sale, SaleDetail, SaleReceipt, Supplier } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
-import { escapeHtml, printHtmlDocument } from "../utils/print";
+import { escapeHtml, printHtmlDocument, THERMAL_PRINTABLE_WIDTH_MM } from "../utils/print";
 import { connectQz, isQzConnected, printTicketViaQz } from "../utils/qzTray";
 import { getPaymentMethodLabel, getSaleTypeLabel, translateErrorMessage } from "../utils/uiLabels";
 import { canApplyDiscount, hasAnyRole, isCashierRole, isManagementRole, ROLE_ADMIN, ROLE_MANAGER, ROLE_SUPERUSER } from "../utils/roles";
@@ -1229,7 +1229,7 @@ export function SalesPage() {
         table { width: 100%; border-collapse: collapse; margin-top: 6px; }
         td, th { font-size: 9px; text-align: left; padding: 2px 0; border-bottom: 1px solid #ddd; }
         @media print {
-          body { width: 58mm; margin: 0; padding: 4px; }
+          body { width: ${THERMAL_PRINTABLE_WIDTH_MM}mm; margin: 0 auto; padding: 4px; }
         }
       </style>
       <h1>${escapeHtml(profile?.company_name || profile?.fiscal_business_name || "POS APP")}</h1>

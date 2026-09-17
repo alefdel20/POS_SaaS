@@ -67,3 +67,6 @@ export function printHtmlDocument(options: PrintDocumentOptions) {
 }
 
 export { escapeHtml };
+
+export const THERMAL_ROLL_WIDTH_MM = 58;
+export const THERMAL_PRINTABLE_WIDTH_MM = 48;

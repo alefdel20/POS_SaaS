@@ -1,5 +1,6 @@
 import qz from "qz-tray";
 import { API_BASE_URL } from "../api/config";
+import { THERMAL_ROLL_WIDTH_MM, THERMAL_PRINTABLE_WIDTH_MM } from "../utils/print";
 
 let configured = false;
 
@@ -77,10 +78,13 @@ export function printTicketViaQz(printerName: string, bodyHtml: string): Promise
     throw new Error("QZ Tray no está conectado");
   }
 
+  const horizontalMargin = (THERMAL_ROLL_WIDTH_MM - THERMAL_PRINTABLE_WIDTH_MM) / 2;
+
   const config = qz.configs.create(printerName, {
-    size: { width: 58, height: 297 },
+    size: { width: THERMAL_ROLL_WIDTH_MM, height: 297 },
     units: "mm",
-    scaleContent: true
+    scaleContent: true,
+    margins: { left: horizontalMargin, right: horizontalMargin, top: 0, bottom: 0 }
   });
 
   return qz.print(config, [{ type: "pixel", format: "html", flavor: "plain", data: bodyHtml }]);
