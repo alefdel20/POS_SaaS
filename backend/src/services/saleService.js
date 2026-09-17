@@ -137,6 +137,24 @@ function normalizeSaleUnit(value) {
   return normalized || "pieza";
 }
 
+// Puramente informativo (nunca entra en subtotal, stock ni CFDI) — ver
+// item.quantity/unitPrice/subtotal para los valores que sí gobiernan el
+// negocio. Si solo uno de los dos llega en el payload, ambos se descartan:
+// un "20" sin unidad (o una unidad sin cantidad) no sirve para mostrarse.
+function normalizeDisplayQuantity(rawDisplayUnit, rawDisplayQuantity) {
+  const displayUnit = String(rawDisplayUnit ?? "").trim();
+  const displayQuantityValue = rawDisplayQuantity === undefined || rawDisplayQuantity === null || rawDisplayQuantity === ""
+    ? null
+    : Number(rawDisplayQuantity);
+  const hasValidQuantity = displayQuantityValue !== null && Number.isFinite(displayQuantityValue);
+
+  if (!displayUnit || !hasValidQuantity) {
+    return { displayUnit: null, displayQuantity: null };
+  }
+
+  return { displayUnit, displayQuantity: displayQuantityValue };
+}
+
 function hasMoreThanThreeDecimals(value) {
   return Math.abs(Number(value) * 1000 - Math.round(Number(value) * 1000)) > 1e-9;
 }
@@ -295,7 +313,8 @@ async function getSaleDetail(saleId, actor) {
 
   const { rows: itemRows } = await pool.query(
     `SELECT sale_items.id, sale_items.product_id, COALESCE(NULLIF(sale_items.product_name_snapshot, ''), products.name, product_kits.name) AS product_name, products.sku, sale_items.quantity, sale_items.unit_price, sale_items.subtotal,
-            COALESCE(sale_items.unidad_de_venta, products.unidad_de_venta, 'pieza') AS unidad_de_venta
+            COALESCE(sale_items.unidad_de_venta, products.unidad_de_venta, 'pieza') AS unidad_de_venta,
+            sale_items.display_unit, sale_items.display_quantity
      FROM sale_items
      LEFT JOIN products ON products.id = sale_items.product_id AND products.business_id = sale_items.business_id
      LEFT JOIN product_kits ON product_kits.id = sale_items.kit_id AND product_kits.business_id = sale_items.business_id
@@ -559,7 +578,9 @@ async function createSale(payload, user, branchId = null) {
         }
       }
 
-      normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: unit, productName: product.name, kitId: null, prescriptionItemId });
+      const { displayUnit, displayQuantity } = normalizeDisplayQuantity(item.display_unit, item.display_quantity);
+
+      normalizedItems.push({ productId: product.id, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: unit, productName: product.name, kitId: null, prescriptionItemId, displayUnit, displayQuantity });
     }
 
     // --- Kit items ---
@@ -594,7 +615,9 @@ async function createSale(payload, user, branchId = null) {
 
       // Kits never support prescription_item_id — a kit bundles several
       // products, it doesn't map cleanly to one prescribed medication line.
-      normalizedItems.push({ productId: null, kitId, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: "pieza", productName: kitNameRows[0].name, prescriptionItemId: null });
+      const { displayUnit, displayQuantity } = normalizeDisplayQuantity(item.display_unit, item.display_quantity);
+
+      normalizedItems.push({ productId: null, kitId, quantity, unitPrice, unitCost, subtotal, unidadDeVenta: "pieza", productName: kitNameRows[0].name, prescriptionItemId: null, displayUnit, displayQuantity });
     }
 
     const cartDiscountType = payload.cart_discount_type || null;
@@ -754,10 +777,10 @@ async function createSale(payload, user, branchId = null) {
 
     if (regularLinesWithoutPrescription.length > 0) {
       await client.query(
-        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
-         SELECT $1, v.product_id, $2, v.quantity, v.unit_price, v.unit_cost, v.subtotal, v.unidad_de_venta, v.product_name_snapshot
-         FROM unnest($3::int[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[], $8::text[], $9::text[])
-           AS v(product_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)`,
+        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot, display_unit, display_quantity)
+         SELECT $1, v.product_id, $2, v.quantity, v.unit_price, v.unit_cost, v.subtotal, v.unidad_de_venta, v.product_name_snapshot, v.display_unit, v.display_quantity
+         FROM unnest($3::int[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[], $8::text[], $9::text[], $10::text[], $11::numeric[])
+           AS v(product_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot, display_unit, display_quantity)`,
         [
           sale.id,
           businessId,
@@ -767,7 +790,9 @@ async function createSale(payload, user, branchId = null) {
           regularLinesWithoutPrescription.map((item) => item.unitCost),
           regularLinesWithoutPrescription.map((item) => item.subtotal),
           regularLinesWithoutPrescription.map((item) => item.unidadDeVenta),
-          regularLinesWithoutPrescription.map((item) => item.productName)
+          regularLinesWithoutPrescription.map((item) => item.productName),
+          regularLinesWithoutPrescription.map((item) => item.displayUnit),
+          regularLinesWithoutPrescription.map((item) => item.displayQuantity)
         ]
       );
     }
@@ -777,10 +802,10 @@ async function createSale(payload, user, branchId = null) {
     // never sets this and never reaches this branch.
     for (const item of regularLinesWithPrescription) {
       const { rows: saleItemRows } = await client.query(
-        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO sale_items (sale_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot, display_unit, display_quantity)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING id`,
-        [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
+        [sale.id, item.productId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName, item.displayUnit, item.displayQuantity]
       );
       await recordPrescriptionItemDispensing({
         prescriptionItemId: item.prescriptionItemId,
@@ -801,9 +826,9 @@ async function createSale(payload, user, branchId = null) {
     const kitStockDeductions = new Map();
     for (const item of kitLines) {
       await client.query(
-        `INSERT INTO sale_items (sale_id, kit_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot)
-         VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9)`,
-        [sale.id, item.kitId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName]
+        `INSERT INTO sale_items (sale_id, kit_id, product_id, business_id, quantity, unit_price, unit_cost, subtotal, unidad_de_venta, product_name_snapshot, display_unit, display_quantity)
+         VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [sale.id, item.kitId, businessId, item.quantity, item.unitPrice, item.unitCost, item.subtotal, item.unidadDeVenta, item.productName, item.displayUnit, item.displayQuantity]
       );
       const { rows: kitComponentRows } = await client.query(
         "SELECT product_id, quantity AS component_qty FROM product_kit_items WHERE kit_id = $1 AND business_id = $2",

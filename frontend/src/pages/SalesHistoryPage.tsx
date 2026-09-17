@@ -360,8 +360,8 @@ export function SalesHistoryPage() {
                                       {saleDetail.items.map((item) => (
                                         <tr key={item.id}>
                                           <td>{item.product_name}</td>
-                                          <td>{item.quantity}</td>
-                                          <td>{item.unidad_de_venta || "pieza"}</td>
+                                          <td>{item.display_unit && item.display_quantity != null ? item.display_quantity : item.quantity}</td>
+                                          <td>{item.display_unit && item.display_quantity != null ? item.display_unit : (item.unidad_de_venta || "pieza")}</td>
                                           <td>{currency(item.unit_price)}</td>
                                           <td>{currency(item.subtotal)}</td>
                                         </tr>

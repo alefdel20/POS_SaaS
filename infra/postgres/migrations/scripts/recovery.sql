@@ -929,12 +929,16 @@ BEGIN;
     unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
     subtotal NUMERIC(12, 2) NOT NULL,
     unidad_de_venta VARCHAR(20),
+    display_unit VARCHAR(20),
+    display_quantity NUMERIC(12, 3),
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
 
   ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS business_id INTEGER;
   ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0;
   ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unidad_de_venta VARCHAR(20);
+  ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS display_unit VARCHAR(20);
+  ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS display_quantity NUMERIC(12, 3);
   ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW();
 
   ALTER TABLE sale_items ALTER COLUMN quantity TYPE NUMERIC(12, 3);

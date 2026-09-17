@@ -10,6 +10,8 @@ WHERE unidad_de_venta IS NULL OR unidad_de_venta = '';
 
 ALTER TABLE sale_items ALTER COLUMN quantity TYPE NUMERIC(12, 3);
 ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unidad_de_venta VARCHAR(20);
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS display_unit VARCHAR(20);
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS display_quantity NUMERIC(12, 3);
 ALTER TABLE product_suppliers ALTER COLUMN purchase_cost TYPE NUMERIC(12, 3);
 
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS requires_administrative_invoice BOOLEAN NOT NULL DEFAULT FALSE;

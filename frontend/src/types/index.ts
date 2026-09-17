@@ -863,6 +863,8 @@ export interface SaleDetailItem {
   sku?: string | null;
   quantity: number;
   unidad_de_venta?: string | null;
+  display_unit?: string | null;
+  display_quantity?: number | null;
   unit_price: number;
   subtotal: number;
 }

@@ -13,7 +13,7 @@ import { resolveProductImageUrl } from "../utils/assets";
 import { canUseCreditCollections, canUseExpiryDate, getDefaultUnitForPosType } from "../utils/pos";
 import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
 import { useCfdiAddon } from "../hooks/useCfdiAddon";
-import { SALE_UNITS, isIntegerUnit, type SaleUnit } from "../constants/saleUnits";
+import { SALE_UNITS, isIntegerUnit, getSubUnitsForBaseUnit, type SaleUnit } from "../constants/saleUnits";
 
 const AUTO_IEPS_CATEGORIES = new Set(["dulces", "refrescos", "botanas", "cigarros", "alcohol"]);
 
@@ -51,6 +51,8 @@ interface CartProductItem {
   product: Product;
   quantity: number;
   prescriptionItemId?: number | null;
+  displayUnit?: string | null;
+  displayQuantity?: number | null;
 }
 
 interface CartKitItem {
@@ -224,6 +226,7 @@ export function SalesPage() {
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartQuantityDrafts, setCartQuantityDrafts] = useState<Record<number, string>>({});
+  const [cartInputUnit, setCartInputUnit] = useState<Record<number, string>>({});
   const [kitQuantityDrafts, setKitQuantityDrafts] = useState<Record<number, string>>({});
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
@@ -907,7 +910,7 @@ export function SalesPage() {
     return cartQuantityDrafts[productId] ?? String(fallback);
   }
 
-  function updateQuantity(productId: number, quantity: number) {
+  function updateQuantity(productId: number, quantity: number, displayUnit: string | null = null, displayQuantity: number | null = null) {
     if (!Number.isFinite(quantity)) {
       return;
     }
@@ -922,8 +925,74 @@ export function SalesPage() {
       if (isIntegerUnit(unit) && !Number.isInteger(quantity)) {
         return current;
       }
-      return current.map((item) => (item.type === "product" && item.product.id === productId ? { ...item, quantity: roundQuantity(quantity) } : item));
+      return current.map((item) => (item.type === "product" && item.product.id === productId
+        ? { ...item, quantity: roundQuantity(quantity), displayUnit, displayQuantity: displayQuantity != null ? roundQuantity(displayQuantity) : null }
+        : item));
     });
+  }
+
+  function getCartInputUnit(item: CartProductItem): string {
+    const baseUnit = getResolvedSaleUnit(item.product.unidad_de_venta);
+    return cartInputUnit[item.product.id] ?? item.displayUnit ?? baseUnit;
+  }
+
+  function getCartDisplayValue(item: CartProductItem): number {
+    const baseUnit = getResolvedSaleUnit(item.product.unidad_de_venta);
+    const selectedUnit = getCartInputUnit(item);
+    if (selectedUnit === baseUnit) {
+      return item.quantity;
+    }
+    const match = getSubUnitsForBaseUnit(baseUnit).find((subUnit) => subUnit.unit === selectedUnit);
+    if (!match) {
+      return item.quantity;
+    }
+    if (item.displayUnit === selectedUnit && item.displayQuantity != null) {
+      return item.displayQuantity;
+    }
+    return roundQuantity(item.quantity * match.factor);
+  }
+
+  function getCartStep(item: CartProductItem): number {
+    const baseUnit = getResolvedSaleUnit(item.product.unidad_de_venta);
+    const selectedUnit = getCartInputUnit(item);
+    if (selectedUnit !== baseUnit) {
+      // Asunción: sin una convención distinta del negocio, el paso de las sub-unidades es 1 (1 cm, 1 mm, 1 gramo, 1 ml).
+      return 1;
+    }
+    return isIntegerUnit(baseUnit) ? 1 : 0.001;
+  }
+
+  function commitCartQuantity(item: CartProductItem, rawValue: number) {
+    const baseUnit = getResolvedSaleUnit(item.product.unidad_de_venta);
+    const selectedUnit = getCartInputUnit(item);
+    if (selectedUnit === baseUnit) {
+      updateQuantity(item.product.id, rawValue);
+      return;
+    }
+    const match = getSubUnitsForBaseUnit(baseUnit).find((subUnit) => subUnit.unit === selectedUnit);
+    if (!match) {
+      updateQuantity(item.product.id, rawValue);
+      return;
+    }
+    updateQuantity(item.product.id, rawValue / match.factor, selectedUnit, rawValue);
+  }
+
+  function handleCartUnitSelect(item: CartProductItem, newUnit: string) {
+    const baseUnit = getResolvedSaleUnit(item.product.unidad_de_venta);
+    setCartInputUnit((current) => ({ ...current, [item.product.id]: newUnit }));
+    clearCartQuantityDraft(item.product.id);
+    if (newUnit === baseUnit) {
+      setCart((current) => current.map((cartItem) => (cartItem.type === "product" && cartItem.product.id === item.product.id
+        ? { ...cartItem, displayUnit: null, displayQuantity: null }
+        : cartItem)));
+    }
+  }
+
+  function formatCartItemQuantity(item: CartProductItem) {
+    if (item.displayUnit && item.displayQuantity != null) {
+      return `${item.displayQuantity} ${item.displayUnit}`;
+    }
+    return formatSaleQuantity(item.quantity, item.product.unidad_de_venta);
   }
 
   async function handleScannerSubmit(rawInput = search) {
@@ -1134,7 +1203,9 @@ export function SalesPage() {
                   product_id: item.product.id,
                   quantity: item.quantity,
                   unit_price: item.product.effective_price ?? item.product.price,
-                  prescription_item_id: item.prescriptionItemId ?? undefined
+                  prescription_item_id: item.prescriptionItemId ?? undefined,
+                  display_unit: item.displayUnit ?? undefined,
+                  display_quantity: item.displayQuantity ?? undefined
                 }
           )
         })
@@ -1254,7 +1325,7 @@ export function SalesPage() {
       if (item.type === "kit") {
         return `<tr><td>${escapeHtml(item.kit.name)} (Kit)</td><td>${escapeHtml(String(item.quantity))} pieza</td><td>${escapeHtml(currency(getKitEffectivePrice(item.kit)))}</td></tr>`;
       }
-      return `<tr><td>${escapeHtml(item.product.name)}</td><td>${escapeHtml(formatSaleQuantity(item.quantity, item.product.unidad_de_venta))}</td><td>${escapeHtml(currency(item.product.effective_price ?? item.product.price))}</td></tr>`;
+      return `<tr><td>${escapeHtml(item.product.name)}</td><td>${escapeHtml(formatCartItemQuantity(item))}</td><td>${escapeHtml(currency(item.product.effective_price ?? item.product.price))}</td></tr>`;
     }).join("");
 
     const bodyHtml = `
@@ -1586,6 +1657,8 @@ export function SalesPage() {
                     </Fragment>
                   );
                 }
+                const baseUnit = getResolvedSaleUnit(item.product.unidad_de_venta);
+                const subUnits = getSubUnitsForBaseUnit(baseUnit);
                 return (
                   <tr key={item.product.id}>
                     <td>
@@ -1596,18 +1669,27 @@ export function SalesPage() {
                     </td>
                     <td>
                       <div className="quantity-control">
-                        <button onClick={() => { updateQuantity(item.product.id, roundQuantity(item.quantity - (isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? 1 : 0.001))); clearCartQuantityDraft(item.product.id); }} type="button">-</button>
+                        <button onClick={() => { commitCartQuantity(item, roundQuantity(getCartDisplayValue(item) - getCartStep(item))); clearCartQuantityDraft(item.product.id); }} type="button">-</button>
                         <input
                           min="0"
                           inputMode="decimal"
-                          step={isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? "1" : "0.001"}
+                          step={String(getCartStep(item))}
                           type="number"
-                          value={getCartQuantityDraft(item.product.id, item.quantity)}
+                          value={getCartQuantityDraft(item.product.id, getCartDisplayValue(item))}
                           onChange={(event) => setCartQuantityDraft(item.product.id, event.target.value)}
-                          onBlur={(event) => { updateQuantity(item.product.id, Number(event.target.value)); clearCartQuantityDraft(item.product.id); }}
+                          onBlur={(event) => { commitCartQuantity(item, Number(event.target.value)); clearCartQuantityDraft(item.product.id); }}
                         />
-                        <span>{getResolvedSaleUnit(item.product.unidad_de_venta)}</span>
-                        <button onClick={() => { updateQuantity(item.product.id, roundQuantity(item.quantity + (isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? 1 : 0.001))); clearCartQuantityDraft(item.product.id); }} type="button">+</button>
+                        {subUnits.length ? (
+                          <select value={getCartInputUnit(item)} onChange={(event) => handleCartUnitSelect(item, event.target.value)}>
+                            <option value={baseUnit}>{baseUnit}</option>
+                            {subUnits.map((subUnit) => (
+                              <option key={subUnit.unit} value={subUnit.unit}>{subUnit.unit}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span>{baseUnit}</span>
+                        )}
+                        <button onClick={() => { commitCartQuantity(item, roundQuantity(getCartDisplayValue(item) + getCartStep(item))); clearCartQuantityDraft(item.product.id); }} type="button">+</button>
                       </div>
                     </td>
                     <td>
@@ -1664,7 +1746,7 @@ export function SalesPage() {
                 <p>Beneficiario: {lastReceipt.bank_details.beneficiary || "-"}</p>
               </>
             ) : null}
-            {lastSaleItems.length ? <p>Productos: {lastSaleItems.map((item) => item.type === "kit" ? `${item.quantity} ${item.kit.name}` : `${formatSaleQuantity(item.quantity, item.product.unidad_de_venta)} ${item.product.name}`).join(", ")}</p> : null}
+            {lastSaleItems.length ? <p>Productos: {lastSaleItems.map((item) => item.type === "kit" ? `${item.quantity} ${item.kit.name}` : `${formatCartItemQuantity(item)} ${item.product.name}`).join(", ")}</p> : null}
             {lastSale.payment_method === "credit" ? <p>Saldo pendiente: {currency(lastReceipt?.balance_due || 0)}</p> : null}
             {lastSale.sale_type === "invoice" && lastReceipt?.invoice_status ? <p>Estado factura: {lastReceipt.invoice_status}</p> : null}
             {lastSale.sale_type === "invoice" && lastReceipt?.stamp_status ? <p>Estado timbre: {lastReceipt.stamp_status}</p> : null}

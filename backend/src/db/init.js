@@ -362,6 +362,8 @@ async function ensureSchema(client) {
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0",
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unidad_de_venta VARCHAR(20)",
     "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS product_name_snapshot VARCHAR(200) NOT NULL DEFAULT ''",
+    "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS display_unit VARCHAR(20)",
+    "ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS display_quantity NUMERIC(12, 3)",
     "ALTER TABLE sale_items ALTER COLUMN unit_price TYPE NUMERIC(12, 5)",
     "ALTER TABLE sale_items ALTER COLUMN unit_cost TYPE NUMERIC(12, 5)",
     "ALTER TABLE sale_items ALTER COLUMN subtotal TYPE NUMERIC(14, 5)",
