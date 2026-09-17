@@ -223,6 +223,8 @@ export function SalesPage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartQuantityDrafts, setCartQuantityDrafts] = useState<Record<number, string>>({});
+  const [kitQuantityDrafts, setKitQuantityDrafts] = useState<Record<number, string>>({});
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "credit" | "transfer">("cash");
   const [saleType, setSaleType] = useState<"ticket" | "invoice">("ticket");
   const [requiresAdministrativeInvoice, setRequiresAdministrativeInvoice] = useState(false);
@@ -456,6 +458,8 @@ export function SalesPage() {
 
   function resetSaleForm() {
     setCart([]);
+    setCartQuantityDrafts({});
+    setKitQuantityDrafts({});
     setSearch("");
     setScannerFeedback("");
     setScannerSelectionId(null);
@@ -729,6 +733,23 @@ export function SalesPage() {
     });
   }
 
+  function setKitQuantityDraft(kitId: number, value: string) {
+    setKitQuantityDrafts((current) => ({ ...current, [kitId]: value }));
+  }
+
+  function clearKitQuantityDraft(kitId: number) {
+    setKitQuantityDrafts((current) => {
+      if (!Object.prototype.hasOwnProperty.call(current, kitId)) return current;
+      const next = { ...current };
+      delete next[kitId];
+      return next;
+    });
+  }
+
+  function getKitQuantityDraft(kitId: number, fallback: number) {
+    return kitQuantityDrafts[kitId] ?? String(fallback);
+  }
+
   function updateKitQuantity(kitId: number, quantity: number) {
     if (!Number.isFinite(quantity)) return;
     if (quantity <= 0) {
@@ -867,6 +888,23 @@ export function SalesPage() {
       supplier_whatsapp: quickSupplierTouched.supplier_whatsapp ? current.supplier_whatsapp : matchedSupplier.whatsapp || "",
       supplier_observations: quickSupplierTouched.supplier_observations ? current.supplier_observations : matchedSupplier.observations || ""
     }));
+  }
+
+  function setCartQuantityDraft(productId: number, value: string) {
+    setCartQuantityDrafts((current) => ({ ...current, [productId]: value }));
+  }
+
+  function clearCartQuantityDraft(productId: number) {
+    setCartQuantityDrafts((current) => {
+      if (!Object.prototype.hasOwnProperty.call(current, productId)) return current;
+      const next = { ...current };
+      delete next[productId];
+      return next;
+    });
+  }
+
+  function getCartQuantityDraft(productId: number, fallback: number) {
+    return cartQuantityDrafts[productId] ?? String(fallback);
   }
 
   function updateQuantity(productId: number, quantity: number) {
@@ -1517,17 +1555,18 @@ export function SalesPage() {
                         </td>
                         <td>
                           <div className="quantity-control">
-                            <button onClick={() => updateKitQuantity(item.kit.id, item.quantity - 1)} type="button">-</button>
+                            <button onClick={() => { updateKitQuantity(item.kit.id, item.quantity - 1); clearKitQuantityDraft(item.kit.id); }} type="button">-</button>
                             <input
                               min="0"
                               inputMode="numeric"
                               step="1"
                               type="number"
-                              value={item.quantity}
-                              onChange={(event) => updateKitQuantity(item.kit.id, Number(event.target.value))}
+                              value={getKitQuantityDraft(item.kit.id, item.quantity)}
+                              onChange={(event) => setKitQuantityDraft(item.kit.id, event.target.value)}
+                              onBlur={(event) => { updateKitQuantity(item.kit.id, Number(event.target.value)); clearKitQuantityDraft(item.kit.id); }}
                             />
                             <span>pieza</span>
-                            <button onClick={() => updateKitQuantity(item.kit.id, item.quantity + 1)} type="button">+</button>
+                            <button onClick={() => { updateKitQuantity(item.kit.id, item.quantity + 1); clearKitQuantityDraft(item.kit.id); }} type="button">+</button>
                           </div>
                         </td>
                         <td>{currency(kitPrice)}</td>
@@ -1557,17 +1596,18 @@ export function SalesPage() {
                     </td>
                     <td>
                       <div className="quantity-control">
-                        <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity - (isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? 1 : 0.001)))} type="button">-</button>
+                        <button onClick={() => { updateQuantity(item.product.id, roundQuantity(item.quantity - (isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? 1 : 0.001))); clearCartQuantityDraft(item.product.id); }} type="button">-</button>
                         <input
                           min="0"
                           inputMode="decimal"
                           step={isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? "1" : "0.001"}
                           type="number"
-                          value={item.quantity}
-                          onChange={(event) => updateQuantity(item.product.id, Number(event.target.value))}
+                          value={getCartQuantityDraft(item.product.id, item.quantity)}
+                          onChange={(event) => setCartQuantityDraft(item.product.id, event.target.value)}
+                          onBlur={(event) => { updateQuantity(item.product.id, Number(event.target.value)); clearCartQuantityDraft(item.product.id); }}
                         />
                         <span>{getResolvedSaleUnit(item.product.unidad_de_venta)}</span>
-                        <button onClick={() => updateQuantity(item.product.id, roundQuantity(item.quantity + (isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? 1 : 0.001)))} type="button">+</button>
+                        <button onClick={() => { updateQuantity(item.product.id, roundQuantity(item.quantity + (isIntegerUnit(getResolvedSaleUnit(item.product.unidad_de_venta)) ? 1 : 0.001))); clearCartQuantityDraft(item.product.id); }} type="button">+</button>
                       </div>
                     </td>
                     <td>
