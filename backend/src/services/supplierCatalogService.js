@@ -3,6 +3,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const productService = require("./productService");
+const { SALE_UNIT_SYNONYMS, normalizeUnitSynonym } = require("../constants/saleUnits");
 
 const SUPPLIER_CATALOG_IMPORT_LIMIT = 500;
 const SUPPLIER_CATALOG_COLUMN_ALIASES = {
@@ -159,15 +160,15 @@ async function parseWorkbook(file) {
 
 function normalizeUnit(value, fallbackName = "") {
   const normalized = normalizeHeader(value);
-  if (["pieza", "pza", "pz", "unidad", "unit"].includes(normalized)) return "pieza";
-  if (["kg", "kilo", "kilos", "kilogramo", "kilogramos"].includes(normalized)) return "kg";
-  if (["litro", "litros", "lt", "lts", "l"].includes(normalized)) return "litro";
-  if (["caja", "cajas", "box"].includes(normalized)) return "caja";
+  const canonical = normalizeUnitSynonym(normalized);
+  if (canonical) return canonical;
 
   const normalizedName = normalizeHeader(fallbackName);
-  if (/\b(kg|kilo|kilos|kilogramo|kilogramos)\b/.test(normalizedName)) return "kg";
-  if (/\b(lt|lts|litro|litros)\b/.test(normalizedName)) return "litro";
-  if (/\b(caja|cajas|box)\b/.test(normalizedName)) return "caja";
+  for (const [unitCanonical, synonyms] of Object.entries(SALE_UNIT_SYNONYMS)) {
+    if (unitCanonical === "pieza") continue;
+    const pattern = new RegExp(`\\b(${synonyms.join("|")})\\b`);
+    if (pattern.test(normalizedName)) return unitCanonical;
+  }
   return "pieza";
 }
 

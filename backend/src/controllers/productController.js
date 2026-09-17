@@ -4,6 +4,7 @@ const validateRequest = require("../middleware/validateRequest");
 const productService = require("../services/productService");
 const { getProductBarcodeSvg } = require("../services/adminInvoiceService");
 const { PRODUCT_CATALOG_TYPES } = require("../utils/domainEnums");
+const { SALE_UNITS } = require("../constants/saleUnits");
 
 const listValidation = [
   query("search").optional().trim(),
@@ -66,7 +67,7 @@ const createValidation = [
   body("barcode").optional({ values: "falsy" }).trim().matches(/^\d+$/),
   body("category").optional({ values: "falsy" }).trim(),
   body("catalog_type").optional({ values: "falsy" }).isIn(PRODUCT_CATALOG_TYPES),
-  body("unidad_de_venta").optional({ values: "falsy" }).isIn(["pieza", "kg", "litro", "caja"]),
+  body("unidad_de_venta").optional({ values: "falsy" }).isIn(SALE_UNITS),
   body("porcentaje_ganancia").optional({ values: "falsy" }).isFloat(),
   body("ieps").optional({ values: "falsy" }).isFloat({ min: 0 }),
   body("stock_minimo").isFloat({ min: 0 }),
@@ -107,7 +108,7 @@ const updateValidation = [
   body("barcode").optional({ values: "falsy" }).trim().matches(/^\d+$/),
   body("category").optional({ values: "falsy" }).trim(),
   body("catalog_type").optional({ values: "falsy" }).isIn(PRODUCT_CATALOG_TYPES),
-  body("unidad_de_venta").optional({ values: "falsy" }).isIn(["pieza", "kg", "litro", "caja"]),
+  body("unidad_de_venta").optional({ values: "falsy" }).isIn(SALE_UNITS),
   body("porcentaje_ganancia").optional({ values: "falsy" }).isFloat(),
   body("ieps").optional({ values: "falsy" }).isFloat({ min: 0 }),
   body("stock_minimo").optional().isFloat({ min: 0 }),

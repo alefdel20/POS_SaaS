@@ -2,6 +2,7 @@ const { body, param, query } = require("express-validator");
 const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const supplierCatalogService = require("../services/supplierCatalogService");
+const { SALE_UNITS } = require("../constants/saleUnits");
 
 const supplierIdValidation = [param("id").isInt(), validateRequest];
 
@@ -44,7 +45,7 @@ const createProductValidation = [
   body("name").optional({ values: "falsy" }).trim(),
   body("description").optional().trim(),
   body("category").optional({ values: "falsy" }).trim(),
-  body("unidad_de_venta").optional({ values: "falsy" }).isIn(["pieza", "kg", "litro", "caja"]),
+  body("unidad_de_venta").optional({ values: "falsy" }).isIn(SALE_UNITS),
   body("price").isFloat({ gt: 0, maxDecimalPlaces: 5 }),
   body("cost_price").optional().isFloat({ min: 0, maxDecimalPlaces: 5 }),
   body("stock").optional().isFloat({ min: 0 }),

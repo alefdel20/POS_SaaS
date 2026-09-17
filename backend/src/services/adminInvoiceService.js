@@ -4,6 +4,7 @@ const { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, WidthT
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { isIntegerUnit } = require("../constants/saleUnits");
 
 function mapAdministrativeInvoice(row) {
   if (!row) return null;
@@ -181,7 +182,7 @@ async function exportAdministrativeInvoicePdf(id, actor) {
   document.moveDown(0.5);
   model.sale.items.forEach((item) => {
     document.fontSize(10).text(
-      `${Number(item.quantity).toFixed(item.unidad_de_venta === "pieza" || item.unidad_de_venta === "caja" ? 0 : 3)} ${item.unidad_de_venta || "pieza"} ${item.product_name} - $${Number(item.subtotal || 0).toFixed(2)}`
+      `${Number(item.quantity).toFixed(isIntegerUnit(item.unidad_de_venta) ? 0 : 3)} ${item.unidad_de_venta || "pieza"} ${item.product_name} - $${Number(item.subtotal || 0).toFixed(2)}`
     );
   });
 

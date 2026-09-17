@@ -10,11 +10,15 @@ const { canUseExpiryDate, canUseIeps, normalizePosType } = require("../utils/bus
 const { normalizeRole } = require("../utils/roles");
 const { normalizeProductCatalogType } = require("../utils/domainEnums");
 const { getMexicoCityDate } = require("../utils/timezone");
+const {
+  SALE_UNITS,
+  SALE_UNIT_SYNONYMS,
+  isIntegerUnit,
+  isFractionalUnit,
+  normalizeUnitSynonym
+} = require("../constants/saleUnits");
 
 const SKU_CONFUSING_CHARACTERS = { O: "0", I: "1" };
-const SALE_UNITS = ["pieza", "kg", "litro", "caja"];
-const INTEGER_UNITS = new Set(["pieza", "caja"]);
-const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
 const PRODUCT_IMPORT_LIMIT = 500;
 const IMPORT_DEFAULT_CATEGORY = "General";
 const INVENTORY_RESTOCK_MOVEMENT_TYPE = "inventory_restock";
@@ -258,11 +262,11 @@ function validateQuantityByUnit(value, unit, fieldLabel) {
     throw new ApiError(400, `${fieldLabel} must be a valid positive number`);
   }
 
-  if (INTEGER_UNITS.has(unit) && !Number.isInteger(numericValue)) {
+  if (isIntegerUnit(unit) && !Number.isInteger(numericValue)) {
     throw new ApiError(400, `${fieldLabel} must be an integer for ${unit}`);
   }
 
-  if (FRACTIONAL_UNITS.has(unit) && hasMoreThanThreeDecimals(numericValue)) {
+  if (isFractionalUnit(unit) && hasMoreThanThreeDecimals(numericValue)) {
     throw new ApiError(400, `${fieldLabel} cannot exceed 3 decimals for ${unit}`);
   }
 
@@ -1090,16 +1094,16 @@ async function parseXlsxImportRows(buffer) {
 function normalizeImportUnit(unitValue, nameValue = "") {
   const normalizedUnit = normalizeImportHeader(unitValue);
   if (normalizedUnit) {
-    if (["pieza", "pza", "pz", "unit", "unidad"].includes(normalizedUnit)) return "pieza";
-    if (["kg", "kilo", "kilos", "kilogramo", "kilogramos"].includes(normalizedUnit)) return "kg";
-    if (["litro", "litros", "lt", "lts", "l"].includes(normalizedUnit)) return "litro";
-    if (["caja", "cajas", "box"].includes(normalizedUnit)) return "caja";
+    const canonical = normalizeUnitSynonym(normalizedUnit);
+    if (canonical) return canonical;
   }
 
   const normalizedName = normalizeImportHeader(nameValue);
-  if (/\b(kg|kilo|kilos|kilogramo|kilogramos)\b/.test(normalizedName)) return "kg";
-  if (/\b(lt|lts|litro|litros)\b/.test(normalizedName)) return "litro";
-  if (/\b(caja|cajas|box)\b/.test(normalizedName)) return "caja";
+  for (const [canonical, synonyms] of Object.entries(SALE_UNIT_SYNONYMS)) {
+    if (canonical === "pieza") continue;
+    const pattern = new RegExp(`\\b(${synonyms.join("|")})\\b`);
+    if (pattern.test(normalizedName)) return canonical;
+  }
   return "pieza";
 }
 
@@ -1192,9 +1196,9 @@ function buildImportRowPreview(index, rawRow, headerMap, context) {
   const normalizedStock = payload.stock === "" ? 0 : Number(payload.stock);
   if (!Number.isFinite(normalizedStock) || normalizedStock < 0) {
     errors.push("Stock invalido");
-  } else if ((payload.unidad_de_venta === "pieza" || payload.unidad_de_venta === "caja") && !Number.isInteger(normalizedStock)) {
+  } else if (isIntegerUnit(payload.unidad_de_venta) && !Number.isInteger(normalizedStock)) {
     errors.push(`Stock debe ser entero para ${payload.unidad_de_venta}`);
-  } else if ((payload.unidad_de_venta === "kg" || payload.unidad_de_venta === "litro") && hasMoreThanThreeDecimals(normalizedStock)) {
+  } else if (isFractionalUnit(payload.unidad_de_venta) && hasMoreThanThreeDecimals(normalizedStock)) {
     errors.push(`Stock solo acepta 3 decimales para ${payload.unidad_de_venta}`);
   }
 

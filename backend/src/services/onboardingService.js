@@ -8,8 +8,7 @@ const {
   canUseExpiryDate,
   canUseIeps
 } = require("../utils/business");
-
-const DEFAULT_UNITS = ["pieza", "kg", "litro", "caja"];
+const { SALE_UNITS: DEFAULT_UNITS } = require("../constants/saleUnits");
 const HEALTHCARE_MODULES_BY_POS_TYPE = {
   Veterinaria: [
     "catalog",

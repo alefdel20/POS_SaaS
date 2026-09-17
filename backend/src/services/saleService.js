@@ -20,9 +20,9 @@ const { calculateKitPrice } = require("./kitService");
 // subject_type/patient_id/pet_id, same translation every other healthcare.*
 // write already goes through.
 const { syncPrescriptionToHealthcareOnUpdate, resolveHealthcareSubject } = require("../utils/healthcareSubjectTranslation");
+const { INTEGER_UNITS, isIntegerUnit, isFractionalUnit } = require("../constants/saleUnits");
 
-const INTEGER_UNITS = new Set(["pieza", "caja"]);
-const FRACTIONAL_UNITS = new Set(["kg", "litro"]);
+const INTEGER_UNITS_SQL_LIST = [...INTEGER_UNITS].map((unit) => `'${unit}'`).join(", ");
 
 function roundToScale(value, scale) {
   const numericValue = Number(value || 0);
@@ -143,7 +143,7 @@ function hasMoreThanThreeDecimals(value) {
 
 function formatQuantity(quantity, unit) {
   const numericValue = Number(quantity || 0);
-  if (INTEGER_UNITS.has(unit)) {
+  if (isIntegerUnit(unit)) {
     return String(Math.trunc(numericValue));
   }
   return String(roundQuantity(numericValue));
@@ -160,10 +160,10 @@ function validateSaleQuantity(quantity, unit) {
   if (!Number.isFinite(numericValue) || numericValue <= 0) {
     throw new ApiError(400, "Quantity must be greater than zero");
   }
-  if (INTEGER_UNITS.has(unit) && !Number.isInteger(numericValue)) {
+  if (isIntegerUnit(unit) && !Number.isInteger(numericValue)) {
     throw new ApiError(400, `Quantity must be an integer for ${unit}`);
   }
-  if (FRACTIONAL_UNITS.has(unit) && hasMoreThanThreeDecimals(numericValue)) {
+  if (isFractionalUnit(unit) && hasMoreThanThreeDecimals(numericValue)) {
     throw new ApiError(400, `Quantity cannot exceed 3 decimals for ${unit}`);
   }
   return roundQuantity(numericValue);
@@ -220,7 +220,7 @@ async function listSales(filters = {}, actor) {
        SELECT STRING_AGG(
          CONCAT(
            CASE
-             WHEN COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza') IN ('pieza', 'caja')
+             WHEN COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza') IN (${INTEGER_UNITS_SQL_LIST})
                THEN TRUNC(si.quantity)::text
              ELSE TO_CHAR(si.quantity, 'FM999999990.000')
            END,
@@ -255,7 +255,7 @@ async function listRecentSales(actor) {
        SELECT STRING_AGG(
          CONCAT(
            CASE
-             WHEN COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza') IN ('pieza', 'caja')
+             WHEN COALESCE(si.unidad_de_venta, p.unidad_de_venta, 'pieza') IN (${INTEGER_UNITS_SQL_LIST})
                THEN TRUNC(si.quantity)::text
              ELSE TO_CHAR(si.quantity, 'FM999999990.000')
            END,

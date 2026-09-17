@@ -303,7 +303,7 @@ BEGIN
   ) THEN
     ALTER TABLE products
     ADD CONSTRAINT products_unidad_de_venta_check
-    CHECK (unidad_de_venta IS NULL OR unidad_de_venta IN ('pieza', 'kg', 'litro', 'caja')) NOT VALID;
+    CHECK (unidad_de_venta IS NULL OR unidad_de_venta IN ('pieza', 'kg', 'litro', 'caja', 'metro', 'pliego', 'hoja')) NOT VALID;
   END IF;
 
   IF NOT EXISTS (

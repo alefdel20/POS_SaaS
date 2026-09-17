@@ -1,11 +1,11 @@
 const pool = require("../db/pool");
 const { normalizePosType } = require("../utils/business");
 const initialCatalogs = require("../data/initialCatalogs.json");
+const { SALE_UNITS } = require("../constants/saleUnits");
 
 const SEED_VERSION = "2026-04-17-initial-catalog-v1";
 const VARGAS_BUSINESS_ID = 11;
 const VARGAS_SLUG_KEY = "vargas";
-const ALLOWED_UNITS = new Set(["pieza", "kg", "litro", "caja"]);
 
 // Producto-servicio con precio libre por linea (unit_price en saleService.js,
 // sin cambios ahi). catalog_type se siembra NULL a proposito para que no
@@ -76,7 +76,7 @@ function resolveCatalogKeyForBusiness(business) {
 function normalizeUnit(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return "pieza";
-  return ALLOWED_UNITS.has(normalized) ? normalized : "pieza";
+  return SALE_UNITS.includes(normalized) ? normalized : "pieza";
 }
 
 function normalizeMoney(value) {

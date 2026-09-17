@@ -2150,7 +2150,7 @@ async function ensureConstraints(client) {
       ) THEN
         ALTER TABLE products
         ADD CONSTRAINT products_unidad_de_venta_check
-        CHECK (unidad_de_venta IS NULL OR unidad_de_venta IN ('pieza', 'kg', 'litro', 'caja'));
+        CHECK (unidad_de_venta IS NULL OR unidad_de_venta IN ('pieza', 'kg', 'litro', 'caja', 'metro', 'pliego', 'hoja'));
       END IF;
 
       IF NOT EXISTS (
