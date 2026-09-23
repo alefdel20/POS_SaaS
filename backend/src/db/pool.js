@@ -137,9 +137,38 @@ function wrapQueryMethod(queryFn, source) {
   };
 }
 
-// Solo envolvemos pool.query.
-// NO envolvemos pool.connect() ni mutamos client.query, porque eso fue lo que
-// probablemente rompió el backend en producción.
+// pg-pool quita su listener de 'error' del cliente mientras esta en checkout (pg-pool/index.js:344).
+// Si Postgres mata la sesion en ese lapso (p.ej. idle_in_transaction_session_timeout) y nadie mas
+// escucha, el 'error' no capturado tumba el proceso. Se adjunta un listener una sola vez por cliente
+// (los clientes se reutilizan entre checkouts; sin WeakSet se acumularian listeners).
+// Cubre ambas formas de connect(): promesa y callback (pool.query de pg-pool usa la de callback).
+const clientsWithErrorListener = new WeakSet();
+
+function attachClientErrorListener(client) {
+  if (!client || clientsWithErrorListener.has(client)) return;
+  clientsWithErrorListener.add(client);
+  client.on("error", (error) => {
+    console.error(`[SQL:client:error] ${error.message}`);
+  });
+}
+
+const rawConnect = pool.connect.bind(pool);
+pool.connect = function wrappedConnect(callback) {
+  if (typeof callback === "function") {
+    return rawConnect((error, client, done) => {
+      attachClientErrorListener(client);
+      callback(error, client, done);
+    });
+  }
+  return rawConnect().then((client) => {
+    attachClientErrorListener(client);
+    return client;
+  });
+};
+
+// pool.connect() SI esta envuelto arriba (solo para adjuntar el listener de 'error').
+// Seguimos sin mutar client.query en ningun punto — eso fue lo que probablemente
+// rompio el backend en produccion la vez anterior, y ese riesgo especifico sigue evitado.
 const rawPoolQuery = pool.query.bind(pool);
 pool.query = wrapQueryMethod(rawPoolQuery, "pool");
 
