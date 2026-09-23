@@ -2,6 +2,7 @@ const express = require("express");
 const controller = require("../controllers/saleController");
 const returnController = require("../controllers/returnController");
 const { requireRole } = require("../middleware/authMiddleware");
+const { saleCreationLimiter } = require("../middleware/rateLimiters");
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ router.get("/recent-products", requireRole(["superadmin", "admin", "gerente", "c
 router.get("/trends", requireRole(["superadmin", "admin", "gerente"]), controller.trendsValidation, controller.getSalesTrends);
 router.get("/:id", requireRole(["superadmin", "admin", "gerente", "cajero", "cashier", "user"]), controller.saleIdValidation, controller.getSaleDetail);
 router.post("/:id/cancel", requireRole(["superadmin", "superusuario", "admin"]), controller.cancelValidation, controller.cancelSale);
-router.post("/", requireRole(["superadmin", "admin", "gerente", "user", "cajero", "cashier"]), controller.createValidation, controller.createSale);
+router.post("/", requireRole(["superadmin", "admin", "gerente", "user", "cajero", "cashier"]), saleCreationLimiter, controller.createValidation, controller.createSale);
 
 // Returns
 router.post("/:id/returns", requireRole(["superusuario", "admin", "gerente", "cajero", "cashier", "user"]), returnController.createReturnValidation, returnController.createReturn);

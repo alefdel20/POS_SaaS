@@ -4,16 +4,24 @@ const pool = require("./pool");
 const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Dentista", "FarmaciaConsultorio", "ClinicaChica", "Otro", "Restaurante"];
 const SEED_BUSINESS = { name: "Negocio Semilla", slug: "default" };
 const INIT_VERSION_MARKER = "=== DB INIT VERSION 2026-04-01 FIX 3 ===";
+// Override client-side (pg) query_timeout para statements de migracion que escalan con el
+// tamano de la tabla. Debe ser un numero positivo: pg evalua `config.query_timeout || default`,
+// asi que 0 caeria de vuelta al default del pool (15000). No afecta el SET LOCAL statement_timeout
+// (server-side) ni lock_timeout, que siguen acotando la espera de locks.
+const MIGRATION_QUERY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 function summarizeQuery(statement) {
   return String(statement || "").replace(/\s+/g, " ").trim();
 }
 
-async function execQuery(client, statement, params) {
+async function execQuery(client, statement, params, queryTimeoutMs) {
   const sql = summarizeQuery(statement);
   console.info(`[DB-COMPAT] Executing query: ${sql}`);
 
   try {
+    if (queryTimeoutMs) {
+      return await client.query({ text: statement, values: params, query_timeout: queryTimeoutMs });
+    }
     if (params === undefined) {
       return await client.query(statement);
     }
@@ -1392,7 +1400,9 @@ async function backfillBusinessIds(client) {
      SET started_at = COALESCE(started_at, created_at),
          expires_at = COALESCE(expires_at, created_at + INTERVAL '30 minutes'),
          ended_at = COALESCE(ended_at, created_at),
-         ended_by_user_id = COALESCE(ended_by_user_id, actor_user_id)`
+         ended_by_user_id = COALESCE(ended_by_user_id, actor_user_id)`,
+    undefined,
+    MIGRATION_QUERY_TIMEOUT_MS
   );
 
   await execQuery(
@@ -1451,7 +1461,9 @@ async function backfillBusinessIds(client) {
      SELECT id, supplier_id, TRUE, cost_price, updated_at, business_id
      FROM products
      WHERE supplier_id IS NOT NULL
-     ON CONFLICT (product_id, supplier_id) DO NOTHING`
+     ON CONFLICT (product_id, supplier_id) DO NOTHING`,
+    undefined,
+    MIGRATION_QUERY_TIMEOUT_MS
   );
 
   await run(client, [
@@ -1666,7 +1678,12 @@ async function ensureConstraints(client) {
   ];
 
   for (const table of fks) {
-    await execQuery(client, `ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`);
+    await execQuery(
+      client,
+      `ALTER TABLE ${table} ALTER COLUMN business_id SET NOT NULL`,
+      undefined,
+      MIGRATION_QUERY_TIMEOUT_MS
+    );
     await execQuery(
       client,
       `
@@ -2124,7 +2141,9 @@ async function ensureConstraints(client) {
       ADD CONSTRAINT sale_prescription_item_links_qty_check CHECK (quantity_dispensed > 0);
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$;
-    `
+    `,
+    undefined,
+    MIGRATION_QUERY_TIMEOUT_MS
   );
   console.log("[DB-FIX] Controlled enum constraints applied successfully.");
 
@@ -2437,12 +2456,22 @@ async function ensureConstraints(client) {
 // DROP+CREATE INDEX pair is a no-op churn once the predicate matches.
 async function ensureClientSoftDeleteReconciliation(client) {
   await run(client, [
-    "UPDATE clients SET is_active = FALSE WHERE deleted_at IS NOT NULL AND is_active = TRUE",
+    "UPDATE clients SET is_active = FALSE WHERE deleted_at IS NOT NULL AND is_active = TRUE"
+  ]);
+  await execQuery(
+    client,
     "DROP INDEX IF EXISTS clients_business_name_phone_uq",
+    undefined,
+    MIGRATION_QUERY_TIMEOUT_MS
+  );
+  await execQuery(
+    client,
     `CREATE UNIQUE INDEX IF NOT EXISTS clients_business_name_phone_uq
      ON clients (business_id, LOWER(TRIM(name)), COALESCE(LOWER(TRIM(phone)), ''))
-     WHERE is_active = TRUE`
-  ]);
+     WHERE is_active = TRUE`,
+    undefined,
+    MIGRATION_QUERY_TIMEOUT_MS
+  );
 }
 
 // Migration 46 — public.appointments.client_id becomes nullable. Business
@@ -4236,6 +4265,9 @@ async function ensureDatabaseCompatibility() {
   try {
     console.info("[DB-COMPAT] BEGIN");
     await execQuery(client, "BEGIN");
+
+    await execQuery(client, "SET LOCAL statement_timeout = 0");
+    await execQuery(client, "SET LOCAL lock_timeout = 10000");
 
     console.info("[DB-COMPAT] SET TIME ZONE");
     await execQuery(client, "SET TIME ZONE 'America/Mexico_City'");

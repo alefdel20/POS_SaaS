@@ -1,5 +1,6 @@
 const pg = require("pg");
 const { TIME_ZONE } = require("../utils/timezone");
+const { debugSql } = require("../config/env");
 
 // OID 1082 = DATE. Forzamos salida como texto plano YYYY-MM-DD.
 pg.types.setTypeParser(1082, (value) => value);
@@ -11,9 +12,22 @@ const poolConfig = {
   password: process.env.PGPASSWORD,
   database: process.env.PGDATABASE,
   port: Number(process.env.PGPORT || 5432),
+  max: 20,
+  idleTimeoutMillis: 30000,
+  // Sin esto (default 0) un caller espera para siempre cuando el pool esta agotado.
+  connectionTimeoutMillis: 5000,
+  statement_timeout: 15000,
+  query_timeout: 15000,
+  idle_in_transaction_session_timeout: 30000,
 };
 
 const pool = new pg.Pool(poolConfig);
+
+// Un error en un cliente idle (p.ej. reinicio de Postgres) se emite como 'error' en el pool;
+// sin handler tumba el proceso. pg ya descarta el cliente y reconecta bajo demanda.
+pool.on("error", (error) => {
+  console.error(`[SQL:pool:error] ${error.message}`);
+});
 
 pool.on("connect", (client) => {
   client.query(`SET TIME ZONE '${TIME_ZONE}'`).catch((error) => {
@@ -99,8 +113,10 @@ function extractQueryPayload(text, params) {
 function logQuery(source, sql, values) {
   if (!sql) return;
 
-  console.log(`[SQL:${source}] ${sql}`);
-  console.log(`[SQL:${source}:params] ${JSON.stringify(values)}`);
+  if (debugSql) {
+    console.log(`[SQL:${source}] ${sql}`);
+    console.log(`[SQL:${source}:params] ${JSON.stringify(values)}`);
+  }
 
   if (shouldWarnMissingBusinessId(sql)) {
     console.warn(`[TENANT-WARN] Query without business_id detected: ${sql}`);

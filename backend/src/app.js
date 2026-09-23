@@ -3,6 +3,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const path = require("path");
+const { validateEnv } = require("./config/env");
 const { requireAuth } = require("./middleware/authMiddleware");
 const errorHandler = require("./middleware/errorHandler");
 const { ensureDatabaseCompatibility } = require("./db/init");
@@ -148,6 +149,7 @@ routes.forEach((route) => {
 app.use(errorHandler);
 
 async function startServer(port = Number(process.env.PORT || 3000)) {
+  validateEnv();
   await ensureDatabaseCompatibility();
   await seedInitialCatalogsForExistingBusinesses().catch((error) => {
     console.error("[INITIAL-CATALOG-SEED] Failed to seed initial catalogs", error);

@@ -3,6 +3,7 @@ const controller = require("../controllers/productController");
 const { requireAuth, requireRole } = require("../middleware/authMiddleware");
 const { uploadProductImage } = require("../middleware/productImageUpload");
 const { uploadProductImportFile } = require("../middleware/productImportUpload");
+const { exportLimiter } = require("../middleware/rateLimiters");
 
 const router = express.Router();
 
@@ -20,13 +21,13 @@ router.patch("/:id/restock", requireRole(["superusuario", "superadmin", "admin",
 router.post("/restock/batch", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.restockBatchValidation, controller.restockProductsBatch);
 router.get("/suppliers", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.supplierListValidation, controller.listSuppliers);
 router.get("/categories", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.categoryListValidation, controller.listCategories);
-router.post("/import/preview", requireRole(["superusuario", "superadmin", "admin"]), uploadProductImportFile, controller.previewProductImport);
-router.post("/import/confirm", requireRole(["superusuario", "superadmin", "admin"]), controller.importConfirmValidation, controller.confirmProductImport);
-router.get("/export/excel", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.exportProductsExcel);
-router.get("/export/pdf", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.exportProductsPdf);
+router.post("/import/preview", requireRole(["superusuario", "superadmin", "admin"]), exportLimiter, uploadProductImportFile, controller.previewProductImport);
+router.post("/import/confirm", requireRole(["superusuario", "superadmin", "admin"]), exportLimiter, controller.importConfirmValidation, controller.confirmProductImport);
+router.get("/export/excel", requireRole(["superusuario", "superadmin", "admin", "gerente"]), exportLimiter, controller.exportProductsExcel);
+router.get("/export/pdf", requireRole(["superusuario", "superadmin", "admin", "gerente"]), exportLimiter, controller.exportProductsPdf);
 router.get("/:id", requireAuth, controller.idValidation, controller.getProductDetail);
 router.get("/:id/barcode.svg", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.getProductBarcode);
-router.post("/remate/bulk", requireRole(["superusuario", "superadmin", "admin"]), controller.bulkDiscountValidation, controller.applyBulkDiscount);
+router.post("/remate/bulk", requireRole(["superusuario", "superadmin", "admin"]), exportLimiter, controller.bulkDiscountValidation, controller.applyBulkDiscount);
 router.post("/", requireRole(["superadmin", "admin", "gerente", "cajero"]), controller.createValidation, controller.createProduct);
 router.put("/:id", requireRole(["superadmin", "admin", "gerente"]), controller.idValidation, controller.updateValidation, controller.updateProduct);
 router.post("/:id/image", requireRole(["superadmin", "admin"]), controller.idValidation, uploadProductImage, controller.uploadProductImage);

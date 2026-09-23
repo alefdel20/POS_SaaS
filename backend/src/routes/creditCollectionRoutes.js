@@ -1,13 +1,14 @@
 const express = require("express");
 const controller = require("../controllers/creditCollectionController");
 const { requireRole } = require("../middleware/authMiddleware");
+const { exportLimiter } = require("../middleware/rateLimiters");
 
 const router = express.Router();
 
 router.get("/", requireRole(["superadmin", "admin", "gerente"]), controller.listDebtorsValidation, controller.listDebtors);
 router.get("/suggestions", requireRole(["superadmin", "admin", "gerente", "user", "cajero", "cashier"]), controller.suggestionValidation, controller.listDebtorSuggestions);
-router.get("/export/excel", requireRole(["superadmin", "admin", "gerente"]), controller.exportDebtorsExcel);
-router.get("/export/pdf", requireRole(["superadmin", "admin", "gerente"]), controller.exportDebtorsPdf);
+router.get("/export/excel", requireRole(["superadmin", "admin", "gerente"]), exportLimiter, controller.exportDebtorsExcel);
+router.get("/export/pdf", requireRole(["superadmin", "admin", "gerente"]), exportLimiter, controller.exportDebtorsPdf);
 router.get("/cancelled-write-offs", requireRole(["superadmin", "admin", "gerente"]), controller.listCancelledWriteOffClientIds);
 router.get("/:saleId/summary", requireRole(["superadmin", "admin", "gerente"]), controller.saleIdValidation, controller.getCreditSaleSummary);
 router.get("/:saleId/payments", requireRole(["superadmin", "admin", "gerente"]), controller.saleIdValidation, controller.listPaymentsBySale);

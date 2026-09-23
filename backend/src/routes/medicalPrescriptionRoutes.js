@@ -1,6 +1,7 @@
 const express = require("express");
 const controller = require("../controllers/medicalPrescriptionController");
 const { requireClinicalAccess } = require("../middleware/authMiddleware");
+const { exportLimiter } = require("../middleware/rateLimiters");
 
 const router = express.Router();
 
@@ -9,6 +10,6 @@ router.post("/", requireClinicalAccess, controller.createValidation, controller.
 router.get("/:id", requireClinicalAccess, controller.idValidation, controller.getPrescriptionDetail);
 router.put("/:id", requireClinicalAccess, controller.updateValidation, controller.updatePrescription);
 router.patch("/:id/status", requireClinicalAccess, controller.statusValidation, controller.updatePrescriptionStatus);
-router.get("/:id/export/pdf", requireClinicalAccess, controller.idValidation, controller.exportPrescriptionPdf);
+router.get("/:id/export/pdf", requireClinicalAccess, exportLimiter, controller.idValidation, controller.exportPrescriptionPdf);
 
 module.exports = router;
