@@ -30,7 +30,7 @@ importers:
         specifier: ^4.21.2
         version: 4.22.2
       express-rate-limit:
-        specifier: ^8.5.2
+        specifier: 8.5.2
         version: 8.5.2(express@4.22.2)
       express-validator:
         specifier: ^7.2.1
