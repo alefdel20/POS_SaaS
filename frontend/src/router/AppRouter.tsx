@@ -32,6 +32,9 @@ import { SuppliersPage } from "../pages/SuppliersPage";
 import { BusinessesPage } from "../pages/BusinessesPage";
 import { FinancialDashboardPage } from "../pages/FinancialDashboardPage";
 import { BranchesPage } from "../pages/BranchesPage";
+import { OnboardingBundleStartPage } from "../pages/OnboardingBundleStartPage";
+import { OnboardingBundleReviewPage } from "../pages/OnboardingBundleReviewPage";
+import { OnboardingBundleDonePage } from "../pages/OnboardingBundleDonePage";
 import { InvoicesPage } from "../pages/InvoicesPage";
 import { RestaurantAdminPage } from "../pages/RestaurantAdminPage";
 import { RestaurantMapPage } from "../pages/RestaurantMapPage";
@@ -101,6 +104,9 @@ export function AppRouter() {
               <Route path="/health/admin/users" element={<UsersPage />} />
             </Route>
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management]} />}>
+              <Route path="/onboarding/bundle" element={<OnboardingBundleStartPage />} />
+              <Route path="/onboarding/bundle/review" element={<OnboardingBundleReviewPage />} />
+              <Route path="/onboarding/bundle/done" element={<OnboardingBundleDonePage />} />
               <Route path="/branches" element={<BranchesPage />} />
               <Route path="/retail/admin/branches" element={<BranchesPage />} />
               <Route path="/health/admin/branches" element={<BranchesPage />} />

@@ -40,7 +40,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   });
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response));
+    const requestError = new Error(await extractErrorMessage(response)) as Error & { status?: number };
+    requestError.status = response.status;
+    throw requestError;
   }
 
   return response.json() as Promise<T>;

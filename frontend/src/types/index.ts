@@ -1332,3 +1332,18 @@ export interface AdminMetricsSummary {
   trials_converted_month: number;
   revenue_by_method: { method: string; total: number }[];
 }
+
+export interface OnboardingBundleItem {
+  bundle_index: number;
+  name: string;
+  price: number;
+  cost: number;
+  category: string;
+  unit: string;
+}
+
+export interface OnboardingBundleResponse {
+  posType: string | null;
+  needsBundle: boolean;
+  items: OnboardingBundleItem[];
+}

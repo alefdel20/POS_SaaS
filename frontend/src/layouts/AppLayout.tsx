@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { apiRequest } from "../api/client";
 import { Header } from "../components/Header";
 import { Sidebar } from "../components/Sidebar";
 import { HotkeysOverlay } from "../components/HotkeysOverlay";
@@ -7,15 +8,25 @@ import { OnboardingTour, type OnboardingTourHandle } from "../components/Onboard
 import { WhatsNewModal } from "../components/WhatsNewModal";
 import { useAuth } from "../context/AuthContext";
 import { useHotkeys } from "../hooks/useHotkeys";
+import { isBundleSkipped } from "../services/storage";
+import type { OnboardingBundleResponse } from "../types";
+import { normalizeRole } from "../utils/roles";
+
+const ONBOARDING_BUNDLE_PATH_PREFIX = "/onboarding/bundle";
 
 export function AppLayout() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const { showOverlay } = useHotkeys();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const menuToggleRef = useRef<HTMLButtonElement | null>(null);
   const tourRef = useRef<OnboardingTourHandle | null>(null);
-  const shouldAutoStart = Boolean(user && user.tutorial_seen === false);
+  const isAdmin = normalizeRole(user?.role) === "admin";
+  const isOnBundleWizard = location.pathname.startsWith(ONBOARDING_BUNDLE_PATH_PREFIX);
+  // Solo admin consulta el paquete inicial; el tour espera a que se resuelva para no arrancar sobre el wizard.
+  const [bundleChecked, setBundleChecked] = useState(false);
+  const shouldAutoStart = Boolean(user && user.tutorial_seen === false && (!isAdmin || bundleChecked) && !isOnBundleWizard);
   const hasRailSidebar = user?.pos_type === "Veterinaria";
   // El rail solo ocupa espacio propio cuando esta visible; mientras el panel esta
   // abierto el rail se oculta (ver VeterinariaSidebarRail) y no hay que reservarle margen.
@@ -60,6 +71,35 @@ export function AppLayout() {
   useEffect(() => {
     closeSidebar();
   }, [closeSidebar, location.pathname]);
+
+  useEffect(() => {
+    if (!isAdmin || !user?.id) return;
+    // Entrada directa al wizard: el Paso 1 hace su propio GET, no duplicarlo aqui.
+    if (location.pathname.startsWith(ONBOARDING_BUNDLE_PATH_PREFIX) || isBundleSkipped(user.business_id)) {
+      setBundleChecked(true);
+      return;
+    }
+
+    let cancelled = false;
+    apiRequest<OnboardingBundleResponse>("/onboarding/bundle", { token })
+      .then((bundle) => {
+        if (cancelled) return;
+        if (bundle.needsBundle) {
+          navigate(ONBOARDING_BUNDLE_PATH_PREFIX, { replace: true, state: { bundle } });
+        }
+      })
+      .catch(() => {
+        // Sin paquete disponible (red, negocio sin contexto): seguir con el dashboard normal.
+      })
+      .finally(() => {
+        if (!cancelled) setBundleChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Una consulta por sesion de usuario; no se repite en cada cambio de ruta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, user?.id, token]);
 
   useEffect(() => {
     let lastScrollY = window.scrollY;

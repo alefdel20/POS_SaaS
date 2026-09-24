@@ -7,6 +7,11 @@ const SEED_VERSION = "2026-04-17-initial-catalog-v1";
 const VARGAS_BUSINESS_ID = 11;
 const VARGAS_SLUG_KEY = "vargas";
 
+// Giros con wizard de confirmacion manual (onboardingBundleService): no se
+// siembran automaticamente. Valores canonical de normalizePosType; "Tlapaleria"
+// corresponde a la clave "ferreteria" de initialCatalogs.json.
+const POS_TYPES_WITH_GUIDED_BUNDLE = ["Papeleria", "Tienda", "Tlapaleria"];
+
 // Producto-servicio con precio libre por linea (unit_price en saleService.js,
 // sin cambios ahi). catalog_type se siembra NULL a proposito para que no
 // aparezca en los catalogos Alimentos/Accesorios/Medicamentos e insumos del
@@ -149,6 +154,14 @@ async function seedInitialCatalogForBusiness(client, business) {
     return { businessId, businessName, insertedCount: 0, skippedExistingCount: 0, catalogKey: null, skippedReason: "excluded_business_vargas" };
   }
 
+  if (POS_TYPES_WITH_GUIDED_BUNDLE.includes(normalizePosType(business?.pos_type))) {
+    await markSeedRun(client, {
+      businessId,
+      notes: "guided_bundle_pos_type"
+    });
+    return { businessId, businessName, insertedCount: 0, skippedExistingCount: 0, catalogKey: null, skippedReason: "guided_bundle_pos_type" };
+  }
+
   const catalogKey = resolveCatalogKeyForBusiness(business);
   if (!catalogKey) {
     await markSeedRun(client, {
@@ -277,6 +290,7 @@ async function seedInitialCatalogsForExistingBusinesses() {
 }
 
 module.exports = {
+  POS_TYPES_WITH_GUIDED_BUNDLE,
   seedInitialCatalogForBusiness,
   seedInitialCatalogsForExistingBusinesses
 };

@@ -30,6 +30,7 @@ const profileRoutes = require("./routes/profileRoutes");
 const businessRoutes = require("./routes/businessRoutes");
 const adminInvoiceRoutes = require("./routes/adminInvoiceRoutes");
 const onboardingRoutes = require("./routes/onboardingRoutes");
+const onboardingBundleRoutes = require("./routes/onboardingBundleRoutes");
 const onboardingStatusRoutes = require("./routes/onboardingStatusRoutes");
 const serviceCatalogRoutes = require("./routes/serviceCatalogRoutes");
 const clinicalClientRoutes = require("./routes/clinicalClientRoutes");
@@ -118,6 +119,7 @@ const routes = [
   { path: "/cfdi", router: cfdiRoutes, auth: true },
   { path: "/onboarding", router: onboardingStatusRoutes, auth: false },
   { path: "/onboarding", router: onboardingRoutes, auth: true },
+  { path: "/onboarding", router: onboardingBundleRoutes, auth: true },
   { path: "/services", router: serviceCatalogRoutes, auth: true },
   { path: "/clients", router: clinicalClientRoutes, auth: true },
   { path: "/patients", router: clinicalPatientRoutes, auth: true },

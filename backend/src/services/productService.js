@@ -2667,5 +2667,8 @@ module.exports = {
   searchProducts,
   listActiveDiscounts,
   updateDiscount,
-  cancelDiscount
+  cancelDiscount,
+  resolveSku,
+  generateUniqueBarcode,
+  ensureCategoryReference
 };
