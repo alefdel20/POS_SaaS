@@ -10,7 +10,7 @@ import { useAuth } from "../context/AuthContext";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { isBundleSkipped } from "../services/storage";
 import type { OnboardingBundleResponse } from "../types";
-import { normalizeRole } from "../utils/roles";
+import { ROLE_ADMIN, normalizeRole } from "../utils/roles";
 
 const ONBOARDING_BUNDLE_PATH_PREFIX = "/onboarding/bundle";
 
@@ -22,7 +22,7 @@ export function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const menuToggleRef = useRef<HTMLButtonElement | null>(null);
   const tourRef = useRef<OnboardingTourHandle | null>(null);
-  const isAdmin = normalizeRole(user?.role) === "admin";
+  const isAdmin = normalizeRole(user?.role) === ROLE_ADMIN;
   const isOnBundleWizard = location.pathname.startsWith(ONBOARDING_BUNDLE_PATH_PREFIX);
   // Solo admin consulta el paquete inicial; el tour espera a que se resuelva para no arrancar sobre el wizard.
   const [bundleChecked, setBundleChecked] = useState(false);
