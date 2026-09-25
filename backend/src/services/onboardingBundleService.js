@@ -2,7 +2,7 @@ const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const initialCatalogs = require("../data/initialCatalogs.json");
 const { normalizePosType } = require("../utils/business");
-const { SALE_UNITS } = require("../constants/saleUnits");
+const { SALE_UNITS, isIntegerUnit } = require("../constants/saleUnits");
 const { POS_TYPES_WITH_GUIDED_BUNDLE } = require("./initialCatalogSeedService");
 const { resolveSku, generateUniqueBarcode, ensureCategoryReference } = require("./productService");
 
@@ -52,6 +52,28 @@ function normalizeUnit(value) {
   return SALE_UNITS.includes(normalized) ? normalized : "pieza";
 }
 
+// Stock inicial opcional: ausente / null / "" => 0. Misma regla que ProductsPage.tsx
+// (validateQuantityByUnitInput): >= 0; entero para unidades enteras, max 3 decimales para el resto.
+function normalizeSelectionStock(value, unit) {
+  if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) {
+    return 0;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    throw new ApiError(400, "Selection stock must be a number greater than or equal to zero");
+  }
+  if (isIntegerUnit(unit)) {
+    if (!Number.isInteger(numeric)) {
+      throw new ApiError(400, `Selection stock must be an integer for unit ${unit}`);
+    }
+    return numeric;
+  }
+  if (Math.abs(numeric * 1000 - Math.round(numeric * 1000)) > 1e-9) {
+    throw new ApiError(400, `Selection stock cannot exceed 3 decimals for unit ${unit}`);
+  }
+  return Math.round((numeric + Number.EPSILON) * 1000) / 1000;
+}
+
 function validateSelections(selections, bundle) {
   if (!Array.isArray(selections)) {
     throw new ApiError(400, "selections must be an array");
@@ -68,7 +90,12 @@ function validateSelections(selections, bundle) {
     }
     seen.add(index);
     if (selection.included !== true) continue;
-    included.push({ item: bundle[index], price: normalizeSelectionPrice(selection.price) });
+    const item = bundle[index];
+    included.push({
+      item,
+      price: normalizeSelectionPrice(selection.price),
+      stock: normalizeSelectionStock(selection.stock, normalizeUnit(item.unit))
+    });
   }
   return included;
 }
@@ -108,7 +135,7 @@ async function confirmBundle(business, user, selections, { client: externalClien
     }
 
     const categories = new Set();
-    for (const { item, price } of included) {
+    for (const { item, price, stock } of included) {
       const category = String(item.category || "General").trim() || "General";
       const name = String(item.name || "").trim();
       const sku = await resolveSku({ name, category }, businessId, null, client);
@@ -118,8 +145,8 @@ async function confirmBundle(business, user, selections, { client: externalClien
         `INSERT INTO products (
           name, sku, barcode, category, description, price, cost_price, unidad_de_venta,
           stock, stock_minimo, stock_maximo, status, is_active, business_id
-        ) VALUES ($1, $2, $3, $4, '', $5, $6, $7, 0, 0, 0, 'activo', TRUE, $8)`,
-        [name, sku, barcode, category, price, normalizeCost(item.cost), normalizeUnit(item.unit), businessId]
+        ) VALUES ($1, $2, $3, $4, '', $5, $6, $7, $9, 0, 0, 'activo', TRUE, $8)`,
+        [name, sku, barcode, category, price, normalizeCost(item.cost), normalizeUnit(item.unit), businessId, stock]
       );
       categories.add(category);
     }
