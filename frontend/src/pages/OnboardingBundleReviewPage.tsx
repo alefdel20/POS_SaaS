@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -10,7 +10,10 @@ import {
   SALES_PATH
 } from "./OnboardingBundleStartPage";
 
-type Selection = { included: boolean; price: string; stock: string; reviewed: boolean };
+type Selection = { included: boolean; name: string; price: string; stock: string; reviewed: boolean };
+
+// products.name es VARCHAR(150); el backend rechaza nombres mas largos.
+const PRODUCT_NAME_MAX_LENGTH = 150;
 
 function requiredLabel(text: string) {
   return `${text} *`;
@@ -49,7 +52,10 @@ export function OnboardingBundleReviewPage() {
 
   const [selections, setSelections] = useState<Record<number, Selection>>(() =>
     Object.fromEntries(
-      items.map((item) => [item.bundle_index, { included: true, price: String(item.price), stock: "", reviewed: false }])
+      items.map((item) => [
+        item.bundle_index,
+        { included: true, name: item.name, price: String(item.price), stock: "", reviewed: false }
+      ])
     )
   );
   const [submitting, setSubmitting] = useState(false);
@@ -57,9 +63,9 @@ export function OnboardingBundleReviewPage() {
   const [info, setInfo] = useState("");
 
   const priceRefs = useRef<Record<number, HTMLInputElement | null>>({});
-  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const confirmRef = useRef<HTMLButtonElement | null>(null);
-  const blockerRef = useRef<HTMLParagraphElement | null>(null);
+  // Boton del footer: "Siguiente" en categorias intermedias, "Confirmar productos" en la ultima.
+  const footerButtonRef = useRef<HTMLButtonElement | null>(null);
+  const focusNewCategoryRef = useRef(false);
 
   const groups = useMemo(() => {
     const byCategory = new Map<string, typeof items>();
@@ -71,6 +77,17 @@ export function OnboardingBundleReviewPage() {
   }, [items]);
 
   const [activeCategory, setActiveCategory] = useState<string>(() => groups[0]?.[0] ?? "");
+
+  // Tras avanzar con "Siguiente" / Enter: enfocar el primer precio incluido de la nueva categoria
+  // (los inputs de la categoria nueva solo existen despues del render).
+  useEffect(() => {
+    if (!focusNewCategoryRef.current) return;
+    focusNewCategoryRef.current = false;
+    const group = groups.find(([category]) => category === activeCategory);
+    const first = group?.[1].find((item) => selections[item.bundle_index]?.included);
+    const target = first ? priceRefs.current[first.bundle_index] : null;
+    (target ?? footerButtonRef.current)?.focus();
+  }, [activeCategory]);
 
   // Entrada directa a este paso sin haber pasado por el Paso 1 (no hay items): volver al inicio del wizard.
   if (!bundle || !bundle.needsBundle) {
@@ -96,6 +113,8 @@ export function OnboardingBundleReviewPage() {
 
   const activeGroup = groups.find(([category]) => category === activeCategory) ?? groups[0];
   const [visibleCategory, visibleItems] = activeGroup ?? ["", [] as typeof items];
+  const visibleCategoryIndex = groups.findIndex(([category]) => category === visibleCategory);
+  const isLastCategory = visibleCategoryIndex === groups.length - 1;
 
   function updateSelection(index: number, patch: Partial<Selection>) {
     setSelections((current) => ({ ...current, [index]: { ...current[index], ...patch } }));
@@ -104,7 +123,11 @@ export function OnboardingBundleReviewPage() {
   function toggleCategory(categoryItems: typeof items, included: boolean) {
     setSelections((current) => {
       const next = { ...current };
-      for (const item of categoryItems) next[item.bundle_index] = { ...next[item.bundle_index], included };
+      for (const item of categoryItems) {
+        const current = next[item.bundle_index];
+        // Una fila que cambia de estado incluido/excluido nunca queda revisada.
+        next[item.bundle_index] = { ...current, included, reviewed: current.included === included ? current.reviewed : false };
+      }
       return next;
     });
   }
@@ -119,13 +142,11 @@ export function OnboardingBundleReviewPage() {
     });
   }
 
-  function focusAfterCategory(categoryIndex: number) {
-    const nextCategory = groups[categoryIndex + 1]?.[0];
-    if (nextCategory) {
-      chipRefs.current[nextCategory]?.focus();
-    } else {
-      (confirmRef.current ?? blockerRef.current)?.focus();
-    }
+  function goToNextCategory() {
+    const nextCategory = groups[visibleCategoryIndex + 1]?.[0];
+    if (!nextCategory) return;
+    focusNewCategoryRef.current = true;
+    setActiveCategory(nextCategory);
   }
 
   function handlePriceEnter(event: KeyboardEvent<HTMLInputElement>, position: number) {
@@ -136,7 +157,11 @@ export function OnboardingBundleReviewPage() {
       priceRefs.current[next.bundle_index]?.focus();
       return;
     }
-    focusAfterCategory(groups.findIndex(([category]) => category === visibleCategory));
+    if (isLastCategory) {
+      footerButtonRef.current?.focus();
+    } else {
+      goToNextCategory();
+    }
   }
 
   async function confirm() {
@@ -150,13 +175,16 @@ export function OnboardingBundleReviewPage() {
         body: JSON.stringify({
           selections: items.map((item) => {
             const selection = selections[item.bundle_index];
-            const payload: { bundle_index: number; price: number; included: boolean; stock?: number } = {
+            const payload: { bundle_index: number; price: number; included: boolean; stock?: number; name?: string } = {
               bundle_index: item.bundle_index,
               price: Number(selection.price),
               included: selection.included
             };
             // stock es opcional: solo se manda si el usuario escribio algo.
             if (selection.included && selection.stock.trim() !== "") payload.stock = Number(selection.stock);
+            // name solo si el usuario lo renombro (vacio o igual al catalogo => se omite).
+            const renamed = selection.name.trim();
+            if (selection.included && renamed !== "" && renamed !== item.name.trim()) payload.name = renamed;
             return payload;
           })
         })
@@ -177,13 +205,6 @@ export function OnboardingBundleReviewPage() {
   const visibleAllIncluded = visibleItems.every((item) => selections[item.bundle_index].included);
   const visibleIncluded = visibleItems.filter((item) => selections[item.bundle_index].included);
   const visibleAllReviewed = visibleIncluded.every((item) => selections[item.bundle_index].reviewed);
-
-  let blockerMessage = "";
-  if (!canConfirm && !submitting) {
-    if (includedItems.length === 0) blockerMessage = "Selecciona al menos un producto";
-    else if (pendingCount > 0) blockerMessage = `Faltan ${pendingCount} ${pendingCount === 1 ? "precio" : "precios"} por revisar`;
-    else if (hasInvalidStock) blockerMessage = "Revisa las cantidades marcadas en rojo";
-  }
 
   return (
     <section className="panel onboarding-bundle-panel onboarding-bundle-panel-wide">
@@ -219,7 +240,6 @@ export function OnboardingBundleReviewPage() {
               aria-selected={isActive}
               className={`onboarding-bundle-chip ${isActive ? "is-active" : ""}`}
               key={category}
-              ref={(node) => { chipRefs.current[category] = node; }}
               role="tab"
               type="button"
               onClick={() => setActiveCategory(category)}
@@ -280,10 +300,25 @@ export function OnboardingBundleReviewPage() {
                 checked={selection.included}
                 disabled={submitting}
                 type="checkbox"
-                onChange={(event) => updateSelection(item.bundle_index, { included: event.target.checked })}
+                onChange={(event) => updateSelection(item.bundle_index, { included: event.target.checked, reviewed: false })}
               />
-              <span className="onboarding-bundle-name">
-                {item.name} <span className="muted onboarding-bundle-unit">· {item.unit}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                <input
+                  aria-label={`Nombre de ${item.name}`}
+                  className="onboarding-bundle-name"
+                  disabled={!selection.included || submitting}
+                  maxLength={PRODUCT_NAME_MAX_LENGTH}
+                  style={{ flex: 1, minWidth: 0 }}
+                  title={item.name}
+                  type="text"
+                  value={selection.name}
+                  onBlur={() => {
+                    // Vaciado = volver al nombre del catalogo (mismo criterio que el backend).
+                    if (selection.name.trim() === "") updateSelection(item.bundle_index, { name: item.name });
+                  }}
+                  onChange={(event) => updateSelection(item.bundle_index, { name: event.target.value })}
+                />
+                <span className="muted onboarding-bundle-unit">{item.unit}</span>
               </span>
               <span className="onboarding-bundle-price-wrap">
                 <span aria-hidden="true" className="onboarding-bundle-currency">$</span>
@@ -298,7 +333,7 @@ export function OnboardingBundleReviewPage() {
                   type="number"
                   value={selection.price}
                   onBlur={() => updateSelection(item.bundle_index, { price: formatPriceOnBlur(selection.price) })}
-                  onChange={(event) => updateSelection(item.bundle_index, { price: event.target.value })}
+                  onChange={(event) => updateSelection(item.bundle_index, { price: event.target.value, reviewed: false })}
                   onKeyDown={(event) => handlePriceEnter(event, position)}
                 />
               </span>
@@ -312,7 +347,7 @@ export function OnboardingBundleReviewPage() {
                 step={isIntegerUnit(item.unit) ? "1" : "0.001"}
                 type="number"
                 value={selection.stock}
-                onChange={(event) => updateSelection(item.bundle_index, { stock: event.target.value })}
+                onChange={(event) => updateSelection(item.bundle_index, { stock: event.target.value, reviewed: false })}
               />
               {!selection.included ? (
                 <span />
@@ -349,12 +384,20 @@ export function OnboardingBundleReviewPage() {
           <button className="button ghost" disabled={submitting} type="button" onClick={() => navigate(ONBOARDING_BUNDLE_PATH, { state: { bundle } })}>
             Atrás
           </button>
-          {canConfirm || submitting ? (
-            <button className="button" disabled={!canConfirm} ref={confirmRef} type="button" onClick={confirm}>
+          {isLastCategory ? (
+            <button
+              className={`button ${canConfirm ? "" : "button-disabled"}`}
+              disabled={!canConfirm}
+              ref={footerButtonRef}
+              type="button"
+              onClick={confirm}
+            >
               {submitting ? "Guardando…" : "Confirmar productos"}
             </button>
           ) : (
-            <p className="warning-text" ref={blockerRef} tabIndex={-1}>{blockerMessage}</p>
+            <button className="button" ref={footerButtonRef} type="button" onClick={goToNextCategory}>
+              Siguiente
+            </button>
           )}
         </div>
       </div>

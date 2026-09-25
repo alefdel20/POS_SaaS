@@ -74,6 +74,25 @@ function normalizeSelectionStock(value, unit) {
   return Math.round((numeric + Number.EPSILON) * 1000) / 1000;
 }
 
+// products.name es VARCHAR(150) (infra/postgres/01-schema.sql).
+const PRODUCT_NAME_MAX_LENGTH = 150;
+
+// Renombre opcional: ausente / null / "" (tras trim) => nombre del catalogo.
+function normalizeSelectionName(value, catalogName) {
+  const fallback = String(catalogName || "").trim();
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "string") {
+    throw new ApiError(400, "Selection name must be a string");
+  }
+  const trimmed = value.trim();
+  if (trimmed === "") return fallback;
+  // Postgres cuenta caracteres, no unidades UTF-16.
+  if ([...trimmed].length > PRODUCT_NAME_MAX_LENGTH) {
+    throw new ApiError(400, `Selection name cannot exceed ${PRODUCT_NAME_MAX_LENGTH} characters`);
+  }
+  return trimmed;
+}
+
 function validateSelections(selections, bundle) {
   if (!Array.isArray(selections)) {
     throw new ApiError(400, "selections must be an array");
@@ -93,6 +112,7 @@ function validateSelections(selections, bundle) {
     const item = bundle[index];
     included.push({
       item,
+      name: normalizeSelectionName(selection.name, item.name),
       price: normalizeSelectionPrice(selection.price),
       stock: normalizeSelectionStock(selection.stock, normalizeUnit(item.unit))
     });
@@ -135,9 +155,8 @@ async function confirmBundle(business, user, selections, { client: externalClien
     }
 
     const categories = new Set();
-    for (const { item, price, stock } of included) {
+    for (const { item, name, price, stock } of included) {
       const category = String(item.category || "General").trim() || "General";
-      const name = String(item.name || "").trim();
       const sku = await resolveSku({ name, category }, businessId, null, client);
       const barcode = await generateUniqueBarcode(businessId, null, client);
 
