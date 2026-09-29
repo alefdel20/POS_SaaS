@@ -65,6 +65,15 @@ function formatPriceOnBlur(value: string) {
   return Math.abs(numeric * 100 - Math.round(numeric * 100)) <= 1e-9 ? numeric.toFixed(2) : value;
 }
 
+// Estado de validacion de una fila; lo usan la fila misma y el resumen por categoria de los chips.
+function getRowStatus(item: OnboardingBundleItem, selection: Selection) {
+  return {
+    priceInvalid: selection.included && !isValidPrice(selection.price),
+    stockInvalid: selection.included && !isValidStock(selection.stock, item.unit),
+    pending: selection.included && !selection.reviewed
+  };
+}
+
 export function OnboardingBundleReviewPage() {
   const { token } = useAuth();
   const navigate = useNavigate();
@@ -305,6 +314,20 @@ export function OnboardingBundleReviewPage() {
     }
   }
 
+  // Resumen por categoria para chips y encabezado. Error primero; "resuelta" = cada fila excluida,
+  // o incluida + revisada + valida (el contador global, acotado a la categoria y con validez).
+  function getCategoryStatus(categoryItems: typeof items): "error" | "complete" | "neutral" {
+    const statuses = categoryItems.map((item) => ({ selection: selections[item.bundle_index], ...getRowStatus(item, selections[item.bundle_index]) }));
+    if (statuses.some((status) => status.priceInvalid || status.stockInvalid)) return "error";
+    if (statuses.every((status) => !status.selection.included || (status.selection.reviewed && !status.priceInvalid && !status.stockInvalid))) {
+      return "complete";
+    }
+    return "neutral";
+  }
+  const CATEGORY_STATUS_CLASS = { error: "has-error", complete: "is-complete", neutral: "" } as const;
+  const CATEGORY_STATUS_LABEL = { error: ", tiene errores por corregir", complete: ", completa", neutral: "" } as const;
+  const visibleCategoryStatus = getCategoryStatus(visibleItems);
+
   const visibleAllIncluded = visibleItems.every((item) => selections[item.bundle_index].included);
   const visibleIncluded = visibleItems.filter((item) => selections[item.bundle_index].included);
   const visibleAllReviewed = visibleIncluded.every((item) => selections[item.bundle_index].reviewed);
@@ -338,10 +361,13 @@ export function OnboardingBundleReviewPage() {
         {groups.map(([category, categoryItems]) => {
           const includedCount = categoryItems.filter((item) => selections[item.bundle_index].included).length;
           const isActive = category === visibleCategory;
+          const status = getCategoryStatus(categoryItems);
+          const chipClass = ["onboarding-bundle-chip", isActive ? "is-active" : "", CATEGORY_STATUS_CLASS[status]].filter(Boolean).join(" ");
           return (
             <button
+              aria-label={`${category} · ${includedCount}${CATEGORY_STATUS_LABEL[status]}`}
               aria-selected={isActive}
-              className={`onboarding-bundle-chip ${isActive ? "is-active" : ""}`}
+              className={chipClass}
               key={category}
               role="tab"
               type="button"
@@ -362,7 +388,7 @@ export function OnboardingBundleReviewPage() {
               type="checkbox"
               onChange={(event) => toggleCategory(visibleItems, event.target.checked)}
             />
-            <strong>{visibleCategory}</strong>
+            <strong className={`onboarding-bundle-group-title ${CATEGORY_STATUS_CLASS[visibleCategoryStatus]}`}>{visibleCategory}</strong>
             <span className="muted">({visibleItems.length})</span>
           </label>
           <button
@@ -385,9 +411,7 @@ export function OnboardingBundleReviewPage() {
 
         {visibleItems.map((item, position) => {
           const selection = selections[item.bundle_index];
-          const priceInvalid = selection.included && !isValidPrice(selection.price);
-          const stockInvalid = selection.included && !isValidStock(selection.stock, item.unit);
-          const pending = selection.included && !selection.reviewed;
+          const { priceInvalid, stockInvalid, pending } = getRowStatus(item, selection);
           const priceClass = [
             "onboarding-bundle-price",
             priceInvalid ? "is-invalid" : pending ? "is-pending" : ""
@@ -456,7 +480,7 @@ export function OnboardingBundleReviewPage() {
                 <span />
               ) : selection.reviewed ? (
                 <button
-                  className="pill success onboarding-bundle-status"
+                  className="pill positive onboarding-bundle-status"
                   disabled={submitting}
                   type="button"
                   onClick={() => updateSelection(item.bundle_index, { reviewed: false })}

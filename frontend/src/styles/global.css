@@ -1964,6 +1964,12 @@ td {
   color: var(--accent);
 }
 
+/* Estado "completado" en verde real, independiente del acento de la paleta. */
+.pill.positive {
+  background: color-mix(in srgb, var(--ankode-green) 15%, transparent);
+  color: var(--ankode-green);
+}
+
 @media (max-width: 1024px) {
   .two-columns,
   .product-management-layout,
@@ -2509,6 +2515,51 @@ td {
   background: rgba(var(--accent-rgb), 0.12);
   border-color: rgba(var(--accent-rgb), 0.4);
   color: var(--accent);
+  font-weight: 600;
+}
+
+/* Estado de la categoria: borde + punto. El chip activo conserva su fondo y texto de acento,
+   asi que "activo" y "error/completa" se leen a la vez sin taparse. */
+.onboarding-bundle-chip.has-error,
+.onboarding-bundle-chip.is-complete {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.onboarding-bundle-chip.has-error::before,
+.onboarding-bundle-chip.is-complete::before,
+.onboarding-bundle-group-title.has-error::before,
+.onboarding-bundle-group-title.is-complete::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+}
+
+.onboarding-bundle-chip.has-error {
+  border-color: var(--danger);
+}
+
+.onboarding-bundle-chip.has-error::before,
+.onboarding-bundle-group-title.has-error::before {
+  background: var(--danger);
+}
+
+.onboarding-bundle-chip.is-complete {
+  border-color: var(--ankode-green);
+}
+
+.onboarding-bundle-chip.is-complete::before,
+.onboarding-bundle-group-title.is-complete::before {
+  background: var(--ankode-green);
+}
+
+.onboarding-bundle-group-title.has-error::before,
+.onboarding-bundle-group-title.is-complete::before {
+  margin-right: 0.4rem;
+  vertical-align: middle;
 }
 
 .onboarding-bundle-group-top {

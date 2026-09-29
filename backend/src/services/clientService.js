@@ -116,7 +116,7 @@ async function listClients(businessId, { search, includeDeleted } = {}) {
      FROM clients c
      LEFT JOIN healthcare.pet_owners hpo ON hpo.client_id = c.id AND hpo.business_id = c.business_id
      WHERE ${conditions.join(" AND ")}
-     ORDER BY name ASC`,
+     ORDER BY COALESCE(NULLIF(TRIM(CONCAT_WS(' ', hpo.first_name, hpo.last_name)), ''), c.name) ASC`,
     values
   );
   return rows;
