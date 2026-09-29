@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { apiRequest } from "../api/client";
-import { clearStoredToken, getStoredToken, setStoredToken } from "../services/storage";
+import { clearStoredToken, getStoredToken, setBundleSkipped, setStoredToken } from "../services/storage";
 import type { AuthResponse, RegisterBusinessPayload, User } from "../types";
 
 interface AuthContextValue {
@@ -113,6 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   function logout() {
+    // La bandera "No es mi giro" / "empezar sin productos" es por sesion de login, no por pestana.
+    setBundleSkipped(user?.business_id, false);
     applySession(null, null);
   }
 

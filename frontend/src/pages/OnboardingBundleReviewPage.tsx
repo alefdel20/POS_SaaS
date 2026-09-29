@@ -3,7 +3,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { isIntegerUnit } from "../constants/saleUnits";
-import type { OnboardingBundleResponse } from "../types";
+import type { OnboardingBundleDraft, OnboardingBundleItem, OnboardingBundleResponse } from "../types";
 import {
   ONBOARDING_BUNDLE_DONE_PATH,
   ONBOARDING_BUNDLE_PATH,
@@ -14,6 +14,28 @@ type Selection = { included: boolean; name: string; price: string; stock: string
 
 // products.name es VARCHAR(150); el backend rechaza nombres mas largos.
 const PRODUCT_NAME_MAX_LENGTH = 150;
+
+// Autoguardado del borrador: espera sin cambios antes de hacer PUT /onboarding/bundle/draft.
+const DRAFT_SAVE_DELAY_MS = 1200;
+
+// Estado inicial de cada fila: la entrada del borrador si existe, si no el default del catalogo.
+// El borrador se guarda con validacion laxa, asi que cada campo se toma solo si trae el tipo correcto.
+function buildInitialSelections(items: OnboardingBundleItem[], draft: OnboardingBundleDraft | null | undefined) {
+  const draftByIndex = new Map((Array.isArray(draft?.selections) ? draft.selections : []).map((entry) => [entry.bundle_index, entry]));
+  return Object.fromEntries(
+    items.map((item) => {
+      const saved = draftByIndex.get(item.bundle_index);
+      const selection: Selection = {
+        included: typeof saved?.included === "boolean" ? saved.included : true,
+        name: typeof saved?.name === "string" ? saved.name : item.name,
+        price: typeof saved?.price === "string" ? saved.price : String(item.price),
+        stock: typeof saved?.stock === "string" ? saved.stock : "",
+        reviewed: typeof saved?.reviewed === "boolean" ? saved.reviewed : false
+      };
+      return [item.bundle_index, selection];
+    })
+  ) as Record<number, Selection>;
+}
 
 function requiredLabel(text: string) {
   return `${text} *`;
@@ -51,12 +73,12 @@ export function OnboardingBundleReviewPage() {
   const items = bundle?.items ?? [];
 
   const [selections, setSelections] = useState<Record<number, Selection>>(() =>
-    Object.fromEntries(
-      items.map((item) => [
-        item.bundle_index,
-        { included: true, name: item.name, price: String(item.price), stock: "", reviewed: false }
-      ])
-    )
+    buildInitialSelections(items, bundle?.draft)
+  );
+  // Productos agregados a mano: aun no hay UI que los edite en esta pantalla; se hidratan del
+  // borrador y se reenvian intactos en cada autoguardado para no borrarlos.
+  const [customProducts] = useState<unknown[]>(() =>
+    Array.isArray(bundle?.draft?.customProducts) ? bundle.draft.customProducts : []
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -76,7 +98,72 @@ export function OnboardingBundleReviewPage() {
     return Array.from(byCategory.entries());
   }, [items]);
 
-  const [activeCategory, setActiveCategory] = useState<string>(() => groups[0]?.[0] ?? "");
+  const [activeCategory, setActiveCategory] = useState<string>(() => {
+    const draftCategory = bundle?.draft?.activeCategory;
+    return groups.some(([category]) => category === draftCategory) ? (draftCategory as string) : groups[0]?.[0] ?? "";
+  });
+
+  const saveTimerRef = useRef<number | null>(null);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const skipFirstAutosaveRef = useRef(true);
+  // true desde que se pulsa "Confirmar" (o llega un 409): el autoguardado ya no aplica.
+  const draftClosedRef = useRef(false);
+
+  function buildDraft(): OnboardingBundleDraft {
+    // Foto completa del estado (todos los campos de cada fila), no un diff contra el catalogo.
+    return {
+      selections: items.map((item) => ({ bundle_index: item.bundle_index, ...selections[item.bundle_index] })),
+      customProducts,
+      activeCategory
+    };
+  }
+
+  function saveDraftNow() {
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (draftClosedRef.current) return;
+    const draft = buildDraft();
+    // En serie: un PUT viejo y lento nunca pisa a uno mas nuevo.
+    saveChainRef.current = saveChainRef.current.then(async () => {
+      if (draftClosedRef.current) return;
+      try {
+        await apiRequest<void>("/onboarding/bundle/draft", { method: "PUT", token, body: JSON.stringify(draft) });
+      } catch (requestError) {
+        // Cualquier fallo se ignora: el siguiente cambio vuelve a intentar.
+        if ((requestError as { status?: number }).status !== 409 || draftClosedRef.current) return;
+        // El paquete se confirmo desde otra pestana/dispositivo: mismo patron que el 409 de /confirm.
+        draftClosedRef.current = true;
+        setSubmitting(true);
+        setInfo("Tu paquete ya se confirmó antes. Te llevamos a Ventas.");
+        window.setTimeout(() => navigate(SALES_PATH, { replace: true }), 1800);
+      }
+    });
+  }
+
+  // Autoguardado con debounce. El primer render (estado recien hidratado) no se guarda.
+  useEffect(() => {
+    if (!bundle?.needsBundle) return;
+    if (skipFirstAutosaveRef.current) {
+      skipFirstAutosaveRef.current = false;
+      return;
+    }
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      // El bundle vive en location.state, que el navegador conserva al recargar (F5): mantenerlo
+      // al dia para que una recarga no hidrate con el borrador viejo del GET inicial.
+      navigate(location.pathname, { replace: true, state: { bundle: { ...bundle, draft: buildDraft() } } });
+      saveDraftNow();
+    }, DRAFT_SAVE_DELAY_MS);
+  }, [selections, customProducts, activeCategory]);
+
+  // Salir de la pantalla por otra via (menu lateral, etc.) con un guardado pendiente: guardarlo ya.
+  const saveDraftNowRef = useRef(saveDraftNow);
+  saveDraftNowRef.current = saveDraftNow;
+  useEffect(() => () => {
+    if (saveTimerRef.current !== null) saveDraftNowRef.current();
+  }, []);
 
   // Tras avanzar con "Siguiente" / Enter: enfocar el primer precio incluido de la nueva categoria
   // (los inputs de la categoria nueva solo existen despues del render).
@@ -164,8 +251,22 @@ export function OnboardingBundleReviewPage() {
     }
   }
 
+  function goBack() {
+    // Guardado inmediato (sin esperar el debounce); no se espera la respuesta para no frenar la navegacion.
+    saveDraftNow();
+    // El Paso 1 reusa el bundle del state para volver aqui: llevar el borrador actual,
+    // no el que venia del GET original, para que "Revisar" no restaure datos viejos.
+    navigate(ONBOARDING_BUNDLE_PATH, { state: { bundle: { ...bundle, draft: buildDraft() } } });
+  }
+
   async function confirm() {
     if (!canConfirm) return;
+    // Cortar el autoguardado: un PUT tardio tras confirmar recibiria 409 y redirigiria a Ventas.
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    draftClosedRef.current = true;
     setSubmitting(true);
     setError("");
     try {
@@ -199,6 +300,8 @@ export function OnboardingBundleReviewPage() {
       }
       setError((requestError as Error).message);
       setSubmitting(false);
+      // Confirmacion fallida: el usuario sigue editando, el autoguardado vuelve a aplicar.
+      draftClosedRef.current = false;
     }
   }
 
@@ -381,7 +484,7 @@ export function OnboardingBundleReviewPage() {
       <div className="onboarding-bundle-footer">
         <span className="muted">{includedItems.length} de {total} productos seleccionados</span>
         <div className="onboarding-bundle-actions">
-          <button className="button ghost" disabled={submitting} type="button" onClick={() => navigate(ONBOARDING_BUNDLE_PATH, { state: { bundle } })}>
+          <button className="button ghost" disabled={submitting} type="button" onClick={goBack}>
             Atrás
           </button>
           {isLastCategory ? (

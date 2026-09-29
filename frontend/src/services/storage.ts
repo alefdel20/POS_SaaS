@@ -35,10 +35,16 @@ export function isBundleSkipped(businessId?: number | null) {
   }
 }
 
-export function setBundleSkipped(businessId?: number | null) {
+// skipped = false limpia la bandera (p. ej. tras un cambio de giro legitimo).
+export function setBundleSkipped(businessId?: number | null, skipped = true) {
   if (!businessId) return;
   try {
-    sessionStorage.setItem(`${BUNDLE_SKIPPED_KEY_PREFIX}${businessId}`, "1");
+    const key = `${BUNDLE_SKIPPED_KEY_PREFIX}${businessId}`;
+    if (skipped) {
+      sessionStorage.setItem(key, "1");
+    } else {
+      sessionStorage.removeItem(key);
+    }
   } catch {
     // sin storage disponible: el wizard puede reaparecer al recargar
   }

@@ -1342,8 +1342,25 @@ export interface OnboardingBundleItem {
   unit: string;
 }
 
+export interface OnboardingBundleDraftSelection {
+  bundle_index: number;
+  included?: boolean;
+  name?: string;
+  price?: string;
+  stock?: string;
+  reviewed?: boolean;
+}
+
+// Borrador del wizard (PUT /onboarding/bundle/draft). El backend lo guarda tal cual, con validacion laxa.
+export interface OnboardingBundleDraft {
+  selections?: OnboardingBundleDraftSelection[];
+  customProducts?: unknown[];
+  activeCategory?: string;
+}
+
 export interface OnboardingBundleResponse {
   posType: string | null;
   needsBundle: boolean;
   items: OnboardingBundleItem[];
+  draft?: OnboardingBundleDraft | null;
 }

@@ -15,9 +15,11 @@ const POS_TYPE_LABELS: Record<string, string> = {
   Tienda: "Tienda",
   Tlapaleria: "Ferretería / Tlapalería"
 };
+// Mismo conjunto que POS_TYPES_WITH_GUIDED_BUNDLE en el backend (initialCatalogSeedService.js).
+const POS_TYPES_WITH_GUIDED_BUNDLE = ["Papeleria", "Tienda", "Tlapaleria"];
 
 export function OnboardingBundleStartPage() {
-  const { token, user } = useAuth();
+  const { token, user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   // AppLayout ya resolvio el GET cuando redirige aqui; solo se vuelve a pedir en entrada directa por URL.
@@ -25,6 +27,10 @@ export function OnboardingBundleStartPage() {
   const [bundle, setBundle] = useState<OnboardingBundleResponse | null>(passedBundle);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [changingPosType, setChangingPosType] = useState(false);
+  const [nextPosType, setNextPosType] = useState("");
+  const [changeError, setChangeError] = useState("");
+  const [submittingChange, setSubmittingChange] = useState(false);
 
   useEffect(() => {
     if (bundle) return;
@@ -45,6 +51,39 @@ export function OnboardingBundleStartPage() {
   function skipWizard() {
     setBundleSkipped(user?.business_id);
     navigate(SALES_PATH, { replace: true });
+  }
+
+  function openPosTypeChange() {
+    setNextPosType("");
+    setChangeError("");
+    setChangingPosType(true);
+  }
+
+  function cancelPosTypeChange() {
+    setChangingPosType(false);
+    setNextPosType("");
+    setChangeError("");
+  }
+
+  async function confirmPosTypeChange() {
+    if (!nextPosType) return;
+    setSubmittingChange(true);
+    setChangeError("");
+    try {
+      await apiRequest("/onboarding/bundle/giro", {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ pos_type: nextPosType })
+      });
+    } catch (requestError) {
+      setChangeError(requestError instanceof Error ? requestError.message : "No fue posible cambiar el giro");
+      setSubmittingChange(false);
+      return;
+    }
+    // El proximo login trae el giro nuevo y AppLayout vuelve a abrir el wizard desde el Paso 1.
+    setBundleSkipped(user?.business_id, false);
+    logout();
+    navigate("/login", { replace: true });
   }
 
   if (bundle && !bundle.needsBundle) {
@@ -73,6 +112,43 @@ export function OnboardingBundleStartPage() {
   }
 
   const posLabel = POS_TYPE_LABELS[bundle.posType || ""] || bundle.posType || "tu negocio";
+  const alternativePosTypes = POS_TYPES_WITH_GUIDED_BUNDLE.filter((posType) => posType !== bundle.posType);
+
+  if (changingPosType) {
+    return (
+      <section className="panel onboarding-bundle-panel">
+        <p className="eyebrow">Paso 1 de 3</p>
+        <h1>Elige tu giro</h1>
+        <p>
+          Tu negocio está registrado como <strong>{posLabel}</strong>. Elige el giro correcto y cargaremos su paquete de productos.
+        </p>
+        <fieldset className="info-card" disabled={submittingChange}>
+          {alternativePosTypes.map((posType) => (
+            <label key={posType}>
+              <input
+                type="radio"
+                name="next-pos-type"
+                value={posType}
+                checked={nextPosType === posType}
+                onChange={() => setNextPosType(posType)}
+              />{" "}
+              {POS_TYPE_LABELS[posType] || posType}
+            </label>
+          ))}
+        </fieldset>
+        <p className="muted">Al confirmar se cerrará tu sesión; vuelve a entrar para continuar con el paquete del nuevo giro.</p>
+        {changeError ? <p className="error-text">{changeError}</p> : null}
+        <div className="onboarding-bundle-actions">
+          <button className="button" type="button" disabled={!nextPosType || submittingChange} onClick={confirmPosTypeChange}>
+            {submittingChange ? "Cambiando giro…" : "Confirmar cambio"}
+          </button>
+          <button className="button ghost" type="button" disabled={submittingChange} onClick={cancelPosTypeChange}>
+            Cancelar
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="panel onboarding-bundle-panel">
@@ -89,7 +165,7 @@ export function OnboardingBundleStartPage() {
         <button className="button" type="button" onClick={() => navigate(ONBOARDING_BUNDLE_REVIEW_PATH, { state: { bundle } })}>
           Revisar paquete
         </button>
-        <button className="button ghost" type="button" onClick={skipWizard}>No es mi giro</button>
+        <button className="button ghost" type="button" onClick={openPosTypeChange}>No es mi giro</button>
         <button className="button ghost" type="button" onClick={skipWizard}>Prefiero empezar sin productos</button>
       </div>
     </section>

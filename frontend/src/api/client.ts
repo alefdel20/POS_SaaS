@@ -45,6 +45,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     throw requestError;
   }
 
+  // 204 No Content: no hay cuerpo que parsear.
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }
 

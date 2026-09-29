@@ -27,4 +27,19 @@ router.post(
   })
 );
 
+router.put("/bundle/draft", requireRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+  await bundleService.saveBundleDraft(buildBusiness(req.user), req.user, req.body);
+  res.status(204).end();
+}));
+
+router.put(
+  "/bundle/giro",
+  requireRole(ADMIN_ROLES),
+  body("pos_type").isString(),
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    res.json(await bundleService.changeGuidedPosType(buildBusiness(req.user), req.user, req.body.pos_type));
+  })
+);
+
 module.exports = router;

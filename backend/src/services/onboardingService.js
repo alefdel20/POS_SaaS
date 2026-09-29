@@ -221,6 +221,17 @@ function buildOnboardingSettings(currentSettings, posType, categories, actor) {
   };
 }
 
+// users.pos_type es solo respaldo (sanitizeUser prefiere businesses.pos_type); se mantiene alineado.
+async function syncStaffUsersPosType(client, businessId, posType) {
+  await client.query(
+    `UPDATE users
+     SET pos_type = $1
+     WHERE business_id = $2
+       AND role IN ('admin', 'superusuario', 'soporte')`,
+    [posType, businessId]
+  );
+}
+
 async function setupOnboarding(payload, actor) {
   const businessId = requireActorBusinessId(actor);
   const posType = normalizePosType(payload.pos_type || actor.pos_type);
@@ -250,13 +261,7 @@ async function setupOnboarding(payload, actor) {
       throw new ApiError(404, "Business not found");
     }
 
-    await client.query(
-      `UPDATE users
-       SET pos_type = $1
-       WHERE business_id = $2
-         AND role IN ('admin', 'superusuario', 'soporte')`,
-      [posType, businessId]
-    );
+    await syncStaffUsersPosType(client, businessId, posType);
 
     const { rows: profileRows } = await client.query(
       `INSERT INTO company_profiles (business_id, profile_key, general_settings, is_active, created_by, updated_by, company_name)
@@ -316,5 +321,6 @@ async function setupOnboarding(payload, actor) {
 }
 
 module.exports = {
-  setupOnboarding
+  setupOnboarding,
+  syncStaffUsersPosType
 };

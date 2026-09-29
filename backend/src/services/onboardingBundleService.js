@@ -5,6 +5,7 @@ const { normalizePosType } = require("../utils/business");
 const { SALE_UNITS, isIntegerUnit } = require("../constants/saleUnits");
 const { POS_TYPES_WITH_GUIDED_BUNDLE } = require("./initialCatalogSeedService");
 const { resolveSku, generateUniqueBarcode, ensureCategoryReference } = require("./productService");
+const { syncStaffUsersPosType } = require("./onboardingService");
 
 // pos_type canonical (normalizePosType) -> clave en initialCatalogs.json.
 // Solo los giros con wizard guiado; el resto no tiene paquete.
@@ -93,6 +94,18 @@ function normalizeSelectionName(value, catalogName) {
   return trimmed;
 }
 
+// Negocio ya sembrado por la siembra automatica (metodo anterior al wizard): no acepta paquete ni borrador.
+async function hasSeededCatalog(businessId, db = pool) {
+  const { rows } = await db.query(
+    `SELECT 1
+     FROM initial_catalog_seed_runs
+     WHERE business_id = $1 AND inserted_count > 0
+     LIMIT 1`,
+    [businessId]
+  );
+  return rows.length > 0;
+}
+
 function validateSelections(selections, bundle) {
   if (!Array.isArray(selections)) {
     throw new ApiError(400, "selections must be an array");
@@ -136,6 +149,10 @@ async function confirmBundle(business, user, selections, { client: externalClien
   try {
     await client.query("BEGIN");
 
+    if (await hasSeededCatalog(businessId, client)) {
+      throw new ApiError(409, "Bundle already confirmed");
+    }
+
     // Fila del perfil bloqueada: serializa confirmaciones concurrentes del mismo negocio.
     await client.query(
       `INSERT INTO company_profiles (business_id, profile_key, general_settings, is_active)
@@ -152,6 +169,15 @@ async function confirmBundle(business, user, selections, { client: externalClien
     );
     if (profileRows[0]?.general_settings?.bundle_confirmed) {
       throw new ApiError(409, "Bundle already confirmed");
+    }
+    // Mismo orden de candados que changeGuidedPosType (perfil -> negocio). Si el giro cambio
+    // mientras esperabamos, el bundle calculado arriba es del catalogo viejo: abortar.
+    const { rows: businessRows } = await client.query(
+      "SELECT pos_type FROM businesses WHERE id = $1 FOR UPDATE",
+      [businessId]
+    );
+    if (normalizePosType(businessRows[0]?.pos_type) !== normalizePosType(business?.pos_type)) {
+      throw new ApiError(409, "El giro del negocio cambió antes de confirmar; vuelve a cargar el paquete.");
     }
 
     const categories = new Set();
@@ -198,9 +224,190 @@ async function confirmBundle(business, user, selections, { client: externalClien
   }
 }
 
+// Borrador del wizard: validacion laxa (solo tipos y tamanos). Las reglas de negocio
+// (price > 0, stock por unidad, etc.) viven solo en confirmBundle.
+const DRAFT_MAX_SELECTIONS = 500; // mismo tope que body("selections") en POST /bundle/confirm
+const DRAFT_MAX_CUSTOM_PRODUCTS = 200;
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractBundleDraft(generalSettings) {
+  return generalSettings?.bundle_draft ?? null;
+}
+
+function validateBundleDraft(draft, bundle) {
+  if (!isPlainObject(draft)) {
+    throw new ApiError(400, "Draft must be an object");
+  }
+  const { selections, customProducts, activeCategory } = draft;
+
+  if (selections !== undefined) {
+    if (!Array.isArray(selections) || selections.length > DRAFT_MAX_SELECTIONS) {
+      throw new ApiError(400, `Draft selections must be an array of at most ${DRAFT_MAX_SELECTIONS} items`);
+    }
+    for (const selection of selections) {
+      const index = isPlainObject(selection) ? selection.bundle_index : undefined;
+      if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= bundle.length) {
+        throw new ApiError(400, "Draft selection has an invalid bundle_index");
+      }
+    }
+  }
+
+  if (customProducts !== undefined) {
+    if (!Array.isArray(customProducts) || customProducts.length > DRAFT_MAX_CUSTOM_PRODUCTS) {
+      throw new ApiError(400, `Draft customProducts must be an array of at most ${DRAFT_MAX_CUSTOM_PRODUCTS} items`);
+    }
+    for (const product of customProducts) {
+      if (!isPlainObject(product)) {
+        throw new ApiError(400, "Draft customProducts items must be objects");
+      }
+      if (product.name !== undefined && product.name !== null) {
+        if (typeof product.name !== "string" || [...product.name].length > PRODUCT_NAME_MAX_LENGTH) {
+          throw new ApiError(400, `Draft custom product name must be a string of at most ${PRODUCT_NAME_MAX_LENGTH} characters`);
+        }
+      }
+    }
+  }
+
+  if (activeCategory !== undefined && typeof activeCategory !== "string") {
+    throw new ApiError(400, "Draft activeCategory must be a string");
+  }
+
+  // Solo las tres llaves conocidas, con sus valores tal como llegaron.
+  return { selections, customProducts, activeCategory };
+}
+
+async function getBundleDraft(business) {
+  const businessId = Number(business?.id);
+  const { rows } = await pool.query(
+    `SELECT general_settings
+     FROM company_profiles
+     WHERE business_id = $1 AND profile_key = 'default'
+     LIMIT 1`,
+    [businessId]
+  );
+  return extractBundleDraft(rows[0]?.general_settings);
+}
+
+async function saveBundleDraft(business, user, draft) {
+  const businessId = Number(business?.id);
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new ApiError(401, "Authenticated user is missing business context");
+  }
+  const bundle = getBundleForBusiness(business);
+  if (bundle.length === 0) {
+    throw new ApiError(400, "This business type has no guided bundle");
+  }
+  const cleanDraft = validateBundleDraft(draft, bundle);
+
+  if (await hasSeededCatalog(businessId)) {
+    throw new ApiError(409, "Bundle already confirmed");
+  }
+
+  await pool.query(
+    `INSERT INTO company_profiles (business_id, profile_key, general_settings, is_active)
+     VALUES ($1, 'default', '{}'::jsonb, TRUE)
+     ON CONFLICT (business_id, profile_key) DO NOTHING`,
+    [businessId]
+  );
+  // Mismo merge que confirmBundle. La condicion sobre bundle_confirmed va en el WHERE para que
+  // sea atomica: si confirmBundle tiene la fila bloqueada, este UPDATE espera y re-evalua.
+  const { rowCount } = await pool.query(
+    `UPDATE company_profiles
+     SET general_settings = COALESCE(general_settings, '{}'::jsonb) || $1::jsonb,
+         updated_by = $2,
+         updated_at = NOW()
+     WHERE business_id = $3
+       AND profile_key = 'default'
+       AND COALESCE(general_settings->>'bundle_confirmed', 'false') <> 'true'`,
+    [JSON.stringify({ bundle_draft: cleanDraft }), user?.id || null, businessId]
+  );
+  if (rowCount === 0) {
+    throw new ApiError(409, "Bundle already confirmed");
+  }
+}
+
+// Unico punto de la app para cambiar el giro: solo dentro del wizard, entre giros con paquete
+// guiado y antes de confirmar. El login y requireAuth leen businesses.pos_type en fresco.
+async function changeGuidedPosType(business, user, newPosType) {
+  const businessId = Number(business?.id);
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new ApiError(401, "Authenticated user is missing business context");
+  }
+  const nextPosType = normalizePosType(newPosType);
+  if (!nextPosType || !POS_TYPES_WITH_GUIDED_BUNDLE.includes(nextPosType)) {
+    throw new ApiError(400, "Target business type has no guided bundle");
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Mismo candado que confirmBundle: serializa cambio de giro vs. confirmacion.
+    await client.query(
+      `INSERT INTO company_profiles (business_id, profile_key, general_settings, is_active)
+       VALUES ($1, 'default', '{}'::jsonb, TRUE)
+       ON CONFLICT (business_id, profile_key) DO NOTHING`,
+      [businessId]
+    );
+    const { rows: profileRows } = await client.query(
+      `SELECT id, general_settings
+       FROM company_profiles
+       WHERE business_id = $1 AND profile_key = 'default'
+       FOR UPDATE`,
+      [businessId]
+    );
+    const { rows: businessRows } = await client.query(
+      "SELECT pos_type FROM businesses WHERE id = $1 FOR UPDATE",
+      [businessId]
+    );
+    if (!businessRows[0]) {
+      throw new ApiError(404, "Business not found");
+    }
+    const currentPosType = normalizePosType(businessRows[0].pos_type);
+    if (!currentPosType || !POS_TYPES_WITH_GUIDED_BUNDLE.includes(currentPosType)) {
+      throw new ApiError(400, "Current business type has no guided bundle");
+    }
+    if (profileRows[0]?.general_settings?.bundle_confirmed || await hasSeededCatalog(businessId, client)) {
+      throw new ApiError(409, "Bundle already confirmed");
+    }
+
+    if (currentPosType !== nextPosType) {
+      // Mismo par business_type/pos_type que setupOnboarding.
+      await client.query(
+        `UPDATE businesses
+         SET business_type = $1, pos_type = $1, updated_by = $2, updated_at = NOW()
+         WHERE id = $3`,
+        [nextPosType, user?.id || null, businessId]
+      );
+      await syncStaffUsersPosType(client, businessId, nextPosType);
+      // El borrador referencia bundle_index del catalogo viejo.
+      await client.query(
+        `UPDATE company_profiles
+         SET general_settings = COALESCE(general_settings, '{}'::jsonb) || $1::jsonb,
+             updated_by = $2,
+             updated_at = NOW()
+         WHERE id = $3 AND business_id = $4`,
+        [JSON.stringify({ bundle_draft: null }), user?.id || null, profileRows[0].id, businessId]
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return getBundleStatus({ id: businessId, pos_type: nextPosType });
+}
+
 async function getBundleStatus(business) {
   const businessId = Number(business?.id);
-  const [{ rows }, { rows: seedRows }] = await Promise.all([
+  const [{ rows }, seeded] = await Promise.all([
     pool.query(
       `SELECT general_settings
        FROM company_profiles
@@ -208,26 +415,25 @@ async function getBundleStatus(business) {
        LIMIT 1`,
       [businessId]
     ),
-    pool.query(
-      `SELECT 1
-       FROM initial_catalog_seed_runs
-       WHERE business_id = $1 AND inserted_count > 0
-       LIMIT 1`,
-      [businessId]
-    )
+    hasSeededCatalog(businessId)
   ]);
   const posType = normalizePosType(business?.pos_type);
   // Ya sembrado por la siembra automatica: no ofrecer el paquete (solo lectura, no se escribe general_settings).
-  const confirmed = Boolean(rows[0]?.general_settings?.bundle_confirmed) || seedRows.length > 0;
+  const confirmed = Boolean(rows[0]?.general_settings?.bundle_confirmed) || seeded;
   return {
     posType,
     needsBundle: POS_TYPES_WITH_GUIDED_BUNDLE.includes(posType) && !confirmed,
-    items: getBundleForBusiness(business)
+    items: getBundleForBusiness(business),
+    // Mismo dato que getBundleDraft, tomado de la fila que ya se leyo arriba (sin segunda consulta).
+    draft: extractBundleDraft(rows[0]?.general_settings)
   };
 }
 
 module.exports = {
   getBundleForBusiness,
   getBundleStatus,
-  confirmBundle
+  getBundleDraft,
+  saveBundleDraft,
+  confirmBundle,
+  changeGuidedPosType
 };
