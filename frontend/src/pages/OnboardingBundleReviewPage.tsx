@@ -239,6 +239,12 @@ export function OnboardingBundleReviewPage() {
     if (customFormOpen) customNameRef.current?.focus();
   }, [customFormOpen]);
 
+  // La categoria del formulario se fijo al abrir: al cambiar de pestaña se cierra para no agregar
+  // un producto a una categoria distinta de la que se ve.
+  useEffect(() => {
+    if (customFormOpen) closeCustomForm();
+  }, [activeCategory]);
+
   // Entrada directa a este paso sin haber pasado por el Paso 1 (no hay items): volver al inicio del wizard.
   if (!bundle || !bundle.needsBundle) {
     return <Navigate replace to={ONBOARDING_BUNDLE_PATH} />;
@@ -323,7 +329,8 @@ export function OnboardingBundleReviewPage() {
   }
 
   function openCustomForm() {
-    setCustomForm(EMPTY_CUSTOM_FORM);
+    // La categoria se fija al abrir (pestaña activa); cambiar de pestaña despues no la mueve.
+    setCustomForm({ ...EMPTY_CUSTOM_FORM, category: activeCategory });
     setCustomFormTouched(false);
     setCustomFormOpen(true);
   }
@@ -443,6 +450,15 @@ export function OnboardingBundleReviewPage() {
   const visibleIncluded = visibleItems.filter((item) => selections[item.bundle_index].included);
   const visibleAllReviewed = visibleIncluded.every((item) => selections[item.bundle_index].reviewed);
   const formErrors = customFormTouched ? getCustomProductErrors(customForm) : [];
+
+  // Solo afecta lo que se pinta en "Tus productos agregados"; contadores y payload usan el arreglo completo.
+  // Categoria del catalogo => solo en su pestaña. Categoria nueva => siempre visible, para que nunca se pierda.
+  const catalogCategoriesLower = new Set(groups.map(([category]) => category.toLowerCase()));
+  function isCustomProductInView(product: CustomProduct) {
+    const category = (product.category.trim() || "General").toLowerCase();
+    return !catalogCategoriesLower.has(category) || category === visibleCategory.toLowerCase();
+  }
+  const visibleCustomProducts = customProducts.filter(isCustomProductInView);
 
   return (
     <section className="panel onboarding-bundle-panel onboarding-bundle-panel-wide">
@@ -616,7 +632,7 @@ export function OnboardingBundleReviewPage() {
 
       <div className="onboarding-bundle-group">
         <div className="onboarding-bundle-group-top">
-          <strong>Tus productos agregados <span className="muted">({customProducts.length})</span></strong>
+          <strong>Tus productos agregados <span className="muted">({visibleCustomProducts.length})</span></strong>
           {!customFormOpen ? (
             <button className="button ghost" disabled={submitting} type="button" onClick={openCustomForm}>
               + Agregar producto
@@ -718,7 +734,7 @@ export function OnboardingBundleReviewPage() {
           </form>
         ) : null}
 
-        {customProducts.length === 0 ? (
+        {visibleCustomProducts.length === 0 ? (
           <p className="muted">¿Vendes algo que no está en el paquete? Agrégalo aquí.</p>
         ) : (
           <>
@@ -729,7 +745,7 @@ export function OnboardingBundleReviewPage() {
               <span>¿Cuántos tienes?</span>
               <span />
             </div>
-            {customProducts.map((product) => {
+            {visibleCustomProducts.map((product) => {
               const invalid = getCustomProductErrors(product).length > 0;
               return (
                 <div className="onboarding-bundle-row" key={product.id}>
