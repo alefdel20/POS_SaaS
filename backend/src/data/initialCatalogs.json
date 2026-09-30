@@ -16,7 +16,7 @@
     },
     {
       "name": "Leche Entera 1 L",
-      "price": 28.5,
+      "price": 29.0,
       "cost": 23.5,
       "category": "Lácteos",
       "unit": "pieza"
@@ -30,7 +30,7 @@
     },
     {
       "name": "Agua Natural 600 ml",
-      "price": 14.5,
+      "price": 15.0,
       "cost": 9.5,
       "category": "Bebidas",
       "unit": "pieza"
@@ -51,7 +51,7 @@
     },
     {
       "name": "Suero Rehidratante 500 ml",
-      "price": 19.9,
+      "price": 20.0,
       "cost": 13.7,
       "category": "Bebidas",
       "unit": "pieza"
@@ -86,7 +86,7 @@
     },
     {
       "name": "Sal de Mesa 1 kg",
-      "price": 19.5,
+      "price": 20.0,
       "cost": 14.0,
       "category": "Abarrotes",
       "unit": "pieza"
@@ -114,7 +114,7 @@
     },
     {
       "name": "Galletas Marías 170 g",
-      "price": 14.5,
+      "price": 15.0,
       "cost": 11.0,
       "category": "Botanas y Dulces",
       "unit": "pieza"
@@ -163,7 +163,7 @@
     },
     {
       "name": "Atún en Agua 140 g",
-      "price": 21.5,
+      "price": 22.0,
       "cost": 16.5,
       "category": "Abarrotes",
       "unit": "pieza"
@@ -303,7 +303,7 @@
     },
     {
       "name": "Mazapán 28 g",
-      "price": 7.5,
+      "price": 8.0,
       "cost": 4.5,
       "category": "Botanas y Dulces",
       "unit": "pieza"
@@ -559,7 +559,7 @@
     },
     {
       "name": "Cinta Teflón 7m Pretul CTF-1/2",
-      "price": 5.5,
+      "price": 6.0,
       "cost": 3.9,
       "category": "General",
       "unit": "pieza"
@@ -573,7 +573,7 @@
     },
     {
       "name": "Cable Eléc. Cal Iusa (Metro)",
-      "price": 14.5,
+      "price": 15.0,
       "cost": 11.5,
       "category": "Eléctrico",
       "unit": "pieza"
@@ -685,7 +685,7 @@
     },
     {
       "name": "Codo PVC 90 1/2\"",
-      "price": 6.5,
+      "price": 7.0,
       "cost": 3.5,
       "category": "Plomería",
       "unit": "pieza"
@@ -883,21 +883,21 @@
     },
     {
       "name": "Cuaderno Italiano Económico",
-      "price": 15.4,
+      "price": 15.0,
       "cost": 11.0,
       "category": "Cuadernos",
       "unit": "pieza"
     },
     {
       "name": "Bolígrafo Cristal Bic (Negro/Az)",
-      "price": 6.5,
+      "price": 7.0,
       "cost": 4.2,
       "category": "Escritura",
       "unit": "pieza"
     },
     {
       "name": "Bolígrafo Pin Point Azor (Pto Fino)",
-      "price": 5.5,
+      "price": 6.0,
       "cost": 3.5,
       "category": "Escritura",
       "unit": "pieza"
@@ -911,7 +911,7 @@
     },
     {
       "name": "Lápiz Bicolor",
-      "price": 27.4,
+      "price": 27.0,
       "cost": 15.3,
       "category": "Escritura",
       "unit": "pieza"
@@ -967,7 +967,7 @@
     },
     {
       "name": "Goma de Migajón Factis S24",
-      "price": 3.5,
+      "price": 4.0,
       "cost": 1.5,
       "category": "Oficina",
       "unit": "pieza"
@@ -988,7 +988,7 @@
     },
     {
       "name": "Cartulina Blanca Pliego",
-      "price": 4.5,
+      "price": 5.0,
       "cost": 2.8,
       "category": "Papeles",
       "unit": "pieza"
@@ -1002,7 +1002,7 @@
     },
     {
       "name": "Papel China Pliego",
-      "price": 1.5,
+      "price": 2.0,
       "cost": 0.6,
       "category": "Papeles",
       "unit": "pieza"
@@ -1030,7 +1030,7 @@
     },
     {
       "name": "Cinta Adhesiva Janel 18x33",
-      "price": 8.5,
+      "price": 9.0,
       "cost": 5.2,
       "category": "General",
       "unit": "pieza"
@@ -1051,14 +1051,14 @@
     },
     {
       "name": "Folder Carta Crema (Unidad)",
-      "price": 2.5,
+      "price": 3.0,
       "cost": 1.2,
       "category": "Oficina",
       "unit": "pieza"
     },
     {
       "name": "Folder Carta Crema (Paq 100)",
-      "price": 154.8,
+      "price": 155.0,
       "cost": 115.0,
       "category": "Oficina",
       "unit": "pieza"
@@ -1114,7 +1114,7 @@
     },
     {
       "name": "Tijera Punta Roma Barrilito",
-      "price": 25.5,
+      "price": 26.0,
       "cost": 16.5,
       "category": "Escolar",
       "unit": "pieza"

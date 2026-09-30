@@ -2635,6 +2635,22 @@ td {
   border-color: var(--danger);
 }
 
+/* Formulario inline de "Tus productos agregados" (usa .grid-form para los labels). */
+.onboarding-bundle-custom-form {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.onboarding-bundle-custom-form-full {
+  grid-column: 1 / -1;
+}
+
+.onboarding-bundle-custom-form input.is-invalid {
+  border-color: var(--danger);
+}
+
 .onboarding-bundle-footer {
   display: flex;
   flex-wrap: wrap;

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { isIntegerUnit } from "../constants/saleUnits";
+import { SALE_UNITS, isIntegerUnit, type SaleUnit } from "../constants/saleUnits";
 import type { OnboardingBundleDraft, OnboardingBundleItem, OnboardingBundleResponse } from "../types";
 import {
   ONBOARDING_BUNDLE_DONE_PATH,
@@ -11,6 +11,40 @@ import {
 } from "./OnboardingBundleStartPage";
 
 type Selection = { included: boolean; name: string; price: string; stock: string; reviewed: boolean };
+
+// Producto agregado a mano (sin catalogo detras). Se guarda tal cual en el borrador; los campos
+// numericos quedan como texto, igual que en Selection.
+type CustomProduct = { id: string; name: string; category: string; price: string; unit: SaleUnit; stock: string };
+type CustomProductForm = Omit<CustomProduct, "id">;
+
+const EMPTY_CUSTOM_FORM: CustomProductForm = { name: "", category: "", price: "", unit: "pieza", stock: "" };
+
+function createCustomProductId() {
+  return `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function toSaleUnit(value: unknown): SaleUnit {
+  return SALE_UNITS.includes(value as SaleUnit) ? (value as SaleUnit) : "pieza";
+}
+
+// El borrador se guarda con validacion laxa: cada campo se toma solo si trae el tipo correcto.
+function buildInitialCustomProducts(draft: OnboardingBundleDraft | null | undefined): CustomProduct[] {
+  const raw = Array.isArray(draft?.customProducts) ? draft.customProducts : [];
+  return raw
+    .filter((entry): entry is Record<string, unknown> => entry !== null && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry) => ({
+      id: typeof entry.id === "string" ? entry.id : createCustomProductId(),
+      name: typeof entry.name === "string" ? entry.name : "",
+      category: typeof entry.category === "string" ? entry.category : "",
+      price: typeof entry.price === "string" ? entry.price : "",
+      unit: toSaleUnit(entry.unit),
+      stock: typeof entry.stock === "string" ? entry.stock : ""
+    }));
+}
+
+function formatUnitLabel(unit: string) {
+  return unit.charAt(0).toUpperCase() + unit.slice(1);
+}
 
 // products.name es VARCHAR(150); el backend rechaza nombres mas largos.
 const PRODUCT_NAME_MAX_LENGTH = 150;
@@ -65,6 +99,20 @@ function formatPriceOnBlur(value: string) {
   return Math.abs(numeric * 100 - Math.round(numeric * 100)) <= 1e-9 ? numeric.toFixed(2) : value;
 }
 
+// products.category es VARCHAR(120); el backend rechaza categorias mas largas.
+const PRODUCT_CATEGORY_MAX_LENGTH = 120;
+
+// Mismas reglas que validateCustomProducts en el backend (nombre requerido, precio > 0, stock por unidad).
+function getCustomProductErrors(product: CustomProductForm) {
+  const errors: Array<"name" | "category" | "price" | "stock"> = [];
+  const name = product.name.trim();
+  if (name === "" || [...name].length > PRODUCT_NAME_MAX_LENGTH) errors.push("name");
+  if ([...product.category.trim()].length > PRODUCT_CATEGORY_MAX_LENGTH) errors.push("category");
+  if (!isValidPrice(product.price)) errors.push("price");
+  if (!isValidStock(product.stock, product.unit)) errors.push("stock");
+  return errors;
+}
+
 // Estado de validacion de una fila; lo usan la fila misma y el resumen por categoria de los chips.
 function getRowStatus(item: OnboardingBundleItem, selection: Selection) {
   return {
@@ -84,11 +132,13 @@ export function OnboardingBundleReviewPage() {
   const [selections, setSelections] = useState<Record<number, Selection>>(() =>
     buildInitialSelections(items, bundle?.draft)
   );
-  // Productos agregados a mano: aun no hay UI que los edite en esta pantalla; se hidratan del
-  // borrador y se reenvian intactos en cada autoguardado para no borrarlos.
-  const [customProducts] = useState<unknown[]>(() =>
-    Array.isArray(bundle?.draft?.customProducts) ? bundle.draft.customProducts : []
-  );
+  // Productos agregados a mano: se hidratan del borrador y viajan en cada autoguardado (buildDraft).
+  const [customProducts, setCustomProducts] = useState<CustomProduct[]>(() => buildInitialCustomProducts(bundle?.draft));
+  const [customFormOpen, setCustomFormOpen] = useState(false);
+  const [customForm, setCustomForm] = useState<CustomProductForm>(EMPTY_CUSTOM_FORM);
+  // Los errores del formulario se marcan solo despues del primer intento de "Agregar".
+  const [customFormTouched, setCustomFormTouched] = useState(false);
+  const customNameRef = useRef<HTMLInputElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -185,26 +235,38 @@ export function OnboardingBundleReviewPage() {
     (target ?? footerButtonRef.current)?.focus();
   }, [activeCategory]);
 
+  useEffect(() => {
+    if (customFormOpen) customNameRef.current?.focus();
+  }, [customFormOpen]);
+
   // Entrada directa a este paso sin haber pasado por el Paso 1 (no hay items): volver al inicio del wizard.
   if (!bundle || !bundle.needsBundle) {
     return <Navigate replace to={ONBOARDING_BUNDLE_PATH} />;
   }
 
   // Todo lo que sigue se calcula sobre el arreglo COMPLETO de items (todas las categorias).
-  const total = items.length;
+  // Los productos agregados a mano cuentan como revisados desde que se capturan.
+  const total = items.length + customProducts.length;
   const includedItems = items.filter((item) => selections[item.bundle_index]?.included);
   const resolvedCount = items.filter((item) => {
     const selection = selections[item.bundle_index];
     return !selection.included || selection.reviewed;
-  }).length;
+  }).length + customProducts.length;
   const allResolved = resolvedCount === total;
   const pendingCount = includedItems.filter((item) => {
     const selection = selections[item.bundle_index];
     return !selection.reviewed || !isValidPrice(selection.price);
   }).length;
   const hasInvalidStock = includedItems.some((item) => !isValidStock(selections[item.bundle_index].stock, item.unit));
+  // Solo posible con un borrador alterado: la captura ya valida cada producto antes de agregarlo.
+  const hasInvalidCustom = customProducts.some((product) => getCustomProductErrors(product).length > 0);
   const canConfirm =
-    includedItems.length > 0 && allResolved && pendingCount === 0 && !hasInvalidStock && !submitting;
+    includedItems.length + customProducts.length > 0 &&
+    allResolved &&
+    pendingCount === 0 &&
+    !hasInvalidStock &&
+    !hasInvalidCustom &&
+    !submitting;
   const progressPercent = total === 0 ? 0 : Math.round((resolvedCount / total) * 100);
 
   const activeGroup = groups.find(([category]) => category === activeCategory) ?? groups[0];
@@ -260,6 +322,44 @@ export function OnboardingBundleReviewPage() {
     }
   }
 
+  function openCustomForm() {
+    setCustomForm(EMPTY_CUSTOM_FORM);
+    setCustomFormTouched(false);
+    setCustomFormOpen(true);
+  }
+
+  function closeCustomForm() {
+    setCustomFormOpen(false);
+    setCustomFormTouched(false);
+  }
+
+  function addCustomProduct(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (getCustomProductErrors(customForm).length > 0) {
+      setCustomFormTouched(true);
+      return;
+    }
+    setCustomProducts((current) => [
+      ...current,
+      {
+        id: createCustomProductId(),
+        name: customForm.name.trim(),
+        category: customForm.category.trim(),
+        price: formatPriceOnBlur(customForm.price),
+        unit: customForm.unit,
+        stock: customForm.stock.trim()
+      }
+    ]);
+    // Formulario abierto para capturar el siguiente; categoria y unidad se conservan.
+    setCustomForm({ ...EMPTY_CUSTOM_FORM, category: customForm.category, unit: customForm.unit });
+    setCustomFormTouched(false);
+    customNameRef.current?.focus();
+  }
+
+  function removeCustomProduct(id: string) {
+    setCustomProducts((current) => current.filter((product) => product.id !== id));
+  }
+
   function goBack() {
     // Guardado inmediato (sin esperar el debounce); no se espera la respuesta para no frenar la navegacion.
     saveDraftNow();
@@ -296,6 +396,17 @@ export function OnboardingBundleReviewPage() {
             const renamed = selection.name.trim();
             if (selection.included && renamed !== "" && renamed !== item.name.trim()) payload.name = renamed;
             return payload;
+          }),
+          customProducts: customProducts.map((product) => {
+            const payload: { name: string; price: number; unit: SaleUnit; category?: string; stock?: number } = {
+              name: product.name.trim(),
+              price: Number(product.price),
+              unit: product.unit
+            };
+            // Vacios se omiten: el backend usa "General" y stock 0.
+            if (product.category.trim() !== "") payload.category = product.category.trim();
+            if (product.stock.trim() !== "") payload.stock = Number(product.stock);
+            return payload;
           })
         })
       });
@@ -331,6 +442,7 @@ export function OnboardingBundleReviewPage() {
   const visibleAllIncluded = visibleItems.every((item) => selections[item.bundle_index].included);
   const visibleIncluded = visibleItems.filter((item) => selections[item.bundle_index].included);
   const visibleAllReviewed = visibleIncluded.every((item) => selections[item.bundle_index].reviewed);
+  const formErrors = customFormTouched ? getCustomProductErrors(customForm) : [];
 
   return (
     <section className="panel onboarding-bundle-panel onboarding-bundle-panel-wide">
@@ -502,11 +614,155 @@ export function OnboardingBundleReviewPage() {
         })}
       </div>
 
+      <div className="onboarding-bundle-group">
+        <div className="onboarding-bundle-group-top">
+          <strong>Tus productos agregados <span className="muted">({customProducts.length})</span></strong>
+          {!customFormOpen ? (
+            <button className="button ghost" disabled={submitting} type="button" onClick={openCustomForm}>
+              + Agregar producto
+            </button>
+          ) : null}
+        </div>
+
+        {customFormOpen ? (
+          <form className="grid-form onboarding-bundle-custom-form" noValidate onSubmit={addCustomProduct}>
+            <label>
+              {requiredLabel("Nombre")}
+              <input
+                aria-invalid={formErrors.includes("name")}
+                className={formErrors.includes("name") ? "is-invalid" : ""}
+                disabled={submitting}
+                maxLength={PRODUCT_NAME_MAX_LENGTH}
+                ref={customNameRef}
+                type="text"
+                value={customForm.name}
+                onChange={(event) => setCustomForm({ ...customForm, name: event.target.value })}
+              />
+            </label>
+            <label>
+              Categoría
+              <input
+                aria-invalid={formErrors.includes("category")}
+                className={formErrors.includes("category") ? "is-invalid" : ""}
+                disabled={submitting}
+                list="onboarding-bundle-custom-categories"
+                maxLength={PRODUCT_CATEGORY_MAX_LENGTH}
+                placeholder="General"
+                type="text"
+                value={customForm.category}
+                onChange={(event) => setCustomForm({ ...customForm, category: event.target.value })}
+              />
+              <datalist id="onboarding-bundle-custom-categories">
+                {groups.map(([category]) => (
+                  <option key={category} value={category} />
+                ))}
+              </datalist>
+            </label>
+            <label>
+              {requiredLabel("Precio")}
+              <span className="onboarding-bundle-price-wrap">
+                <span aria-hidden="true" className="onboarding-bundle-currency">$</span>
+                <input
+                  aria-invalid={formErrors.includes("price")}
+                  className={`onboarding-bundle-price ${formErrors.includes("price") ? "is-invalid" : ""}`}
+                  disabled={submitting}
+                  min="0"
+                  step="0.00001"
+                  type="number"
+                  value={customForm.price}
+                  onBlur={() => setCustomForm({ ...customForm, price: formatPriceOnBlur(customForm.price) })}
+                  onChange={(event) => setCustomForm({ ...customForm, price: event.target.value })}
+                />
+              </span>
+            </label>
+            <label>
+              Unidad
+              <select
+                disabled={submitting}
+                value={customForm.unit}
+                onChange={(event) => setCustomForm({ ...customForm, unit: toSaleUnit(event.target.value) })}
+              >
+                {SALE_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>{formatUnitLabel(unit)}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              ¿Cuántos tienes?
+              <input
+                aria-invalid={formErrors.includes("stock")}
+                className={`onboarding-bundle-stock ${formErrors.includes("stock") ? "is-invalid" : ""}`}
+                disabled={submitting}
+                min="0"
+                placeholder="Opcional"
+                step={isIntegerUnit(customForm.unit) ? "1" : "0.001"}
+                type="number"
+                value={customForm.stock}
+                onChange={(event) => setCustomForm({ ...customForm, stock: event.target.value })}
+              />
+            </label>
+            {formErrors.length > 0 ? (
+              <p className="error-text onboarding-bundle-custom-form-full">
+                Revisa los campos marcados: nombre requerido, precio mayor a 0
+                {isIntegerUnit(customForm.unit) ? " y cantidad en números enteros" : " y cantidad con máximo 3 decimales"}.
+              </p>
+            ) : null}
+            <div className="onboarding-bundle-actions onboarding-bundle-custom-form-full">
+              <button className="button" disabled={submitting} type="submit">
+                Agregar
+              </button>
+              <button className="button ghost" disabled={submitting} type="button" onClick={closeCustomForm}>
+                Cerrar
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {customProducts.length === 0 ? (
+          <p className="muted">¿Vendes algo que no está en el paquete? Agrégalo aquí.</p>
+        ) : (
+          <>
+            <div className="onboarding-bundle-row onboarding-bundle-row-head muted" aria-hidden="true">
+              <span />
+              <span>Producto</span>
+              <span>Tu precio</span>
+              <span>¿Cuántos tienes?</span>
+              <span />
+            </div>
+            {customProducts.map((product) => {
+              const invalid = getCustomProductErrors(product).length > 0;
+              return (
+                <div className="onboarding-bundle-row" key={product.id}>
+                  <span />
+                  <span style={{ minWidth: 0 }}>
+                    <span className={invalid ? "error-text" : ""}>{product.name || "Sin nombre"}</span>{" "}
+                    <span className="muted onboarding-bundle-unit">
+                      {product.category.trim() || "General"} · {product.unit}
+                    </span>
+                  </span>
+                  <span>${product.price}</span>
+                  <span className="onboarding-bundle-stock">{product.stock.trim() === "" ? "—" : product.stock}</span>
+                  <button
+                    aria-label={`Eliminar ${product.name}`}
+                    className="button ghost onboarding-bundle-status"
+                    disabled={submitting}
+                    type="button"
+                    onClick={() => removeCustomProduct(product.id)}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+
       {error ? <p className="error-text">{error}</p> : null}
       {info ? <p className="success-text">{info}</p> : null}
 
       <div className="onboarding-bundle-footer">
-        <span className="muted">{includedItems.length} de {total} productos seleccionados</span>
+        <span className="muted">{includedItems.length + customProducts.length} de {total} productos seleccionados</span>
         <div className="onboarding-bundle-actions">
           <button className="button ghost" disabled={submitting} type="button" onClick={goBack}>
             Atrás

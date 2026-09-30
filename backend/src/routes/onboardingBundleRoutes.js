@@ -21,9 +21,12 @@ router.post(
   "/bundle/confirm",
   requireRole(ADMIN_ROLES),
   body("selections").isArray({ max: 500 }),
+  body("customProducts").optional({ values: "null" }).isArray(),
   validateRequest,
   asyncHandler(async (req, res) => {
-    res.json(await bundleService.confirmBundle(buildBusiness(req.user), req.user, req.body.selections));
+    res.json(await bundleService.confirmBundle(buildBusiness(req.user), req.user, req.body.selections, {
+      customProducts: req.body.customProducts
+    }));
   })
 );
 

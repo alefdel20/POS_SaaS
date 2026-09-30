@@ -133,7 +133,42 @@ function validateSelections(selections, bundle) {
   return included;
 }
 
-async function confirmBundle(business, user, selections, { client: externalClient } = {}) {
+// products.category es VARCHAR(120) (infra/postgres/01-schema.sql).
+const PRODUCT_CATEGORY_MAX_LENGTH = 120;
+
+// Productos propios (sin catalogo detras). Se devuelven con la misma forma que validateSelections
+// para pasar por el mismo INSERT; cost no se captura en el wizard => 0.
+function validateCustomProducts(customProducts) {
+  if (customProducts === undefined || customProducts === null) return [];
+  if (!Array.isArray(customProducts)) {
+    throw new ApiError(400, "customProducts must be an array");
+  }
+  return customProducts.map((product) => {
+    if (!isPlainObject(product)) {
+      throw new ApiError(400, "customProducts items must be objects");
+    }
+    const name = normalizeSelectionName(product.name, "");
+    if (name === "") {
+      throw new ApiError(400, "Custom product name is required");
+    }
+    if (product.category !== undefined && product.category !== null && typeof product.category !== "string") {
+      throw new ApiError(400, "Custom product category must be a string");
+    }
+    const category = String(product.category || "").trim() || "General";
+    if ([...category].length > PRODUCT_CATEGORY_MAX_LENGTH) {
+      throw new ApiError(400, `Custom product category cannot exceed ${PRODUCT_CATEGORY_MAX_LENGTH} characters`);
+    }
+    const unit = normalizeUnit(product.unit);
+    return {
+      item: { category, cost: 0, unit },
+      name,
+      price: normalizeSelectionPrice(product.price),
+      stock: normalizeSelectionStock(product.stock, unit)
+    };
+  });
+}
+
+async function confirmBundle(business, user, selections, { client: externalClient, customProducts } = {}) {
   const businessId = Number(business?.id);
   if (!Number.isInteger(businessId) || businessId <= 0) {
     throw new ApiError(401, "Authenticated user is missing business context");
@@ -144,6 +179,7 @@ async function confirmBundle(business, user, selections, { client: externalClien
     throw new ApiError(400, "This business type has no guided bundle");
   }
   const included = validateSelections(selections, bundle);
+  const customIncluded = validateCustomProducts(customProducts);
 
   const client = externalClient || await pool.connect();
   try {
@@ -181,7 +217,7 @@ async function confirmBundle(business, user, selections, { client: externalClien
     }
 
     const categories = new Set();
-    for (const { item, name, price, stock } of included) {
+    for (const { item, name, price, stock } of [...included, ...customIncluded]) {
       const category = String(item.category || "General").trim() || "General";
       const sku = await resolveSku({ name, category }, businessId, null, client);
       const barcode = await generateUniqueBarcode(businessId, null, client);
@@ -215,7 +251,7 @@ async function confirmBundle(business, user, selections, { client: externalClien
     );
 
     await client.query("COMMIT");
-    return { inserted: included.length };
+    return { inserted: included.length + customIncluded.length };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;
