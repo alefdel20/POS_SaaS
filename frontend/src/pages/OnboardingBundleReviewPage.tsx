@@ -321,7 +321,7 @@ export function OnboardingBundleReviewPage() {
       priceRefs.current[next.bundle_index]?.focus();
       return;
     }
-    if (isLastCategory) {
+    if (canConfirm || isLastCategory) {
       footerButtonRef.current?.focus();
     } else {
       goToNextCategory();
@@ -454,11 +454,21 @@ export function OnboardingBundleReviewPage() {
   // Solo afecta lo que se pinta en "Tus productos agregados"; contadores y payload usan el arreglo completo.
   // Categoria del catalogo => solo en su pestaña. Categoria nueva => siempre visible, para que nunca se pierda.
   const catalogCategoriesLower = new Set(groups.map(([category]) => category.toLowerCase()));
+  // Categoria efectiva de un producto propio (mismo default que el backend), sin mayusculas.
+  function getCustomProductCategoryKey(product: CustomProduct) {
+    return (product.category.trim() || "General").toLowerCase();
+  }
   function isCustomProductInView(product: CustomProduct) {
-    const category = (product.category.trim() || "General").toLowerCase();
+    const category = getCustomProductCategoryKey(product);
     return !catalogCategoriesLower.has(category) || category === visibleCategory.toLowerCase();
   }
   const visibleCustomProducts = customProducts.filter(isCustomProductInView);
+  // Numero del chip: productos propios archivados en cada categoria del catalogo.
+  const customCountByCategory = new Map<string, number>();
+  for (const product of customProducts) {
+    const key = getCustomProductCategoryKey(product);
+    customCountByCategory.set(key, (customCountByCategory.get(key) ?? 0) + 1);
+  }
 
   return (
     <section className="panel onboarding-bundle-panel onboarding-bundle-panel-wide">
@@ -487,7 +497,9 @@ export function OnboardingBundleReviewPage() {
 
       <div className="onboarding-bundle-chips" role="tablist">
         {groups.map(([category, categoryItems]) => {
-          const includedCount = categoryItems.filter((item) => selections[item.bundle_index].included).length;
+          const includedCount =
+            categoryItems.filter((item) => selections[item.bundle_index].included).length +
+            (customCountByCategory.get(category.toLowerCase()) ?? 0);
           const isActive = category === visibleCategory;
           const status = getCategoryStatus(categoryItems);
           const chipClass = ["onboarding-bundle-chip", isActive ? "is-active" : "", CATEGORY_STATUS_CLASS[status]].filter(Boolean).join(" ");
@@ -783,7 +795,7 @@ export function OnboardingBundleReviewPage() {
           <button className="button ghost" disabled={submitting} type="button" onClick={goBack}>
             Atrás
           </button>
-          {isLastCategory ? (
+          {canConfirm || isLastCategory ? (
             <button
               className={`button ${canConfirm ? "" : "button-disabled"}`}
               disabled={!canConfirm}
