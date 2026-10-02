@@ -23,52 +23,38 @@ import { isCashierRole } from "../utils/roles";
 import {
   VETERINARY_PRODUCT_CATEGORIES,
   canUseExpiryDate,
+  canUseProductImage,
+  controlsStock,
   canUseIeps,
   getDefaultUnitForPosType,
   getProductModuleLabel,
   isVeterinaryPos
 } from "../utils/pos";
 import { getCatalogScopeFromPath, getCatalogScopeLabel, getCatalogTypeFromScope } from "../utils/navigation";
-import { SALE_UNITS, isIntegerUnit, type SaleUnit } from "../constants/saleUnits";
-
-const NEW_PRODUCT_DRAFT_VERSION = 1;
-
-type ProductSupplierFormState = {
-  supplier_id: string;
-  supplier_name: string;
-  supplier_email: string;
-  supplier_phone: string;
-  supplier_whatsapp: string;
-  supplier_observations: string;
-  purchase_cost: string;
-  cost_updated_at: string | null;
-};
-
-type ProductFormState = {
-  name: string;
-  sku: string;
-  barcode_manually_edited: boolean;
-  barcode: string;
-  category: string;
-  description: string;
-  price: string;
-  cost_price: string;
-  ieps: string;
-  porcentaje_ganancia: string;
-  unidad_de_venta: SaleUnit | "";
-  stock: string;
-  stock_minimo: string;
-  stock_maximo: string;
-  expires_at: string;
-  lot_number: string;
-  is_active: boolean;
-  status: "activo" | "inactivo";
-  suppliers: ProductSupplierFormState[];
-  discount_type: "" | "percentage" | "fixed";
-  discount_value: string;
-  discount_start: string;
-  discount_end: string;
-};
+import { isIntegerUnit } from "../constants/saleUnits";
+import {
+  NEW_PRODUCT_DRAFT_VERSION,
+  emptySupplier,
+  type ProductFormState,
+  type ProductSupplierFormState
+} from "../components/products/productFormTypes";
+import {
+  buildEmptyProduct,
+  getResolvedSaleUnit,
+  hasMoreThanFiveDecimals,
+  validateQuantityByUnitInput,
+  buildSkuSuggestion,
+  buildBarcodeSuggestion,
+  productToForm,
+  sanitizeProductDraftForm,
+  validateImageFile,
+  formatRestockQuantity,
+  parseRestockDraftQuantity,
+  shouldApplyAutomaticIeps
+} from "../utils/productForm";
+import { ExtraSuppliersModal } from "../components/products/SuppliersEditor";
+import { ProductForm } from "../components/products/ProductForm";
+import { ProductsTable } from "../components/products/ProductsTable";
 
 type RestockRowFeedback = {
   status: "success" | "error";
@@ -83,346 +69,6 @@ type RestockBatchResultLike = {
   message?: string | null;
   product?: { id?: number | string | null } | null;
 };
-
-const emptySupplier: ProductSupplierFormState = {
-  supplier_id: "",
-  supplier_name: "",
-  supplier_email: "",
-  supplier_phone: "",
-  supplier_whatsapp: "",
-  supplier_observations: "",
-  purchase_cost: "",
-  cost_updated_at: null
-};
-
-const emptyProduct: ProductFormState = {
-  name: "",
-  sku: "",
-  barcode_manually_edited: false,
-  barcode: "",
-  category: "",
-  description: "",
-  price: "",
-  cost_price: "",
-  ieps: "",
-  porcentaje_ganancia: "",
-  unidad_de_venta: "",
-  stock: "",
-  stock_minimo: "",
-  stock_maximo: "",
-  expires_at: "",
-  lot_number: "",
-  is_active: true,
-  status: "activo",
-  suppliers: [{ ...emptySupplier }],
-  discount_type: "",
-  discount_value: "",
-  discount_start: "",
-  discount_end: ""
-};
-
-function buildEmptyProduct(defaultUnit: SaleUnit): ProductFormState {
-  return {
-    ...emptyProduct,
-    unidad_de_venta: defaultUnit,
-    suppliers: [{ ...emptySupplier }]
-  };
-}
-
-function normalizeSaleUnit(value?: string | null) {
-  if (!value) return "";
-  return SALE_UNITS.includes(value as SaleUnit) ? (value as SaleUnit) : "";
-}
-
-function getResolvedSaleUnit(unit?: string | null) {
-  return normalizeSaleUnit(unit) || "pieza";
-}
-
-function hasMoreThanThreeDecimals(value: number) {
-  return Math.abs(value * 1000 - Math.round(value * 1000)) > 1e-9;
-}
-
-function hasMoreThanFiveDecimals(value: number) {
-  return Math.abs(value * 100000 - Math.round(value * 100000)) > 1e-9;
-}
-
-function normalizeMoneyInput(value: string) {
-  const normalizedValue = value.replace(",", ".").replace(/[^\d.]/g, "");
-  if (!normalizedValue) {
-    return "";
-  }
-
-  const decimalPointIndex = normalizedValue.indexOf(".");
-  if (decimalPointIndex === -1) {
-    return normalizedValue;
-  }
-
-  const integerPart = normalizedValue.slice(0, decimalPointIndex);
-  const decimalPart = normalizedValue.slice(decimalPointIndex + 1).replace(/\./g, "").slice(0, 5);
-  return `${integerPart || "0"}.${decimalPart}`;
-}
-
-function validateQuantityByUnitInput(value: number, unit: SaleUnit, label: string) {
-  if (Number.isNaN(value) || value < 0) {
-    throw new Error(`${label} debe ser numérico y válido`);
-  }
-  if (isIntegerUnit(unit) && !Number.isInteger(value)) {
-    throw new Error(`${label} debe ser entero para ${unit}`);
-  }
-  if (!isIntegerUnit(unit) && hasMoreThanThreeDecimals(value)) {
-    throw new Error(`${label} solo acepta hasta 3 decimales para ${unit}`);
-  }
-}
-
-function recalculatePrice(costPrice: string, gainPercentage: string) {
-  const cost = Number(costPrice);
-  const gain = Number(gainPercentage);
-  if (!Number.isFinite(cost) || !Number.isFinite(gain)) {
-    return "";
-  }
-  return String(Math.round((cost * (1 + gain / 100) + Number.EPSILON) * 100000) / 100000);
-}
-
-function recalculateGain(costPrice: string, price: string) {
-  const cost = Number(costPrice);
-  const publicPrice = Number(price);
-  if (!Number.isFinite(cost) || cost <= 0 || !Number.isFinite(publicPrice)) {
-    return "";
-  }
-  return String(Math.round((((publicPrice / cost) - 1) * 100 + Number.EPSILON) * 1000) / 1000);
-}
-
-function normalizeTextForSku(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9\s-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function buildSkuSuggestion(name: string, category: string, supplierName: string) {
-  const supplierSegment = normalizeTextForSku(supplierName)
-    .replace(/\b(DE|DEL|LA|LAS|LOS|PARA|CON|SIN|Y|EN)\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/ /g, "")
-    .replace(/[OI]/g, (character) => (character === "O" ? "0" : "1"))
-    .slice(0, 4);
-  const nameTokens = normalizeTextForSku(name).split(" ").filter(Boolean);
-  const typeSegment = (normalizeTextForSku(category).replace(/ /g, "").slice(0, 4) || nameTokens[0] || "")
-    .replace(/[OI]/g, (character) => (character === "O" ? "0" : "1"));
-  const attrSegment = ((nameTokens[1] || nameTokens[0] || "").replace(/[OI]/g, (character) => (character === "O" ? "0" : "1"))).slice(0, 4);
-
-  return [supplierSegment, typeSegment, attrSegment].filter(Boolean).join("-").slice(0, 12);
-}
-
-function buildBarcodeSuggestion(name: string, category: string, supplierName: string) {
-  const source = normalizeTextForSku(`${name} ${category} ${supplierName}`);
-  if (!source) return "";
-
-  let hash = 7;
-  for (const character of source) {
-    hash = (hash * 31 + character.charCodeAt(0)) % 10000000000000;
-  }
-
-  return String(hash).padStart(13, "0").slice(0, 13);
-}
-
-function normalizeNullableString(value: unknown) {
-  if (value === null || value === undefined) {
-    return "";
-  }
-  return typeof value === "string" ? value : String(value);
-}
-
-function supplierToForm(supplier?: Supplier | null): ProductSupplierFormState {
-  return {
-    supplier_id: supplier?.supplier_id ? String(supplier.supplier_id) : supplier?.id ? String(supplier.id) : "",
-    supplier_name: normalizeNullableString(supplier?.supplier_name ?? supplier?.name),
-    supplier_email: normalizeNullableString(supplier?.email),
-    supplier_phone: normalizeNullableString(supplier?.phone),
-    supplier_whatsapp: normalizeNullableString(supplier?.whatsapp),
-    supplier_observations: normalizeNullableString(supplier?.observations),
-    purchase_cost: supplier?.purchase_cost === null || supplier?.purchase_cost === undefined ? "" : String(supplier.purchase_cost),
-    cost_updated_at: supplier?.cost_updated_at || null
-  };
-}
-
-function productToForm(product: Product): ProductFormState {
-  const rawStatus = normalizeNullableString(product.status).trim().toLowerCase();
-  const normalizedStatus = rawStatus
-    ? (rawStatus === "inactivo" ? "inactivo" : "activo")
-    : (product.is_active ? "activo" : "inactivo");
-  return {
-    name: normalizeNullableString(product.name),
-    sku: normalizeNullableString(product.sku),
-    barcode_manually_edited: true,
-    barcode: normalizeNullableString(product.barcode),
-    category: normalizeNullableString(product.category),
-    description: normalizeNullableString(product.description),
-    price: String(product.price ?? ""),
-    cost_price: String(product.cost_price ?? ""),
-    ieps: product.ieps === null || product.ieps === undefined ? "" : String(product.ieps),
-    porcentaje_ganancia: product.porcentaje_ganancia === null || product.porcentaje_ganancia === undefined ? "" : String(product.porcentaje_ganancia),
-    unidad_de_venta: normalizeSaleUnit(product.unidad_de_venta),
-    stock: String(product.stock ?? ""),
-    stock_minimo: String(product.stock_minimo ?? ""),
-    stock_maximo: String(product.stock_maximo ?? ""),
-    expires_at: normalizeNullableString(product.expires_at).slice(0, 10),
-    lot_number: normalizeNullableString(product.lot_number),
-    is_active: Boolean(product.is_active),
-    status: normalizedStatus,
-    suppliers: product.suppliers?.length
-      ? product.suppliers.map((supplier) => supplierToForm(supplier))
-      : [{ ...emptySupplier }],
-    discount_type: "",
-    discount_value: "",
-    discount_start: "",
-    discount_end: ""
-  };
-}
-
-function requiredLabel(text: string) {
-  return `${text} *`;
-}
-
-function sanitizeDraftString(value: unknown, maxLength = 255) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  return value.slice(0, maxLength);
-}
-
-function sanitizeDraftBoolean(value: unknown, fallback: boolean) {
-  return typeof value === "boolean" ? value : fallback;
-}
-
-function sanitizeDraftStatus(value: unknown) {
-  return value === "inactivo" ? "inactivo" : "activo";
-}
-
-function sanitizeDraftSaleUnit(value: unknown, fallback: SaleUnit | "") {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-  return SALE_UNITS.includes(value as SaleUnit) ? (value as SaleUnit) : fallback;
-}
-
-function sanitizeDraftDiscountType(value: unknown): ProductFormState["discount_type"] {
-  return value === "percentage" || value === "fixed" ? value : "";
-}
-
-function sanitizeSupplierDraft(value: unknown): ProductSupplierFormState | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const supplier = value as Record<string, unknown>;
-  return {
-    supplier_id: sanitizeDraftString(supplier.supplier_id, 40),
-    supplier_name: sanitizeDraftString(supplier.supplier_name, 180),
-    supplier_email: sanitizeDraftString(supplier.supplier_email, 180),
-    supplier_phone: sanitizeDraftString(supplier.supplier_phone, 40),
-    supplier_whatsapp: sanitizeDraftString(supplier.supplier_whatsapp, 40),
-    supplier_observations: sanitizeDraftString(supplier.supplier_observations, 500),
-    purchase_cost: sanitizeDraftString(supplier.purchase_cost, 30),
-    cost_updated_at: typeof supplier.cost_updated_at === "string" ? supplier.cost_updated_at : null
-  };
-}
-
-function sanitizeProductDraftForm(value: unknown, fallback: ProductFormState): ProductFormState | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const source = value as Record<string, unknown>;
-  const status = sanitizeDraftStatus(source.status);
-  const suppliers = Array.isArray(source.suppliers)
-    ? source.suppliers.map((supplier) => sanitizeSupplierDraft(supplier)).filter((supplier): supplier is ProductSupplierFormState => Boolean(supplier))
-    : [];
-  return {
-    ...fallback,
-    name: sanitizeDraftString(source.name, 180),
-    sku: sanitizeDraftString(source.sku, 120),
-    barcode_manually_edited: sanitizeDraftBoolean(source.barcode_manually_edited, false),
-    barcode: sanitizeDraftString(source.barcode, 30),
-    category: sanitizeDraftString(source.category, 120),
-    description: sanitizeDraftString(source.description, 1000),
-    price: sanitizeDraftString(source.price, 30),
-    cost_price: sanitizeDraftString(source.cost_price, 30),
-    ieps: sanitizeDraftString(source.ieps, 30),
-    porcentaje_ganancia: sanitizeDraftString(source.porcentaje_ganancia, 30),
-    unidad_de_venta: sanitizeDraftSaleUnit(source.unidad_de_venta, fallback.unidad_de_venta),
-    stock: sanitizeDraftString(source.stock, 30),
-    stock_minimo: sanitizeDraftString(source.stock_minimo, 30),
-    stock_maximo: sanitizeDraftString(source.stock_maximo, 30),
-    expires_at: sanitizeDraftString(source.expires_at, 20),
-    lot_number: sanitizeDraftString(source.lot_number, 80),
-    status,
-    is_active: status === "activo",
-    suppliers: suppliers.length ? suppliers : [{ ...emptySupplier }],
-    discount_type: sanitizeDraftDiscountType(source.discount_type),
-    discount_value: sanitizeDraftString(source.discount_value, 30),
-    discount_start: sanitizeDraftString(source.discount_start, 30),
-    discount_end: sanitizeDraftString(source.discount_end, 30)
-  };
-}
-
-function validateImageFile(file: File) {
-  const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-  if (!allowedTypes.has(file.type)) {
-    throw new Error("La imagen debe ser jpg, jpeg, png o webp");
-  }
-  if (file.size > 2 * 1024 * 1024) {
-    throw new Error("La imagen no puede superar 2MB");
-  }
-}
-
-function formatRestockQuantity(value: number, unit?: string | null) {
-  const resolvedUnit = getResolvedSaleUnit(unit);
-  if (isIntegerUnit(resolvedUnit)) {
-    return `${Math.trunc(value)} ${resolvedUnit}`;
-  }
-  return `${value.toFixed(3)} ${resolvedUnit}`;
-}
-
-function parseRestockDraftQuantity(value: string, unit?: string | null) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-
-  const resolvedUnit = getResolvedSaleUnit(unit);
-  if (isIntegerUnit(resolvedUnit) && !Number.isInteger(parsed)) {
-    return null;
-  }
-
-  if (!isIntegerUnit(resolvedUnit) && Math.abs(parsed * 1000 - Math.round(parsed * 1000)) > 1e-9) {
-    return null;
-  }
-
-  return parsed;
-}
-
-const AUTO_IEPS_CATEGORIES = new Set(["dulces", "refrescos", "botanas", "cigarros", "alcohol"]);
-
-function shouldApplyAutomaticIeps(category?: string | null) {
-  return AUTO_IEPS_CATEGORIES.has(normalizeNullableString(category).trim().toLowerCase());
-}
-
-function focusNextFieldOnEnter(event: KeyboardEvent<HTMLElement>) {
-  if (event.key !== "Enter" || event.target instanceof HTMLTextAreaElement) {
-    return;
-  }
-  const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("input, select, textarea, button"))
-    .filter((element) => !element.hasAttribute("disabled") && element.tabIndex !== -1);
-  const currentIndex = focusable.indexOf(event.target as HTMLElement);
-  if (currentIndex === -1) {
-    return;
-  }
-  event.preventDefault();
-  focusable[currentIndex + 1]?.focus();
-}
 
 export function ProductsPage() {
   const { token, user } = useAuth();
@@ -446,6 +92,9 @@ export function ProductsPage() {
   const [totalProducts, setTotalProducts] = useState(0);
   const [restockItems, setRestockItems] = useState<RestockProductItem[]>([]);
   const [restockSearch, setRestockSearch] = useState("");
+  // Categorias del select de la lista, separadas de `categories` (datalist del formulario),
+  // que se recarga filtrada mientras se escribe en el formulario.
+  const [listCategories, setListCategories] = useState<string[]>([]);
   const [restockCategoryFilter, setRestockCategoryFilter] = useState("");
   const [restockSupplierFilter, setRestockSupplierFilter] = useState("");
   const [restockDrafts, setRestockDrafts] = useState<Record<number, string>>({});
@@ -483,6 +132,9 @@ export function ProductsPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [currentImagePath, setCurrentImagePath] = useState<string | null>(null);
   const [removeImageRequested, setRemoveImageRequested] = useState(false);
+  // Cambia cada vez que se carga un formulario nuevo (alta, edicion, borrador, guardado):
+  // remonta ProductForm para reiniciar su estado de vista (secciones, casillas).
+  const [formInstance, setFormInstance] = useState(0);
   const supplierNameInputRef = useRef<HTMLInputElement | null>(null);
   const baselineFormRef = useRef(JSON.stringify({
     ...emptyProductState,
@@ -490,6 +142,9 @@ export function ProductsPage() {
   }));
   const editProductIdFromQuery = Number(searchParams.get("edit") || 0) || null;
   const searchFromQuery = searchParams.get("search") || "";
+  // "+ Entrada" usa su propio parametro para no sembrar el buscador de la lista.
+  const restockSearchFromQuery = searchParams.get("restockSearch") || "";
+  const seededRestockSearchRef = useRef<string | null>(null);
   const skuSuggestion = useMemo(() => buildSkuSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
   const barcodeSuggestion = useMemo(() => buildBarcodeSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
   const apiBaseUrl = API_BASE_URL;
@@ -497,6 +152,8 @@ export function ProductsPage() {
   const hasSuggestedBarcode = !form.barcode.trim() && Boolean(barcodeSuggestion);
   const showIepsField = canUseIeps(user?.pos_type);
   const showExpiryField = canUseExpiryDate(user?.pos_type);
+  const showProductImage = canUseProductImage(user?.pos_type);
+  const showStockStatus = controlsStock(user?.pos_type);
   const isVeterinaryView = isVeterinaryPos(user?.pos_type);
   const isCashier = isCashierRole(user?.role);
   const catalogScope = getCatalogScopeFromPath(location.pathname);
@@ -545,6 +202,7 @@ export function ProductsPage() {
 
   function syncBaseline(state: ProductFormState) {
     baselineFormRef.current = buildFormSnapshot(state);
+    setFormInstance((current) => current + 1);
   }
 
   function clearProductDraft() {
@@ -627,6 +285,17 @@ export function ProductsPage() {
     }
     const response = await apiRequest<string[]>(`/products/categories?${params.toString()}`, { token });
     setCategories(response);
+  }
+
+  // Misma API que loadCategories, sin termino de busqueda: todas las categorias del alcance.
+  async function loadListCategories() {
+    if (!token) return;
+    const params = new URLSearchParams();
+    if (catalogScope) {
+      params.set("catalog_scope", catalogScope);
+    }
+    const response = await apiRequest<string[]>(`/products/categories?${params.toString()}`, { token });
+    setListCategories(response);
   }
 
   async function loadRestockProducts(
@@ -1144,6 +813,35 @@ export function ProductsPage() {
     setPage(1);
   }, [search, searchFromQuery]);
 
+  // "+ Entrada" de la lista llega aqui con ?restockSearch=<producto>: se usa el mismo estado
+  // (restockSearch) y el mismo efecto con debounce que el buscador de reabastecer.
+  useEffect(() => {
+    if (!isRestockRoute || !restockSearchFromQuery) {
+      return;
+    }
+    seededRestockSearchRef.current = restockSearchFromQuery;
+    setRestockSearch(restockSearchFromQuery);
+    setRestockPage(1);
+  }, [isRestockRoute, restockSearchFromQuery]);
+
+  // Al salir de reabastecer se limpia el filtro solo si lo sembro "+ Entrada" y el
+  // usuario no lo cambio; asi la siguiente visita desde el menu llega sin filtro.
+  useEffect(() => {
+    if (isRestockRoute || seededRestockSearchRef.current === null) {
+      return;
+    }
+    const seededValue = seededRestockSearchRef.current;
+    seededRestockSearchRef.current = null;
+    setRestockSearch((current) => (current === seededValue ? "" : current));
+  }, [isRestockRoute]);
+
+  useEffect(() => {
+    if (isNewProductRoute || isRestockRoute) {
+      return;
+    }
+    loadListCategories().catch(console.error);
+  }, [catalogScope, token, isNewProductRoute, isRestockRoute]);
+
   useEffect(() => {
     if (!isNewProductRoute || editProductIdFromQuery) {
       return;
@@ -1243,12 +941,6 @@ export function ProductsPage() {
       // Best effort only. A draft should never block the product form.
     }
   }, [draftStorageKey, editingId, form, isNewProductRoute]);
-
-  useEffect(() => {
-    if (!isVeterinaryView && categoryFilter) {
-      setCategoryFilter("");
-    }
-  }, [categoryFilter, isVeterinaryView]);
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -1861,354 +1553,45 @@ export function ProductsPage() {
   return (
     <section className="page-grid">
       {isNewProductRoute ? (
-      <form className="panel product-form-panel product-form-panel-wide" onKeyDownCapture={focusNextFieldOnEnter} onSubmit={handleSubmit}>
-        <div className="panel-header">
-          <h2>{isCashier ? (editingId ? `Solicitar cambio en ${productModuleLabel.toLowerCase()}` : "Solicitar cambio de producto") : editingId ? `Editar ${productModuleLabel.toLowerCase()}` : `Nuevo ${productModuleLabel.toLowerCase()}`}</h2>
-          <div className="inline-actions">
-            {editingId ? (
-              <button
-                className="button ghost"
-                onClick={() => printBarcodeLabel().catch((printError) => setError(printError instanceof Error ? printError.message : "No fue posible imprimir el código de barras"))}
-                type="button"
-              >
-                Imprimir código de barras
-              </button>
-            ) : null}
-            {editingId ? (
-              <button
-                className="button ghost"
-                onClick={resetProductEditor}
-                type="button"
-              >
-                Cancelar
-              </button>
-            ) : null}
-          </div>
-        </div>
-        {isNewProductRoute ? (
-          <div className="info-card">
-            <p><strong>Alta de producto</strong></p>
-            <p>Ruta dedicada para capturar un nuevo producto sin romper las rutas anteriores.</p>
-          </div>
-        ) : null}
-        {isRestockRoute ? (
-          <div className="info-card">
-            <p><strong>Reabastecimiento rápido</strong></p>
-            <p>Actualiza stock objetivo y limpia la lista de pendientes en cuanto guardes.</p>
-          </div>
-        ) : null}
-        {isCashier && requestSummary ? (
-          <div className="stats-grid">
-            <div className="info-card compact-box"><strong>{requestSummary.pending}</strong><span className="muted">Pendientes</span></div>
-            <div className="info-card compact-box"><strong>{requestSummary.approved}</strong><span className="muted">Aprobadas</span></div>
-            <div className="info-card compact-box"><strong>{requestSummary.rejected}</strong><span className="muted">Rechazadas</span></div>
-            <div className="info-card compact-box"><strong>{requestSummary.today}</strong><span className="muted">Enviadas hoy</span></div>
-          </div>
-        ) : null}
-        {isCashier && !editingId ? (
-          <div className="info-card">
-            <p><strong>Solicitud de cambios</strong></p>
-            <p>Desde esta cuenta solo puedes solicitar cambios de stock con motivo obligatorio para aprobación administrativa.</p>
-          </div>
-        ) : null}
-        <div className="product-form-grid product-form-grid-wide">
-          <div className="form-span-2 product-image-panel">
-            <div className="product-image-preview-frame">
-              {imagePreview && !removeImageRequested ? (
-                <img alt="Vista previa del producto" className="product-image-preview" src={imagePreview} />
-              ) : (
-                <div className="product-image-placeholder">
-                  <span>Sin imagen</span>
-                </div>
-              )}
-            </div>
-            <div className="product-image-actions">
-              <label className="product-image-upload">
-                Imagen del producto
-                <input
-                  accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                  onChange={(event) => {
-                    try {
-                      handleImageSelection(event.target.files?.[0] || null);
-                      setError("");
-                    } catch (imageError) {
-                      setError(imageError instanceof Error ? imageError.message : "No fue posible procesar la imagen");
-                      event.currentTarget.value = "";
-                    }
-                  }}
-                  type="file"
-                />
-              </label>
-              <p className="muted">Formatos permitidos: jpg, jpeg, png y webp. Tamaño máximo: 2MB.</p>
-              {currentImagePath && !imageFile && !removeImageRequested ? <p className="muted">Imagen actual cargada en servidor.</p> : null}
-              {imageFile ? <p className="muted">Nueva imagen lista para subir: {imageFile.name}</p> : null}
-              {(currentImagePath || imageFile) && !removeImageRequested ? (
-                <button className="button ghost danger" onClick={handleRemoveImage} type="button">
-                  Remover imagen
-                </button>
-              ) : null}
-              {removeImageRequested ? <p className="muted">La imagen se eliminará al guardar.</p> : null}
-            </div>
-          </div>
-          <label>
-            {requiredLabel("Nombre")}
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-          </label>
-          <label>
-            SKU
-            <input
-              placeholder={hasSuggestedSku ? `Sugerido: ${skuSuggestion}` : "Se generará automáticamente en backend"}
-              value={form.sku}
-              onChange={(event) => setForm({ ...form, sku: event.target.value })}
-            />
-          </label>
-          {hasSuggestedSku ? <p className="muted">SKU sugerido visual: {skuSuggestion}. El SKU definitivo y unico se garantiza al guardar.</p> : null}
-          <label>
-            Categoría
-            <input
-              list="product-category-options"
-              value={form.category}
-              onChange={(event) => {
-                setForm({ ...form, category: event.target.value });
-                loadCategories(event.target.value).catch(console.error);
-              }}
-              required
-            />
-          </label>
-          <datalist id="product-category-options">
-            {categories.map((category) => (
-              <option key={category} value={category} />
-            ))}
-          </datalist>
-          <label>
-            Código de barras
-            <input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value.replace(/\D/g, ""), barcode_manually_edited: true })} />
-          </label>
-          {hasSuggestedBarcode ? <p className="muted">Código de barras sugerido visual: {barcodeSuggestion}. El definitivo se valida y genera en backend al guardar.</p> : null}
-          <label>
-            Unidad de venta
-            <select value={form.unidad_de_venta} onChange={(event) => setForm({ ...form, unidad_de_venta: event.target.value as SaleUnit | "" })}>
-              <option value="">Pieza</option>
-              {SALE_UNITS.filter((u) => u !== "pieza").map((unit) => (
-                <option key={unit} value={unit}>{unit.charAt(0).toUpperCase() + unit.slice(1)}</option>
-              ))}
-            </select>
-          </label>
-          {form.unidad_de_venta ? (
-            <label>
-              Contenido por unidad
-              <input
-                placeholder="Ej. 20 piezas / 1000 gramos"
-                value={contenidoPorUnidad}
-                onChange={(event) => setContenidoPorUnidad(event.target.value)}
-              />
-            </label>
-          ) : null}
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={venderAGranel}
-              onChange={(event) => setVenderAGranel(event.target.checked)}
-            />
-            <span>¿Vender también a granel?</span>
-          </label>
-          {venderAGranel ? (
-            <>
-              <label>
-                Precio Granel
-                <input
-                  min="0"
-                  step="0.00001"
-                  type="number"
-                  value={precioGranel}
-                  onChange={(event) => setPrecioGranel(event.target.value)}
-                />
-              </label>
-              <label>
-                Código de Barras Granel
-                <input
-                  value={barcodeGranel}
-                  onChange={(event) => setBarcodeGranel(event.target.value.replace(/\D/g, ""))}
-                />
-              </label>
-            </>
-          ) : null}
-          <label>
-            Estado
-            <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as "activo" | "inactivo", is_active: event.target.value === "activo" })}>
-              <option value="activo">Activo</option>
-              <option value="inactivo">Inactivo</option>
-            </select>
-          </label>
-          <label className="form-span-2">
-            Descripción
-            <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-          </label>
-          <label>
-            Costo del producto
-            <input
-              type="number"
-              min="0"
-              step="0.00001"
-              value={form.cost_price}
-              onChange={(event) => {
-                const nextCostPrice = normalizeMoneyInput(event.target.value);
-                setForm({ ...form, cost_price: nextCostPrice, porcentaje_ganancia: recalculateGain(nextCostPrice, form.price) });
-              }}
-            />
-          </label>
-          <label>
-            {requiredLabel("Precio al público")}
-            <input
-              type="number"
-              min="0"
-              step="0.00001"
-              value={form.price}
-              onChange={(event) => {
-                const nextPrice = normalizeMoneyInput(event.target.value);
-                setForm({ ...form, price: nextPrice, porcentaje_ganancia: recalculateGain(form.cost_price, nextPrice) });
-              }}
-              required
-            />
-          </label>
-          {showIepsField ? (
-            <label>
-              IEPS
-              <input readOnly={appliesAutomaticIeps} type="number" min="0" step="0.01" value={form.ieps} onChange={(event) => setForm({ ...form, ieps: event.target.value })} />
-            </label>
-          ) : null}
-          {appliesAutomaticIeps ? <p className="muted">IEPS automático fijo en 8% para esta categoría.</p> : null}
-          <label>
-            % ganancia
-            <input type="number" step="0.001" value={form.porcentaje_ganancia} onChange={(event) => setForm({ ...form, porcentaje_ganancia: event.target.value, price: event.target.value === "" ? form.price : recalculatePrice(form.cost_price, event.target.value) })} />
-          </label>
-          <label>
-            {requiredLabel("Stock")}
-            <input type="number" min="0" step={isIntegerUnit(getResolvedSaleUnit(form.unidad_de_venta)) ? "1" : "0.001"} value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
-          </label>
-          <label>
-            {requiredLabel("Stock mínimo")}
-            <input type="number" min="0" step={isIntegerUnit(getResolvedSaleUnit(form.unidad_de_venta)) ? "1" : "0.001"} value={form.stock_minimo} onChange={(event) => setForm({ ...form, stock_minimo: event.target.value })} required />
-          </label>
-          <label>
-            {requiredLabel("Stock máximo")}
-            <input type="number" min="0" onKeyDown={handleStockMaximoEnter} step={isIntegerUnit(getResolvedSaleUnit(form.unidad_de_venta)) ? "1" : "0.001"} value={form.stock_maximo} onChange={(event) => setForm({ ...form, stock_maximo: event.target.value })} required />
-          </label>
-          {showExpiryField ? (
-            <>
-              <label>
-                Número de lote
-                <input
-                  placeholder="Opcional"
-                  value={form.lot_number}
-                  onChange={(event) => setForm({ ...form, lot_number: event.target.value })}
-                />
-              </label>
-              <label>
-                Fecha de vencimiento
-                <input type="date" value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} />
-              </label>
-            </>
-          ) : null}
-        </div>
-
-        <div className="panel-header">
-          <div>
-            <h2>Proveedores</h2>
-            <p className="muted">El proveedor principal permanece visible. Los proveedores adicionales se administran bajo demanda.</p>
-          </div>
-          <button
-            className="button ghost"
-            onClick={openSuppliersModal}
-            type="button"
-          >
-            {form.suppliers.length > 1 ? `Gestionar proveedores extra (${form.suppliers.length - 1})` : "Agregar otro proveedor"}
-          </button>
-        </div>
-        <div className="product-form-grid product-form-grid-wide">
-          
-              <label>
-                Nombre proveedor
-                <input
-                  ref={supplierNameInputRef}
-                  list="supplier-options"
-                  value={form.suppliers[0]?.supplier_name || ""}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    const matchedSupplier = resolveSupplierByName(value);
-                    updateSupplier(0, {
-                      supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
-                      supplier_name: value,
-                      supplier_email: matchedSupplier?.email || "",
-                      supplier_phone: matchedSupplier?.phone || "",
-                      supplier_whatsapp: matchedSupplier?.whatsapp || "",
-                      supplier_observations: matchedSupplier?.observations || "",
-                      purchase_cost: form.suppliers[0]?.purchase_cost || "",
-                      cost_updated_at: form.suppliers[0]?.cost_updated_at || null
-                    });
-                    loadSuppliers(value).catch(console.error);
-                  }}
-                  placeholder="Selecciona o escribe un proveedor"
-                />
-              </label>
-              <label>
-                WhatsApp proveedor
-                <input
-                  value={form.suppliers[0]?.supplier_whatsapp || ""}
-                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), supplier_whatsapp: event.target.value })}
-                />
-              </label>
-              <label>
-                Correo proveedor
-                <input
-                  type="email"
-                  value={form.suppliers[0]?.supplier_email || ""}
-                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), supplier_email: event.target.value })}
-                />
-              </label>
-              <label>
-                Teléfono proveedor
-                <input
-                  value={form.suppliers[0]?.supplier_phone || ""}
-                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), supplier_phone: event.target.value })}
-                />
-              </label>
-              <label>
-                Costo de compra
-                <input
-                  min="0"
-                    step="0.00001"
-                  type="number"
-                  value={form.suppliers[0]?.purchase_cost || ""}
-                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), purchase_cost: event.target.value })}
-                />
-              </label>
-              <label className="form-span-2">
-                Observaciones proveedor
-                <textarea
-                  value={form.suppliers[0]?.supplier_observations || ""}
-                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), supplier_observations: event.target.value })}
-                />
-              </label>
-              {form.suppliers[0]?.cost_updated_at ? (
-                <p className="muted form-span-2">
-                  Última actualización de costo: {shortDateTime(form.suppliers[0]?.cost_updated_at)}
-                </p>
-              ) : null}
-          
-          
-          <datalist id="supplier-options">
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.name} />
-            ))}
-          </datalist>
-        </div>
-        {error ? <p className="error-text">{error}</p> : null}
-        {info ? <p className="success-text">{info}</p> : null}
-        <button className="button" disabled={saving} type="submit">
-          {saving ? "Guardando..." : isCashier ? "Enviar solicitud" : editingId ? "Actualizar producto" : "Guardar producto"}
-        </button>
-      </form>
+      <ProductForm
+        key={formInstance}
+        appliesAutomaticIeps={appliesAutomaticIeps}
+        barcodeSuggestion={barcodeSuggestion}
+        categories={categories}
+        currentImagePath={currentImagePath}
+        editingId={editingId}
+        error={error}
+        form={form}
+        handleImageSelection={handleImageSelection}
+        handleRemoveImage={handleRemoveImage}
+        handleStockMaximoEnter={handleStockMaximoEnter}
+        handleSubmit={handleSubmit}
+        hasSuggestedBarcode={hasSuggestedBarcode}
+        hasSuggestedSku={hasSuggestedSku}
+        imageFile={imageFile}
+        imagePreview={imagePreview}
+        info={info}
+        inventoryPath={productBasePath}
+        isCashier={isCashier}
+        loadCategories={loadCategories}
+        loadSuppliers={loadSuppliers}
+        openSuppliersModal={openSuppliersModal}
+        printBarcodeLabel={printBarcodeLabel}
+        removeImageRequested={removeImageRequested}
+        requestSummary={requestSummary}
+        resetProductEditor={resetProductEditor}
+        resolveSupplierByName={resolveSupplierByName}
+        saving={saving}
+        setError={setError}
+        setForm={setForm}
+        showExpiryField={showExpiryField}
+        showIepsField={showIepsField}
+        showProductImage={showProductImage}
+        skuSuggestion={skuSuggestion}
+        supplierNameInputRef={supplierNameInputRef}
+        suppliers={suppliers}
+        updateSupplier={updateSupplier}
+      />
       ) : null}
 
       {isNewProductRoute && isCashier && requestSummary?.recent?.length ? (
@@ -2232,287 +1615,55 @@ export function ProductsPage() {
       ) : null}
 
       {showSuppliersModal ? (
-        <div className="modal-backdrop" role="presentation">
-          <div className="modal-card supplier-modal-card">
-            <div className="panel-header">
-              <div>
-                <h3>Proveedores adicionales</h3>
-                <p className="muted">Agrega o edita proveedores extra sin saturar la vista principal.</p>
-              </div>
-              <button className="button ghost" onClick={closeSuppliersModal} type="button">Cerrar</button>
-            </div>
-            <div className="inline-actions supplier-modal-actions">
-              <button
-                className="button ghost"
-                onClick={() => setSupplierDrafts((current) => [...current, { ...emptySupplier }])}
-                type="button"
-              >
-                Agregar proveedor
-              </button>
-            </div>
-            <div className="supplier-modal-list">
-              {supplierDrafts.length === 0 ? (
-                <p className="muted">Aún no hay proveedores adicionales configurados.</p>
-              ) : null}
-              {supplierDrafts.map((supplier, index) => (
-                <div className="info-card" key={`supplier-draft-${index}`}>
-                  <div className="panel-header">
-                    <div>
-                      <h3>{`Proveedor ${index + 2}`}</h3>
-                    </div>
-                    <button
-                      className="button ghost"
-                      onClick={() => setSupplierDrafts((current) => current.filter((_, supplierIndex) => supplierIndex !== index))}
-                      type="button"
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                  <div className="product-form-grid product-form-grid-wide">
-                    <label>
-                      Nombre proveedor
-                      <input
-                        list="supplier-options"
-                        value={supplier.supplier_name}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          const matchedSupplier = resolveSupplierByName(value);
-                          updateSupplierDraft(index, {
-                            supplier_id: matchedSupplier ? String(matchedSupplier.id) : "",
-                            supplier_name: value,
-                            supplier_email: matchedSupplier?.email || "",
-                            supplier_phone: matchedSupplier?.phone || "",
-                            supplier_whatsapp: matchedSupplier?.whatsapp || "",
-                            supplier_observations: matchedSupplier?.observations || "",
-                            purchase_cost: supplier.purchase_cost,
-                            cost_updated_at: supplier.cost_updated_at
-                          });
-                          loadSuppliers(value).catch(console.error);
-                        }}
-                        placeholder="Selecciona o escribe un proveedor"
-                      />
-                    </label>
-                    <label>
-                      WhatsApp proveedor
-                      <input value={supplier.supplier_whatsapp} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_whatsapp: event.target.value })} />
-                    </label>
-                    <label>
-                      Correo proveedor
-                      <input type="email" value={supplier.supplier_email} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_email: event.target.value })} />
-                    </label>
-                    <label>
-                      Teléfono proveedor
-                      <input value={supplier.supplier_phone} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_phone: event.target.value })} />
-                    </label>
-                    <label>
-                      Costo de compra
-                      <input
-                        min="0"
-                        step="0.00001"
-                        type="number"
-                        value={supplier.purchase_cost}
-                        onChange={(event) => updateSupplierDraft(index, { ...supplier, purchase_cost: event.target.value })}
-                      />
-                    </label>
-                    <label className="form-span-2">
-                      Observaciones proveedor
-                      <textarea value={supplier.supplier_observations} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_observations: event.target.value })} />
-                    </label>
-                    {supplier.cost_updated_at ? (
-                      <p className="muted form-span-2">
-                        Última actualización de costo: {shortDateTime(supplier.cost_updated_at)}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="inline-actions supplier-modal-actions">
-              <button className="button ghost" onClick={closeSuppliersModal} type="button">Cancelar</button>
-              <button className="button" onClick={saveSuppliersModal} type="button">Aplicar proveedores</button>
-            </div>
-          </div>
-        </div>
+        <ExtraSuppliersModal
+          supplierDrafts={supplierDrafts}
+          setSupplierDrafts={setSupplierDrafts}
+          updateSupplierDraft={updateSupplierDraft}
+          closeSuppliersModal={closeSuppliersModal}
+          saveSuppliersModal={saveSuppliersModal}
+          resolveSupplierByName={resolveSupplierByName}
+          loadSuppliers={loadSuppliers}
+        />
       ) : null}
 
       {!isNewProductRoute && !isRestockRoute ? (
-      <div className="panel">
-        <div className="panel-header product-catalog-header">
-          <div>
-            <h2>{scopedModuleLabel}</h2>
-            <p className="muted">Buscador, paginación y alertas por stock mínimo.</p>
-          </div>
-          <div className="inline-actions">
-            {!isCashier ? <button className="button" onClick={resetProductEditor} type="button">Nuevo registro</button> : null}
-            {!isCashier ? <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button> : null}
-            {!isCashier ? <button className="button ghost" onClick={() => exportProducts("excel").catch(() => {})} type="button">Exportar Excel{selectedProductIds.length > 0 ? ` (${selectedProductIds.length})` : ""}</button> : null}
-            {!isCashier ? <button className="button ghost" onClick={() => exportProducts("pdf").catch(() => {})} type="button">Exportar PDF{selectedProductIds.length > 0 ? ` (${selectedProductIds.length})` : ""}</button> : null}
-            <input
-              className="search-input"
-              placeholder="Buscar por nombre, SKU, categoría o proveedor"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-            <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value) as 10 | 15)}>
-              <option value={10}>10 por página</option>
-              <option value={15}>15 por página</option>
-            </select>
-          </div>
-        </div>
-        {error ? <p className="error-text">{error}</p> : null}
-        <div className="inline-actions quick-filter-row">
-          {(["all", "activo", "inactivo"] as const).map((value) => (
-            <button
-              className={`button ghost${statusFilter === value ? " active-filter" : ""}`}
-              key={value}
-              onClick={() => { setStatusFilter(value); setPage(1); }}
-              type="button"
-            >
-              {value === "all" ? "Todos" : value === "activo" ? "Activos" : "Inactivos"}
-            </button>
-          ))}
-        </div>
-        {isVeterinaryView ? (
-          <div className="inline-actions quick-filter-row">
-            <button className={`button ghost ${categoryFilter === "" ? "active-filter" : ""}`} onClick={() => { setCategoryFilter(""); setPage(1); }} type="button">
-              Todas
-            </button>
-            {(catalogScope ? categories : veterinaryCategoryFilters).map((category) => (
-              <button
-                className={`button ghost ${categoryFilter === category ? "active-filter" : ""}`}
-                key={category}
-                onClick={() => { setCategoryFilter(category); setPage(1); }}
-                type="button"
-              >
-                {category}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    checked={displayProducts.length > 0 && displayProducts.every((p) => selectedProductIds.includes(p.id))}
-                    onChange={(e) => setSelectedProductIds(e.target.checked ? displayProducts.map((p) => p.id) : [])}
-                    title="Seleccionar todos"
-                  />
-                </th>
-                <th>Nombre</th>
-                <th>Proveedores</th>
-                <th>SKU</th>
-                <th>Categoría</th>
-                <th>Precio al público</th>
-                <th>Stock</th>
-                <th>Unidad</th>
-                <th>Estado</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayProducts.map((product) => (
-                <tr key={product.id}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedProductIds.includes(product.id)}
-                      onChange={(e) => setSelectedProductIds(e.target.checked ? [...selectedProductIds, product.id] : selectedProductIds.filter((id) => id !== product.id))}
-                    />
-                  </td>
-                  <td>
-                    <div className="product-name-cell">
-                      {product.image_path ? (
-                        <img alt={product.name} className="product-table-thumb" src={resolveProductImageUrl(product.image_path) || ""} />
-                      ) : (
-                        <div className="product-table-thumb product-table-thumb-placeholder" aria-hidden="true">IMG</div>
-                      )}
-                      <div>
-                        <div>{product.name}</div>
-                        {product.is_low_stock ? <small className="error-text">Stock bajo</small> : null}
-                        {product.has_pending_update_request ? (
-                          <small className="muted">Pendiente de aprobación ({product.pending_update_request_count || 1})</small>
-                        ) : null}
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <div>{product.supplier_names?.join(", ") || product.supplier_name || "-"}</div>
-                    <small className="muted">{product.supplier_whatsapp || product.supplier_phone || product.supplier_email || "-"}</small>
-                  </td>
-                  <td>{product.sku}</td>
-                  <td>{product.category || "-"}</td>
-                  <td>
-                    {product.is_on_sale ? (
-                      <div className="price-stack">
-                        <span className="price-original">{currency(product.price)}</span>
-                        <strong>{currency(product.effective_price ?? product.price)}</strong>
-                      </div>
-                    ) : (
-                      currency(product.price)
-                    )}
-                  </td>
-                  <td>
-                    {product.stock}
-                    <small className="muted"> / min {product.stock_minimo ?? 0}</small>
-                  </td>
-                  <td>{product.unidad_de_venta || "pieza"}</td>
-                  <td>{product.status || (product.is_active ? "activo" : "inactivo")}</td>
-                  <td>
-                    <div className="inline-actions">
-                      <button className="button ghost" onClick={() => handleEdit(product)} type="button">Editar</button>
-                      {product.barcode ? (
-                        <button
-                          className="button ghost"
-                          onClick={() => printBarcodeLabel(product.id, product.name, product.barcode).catch((printError) => setError(printError instanceof Error ? printError.message : "No fue posible imprimir el código de barras"))}
-                          type="button"
-                        >
-                          Código
-                        </button>
-                      ) : null}
-                      {!isCashier ? <button className="button ghost danger" onClick={() => deleteProduct(product)} type="button">Eliminar</button> : null}
-                      {!isCashier ? (
-                        <button
-                          className="button ghost"
-                          disabled={togglingId === product.id}
-                          onClick={() => toggleProductStatus(product)}
-                          style={
-                            togglingId !== product.id && product.status !== "inactivo"
-                              ? { color: "#b45309", borderColor: "#b45309" }
-                              : undefined
-                          }
-                          type="button"
-                        >
-                          {togglingId === product.id
-                            ? "Actualizando..."
-                            : product.status === "inactivo"
-                              ? "Activar"
-                              : "Desactivar"}
-                        </button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {displayProducts.length === 0 ? (
-                <tr>
-                  <td className="muted" colSpan={9}>No se encontraron productos.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      <div className="panel-header product-table-footer">
-          <p className="muted">{totalProducts} {catalogScope ? scopedModuleLabel.toLowerCase() : isVeterinaryView ? "productos e insumos" : "productos"} encontrados</p>
-          <div className="inline-actions">
-            <button className="button ghost" disabled={page <= 1} onClick={() => setPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
-            <span className="muted">Página {page} de {totalPages}</span>
-            <button className="button ghost" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(current + 1, totalPages))} type="button">Siguiente</button>
-          </div>
-        </div>
-      </div>
+      <ProductsTable
+        catalogScope={catalogScope}
+        categories={listCategories}
+        categoryFilter={categoryFilter}
+        deleteProduct={deleteProduct}
+        displayProducts={displayProducts}
+        error={error}
+        exportProducts={exportProducts}
+        handleEdit={handleEdit}
+        isCashier={isCashier}
+        isVeterinaryView={isVeterinaryView}
+        openImportModal={openImportModal}
+        page={page}
+        pageSize={pageSize}
+        printBarcodeLabel={printBarcodeLabel}
+        resetProductEditor={resetProductEditor}
+        restockPath={restockProductPath}
+        scopedModuleLabel={scopedModuleLabel}
+        showExpiryStatus={showExpiryField}
+        showStockStatus={showStockStatus}
+        showProductImage={showProductImage}
+        search={search}
+        selectedProductIds={selectedProductIds}
+        setCategoryFilter={setCategoryFilter}
+        setError={setError}
+        setPage={setPage}
+        setPageSize={setPageSize}
+        setSearch={setSearch}
+        setSelectedProductIds={setSelectedProductIds}
+        setStatusFilter={setStatusFilter}
+        statusFilter={statusFilter}
+        toggleProductStatus={toggleProductStatus}
+        togglingId={togglingId}
+        totalPages={totalPages}
+        totalProducts={totalProducts}
+        veterinaryCategoryFilters={veterinaryCategoryFilters}
+      />
       ) : null}
 
       {isRestockRoute ? (

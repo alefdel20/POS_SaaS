@@ -32,6 +32,11 @@ export const VETERINARY_PRODUCT_CATEGORIES = [
 
 const IEPS_POS_TYPES = new Set<PosType>(["Tienda"]);
 const EXPIRY_POS_TYPES = new Set<PosType>(["Tienda", "Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
+// Foto de producto: solo Restaurante (la usa el menu publico, PublicMenuPage).
+const PRODUCT_IMAGE_POS_TYPES = new Set<PosType>(["Restaurante"]);
+// Restaurante cobra comandas en restaurantService.closeOrder, que no descuenta existencias;
+// el resto vende por saleService, que si las descuenta.
+const NO_STOCK_CONTROL_POS_TYPES = new Set<PosType>(["Restaurante"]);
 const CREDIT_POS_TYPES = new Set<PosType>(POS_TYPE_OPTIONS.map((option) => option.value).filter((value) => value !== "Dentista"));
 const CLINICAL_POS_TYPES = new Set<PosType>(["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"]);
 const PATIENT_LABEL_POS_TYPES = new Set<PosType>(["Farmacia", "FarmaciaConsultorio", "ClinicaChica"]);
@@ -127,6 +132,14 @@ export function canUseIeps(posType?: string | null) {
 
 export function canUseExpiryDate(posType?: string | null) {
   return EXPIRY_POS_TYPES.has((posType || "Otro") as PosType);
+}
+
+export function canUseProductImage(posType?: string | null) {
+  return PRODUCT_IMAGE_POS_TYPES.has((posType || "Otro") as PosType);
+}
+
+export function controlsStock(posType?: string | null) {
+  return !NO_STOCK_CONTROL_POS_TYPES.has((posType || "Otro") as PosType);
 }
 
 export function canUseCreditCollections(posType?: string | null) {
