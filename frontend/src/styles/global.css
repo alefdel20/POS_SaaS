@@ -1908,6 +1908,12 @@ td {
   color: #ffd1d1;
 }
 
+/* Chip "Stock bajo" de Reabastecer: mezcla con --text para ser legible en ambos temas. */
+.status-badge.restock-status-low {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: color-mix(in srgb, var(--danger) 70%, var(--text));
+}
+
 .status-badge[class*="supplier-status-"] {
   margin-top: 0;
 }

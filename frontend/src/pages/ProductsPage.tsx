@@ -98,6 +98,9 @@ export function ProductsPage() {
   const [restockCategoryFilter, setRestockCategoryFilter] = useState("");
   const [restockSupplierFilter, setRestockSupplierFilter] = useState("");
   const [restockDrafts, setRestockDrafts] = useState<Record<number, string>>({});
+  // Copia del producto al capturar cantidad: permite guardar borradores de filas
+  // que ya no estan en la pagina/filtro cargado.
+  const [restockDraftItems, setRestockDraftItems] = useState<Record<number, RestockProductItem>>({});
   const [restockPage, setRestockPage] = useState(1);
   const [restockPageSize, setRestockPageSize] = useState<10 | 15>(10);
   const [restockTotalPages, setRestockTotalPages] = useState(1);
@@ -179,7 +182,7 @@ export function ProductsPage() {
     return `pos_app_product_draft_v${NEW_PRODUCT_DRAFT_VERSION}:${user.business_id}:${user.id}:${draftScope}:new_product`;
   }, [catalogScope, user?.business_id, user?.id]);
   const restockRequestIdRef = useRef(0);
-  const validRestockDraftEntries = useMemo(() => getValidRestockDraftEntries(restockItems), [restockDrafts, restockItems]);
+  const validRestockDraftEntries = useMemo(() => getValidRestockDraftEntries(), [restockDrafts, restockDraftItems, restockItems]);
   const hasRestockDraftChanges = validRestockDraftEntries.length > 0;
   const displayProducts = useMemo(
     () => statusFilter === "inactivo"
@@ -356,9 +359,10 @@ export function ProductsPage() {
     });
   }
 
-  function setRestockDraftValue(productId: number, value: string) {
-    setRestockDrafts((current) => ({ ...current, [productId]: value }));
-    clearRestockRowFeedback(productId);
+  function setRestockDraftValue(item: RestockProductItem, value: string) {
+    setRestockDrafts((current) => ({ ...current, [item.id]: value }));
+    setRestockDraftItems((current) => ({ ...current, [item.id]: item }));
+    clearRestockRowFeedback(item.id);
   }
 
   function getRestockDraftValue(productId: number) {
@@ -399,6 +403,13 @@ export function ProductsPage() {
     }
 
     setRestockDrafts((current) => {
+      const next = { ...current };
+      productIds.forEach((productId) => {
+        delete next[productId];
+      });
+      return next;
+    });
+    setRestockDraftItems((current) => {
       const next = { ...current };
       productIds.forEach((productId) => {
         delete next[productId];
@@ -451,9 +462,15 @@ export function ProductsPage() {
     });
   }
 
-  function getValidRestockDraftEntries(sourceItems = restockItems) {
-    return sourceItems
-      .map((item) => {
+  // Recorre todos los borradores (no solo la pagina visible); usa la fila cargada
+  // si esta presente y, si no, la copia guardada al capturar.
+  function getValidRestockDraftEntries() {
+    const loadedById = new Map(restockItems.map((item) => [item.id, item]));
+    return Object.keys(restockDrafts)
+      .map((key) => {
+        const productId = Number(key);
+        const item = loadedById.get(productId) ?? restockDraftItems[productId];
+        if (!item) return null;
         const quantity = parseRestockDraftQuantity(getRestockDraftValue(item.id), item.unidad_de_venta);
         if (quantity === null) return null;
         return { item, quantity };
@@ -1427,11 +1444,21 @@ export function ProductsPage() {
     // del clic: si se abre despues de un await, el navegador ya no la reconoce
     // como iniciada por el usuario y la bloquea sin avisar (window.open retorna
     // null en silencio). Ver investigacion del bug de codigo de barras.
-    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=520,height=420");
+    // Sin "noopener": con esa bandera window.open retorna null aunque la ventana
+    // si se abra, y la quedabamos en blanco. Cortamos el opener a mano.
+    const printWindow = window.open("", "_blank", "width=520,height=420");
     if (!printWindow) {
       setError("Tu navegador bloqueó la ventana. Habilita popups para este sitio e intenta de nuevo.");
       return;
     }
+    printWindow.opener = null;
+
+    let svgUrl = "";
+    const failPrint = (message: string) => {
+      printWindow.close();
+      if (svgUrl) window.URL.revokeObjectURL(svgUrl);
+      setError(message);
+    };
 
     try {
       const response = await fetch(`${apiBaseUrl}/products/${resolvedId}/barcode.svg`, {
@@ -1443,7 +1470,7 @@ export function ProductsPage() {
         throw new Error("No fue posible cargar el código de barras");
       }
       const svgBlob = await response.blob();
-      const svgUrl = window.URL.createObjectURL(svgBlob);
+      svgUrl = window.URL.createObjectURL(svgBlob);
 
       const esc = (v: string) =>
         v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -1486,13 +1513,27 @@ export function ProductsPage() {
       `);
       printWindow.document.close();
       printWindow.focus();
-      setTimeout(() => {
+
+      // Imprime al cargar el SVG; el timeout queda como respaldo si onload no llega.
+      let printed = false;
+      const printOnce = () => {
+        if (printed || printWindow.closed) return;
+        printed = true;
         printWindow.print();
         setTimeout(() => window.URL.revokeObjectURL(svgUrl), 1000);
-      }, 300);
+      };
+      const barcodeImage = printWindow.document.querySelector<HTMLImageElement>("img.barcode-img");
+      if (barcodeImage && !barcodeImage.complete) {
+        barcodeImage.onload = printOnce;
+        barcodeImage.onerror = () => {
+          if (printed) return;
+          printed = true;
+          failPrint("No fue posible cargar el código de barras");
+        };
+      }
+      setTimeout(printOnce, barcodeImage && !barcodeImage.complete ? 300 : 0);
     } catch (barcodeError) {
-      printWindow.close();
-      setError(barcodeError instanceof Error ? barcodeError.message : "No fue posible imprimir el código de barras");
+      failPrint(barcodeError instanceof Error ? barcodeError.message : "No fue posible imprimir el código de barras");
     }
   }
 
@@ -1685,7 +1726,9 @@ export function ProductsPage() {
 	              onClick={() => saveAllRestockItems().catch(() => undefined)}
 	              type="button"
 	            >
-	              {isSavingRestockBatch ? (isCashier ? "Enviando lote..." : "Guardando lote...") : "Guardar todos"}
+	              {isSavingRestockBatch
+	                ? (isCashier ? "Enviando lote..." : "Guardando lote...")
+	                : hasRestockDraftChanges ? `Guardar todos (${validRestockDraftEntries.length})` : "Guardar todos"}
 	            </button>
 	            <div className="total-box secondary compact-box">
 	              <span>{isCashier ? "Solicitudes" : "Productos"}</span>
@@ -1788,7 +1831,7 @@ export function ProductsPage() {
 	                      step={isIntegerUnit(getResolvedSaleUnit(item.unidad_de_venta)) ? "1" : "0.001"}
 	                      type="number"
 	                      value={getRestockDraftValue(item.id)}
-	                      onChange={(event) => setRestockDraftValue(item.id, event.target.value)}
+	                      onChange={(event) => setRestockDraftValue(item, event.target.value)}
 	                    />
 	                  </td>
                   <td>
@@ -1806,7 +1849,7 @@ export function ProductsPage() {
                         Pendiente ({item.pending_update_request_count})
                       </span>
                     ) : (
-                      <span className={`status-badge ${item.is_low_stock ? "appointment-status-cancelled" : "appointment-status-completed"}`}>
+                      <span className={`status-badge ${item.is_low_stock ? "restock-status-low" : "appointment-status-completed"}`}>
                         {item.is_low_stock ? "Stock bajo" : "Stock normal"}
                       </span>
                     )}
