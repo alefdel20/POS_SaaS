@@ -3838,3 +3838,126 @@ td {
     flex: 1 1 0;
   }
 }
+
+/* --- Modulo 5B: ajuste directo de existencias (stock-adjust-*) --- */
+.stock-adjust-last {
+  display: block;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.stock-adjust-dialog {
+  width: min(460px, 100%);
+}
+
+.stock-adjust-dialog h3 {
+  margin-bottom: 0.25rem;
+}
+
+.stock-adjust-product {
+  margin: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.stock-adjust-current {
+  margin: 0.15rem 0 1rem;
+}
+
+.stock-adjust-dialog textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.stock-adjust-field-error {
+  margin: -0.6rem 0 0.9rem;
+  font-size: 0.85rem;
+}
+
+.stock-adjust-counter {
+  margin: -0.6rem 0 0.75rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.stock-adjust-counter.is-invalid {
+  color: var(--warning-text);
+}
+
+.stock-adjust-result {
+  min-height: 1.4em;
+  margin: 0 0 0.75rem;
+  color: var(--text);
+}
+
+.stock-adjust-actions {
+  flex-wrap: wrap;
+}
+
+.stock-adjust-quantity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* "Baja" en el historial: texto + icono, no solo color. */
+.stock-adjust-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: color-mix(in srgb, var(--danger) 70%, var(--text));
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.stock-adjust-reason {
+  color: var(--text);
+}
+
+.stock-adjust-role {
+  font-size: 0.85em;
+}
+
+.stock-adjust-setting {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.stock-adjust-setting-toggle input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.stock-adjust-setting-help {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .inventory-mobile-card-stock .stock-adjust-last {
+    flex: 1 1 100%;
+    order: 1;
+  }
+
+  .stock-adjust-dialog input,
+  .stock-adjust-dialog textarea {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .stock-adjust-actions .button {
+    flex: 1 1 0;
+    min-height: 48px;
+  }
+
+  .stock-adjust-setting-toggle {
+    min-height: 48px;
+  }
+}

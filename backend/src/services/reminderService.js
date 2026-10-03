@@ -41,6 +41,20 @@ function getBusinessId(actor) {
   return requireActorBusinessId(actor);
 }
 
+// Alertas de "Baja de existencias" (productService.decreaseProductStock): son para el
+// admin; el cajero no las ve ni las gestiona. Admin/gerente/superusuario sin cambios.
+const CASHIER_HIDDEN_REMINDER_SOURCE_PREFIX = "auto:stock-decrease:";
+
+function isCashierActor(actor) {
+  return normalizeRole(actor?.role) === "cajero";
+}
+
+// Condicion SQL extra (vacia para no-cajeros). El prefijo no tiene comodines de LIKE.
+function buildCashierHiddenReminderCondition(actor, alias = "reminders") {
+  if (!isCashierActor(actor)) return "";
+  return `AND (${alias}.source_key IS NULL OR ${alias}.source_key NOT LIKE '${CASHIER_HIDDEN_REMINDER_SOURCE_PREFIX}%')`;
+}
+
 function parseDateOnly(value) {
   if (!value) return null;
   const text = String(value).slice(0, 10);
@@ -245,6 +259,7 @@ async function listReminders(actor, filters = {}) {
      WHERE ${conditions.join(" AND ")}
        AND (reminders.source_key IS NULL OR reminders.source_key NOT LIKE 'finance:%')
        AND COALESCE(reminders.reminder_type, '') NOT IN ('finance_expense', 'finance_owner_loan', 'finance_fixed_expense')
+       ${buildCashierHiddenReminderCondition(actor)}
      ORDER BY reminders.is_completed ASC,
               CASE
                 WHEN COALESCE(reminders.metadata->>'priority', '') ~ '^[0-9]+$'
@@ -274,6 +289,10 @@ async function listCalendarEvents(actor, filters = {}) {
     reminderPatientCondition = `AND reminders.patient_id = $${reminderParams.length}`;
   }
 
+  // El cajero no ve eventos financieros con montos (gastos, prestamos del dueno,
+  // gastos fijos); conserva sus recordatorios. Admin/gerente/superusuario sin cambios.
+  const skipFinanceEvents = Boolean(patientId) || isCashierActor(actor);
+
   const [reminderRows, expenseRows, ownerLoanRows, fixedExpenseRows, subscriptionEvents] = await Promise.all([
     pool.query(
       `SELECT reminders.*, users.full_name AS assigned_to_name, patients.name AS patient_name
@@ -285,10 +304,11 @@ async function listCalendarEvents(actor, filters = {}) {
          AND (reminders.source_key IS NULL OR reminders.source_key NOT LIKE 'finance:%')
          AND COALESCE(reminders.reminder_type, '') NOT IN ('finance_expense', 'finance_owner_loan', 'finance_fixed_expense')
          ${reminderPatientCondition}
+         ${buildCashierHiddenReminderCondition(actor)}
        ORDER BY reminders.is_completed ASC, reminders.due_date ASC, reminders.created_at DESC`,
       reminderParams
     ),
-    patientId ? Promise.resolve({ rows: [] }) : pool.query(
+    skipFinanceEvents ? Promise.resolve({ rows: [] }) : pool.query(
       `SELECT id, concept, category, amount, date, notes, payment_method
        FROM expenses
        WHERE business_id = $1
@@ -297,7 +317,7 @@ async function listCalendarEvents(actor, filters = {}) {
        ORDER BY date ASC, id ASC`,
       [businessId, startDate, endDate]
     ),
-    patientId ? Promise.resolve({ rows: [] }) : pool.query(
+    skipFinanceEvents ? Promise.resolve({ rows: [] }) : pool.query(
       `SELECT id, amount, type, balance, date, notes
        FROM owner_loans
        WHERE business_id = $1
@@ -306,7 +326,7 @@ async function listCalendarEvents(actor, filters = {}) {
        ORDER BY date ASC, id ASC`,
       [businessId, startDate, endDate]
     ),
-    patientId ? Promise.resolve({ rows: [] }) : pool.query(
+    skipFinanceEvents ? Promise.resolve({ rows: [] }) : pool.query(
       `SELECT id, name, category, default_amount, frequency, due_day, notes, base_date, created_at
        FROM fixed_expenses
        WHERE business_id = $1
@@ -314,7 +334,8 @@ async function listCalendarEvents(actor, filters = {}) {
        ORDER BY id ASC`,
       [businessId]
     ),
-    patientId ? Promise.resolve([]) : listSubscriptionCalendarEvents(actor, startDate, endDate)
+    // El cajero tampoco ve eventos de suscripcion (fecha de pago del plan).
+    skipFinanceEvents ? Promise.resolve([]) : listSubscriptionCalendarEvents(actor, startDate, endDate)
   ]);
 
   const unified = [];
@@ -455,11 +476,13 @@ async function createReminder(payload, actor) {
   try {
     await client.query("BEGIN");
     await assertReminderPatientAccess(payload.patient_id, businessId, client);
+    // source_key lo asigna solo el sistema (upsertAutomaticReminder, restock, bajas...);
+    // se ignora el del body para que nadie choque con el indice unico (business_id, source_key).
     const { rows } = await client.query(
       `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
-      [String(payload.title || "").trim(), String(payload.notes || "").trim(), nextStatus, nextDueDate, payload.source_key || null, payload.assigned_to || null, payload.created_by, nextIsCompleted, businessId, payload.reminder_type || "general", category, payload.patient_id || null, JSON.stringify(metadata)]
+      [String(payload.title || "").trim(), String(payload.notes || "").trim(), nextStatus, nextDueDate, null, payload.assigned_to || null, payload.created_by, nextIsCompleted, businessId, payload.reminder_type || "general", category, payload.patient_id || null, JSON.stringify(metadata)]
     );
     // Fase 6: mirror into healthcare.reminders — no-op when category isn't
     // 'clinical' (see syncReminderToHealthcare's guard).
@@ -489,7 +512,10 @@ async function updateReminder(id, payload, actor) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const { rows: existingRows } = await client.query("SELECT * FROM reminders WHERE id = $1 AND business_id = $2", [id, businessId]);
+    const { rows: existingRows } = await client.query(
+      `SELECT * FROM reminders WHERE id = $1 AND business_id = $2 ${buildCashierHiddenReminderCondition(actor)}`,
+      [id, businessId]
+    );
     const current = existingRows[0];
     if (!current) throw new ApiError(404, "Reminder not found");
     const nextCategory = normalizeReminderCategory(payload.category) || normalizeReminderCategory(current.category) || "administrative";
@@ -502,12 +528,13 @@ async function updateReminder(id, payload, actor) {
     assertClinicalReminderAccess({ category: nextCategory }, actor);
     await assertReminderPatientAccess(payload.patient_id ?? current.patient_id, businessId, client);
 
+    // source_key no se cambia por API: se conserva la clave existente.
     const { rows } = await client.query(
       `UPDATE reminders
        SET title = $1, notes = $2, status = $3, due_date = $4, assigned_to = $5, is_completed = $6, source_key = $7, reminder_type = $8, category = $9, patient_id = $10, metadata = $11, updated_at = NOW()
        WHERE id = $12 AND business_id = $13
        RETURNING *`,
-      [String(payload.title ?? current.title ?? "").trim(), String(payload.notes ?? current.notes ?? "").trim(), nextStatus, nextDueDate, payload.assigned_to ?? current.assigned_to, nextIsCompleted, payload.source_key ?? current.source_key, payload.reminder_type ?? current.reminder_type, nextCategory, payload.patient_id ?? current.patient_id, JSON.stringify(metadata), id, businessId]
+      [String(payload.title ?? current.title ?? "").trim(), String(payload.notes ?? current.notes ?? "").trim(), nextStatus, nextDueDate, payload.assigned_to ?? current.assigned_to, nextIsCompleted, current.source_key, payload.reminder_type ?? current.reminder_type, nextCategory, payload.patient_id ?? current.patient_id, JSON.stringify(metadata), id, businessId]
     );
     // Fase 6: keep the healthcare.reminders mirror in sync — no-op when
     // nextCategory isn't 'clinical' (see syncReminderToHealthcareOnUpdate's
@@ -543,6 +570,7 @@ async function completeReminder(id, actor) {
       `UPDATE reminders
        SET is_completed = TRUE, status = 'completed', updated_at = NOW()
        WHERE id = $1 AND business_id = $2
+         ${buildCashierHiddenReminderCondition(actor)}
        RETURNING *`,
       [id, businessId]
     );
@@ -562,7 +590,10 @@ async function completeReminder(id, actor) {
 
 async function deleteReminder(id, actor) {
   const businessId = getBusinessId(actor);
-  const { rows } = await pool.query("DELETE FROM reminders WHERE id = $1 AND business_id = $2 RETURNING *", [id, businessId]);
+  const { rows } = await pool.query(
+    `DELETE FROM reminders WHERE id = $1 AND business_id = $2 ${buildCashierHiddenReminderCondition(actor)} RETURNING *`,
+    [id, businessId]
+  );
   if (!rows[0]) throw new ApiError(404, "Reminder not found");
   return rows[0];
 }

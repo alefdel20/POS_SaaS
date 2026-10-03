@@ -3,6 +3,17 @@ const asyncHandler = require("../utils/asyncHandler");
 const validateRequest = require("../middleware/validateRequest");
 const kitService = require("../services/kitService");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { normalizeRole } = require("../utils/roles");
+
+// El cajero no ve costos de componentes (Ventas solo usa nombre, cantidad y precio).
+// Admin/gerente/superusuario reciben el kit sin cambios.
+function stripKitCostsForActor(kit, actor) {
+  if (!kit || normalizeRole(actor?.role) !== "cajero" || !Array.isArray(kit.items)) return kit;
+  return {
+    ...kit,
+    items: kit.items.map(({ product_cost: _productCost, ...item }) => item)
+  };
+}
 
 const listValidation = [
   query("activeOnly").optional().isBoolean(),
@@ -57,7 +68,7 @@ const listKits = asyncHandler(async (req, res) => {
 const getKit = asyncHandler(async (req, res) => {
   const businessId = requireActorBusinessId(req.user);
   const kit = await kitService.getKitById(businessId, Number(req.params.id));
-  res.json(kit);
+  res.json(stripKitCostsForActor(kit, req.user));
 });
 
 const createKit = asyncHandler(async (req, res) => {

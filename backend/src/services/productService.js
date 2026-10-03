@@ -6,6 +6,7 @@ const { buildStoredImagePath, deleteStoredImage } = require("../utils/productIma
 const { saveAuditLog } = require("./auditLogService");
 const { emitActorAutomationEvent } = require("./automationEventService");
 const productUpdateRequestService = require("./productUpdateRequestService");
+const { isCashierDirectStockEnabled } = require("./profileService");
 const { canUseExpiryDate, canUseIeps, normalizePosType } = require("../utils/business");
 const { normalizeRole } = require("../utils/roles");
 const { normalizeProductCatalogType } = require("../utils/domainEnums");
@@ -327,6 +328,84 @@ function buildProductAuditMetadata(actor, extra = {}) {
 function buildProductSnapshot(product) {
   if (!product) return {};
   return mapProductRow(product);
+}
+
+function isCashierActor(actor) {
+  return normalizeRole(actor?.role) === "cajero";
+}
+
+async function canCashierAdjustStock(actor, client = pool) {
+  return isCashierDirectStockEnabled(actor, client);
+}
+
+const CASHIER_DIRECT_STOCK_DISABLED_MESSAGE = "El ajuste directo de existencias está desactivado para cajeros. Envía una solicitud de cambio.";
+
+// enabledOverride permite al lote resolver el interruptor una sola vez.
+async function assertCashierCanAdjustStock(actor, client = pool, enabledOverride = undefined) {
+  if (!isCashierActor(actor)) return;
+  const enabled = enabledOverride === undefined ? await canCashierAdjustStock(actor, client) : enabledOverride;
+  if (!enabled) {
+    throw new ApiError(403, CASHIER_DIRECT_STOCK_DISABLED_MESSAGE);
+  }
+}
+
+// El cajero no ve costos (Modulo 5B.1 ya los oculta en el formulario). Para
+// admin/gerente/superusuario la fila no cambia.
+const CASHIER_HIDDEN_PRODUCT_COST_FIELDS = ["cost_price", "recent_purchase_cost", "cost_updated_at"];
+const CASHIER_HIDDEN_SUPPLIER_COST_FIELDS = ["purchase_cost", "cost_updated_at"];
+
+function stripProductCostsForActor(products, actor) {
+  if (!isCashierActor(actor) || !Array.isArray(products)) return products;
+  return products.map((product) => {
+    if (!product) return product;
+    const safe = { ...product };
+    CASHIER_HIDDEN_PRODUCT_COST_FIELDS.forEach((field) => { delete safe[field]; });
+    if (Array.isArray(safe.suppliers)) {
+      safe.suppliers = safe.suppliers.map((supplier) => {
+        if (!supplier || typeof supplier !== "object") return supplier;
+        const safeSupplier = { ...supplier };
+        CASHIER_HIDDEN_SUPPLIER_COST_FIELDS.forEach((field) => { delete safeSupplier[field]; });
+        return safeSupplier;
+      });
+    }
+    return safe;
+  });
+}
+
+async function getStockAdjustSettings(actor) {
+  return { cashier_direct_stock: await canCashierAdjustStock(actor) };
+}
+
+// Fila mas reciente de product_restock_history por producto (una consulta, sin N+1).
+async function attachLastManualStockChanges(products, businessId) {
+  if (!Array.isArray(products) || products.length === 0) return products;
+  const productIds = products.map((product) => Number(product.id)).filter((id) => Number.isInteger(id) && id > 0);
+  if (productIds.length === 0) return products;
+  const { rows } = await pool.query(
+    `SELECT DISTINCT ON (history.product_id)
+       history.product_id,
+       history.quantity_added,
+       history.metadata,
+       history.created_at,
+       COALESCE(users.full_name, NULLIF(history.actor_name_snapshot, '')) AS user_name
+     FROM product_restock_history history
+     LEFT JOIN users ON users.id = history.actor_user_id AND users.business_id = history.business_id
+     WHERE history.business_id = $1
+       AND history.product_id = ANY($2::int[])
+     ORDER BY history.product_id, history.created_at DESC, history.id DESC`,
+    [businessId, productIds]
+  );
+  const byProductId = new Map(rows.map((row) => [Number(row.product_id), {
+    user_name: row.user_name || null,
+    actor_role: row.metadata?.actor_role || null,
+    entry_type: row.metadata?.entry_type || null,
+    quantity: Number(row.quantity_added || 0),
+    at: row.created_at
+  }]));
+  return products.map((product) => ({
+    ...product,
+    last_manual_stock_change: byProductId.get(Number(product.id)) || null
+  }));
 }
 
 function normalizeListOptions(search, options) {
@@ -866,9 +945,10 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
     ${whereClause}
     ORDER BY ${options.search ? "product_data.name ASC" : "product_data.created_at DESC"}`;
 
+  const businessId = baseFilter.params[0];
   if (!page) {
     const { rows } = await pool.query(baseQuery, filters);
-    return rows.map(mapProductRow);
+    return stripProductCostsForActor(await attachLastManualStockChanges(rows.map(mapProductRow), businessId), actor);
   }
 
   const [{ rows: countRows }, { rows }] = await Promise.all([
@@ -876,7 +956,7 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
     pool.query(`${baseQuery} LIMIT $${filters.length + 1} OFFSET $${filters.length + 2}`, [...filters, pageSize, offset])
   ]);
   return {
-    items: rows.map(mapProductRow),
+    items: stripProductCostsForActor(await attachLastManualStockChanges(rows.map(mapProductRow), businessId), actor),
     pagination: {
       page,
       pageSize,
@@ -903,7 +983,25 @@ async function getProductDetail(id, actor) {
   );
   const product = mapProductRow(rows[0]);
   if (!product) throw new ApiError(404, "Product not found");
-  return product;
+  const [withLastChange] = stripProductCostsForActor(await attachLastManualStockChanges([product], params[0]), actor);
+  return withLastChange;
+}
+
+// Faltaba desde a595ac6 (GET /products/:id respondia 500). Misma base que listProducts:
+// sales_21 usa $1 = business_id.
+function buildProductDataBaseQuery(effectivePriceCase) {
+  return `
+    WITH sales_21 AS (
+      SELECT si.product_id, COALESCE(SUM(si.quantity), 0) AS recent_units_sold
+      FROM sale_items si
+      INNER JOIN sales s ON s.id = si.sale_id AND s.business_id = si.business_id
+      WHERE s.business_id = $1
+        AND COALESCE(s.status, 'completed') <> 'cancelled'
+        AND COALESCE(s.created_at, NOW()) >= NOW() - INTERVAL '21 days'
+      GROUP BY si.product_id
+    )
+    ${buildProductSelect(effectivePriceCase)}
+  `;
 }
 
 async function listSuppliers(search, actor) {
@@ -1518,6 +1616,15 @@ async function listRestockProducts(filters = {}, actor) {
     suggested_restock: Number(row.suggested_restock || 0)
   }));
 
+  // El cajero no ve costos (para admin/gerente la respuesta no cambia).
+  if (isCashierActor(actor)) {
+    items.forEach((item) => {
+      delete item.cost_price;
+      delete item.recent_purchase_cost;
+      delete item.cost_updated_at;
+    });
+  }
+
   return {
     items,
     pagination: {
@@ -1609,28 +1716,43 @@ async function listRestockHistory(filters = {}, actor) {
     paginatedValues
   );
 
+  const hideCosts = isCashierActor(actor);
   return {
-    items: rows.map((row) => ({
-      id: Number(row.id),
-      product_id: Number(row.product_id),
-      product_name: row.product_name_snapshot,
-      sku: row.metadata?.product_sku || "",
-      category: row.category_snapshot || null,
-      supplier_id: row.supplier_id ? Number(row.supplier_id) : null,
-      supplier_name: row.supplier_name_snapshot || null,
-      quantity_added: Number(row.quantity_added || 0),
-      stock_before: Number(row.stock_before || 0),
-      stock_after: Number(row.stock_after || 0),
-      unit_cost: Number(row.unit_cost || 0),
-      total_cost: Number(row.total_cost || 0),
-      inventory_value_before: Number(row.stock_before || 0) * Number(row.unit_cost || 0),
-      inventory_value_after: Number(row.stock_after || 0) * Number(row.unit_cost || 0),
-      reason: row.reason || "",
-      actor_user_id: row.actor_user_id ? Number(row.actor_user_id) : null,
-      actor_name: row.actor_name || row.actor_name_snapshot || null,
-      metadata: row.metadata || {},
-      created_at: row.created_at
-    })),
+    items: rows.map((row) => {
+      const item = {
+        id: Number(row.id),
+        product_id: Number(row.product_id),
+        product_name: row.product_name_snapshot,
+        sku: row.metadata?.product_sku || "",
+        category: row.category_snapshot || null,
+        supplier_id: row.supplier_id ? Number(row.supplier_id) : null,
+        supplier_name: row.supplier_name_snapshot || null,
+        quantity_added: Number(row.quantity_added || 0),
+        stock_before: Number(row.stock_before || 0),
+        stock_after: Number(row.stock_after || 0),
+        unit_cost: Number(row.unit_cost || 0),
+        total_cost: Number(row.total_cost || 0),
+        inventory_value_before: Number(row.stock_before || 0) * Number(row.unit_cost || 0),
+        inventory_value_after: Number(row.stock_after || 0) * Number(row.unit_cost || 0),
+        reason: row.reason || "",
+        actor_user_id: row.actor_user_id ? Number(row.actor_user_id) : null,
+        actor_name: row.actor_name || row.actor_name_snapshot || null,
+        actor_role: row.metadata?.actor_role || null,
+        entry_type: row.metadata?.entry_type || null,
+        metadata: row.metadata || {},
+        created_at: row.created_at
+      };
+      // El cajero no ve costos (para admin/gerente la fila no cambia).
+      if (hideCosts) {
+        delete item.unit_cost;
+        delete item.total_cost;
+        delete item.inventory_value_before;
+        delete item.inventory_value_after;
+        const { purchase_cost: _purchaseCost, cost_updated_at: _costUpdatedAt, ...safeMetadata } = item.metadata;
+        item.metadata = safeMetadata;
+      }
+      return item;
+    }),
     pagination: {
       page,
       pageSize,
@@ -1649,7 +1771,8 @@ async function getRestockHistoryMetrics(filters = {}, actor) {
        COALESCE(SUM(history.stock_after * history.unit_cost), 0) AS inventory_value_after,
        COUNT(*)::int AS total_movements
      FROM product_restock_history history
-     WHERE ${whereClause}`,
+     WHERE ${whereClause}
+       AND COALESCE(history.metadata->>'entry_type', 'entry') <> 'decrease'`,
     values
   );
 
@@ -1691,17 +1814,22 @@ async function getRestockContext(productId, actor, client = pool) {
   return rows[0] || null;
 }
 
-async function restockProduct(id, payload = {}, actor) {
+async function restockProduct(id, payload = {}, actor, options = {}) {
   const quantityToAdd = Number(payload.stock);
   if (!Number.isFinite(quantityToAdd) || quantityToAdd <= 0) {
     throw new ApiError(400, "Restock quantity must be greater than zero");
   }
 
+  const actorRole = normalizeRole(actor?.role);
+  const isCashierEntry = actorRole === "cajero";
+  await assertCashierCanAdjustStock(actor, pool, options.cashierDirectStockEnabled);
+
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    const current = await getOwnedProduct(id, actor, client);
+    // FOR UPDATE: una venta simultanea (stock = stock - qty) espera al COMMIT y no se pierde.
+    const current = await getOwnedProduct(id, actor, client, { forUpdate: true });
     if (!current) throw new ApiError(404, "Product not found");
     const restockContext = await getRestockContext(id, actor, client);
 
@@ -1727,7 +1855,8 @@ async function restockProduct(id, payload = {}, actor) {
     );
 
     const unitCost = Number(restockContext?.purchase_cost ?? current.cost_price ?? 0);
-    const totalCost = roundToScale(unitCost * normalizedQuantity, 5);
+    // Entrada de cajero: sin egreso (no mueve el corte) y total_cost = 0.
+    const totalCost = isCashierEntry ? 0 : roundToScale(unitCost * normalizedQuantity, 5);
     const financeAmount = roundToScale(totalCost, 2);
     const { rows: restockRows } = await client.query(
       `INSERT INTO product_restock_history (
@@ -1759,13 +1888,16 @@ async function restockProduct(id, payload = {}, actor) {
           cost_updated_at: restockContext?.cost_updated_at || null,
           unit: unidadDeVenta,
           lot_number: payload.lot_number ? String(payload.lot_number).trim() : null,
-          expires_at: incomingExpiresAt
+          expires_at: incomingExpiresAt,
+          actor_role: actorRole || null,
+          entry_type: "entry",
+          ...(isCashierEntry ? { cost_not_recorded: true } : {})
         })
       ]
     );
     const restockHistoryId = Number(restockRows[0]?.id || 0);
 
-    const { rows: expenseRows } = await client.query(
+    const { rows: expenseRows } = isCashierEntry ? { rows: [] } : await client.query(
       `INSERT INTO expenses (
          business_id, concept, category, amount, date, notes, payment_method, updated_by, movement_type, metadata
        )
@@ -1796,10 +1928,16 @@ async function restockProduct(id, payload = {}, actor) {
       ]
     );
 
+    // SAVEPOINT: si falla el recordatorio, la entrada se conserva (sin el savepoint
+    // Postgres abortaria toda la transaccion y fallaria el COMMIT).
+    await client.query("SAVEPOINT restock_reminder");
     try {
       const supplierName = restockContext?.supplier_name || "No especificado";
-      const reminderTitle = `Reabastecimiento: ${current.name || `Producto #${id}`} (+${normalizedQuantity} unidades)`;
-      const reminderNotes = `Se compraron ${normalizedQuantity} unidades de ${current.name || `Producto #${id}`} por $${financeAmount} MXN. Stock anterior: ${previousStock} → Stock nuevo: ${finalStock}. Proveedor: ${supplierName}.`;
+      const reminderTitle = `Reabastecimiento: ${current.name || `Producto #${id}`} (+${normalizedQuantity} unidades)`
+        .slice(0, REMINDER_TITLE_MAX_LENGTH);
+      const reminderNotes = isCashierEntry
+        ? `Entrada directa de ${normalizedQuantity} unidades de ${current.name || `Producto #${id}`} registrada por ${actor.full_name || actor.username || "cajero"} (cajero), sin costo registrado. Stock anterior: ${previousStock} → Stock nuevo: ${finalStock}. Proveedor: ${supplierName}.`
+        : `Se compraron ${normalizedQuantity} unidades de ${current.name || `Producto #${id}`} por $${financeAmount} MXN. Stock anterior: ${previousStock} → Stock nuevo: ${finalStock}. Proveedor: ${supplierName}.`;
       await client.query(
         `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
          VALUES ($1, $2, 'pending', CURRENT_DATE, $3, NULL, $4, FALSE, $5, 'general', 'administrative', NULL, $6)`,
@@ -1812,14 +1950,16 @@ async function restockProduct(id, payload = {}, actor) {
           JSON.stringify({
             product_id: Number(id),
             quantity: normalizedQuantity,
-            cost_price: unitCost,
+            cost_price: isCashierEntry ? null : unitCost,
             previous_stock: previousStock,
             new_stock: finalStock,
             supplier_name: supplierName
           })
         ]
       );
+      await client.query("RELEASE SAVEPOINT restock_reminder");
     } catch (reminderErr) {
+      await client.query("ROLLBACK TO SAVEPOINT restock_reminder");
       console.error("[restockProduct] Failed to create restock reminder:", reminderErr?.message || reminderErr);
     }
 
@@ -1840,7 +1980,10 @@ async function restockProduct(id, payload = {}, actor) {
         added_stock: normalizedQuantity,
         next_stock: finalStock,
         inventory_restock_expense_id: Number(expenseRows[0]?.id || 0),
-        inventory_restock_expense_amount: Number(expenseRows[0]?.amount || 0)
+        inventory_restock_expense_amount: Number(expenseRows[0]?.amount || 0),
+        actor_role: actorRole || null,
+        entry_type: "entry",
+        ...(isCashierEntry ? { cost_not_recorded: true } : {})
       })
     }, { client });
 
@@ -1859,6 +2002,10 @@ async function restockProductsBatch(payload = {}, actor) {
   if (items.length === 0) {
     throw new ApiError(400, "At least one restock item is required");
   }
+
+  // Cajero con el interruptor apagado: 403 para todo el lote (el frontend vuelve a solicitudes).
+  const cashierDirectStockEnabled = isCashierActor(actor) ? await canCashierAdjustStock(actor) : undefined;
+  await assertCashierCanAdjustStock(actor, pool, cashierDirectStockEnabled);
 
   const results = [];
   let success = 0;
@@ -1890,7 +2037,7 @@ async function restockProductsBatch(payload = {}, actor) {
     }
 
     try {
-      const updatedProduct = await restockProduct(productId, { stock: quantity, reason }, actor);
+      const updatedProduct = await restockProduct(productId, { stock: quantity, reason }, actor, { cashierDirectStockEnabled });
       success += 1;
       results.push({
         product_id: productId,
@@ -1922,7 +2069,8 @@ async function restockProductsBatch(payload = {}, actor) {
         `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
          VALUES ($1, $2, 'pending', CURRENT_DATE, $3, NULL, $4, FALSE, $5, 'general', 'administrative', NULL, $6)`,
         [
-          `Reabastecimiento lote: ${success} producto${success !== 1 ? "s" : ""} reabastecido${success !== 1 ? "s" : ""}`,
+          // Fuera de transaccion (pool.query): no aplica SAVEPOINT; el try/catch basta.
+          `Reabastecimiento lote: ${success} producto${success !== 1 ? "s" : ""} reabastecido${success !== 1 ? "s" : ""}`.slice(0, REMINDER_TITLE_MAX_LENGTH),
           `Lote de reabastecimiento: ${productList}.`,
           `auto:restock-batch:${businessId}:${Date.now()}`,
           actor.id,
@@ -1952,6 +2100,150 @@ async function restockProductsBatch(payload = {}, actor) {
       failed
     }
   };
+}
+
+const STOCK_DECREASE_MIN_REASON_LENGTH = 5;
+const REMINDER_TITLE_MAX_LENGTH = 180; // reminders.title VARCHAR(180)
+
+// Baja de existencias: quantity es la cantidad a RESTAR. Sin egreso; queda en
+// product_restock_history con quantity_added negativo y entry_type "decrease".
+async function decreaseProductStock(id, payload = {}, actor) {
+  const quantityToRemove = Number(payload.quantity);
+  if (!Number.isFinite(quantityToRemove) || quantityToRemove <= 0) {
+    throw new ApiError(400, "La cantidad a restar debe ser mayor que cero");
+  }
+  const reason = String(payload.reason || "").trim();
+  if (reason.length < STOCK_DECREASE_MIN_REASON_LENGTH) {
+    throw new ApiError(400, `El motivo es obligatorio y debe tener al menos ${STOCK_DECREASE_MIN_REASON_LENGTH} caracteres`);
+  }
+
+  const actorRole = normalizeRole(actor?.role);
+  const isCashierDecrease = actorRole === "cajero";
+  await assertCashierCanAdjustStock(actor);
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const current = await getOwnedProduct(id, actor, client, { forUpdate: true });
+    if (!current) throw new ApiError(404, "Product not found");
+    const restockContext = await getRestockContext(id, actor, client);
+
+    const unidadDeVenta = normalizeSaleUnit(current.unidad_de_venta);
+    const normalizedQuantity = validateQuantityByUnit(quantityToRemove, unidadDeVenta, "Adjustment quantity");
+    const previousStock = Number(current.stock || 0);
+    if (previousStock - normalizedQuantity < 0) {
+      throw new ApiError(400, `La baja dejaría el stock por debajo de 0 (stock actual: ${previousStock})`);
+    }
+    const finalStock = validateQuantityByUnit(previousStock - normalizedQuantity, unidadDeVenta, "Product stock");
+
+    const { rows } = await client.query(
+      `UPDATE products
+       SET stock = $1,
+           updated_at = NOW()
+       WHERE id = $2
+         AND business_id = $3
+       RETURNING *`,
+      [finalStock, id, current.business_id]
+    );
+
+    const unitCost = Number(restockContext?.purchase_cost ?? current.cost_price ?? 0);
+    const actorName = actor.full_name || actor.username || "Sistema";
+    await client.query(
+      `INSERT INTO product_restock_history (
+         business_id, product_id, supplier_id, quantity_added, stock_before, stock_after,
+         unit_cost, total_cost, actor_user_id, actor_name_snapshot, product_name_snapshot,
+         category_snapshot, supplier_name_snapshot, reason, metadata
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        current.business_id,
+        id,
+        restockContext?.supplier_id || null,
+        -normalizedQuantity,
+        previousStock,
+        finalStock,
+        unitCost,
+        actor.id,
+        actorName,
+        current.name || "",
+        current.category || "",
+        restockContext?.supplier_name || "",
+        reason,
+        JSON.stringify({
+          product_sku: current.sku || "",
+          unit: unidadDeVenta,
+          entry_type: "decrease",
+          actor_role: actorRole || null,
+          reason
+        })
+      ]
+    );
+
+    if (isCashierDecrease) {
+      // SAVEPOINT: si falla el recordatorio, la baja se conserva (sin el savepoint
+      // Postgres abortaria toda la transaccion).
+      await client.query("SAVEPOINT decrease_reminder");
+      try {
+        const productName = current.name || `Producto #${id}`;
+        const reminderTitle = `Baja de existencias: ${productName} −${normalizedQuantity} por ${actorName} — ${reason}`
+          .slice(0, REMINDER_TITLE_MAX_LENGTH);
+        const reminderNotes = `${actorName} (cajero) dio de baja ${normalizedQuantity} unidades de ${productName}. Motivo: ${reason}. Stock anterior: ${previousStock} → Stock nuevo: ${finalStock}.`;
+        await client.query(
+          `INSERT INTO reminders (title, notes, status, due_date, source_key, assigned_to, created_by, is_completed, business_id, reminder_type, category, patient_id, metadata)
+           VALUES ($1, $2, 'pending', CURRENT_DATE, $3, NULL, $4, FALSE, $5, 'general', 'administrative', NULL, $6)`,
+          [
+            reminderTitle,
+            reminderNotes,
+            `auto:stock-decrease:${id}:${Date.now()}`,
+            actor.id,
+            current.business_id,
+            JSON.stringify({
+              product_id: Number(id),
+              quantity: -normalizedQuantity,
+              previous_stock: previousStock,
+              new_stock: finalStock,
+              reason,
+              actor_role: actorRole
+            })
+          ]
+        );
+        await client.query("RELEASE SAVEPOINT decrease_reminder");
+      } catch (reminderErr) {
+        await client.query("ROLLBACK TO SAVEPOINT decrease_reminder");
+        console.error("[decreaseProductStock] Failed to create decrease reminder:", reminderErr?.message || reminderErr);
+      }
+    }
+
+    await syncLowStockReminderForBusiness(current.business_id, client);
+
+    await saveAuditLog({
+      business_id: current.business_id,
+      usuario_id: actor.id,
+      modulo: "products",
+      accion: "decrease_product_stock",
+      entidad_tipo: "product",
+      entidad_id: id,
+      detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(current), version: 1 },
+      detalle_nuevo: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
+      motivo: reason,
+      metadata: buildProductAuditMetadata(actor, {
+        previous_stock: previousStock,
+        removed_stock: normalizedQuantity,
+        next_stock: finalStock,
+        actor_role: actorRole || null,
+        entry_type: "decrease"
+      })
+    }, { client });
+
+    await client.query("COMMIT");
+    return mapProductRow(rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function createProduct(payload, actor) {
@@ -2071,10 +2363,10 @@ async function createProduct(payload, actor) {
   }
 }
 
-async function getOwnedProduct(id, actor, client = pool) {
+async function getOwnedProduct(id, actor, client = pool, { forUpdate = false } = {}) {
   const params = [id, requireActorBusinessId(actor)];
   const where = "id = $1 AND business_id = $2";
-  const { rows } = await client.query(`SELECT * FROM products WHERE ${where}`, params);
+  const { rows } = await client.query(`SELECT * FROM products WHERE ${where}${forUpdate ? " FOR UPDATE" : ""}`, params);
   return rows[0] || null;
 }
 
@@ -2653,6 +2945,8 @@ module.exports = {
   getRestockHistoryMetrics,
   restockProduct,
   restockProductsBatch,
+  decreaseProductStock,
+  getStockAdjustSettings,
   createProduct,
   updateProduct,
   uploadProductImage,

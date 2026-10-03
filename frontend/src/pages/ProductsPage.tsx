@@ -19,7 +19,7 @@ import type {
 } from "../types";
 import { currency, shortDateTime } from "../utils/format";
 import { resolveProductImageUrl } from "../utils/assets";
-import { isCashierRole } from "../utils/roles";
+import { ROUTE_ROLES, hasAnyRole, isCashierRole } from "../utils/roles";
 import {
   VETERINARY_PRODUCT_CATEGORIES,
   canUseExpiryDate,
@@ -55,6 +55,7 @@ import {
 import { ExtraSuppliersModal } from "../components/products/SuppliersEditor";
 import { ProductForm } from "../components/products/ProductForm";
 import { ProductsTable } from "../components/products/ProductsTable";
+import { StockAdjustDialog } from "../components/products/StockAdjustDialog";
 
 type RestockRowFeedback = {
   status: "success" | "error";
@@ -159,6 +160,18 @@ export function ProductsPage() {
   const showStockStatus = controlsStock(user?.pos_type);
   const isVeterinaryView = isVeterinaryPos(user?.pos_type);
   const isCashier = isCashierRole(user?.role);
+  // Interruptor por negocio (GET /products/stock-adjust-settings). Mientras carga o si falla: false.
+  const [cashierDirectStock, setCashierDirectStock] = useState(false);
+  // Solo en giros que controlan stock: en el resto el cajero queda exactamente como hoy.
+  const cashierDirectStockActive = isCashier && cashierDirectStock && showStockStatus;
+  // Cajero sin ajuste directo: sigue con solicitudes de cambio (comportamiento previo).
+  const usesRequestFlow = isCashier && !cashierDirectStockActive;
+  const canDecreaseStock = hasAnyRole(user?.role, ROUTE_ROLES.gerente) || cashierDirectStockActive;
+  const [stockAdjustProduct, setStockAdjustProduct] = useState<Product | null>(null);
+  const [listInfo, setListInfo] = useState("");
+  // Aviso visible en Reabastecer solo para el ajuste directo del cajero (la vista no
+  // muestra `error`/`info`; con el interruptor apagado nunca se llena).
+  const [restockDirectNotice, setRestockDirectNotice] = useState<RestockRowFeedback | null>(null);
   const catalogScope = getCatalogScopeFromPath(location.pathname);
   const catalogType = getCatalogTypeFromScope(catalogScope);
   const isNewProductRoute = location.pathname.endsWith("/new");
@@ -478,6 +491,19 @@ export function ProductsPage() {
       .filter((entry): entry is { item: RestockProductItem; quantity: number } => Boolean(entry));
   }
 
+  // 403 del ajuste directo: el interruptor se apago a mitad de sesion. Se vuelve al flujo
+  // de solicitudes y se avisa; el borrador se conserva para reenviarlo como solicitud.
+  function handleCashierDirectStockForbidden(requestError: unknown) {
+    if (!isCashier || usesRequestFlow || (requestError as { status?: number })?.status !== 403) {
+      return false;
+    }
+    const message = "El ajuste directo de existencias se desactivó. Tu cambio no se guardó: vuelve a enviarlo como solicitud.";
+    setCashierDirectStock(false);
+    setError(message);
+    setRestockDirectNotice({ status: "error", message });
+    return true;
+  }
+
   async function saveRestockItem(item: RestockProductItem, reasonOverride = "", lotNumber = "", expiresAt = "") {
     if (!token || isSavingRestockBatch || restockSavingIds[item.id]) return false;
 
@@ -495,9 +521,10 @@ export function ProductsPage() {
 
     try {
       setError("");
+      setRestockDirectNotice(null);
       setRestockSavingIds((current) => ({ ...current, [item.id]: true }));
 
-      if (isCashier) {
+      if (usesRequestFlow) {
         await apiRequest<ProductUpdateRequest>("/product-update-requests", {
           method: "POST",
           token,
@@ -531,10 +558,11 @@ export function ProductsPage() {
           })
         });
         setProducts((current) => current.map((product) => (product.id === item.id ? updatedProduct : product)));
-        setInfo("Stock actualizado correctamente");
+        setInfo(isCashier ? "Entrada guardada" : "Stock actualizado correctamente");
+        if (isCashier) setRestockDirectNotice({ status: "success", message: "Entrada guardada" });
         setRestockRowFeedback((current) => ({
           ...current,
-          [item.id]: { status: "success", message: "Stock guardado" }
+          [item.id]: { status: "success", message: isCashier ? "Entrada guardada" : "Stock guardado" }
         }));
         setRecentlySaved((current) => new Set(current).add(item.id));
         setTimeout(() => {
@@ -556,7 +584,14 @@ export function ProductsPage() {
       });
       return true;
     } catch (restockError) {
-      const message = restockError instanceof Error ? restockError.message : isCashier ? "No fue posible enviar la solicitud" : "No fue posible actualizar el stock";
+      if (handleCashierDirectStockForbidden(restockError)) {
+        setRestockRowFeedback((current) => ({
+          ...current,
+          [item.id]: { status: "error", message: "No se guardó; envíalo como solicitud" }
+        }));
+        return false;
+      }
+      const message = restockError instanceof Error ? restockError.message : usesRequestFlow ? "No fue posible enviar la solicitud" : "No fue posible actualizar el stock";
       setError(message);
       setRestockRowFeedback((current) => ({
         ...current,
@@ -579,6 +614,7 @@ export function ProductsPage() {
     const productIds = validDraftEntries.map((entry) => entry.item.id);
     const requestedProductIds = new Set<number>(productIds);
     setError("");
+    setRestockDirectNotice(null);
     setIsSavingRestockBatch(true);
     setRestockSavingIds((current) => {
       const next = { ...current };
@@ -591,7 +627,7 @@ export function ProductsPage() {
     try {
       let successfulIds: number[] = [];
 
-      if (isCashier) {
+      if (usesRequestFlow) {
         const response = await apiRequest<ProductUpdateRequestBatchResponse>("/product-update-requests/batch", {
           method: "POST",
           token,
@@ -644,7 +680,7 @@ export function ProductsPage() {
           response.results,
           productIds,
           requestedProductIds,
-          "Stock guardado",
+          isCashier ? "Entrada guardada" : "Stock guardado",
           "No fue posible guardar"
         );
         successfulIds = batchResult.successfulIds;
@@ -661,7 +697,14 @@ export function ProductsPage() {
           });
         }
 
-        setInfo(`Guardado masivo completado: ${response.summary.success} exitosos, ${response.summary.failed} con error.`);
+        if (isCashier) {
+          const saved = response.summary.success;
+          const message = `${saved} ${saved === 1 ? "entrada guardada" : "entradas guardadas"}${response.summary.failed > 0 ? `, ${response.summary.failed} con error` : ""}.`;
+          setInfo(message);
+          setRestockDirectNotice({ status: response.summary.failed > 0 ? "error" : "success", message });
+        } else {
+          setInfo(`Guardado masivo completado: ${response.summary.success} exitosos, ${response.summary.failed} con error.`);
+        }
       }
 
       await loadProducts(search, page, pageSize, categoryFilter);
@@ -689,6 +732,7 @@ export function ProductsPage() {
         }, 5000);
       }
     } catch (restockError) {
+      if (handleCashierDirectStockForbidden(restockError)) return;
       setError(restockError instanceof Error ? restockError.message : "No fue posible guardar el lote de reabastecimiento");
     } finally {
       clearRestockSavingIds(productIds);
@@ -701,7 +745,7 @@ export function ProductsPage() {
       return;
     }
 
-    if (isCashier || showExpiryField) {
+    if (usesRequestFlow || showExpiryField) {
       setError("");
       setRestockReasonModalItem(item);
       setRestockReasonModalValue("");
@@ -717,7 +761,7 @@ export function ProductsPage() {
     if (!restockReasonModalItem) return;
 
     const trimmedReason = restockReasonModalValue.trim();
-    if (isCashier && trimmedReason.length < 5) {
+    if (usesRequestFlow && trimmedReason.length < 5) {
       setError("El motivo es obligatorio y debe tener al menos 5 caracteres");
       return;
     }
@@ -729,6 +773,19 @@ export function ProductsPage() {
       setRestockModalLotNumber("");
       setRestockModalExpiresAt("");
     }
+  }
+
+  function openStockAdjust(product: Product) {
+    setListInfo("");
+    setStockAdjustProduct(product);
+  }
+
+  async function handleStockAdjustSaved() {
+    setStockAdjustProduct(null);
+    setListInfo("Existencias actualizadas");
+    await loadProducts(search, page, pageSize, categoryFilter).catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
+    });
   }
 
   async function loadRequestSummary() {
@@ -820,6 +877,27 @@ export function ProductsPage() {
       loadRequestSummary().catch(console.error);
     }
   }, [catalogScope, token, page, pageSize, categoryFilter, statusFilter, isCashier, isRestockRoute, restockPage, restockPageSize, restockStockFilter]);
+
+  // Solo el cajero depende del interruptor; admin/gerente siempre ajustan directo.
+  useEffect(() => {
+    if (!token || !isCashier) return undefined;
+    let cancelled = false;
+    apiRequest<{ cashier_direct_stock: boolean }>("/products/stock-adjust-settings", { token })
+      .then((response) => {
+        if (!cancelled) setCashierDirectStock(response.cashier_direct_stock === true);
+      })
+      .catch(() => {
+        if (!cancelled) setCashierDirectStock(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, isCashier]);
+
+  // El aviso de la lista no sobrevive a un cambio de ruta (alta, reabastecer).
+  useEffect(() => {
+    setListInfo("");
+  }, [isNewProductRoute, isRestockRoute]);
 
   useEffect(() => {
     if (!searchFromQuery || search === searchFromQuery) {
@@ -1283,13 +1361,19 @@ export function ProductsPage() {
 
     try {
       if (isCashier && editingId) {
+        // El cajero no ve ni edita costos: su solicitud no lleva llaves de costo.
+        const { cost_price: _costPrice, porcentaje_ganancia: _gain, suppliers: payloadSuppliers, ...cashierValues } = payload;
+        const cashierPayload = {
+          ...cashierValues,
+          suppliers: payloadSuppliers.map(({ purchase_cost: _purchaseCost, ...supplier }) => supplier)
+        };
         await apiRequest<ProductUpdateRequest>("/product-update-requests", {
           method: "POST",
           token,
           body: JSON.stringify({
             product_id: editingId,
             reason: `Cambio solicitado desde edicion de ${productModuleLabel.toLowerCase()}`,
-            new_values: payload
+            new_values: cashierPayload
           })
         });
       } else if (editingId) {
@@ -1321,12 +1405,18 @@ export function ProductsPage() {
         setPage(1);
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
-      setSearchParams((current) => {
-        const next = new URLSearchParams(current);
-        next.delete("edit");
-        next.delete("search");
-        return next;
-      });
+      if (wasEditing && !isCashier) {
+        // Actualizar regresa al inventario del mismo alcance (mismo destino que "‹ Inventario").
+        // replace: el "atras" no reabre la edicion ya guardada.
+        navigate(productBasePath, { replace: true });
+      } else {
+        setSearchParams((current) => {
+          const next = new URLSearchParams(current);
+          next.delete("edit");
+          next.delete("search");
+          return next;
+        });
+      }
       setSupplierDrafts([]);
       setShowSuppliersModal(false);
       setError("");
@@ -1519,6 +1609,9 @@ export function ProductsPage() {
       const printOnce = () => {
         if (printed || printWindow.closed) return;
         printed = true;
+        // Se asigna justo antes de print(): afterprint llega al cerrar el dialogo
+        // (imprimir o cancelar), nunca antes.
+        printWindow.onafterprint = () => printWindow.close();
         printWindow.print();
         setTimeout(() => window.URL.revokeObjectURL(svgUrl), 1000);
       };
@@ -1531,7 +1624,7 @@ export function ProductsPage() {
           failPrint("No fue posible cargar el código de barras");
         };
       }
-      setTimeout(printOnce, barcodeImage && !barcodeImage.complete ? 300 : 0);
+      setTimeout(printOnce, barcodeImage && !barcodeImage.complete ? 1500 : 0);
     } catch (barcodeError) {
       failPrint(barcodeError instanceof Error ? barcodeError.message : "No fue posible imprimir el código de barras");
     }
@@ -1657,6 +1750,7 @@ export function ProductsPage() {
 
       {showSuppliersModal ? (
         <ExtraSuppliersModal
+          hideCosts={isCashier}
           supplierDrafts={supplierDrafts}
           setSupplierDrafts={setSupplierDrafts}
           updateSupplierDraft={updateSupplierDraft}
@@ -1669,6 +1763,10 @@ export function ProductsPage() {
 
       {!isNewProductRoute && !isRestockRoute ? (
       <ProductsTable
+        cashierDirectStock={cashierDirectStockActive}
+        canDecreaseStock={canDecreaseStock}
+        onDecreaseStock={openStockAdjust}
+        info={listInfo}
         catalogScope={catalogScope}
         categories={listCategories}
         categoryFilter={categoryFilter}
@@ -1713,7 +1811,7 @@ export function ProductsPage() {
           <div>
             <h2>Productos por reabastecer</h2>
             <p className="muted">
-              {isCashier
+              {usesRequestFlow
                 ? "Consulta todo el catálogo, prioriza stock bajo y envía solicitudes de cambio de stock."
                 : "Consulta todo el catálogo, prioriza stock bajo y actualiza existencias sin salir de esta vista."}
             </p>
@@ -1727,15 +1825,18 @@ export function ProductsPage() {
 	              type="button"
 	            >
 	              {isSavingRestockBatch
-	                ? (isCashier ? "Enviando lote..." : "Guardando lote...")
+	                ? (usesRequestFlow ? "Enviando lote..." : "Guardando lote...")
 	                : hasRestockDraftChanges ? `Guardar todos (${validRestockDraftEntries.length})` : "Guardar todos"}
 	            </button>
 	            <div className="total-box secondary compact-box">
-	              <span>{isCashier ? "Solicitudes" : "Productos"}</span>
+	              <span>{usesRequestFlow ? "Solicitudes" : "Productos"}</span>
 	              <strong>{restockTotalItems}</strong>
 	            </div>
 	          </div>
         </div>
+        {restockDirectNotice ? (
+          <p className={restockDirectNotice.status === "error" ? "error-text" : "success-text"} role="status">{restockDirectNotice.message}</p>
+        ) : null}
         <div className="inline-actions quick-filter-row">
           <input
             className="search-input"
@@ -1795,7 +1896,7 @@ export function ProductsPage() {
                 <th>Máximo</th>
                 <th>Nuevo stock</th>
                 <th>Proveedor</th>
-                <th>Costo reciente</th>
+                {!isCashier ? <th>Costo reciente</th> : null}
                 <th>Sugerido</th>
                 <th>Estado</th>
                 <th>Acción</th>
@@ -1838,10 +1939,13 @@ export function ProductsPage() {
                     <div>{item.supplier_name || "-"}</div>
                     <small className="muted">{item.supplier_whatsapp || "-"}</small>
                   </td>
-                  <td>
-                    <div>{currency(item.cost_price || 0)}</div>
-                    <small className="muted">{item.cost_updated_at ? `Actualizado ${shortDateTime(item.cost_updated_at)}` : "Sin costo registrado"}</small>
-                  </td>
+                  {/* El cajero nunca ve costos (con o sin ajuste directo). */}
+                  {!isCashier ? (
+                    <td>
+                      <div>{currency(item.cost_price || 0)}</div>
+                      <small className="muted">{item.cost_updated_at ? `Actualizado ${shortDateTime(item.cost_updated_at)}` : "Sin costo registrado"}</small>
+                    </td>
+                  ) : null}
                   <td>{formatRestockQuantity(item.suggested_restock, item.unidad_de_venta)}</td>
                   <td>
                     {item.pending_update_request_count ? (
@@ -1863,7 +1967,7 @@ export function ProductsPage() {
 	                      return (
 	                        <div>
 	                          <button className="button ghost" disabled={disableSave} onClick={() => handleRestockAction(item)} type="button">
-	                            {isRowSaving ? (isCashier ? "Enviando..." : "Guardando...") : "Guardar"}
+	                            {isRowSaving ? (usesRequestFlow ? "Enviando..." : "Guardando...") : "Guardar"}
 	                          </button>
 	                          {rowFeedback ? (
 	                            <small className={rowFeedback.status === "error" ? "error-text" : "success-text"}>{rowFeedback.message}</small>
@@ -1876,7 +1980,7 @@ export function ProductsPage() {
               ))}
               {displayRestockItems.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={11}>{loadingRestock ? "Cargando..." : "No hay productos para este filtro."}</td>
+                  <td className="muted" colSpan={isCashier ? 10 : 11}>{loadingRestock ? "Cargando..." : "No hay productos para este filtro."}</td>
                 </tr>
               ) : null}
             </tbody>
@@ -1898,8 +2002,8 @@ export function ProductsPage() {
           <div className="modal-card import-modal-card">
             <div className="panel-header">
               <div>
-                <h3>{isCashier ? "Motivo del cambio de stock" : "Detalles del lote / reabastecimiento"}</h3>
-                <p className="muted">{isCashier ? "Captura el motivo para enviar la solicitud al administrador." : "Registra número de lote y fecha de caducidad del producto recibido."}</p>
+                <h3>{usesRequestFlow ? "Motivo del cambio de stock" : "Detalles del lote / reabastecimiento"}</h3>
+                <p className="muted">{usesRequestFlow ? "Captura el motivo para enviar la solicitud al administrador." : "Registra número de lote y fecha de caducidad del producto recibido."}</p>
               </div>
               <button
                 className="button ghost"
@@ -1940,7 +2044,7 @@ export function ProductsPage() {
                   </label>
                 </>
               ) : null}
-              {isCashier ? (
+              {usesRequestFlow ? (
                 <label className="form-span-2">
                   Motivo *
                   <textarea
@@ -1965,11 +2069,21 @@ export function ProductsPage() {
                 Cancelar
               </button>
               <button className="button" disabled={Boolean(restockSavingIds[restockReasonModalItem.id]) || isSavingRestockBatch} onClick={() => submitRestockReasonModal().catch(() => undefined)} type="button">
-                {Boolean(restockSavingIds[restockReasonModalItem.id]) || isSavingRestockBatch ? "Guardando..." : (isCashier ? "Enviar solicitud" : "Guardar")}
+                {Boolean(restockSavingIds[restockReasonModalItem.id]) || isSavingRestockBatch ? "Guardando..." : (usesRequestFlow ? "Enviar solicitud" : "Guardar")}
               </button>
             </div>
           </div>
         </div>
+      ) : null}
+
+      {stockAdjustProduct && token ? (
+        <StockAdjustDialog
+          onClose={() => setStockAdjustProduct(null)}
+          onForbidden={() => setCashierDirectStock(false)}
+          onSaved={() => handleStockAdjustSaved().catch(() => undefined)}
+          product={stockAdjustProduct}
+          token={token}
+        />
       ) : null}
 
       {showImportModal ? (

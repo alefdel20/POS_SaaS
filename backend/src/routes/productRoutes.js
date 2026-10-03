@@ -16,9 +16,12 @@ router.put("/discounts/:id", requireRole(["superusuario", "superadmin", "admin"]
 router.delete("/discounts/:id", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.cancelDiscount);
 router.get("/restock", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockValidation, controller.listRestockProducts);
 router.get("/restock-history", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockHistoryValidation, controller.listRestockHistory);
-router.get("/restock-history/metrics", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockHistoryValidation, controller.getRestockHistoryMetrics);
-router.patch("/:id/restock", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.idValidation, controller.restockUpdateValidation, controller.restockProduct);
-router.post("/restock/batch", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.restockBatchValidation, controller.restockProductsBatch);
+router.get("/restock-history/metrics", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.restockHistoryValidation, controller.getRestockHistoryMetrics);
+router.get("/stock-adjust-settings", requireAuth, controller.getStockAdjustSettings);
+// Cajero: el servicio exige general_settings.cashier_direct_stock (403 si esta apagado).
+router.patch("/:id/restock", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.idValidation, controller.restockUpdateValidation, controller.restockProduct);
+router.post("/restock/batch", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockBatchValidation, controller.restockProductsBatch);
+router.post("/:id/stock-adjustment", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.idValidation, controller.stockAdjustmentValidation, controller.decreaseProductStock);
 router.get("/suppliers", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.supplierListValidation, controller.listSuppliers);
 router.get("/categories", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.categoryListValidation, controller.listCategories);
 router.post("/import/preview", requireRole(["superusuario", "superadmin", "admin"]), exportLimiter, uploadProductImportFile, controller.previewProductImport);

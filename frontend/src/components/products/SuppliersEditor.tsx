@@ -15,6 +15,8 @@ type PrimarySupplierSectionProps = SupplierHandlers & {
   openSuppliersModal: () => void;
   updateSupplier: (index: number, nextSupplier: ProductSupplierFormState) => void;
   removeExtraSupplier: (index: number) => void;
+  // Cajero: sin costo de compra ni fecha de actualizacion de costo.
+  hideCosts?: boolean;
 };
 
 // Proveedor principal + resumen de los extra: vive dentro del <form> del producto.
@@ -27,7 +29,8 @@ export function PrimarySupplierSection({
   resolveSupplierByName,
   updateSupplier,
   removeExtraSupplier,
-  loadSuppliers
+  loadSuppliers,
+  hideCosts = false
 }: PrimarySupplierSectionProps) {
   const extraSuppliers = form.suppliers
     .map((supplier, index) => ({ supplier, index }))
@@ -63,19 +66,21 @@ export function PrimarySupplierSection({
               placeholder="Selecciona o escribe un proveedor"
             />
           </label>
-          <label className="product-form-field">
-            Costo de compra
-            <span className="product-form-affix">
-              <span aria-hidden="true" className="product-form-affix-symbol">$</span>
-              <input
-                min="0"
-                step="0.00001"
-                type="number"
-                value={form.suppliers[0]?.purchase_cost || ""}
-                onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), purchase_cost: event.target.value })}
-              />
-            </span>
-          </label>
+          {!hideCosts ? (
+            <label className="product-form-field">
+              Costo de compra
+              <span className="product-form-affix">
+                <span aria-hidden="true" className="product-form-affix-symbol">$</span>
+                <input
+                  min="0"
+                  step="0.00001"
+                  type="number"
+                  value={form.suppliers[0]?.purchase_cost || ""}
+                  onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), purchase_cost: event.target.value })}
+                />
+              </span>
+            </label>
+          ) : null}
           <label className="product-form-field">
             WhatsApp
             <input
@@ -109,7 +114,7 @@ export function PrimarySupplierSection({
               onChange={(event) => updateSupplier(0, { ...(form.suppliers[0] || { ...emptySupplier }), supplier_observations: event.target.value })}
             />
           </label>
-          {form.suppliers[0]?.cost_updated_at ? (
+          {!hideCosts && form.suppliers[0]?.cost_updated_at ? (
             <p className="muted product-form-span-all">
               Última actualización de costo: {shortDateTime(form.suppliers[0]?.cost_updated_at)}
             </p>
@@ -131,7 +136,7 @@ export function PrimarySupplierSection({
             <div className="product-form-extra-supplier" key={`extra-supplier-${index}`}>
               <div className="product-form-extra-supplier-info">
                 <strong>{supplier.supplier_name || "Proveedor sin nombre"}</strong>
-                {supplier.purchase_cost !== "" ? (
+                {!hideCosts && supplier.purchase_cost ? (
                   <span className="muted">Costo de compra {currency(supplier.purchase_cost)}</span>
                 ) : null}
               </div>
@@ -157,6 +162,8 @@ type ExtraSuppliersModalProps = SupplierHandlers & {
   updateSupplierDraft: (index: number, nextSupplier: ProductSupplierFormState) => void;
   closeSuppliersModal: () => void;
   saveSuppliersModal: () => void;
+  // Cajero: sin costo de compra ni fecha de actualizacion de costo.
+  hideCosts?: boolean;
 };
 
 // Proveedores adicionales: se renderiza fuera del <form> (igual que antes) para que
@@ -168,7 +175,8 @@ export function ExtraSuppliersModal({
   closeSuppliersModal,
   saveSuppliersModal,
   resolveSupplierByName,
-  loadSuppliers
+  loadSuppliers,
+  hideCosts = false
 }: ExtraSuppliersModalProps) {
   return (
     <div className="modal-backdrop" role="presentation">
@@ -243,21 +251,23 @@ export function ExtraSuppliersModal({
                   Teléfono proveedor
                   <input value={supplier.supplier_phone} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_phone: event.target.value })} />
                 </label>
-                <label>
-                  Costo de compra
-                  <input
-                    min="0"
-                    step="0.00001"
-                    type="number"
-                    value={supplier.purchase_cost}
-                    onChange={(event) => updateSupplierDraft(index, { ...supplier, purchase_cost: event.target.value })}
-                  />
-                </label>
+                {!hideCosts ? (
+                  <label>
+                    Costo de compra
+                    <input
+                      min="0"
+                      step="0.00001"
+                      type="number"
+                      value={supplier.purchase_cost}
+                      onChange={(event) => updateSupplierDraft(index, { ...supplier, purchase_cost: event.target.value })}
+                    />
+                  </label>
+                ) : null}
                 <label className="form-span-2">
                   Observaciones proveedor
                   <textarea value={supplier.supplier_observations} onChange={(event) => updateSupplierDraft(index, { ...supplier, supplier_observations: event.target.value })} />
                 </label>
-                {supplier.cost_updated_at ? (
+                {!hideCosts && supplier.cost_updated_at ? (
                   <p className="muted form-span-2">
                     Última actualización de costo: {shortDateTime(supplier.cost_updated_at)}
                   </p>

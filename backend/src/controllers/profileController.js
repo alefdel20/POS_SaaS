@@ -14,6 +14,7 @@ const generalValidation = [
   body("professional_license").optional({ values: "falsy" }).trim(),
   body("prescription_template").optional().isIn(["clasico", "moderno", "compacto", "personalizado"]),
   body("printer_name").optional({ values: "falsy" }).trim(),
+  body("cashier_direct_stock").optional().isBoolean({ strict: true }),
   body("reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];

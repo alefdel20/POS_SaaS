@@ -319,6 +319,16 @@ export interface Product {
   lot_number?: string | null;
   is_active: boolean;
   status?: "activo" | "inactivo";
+  // Fila mas reciente de product_restock_history (null si no hay).
+  last_manual_stock_change?: LastManualStockChange | null;
+}
+
+export interface LastManualStockChange {
+  user_name: string | null;
+  actor_role: string | null;
+  entry_type: "entry" | "decrease" | null;
+  quantity: number;
+  at: string;
 }
 
 export interface ProductUpdateRequest {
@@ -559,13 +569,17 @@ export interface RestockHistoryItem {
   quantity_added: number;
   stock_before: number;
   stock_after: number;
-  unit_cost: number;
-  total_cost: number;
-  inventory_value_before: number;
-  inventory_value_after: number;
+  // Sin campos de costo para el cajero (el backend los omite).
+  unit_cost?: number;
+  total_cost?: number;
+  inventory_value_before?: number;
+  inventory_value_after?: number;
   reason?: string;
   actor_user_id?: number | null;
   actor_name?: string | null;
+  // null en filas anteriores al Modulo 5A.
+  actor_role?: string | null;
+  entry_type?: "entry" | "decrease" | null;
   metadata?: Record<string, unknown>;
   created_at: string;
 }
@@ -928,6 +942,7 @@ export interface CompanyProfile {
   prescription_background_path?: string | null;
   prescription_template?: "clasico" | "moderno" | "compacto" | "personalizado";
   printer_name?: string | null;
+  cashier_direct_stock?: boolean;
   bank_name?: string | null;
   bank_clabe?: string | null;
   bank_beneficiary?: string | null;

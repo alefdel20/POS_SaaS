@@ -38,6 +38,7 @@ function mapProfile(profile, subscription = null) {
       ? generalSettings.prescription_template
       : "clasico",
     printer_name: generalSettings.printer_name || null,
+    cashier_direct_stock: generalSettings.cashier_direct_stock === true,
     bank_name: profile.bank_name,
     bank_clabe: profile.bank_clabe,
     bank_beneficiary: profile.bank_beneficiary,
@@ -97,6 +98,13 @@ async function ensureDefaultProfile(actor, client = pool) {
     [businessId]
   );
   return rows[0];
+}
+
+// Interruptor por negocio: el cajero ajusta existencias directo (sin solicitud).
+// Sin perfil o sin la llave = false (comportamiento previo).
+async function isCashierDirectStockEnabled(actor, client = pool) {
+  const profile = await getDefaultProfile(actor, client);
+  return profile?.general_settings?.cashier_direct_stock === true;
 }
 
 async function getProfile(actor) {
@@ -251,6 +259,12 @@ async function updateProfileSection(payload, actor, section) {
     if (section === "general" && payload.printer_name !== undefined) {
       generalSettings.printer_name = payload.printer_name || "";
     }
+    if (section === "general" && payload.cashier_direct_stock !== undefined) {
+      if (typeof payload.cashier_direct_stock !== "boolean") {
+        throw new ApiError(400, "cashier_direct_stock debe ser booleano");
+      }
+      generalSettings.cashier_direct_stock = payload.cashier_direct_stock;
+    }
     if (section === "banking") {
       Object.assign(updates, { bank_name: payload.bank_name ?? current.bank_name, bank_clabe: payload.bank_clabe ?? current.bank_clabe, bank_beneficiary: payload.bank_beneficiary ?? current.bank_beneficiary });
       generalSettings.card_terminal = payload.card_terminal ?? generalSettings.card_terminal ?? "";
@@ -357,4 +371,4 @@ async function removeProfileAsset(assetType, actor) {
   }
 }
 
-module.exports = { getProfile, getDoctorProfile, updateDoctorProfile, updateProfileSection, uploadProfileAsset, removeProfileAsset };
+module.exports = { getProfile, getDoctorProfile, updateDoctorProfile, updateProfileSection, uploadProfileAsset, removeProfileAsset, isCashierDirectStockEnabled };

@@ -405,44 +405,47 @@ export function ProductForm({
             </div>
           </section>
 
-          <section className="product-form-card">
-            <div className="product-form-card-header">
-              <h3 className="product-form-card-title">Costo y ganancia</h3>
-              <p className="product-form-card-subtitle">Opcional. Si escribes el costo y el porcentaje, calculamos el precio por ti.</p>
-            </div>
-            <div className="product-form-grid-3">
-              <label className="product-form-field">
-                Costo del producto
-                <span className="product-form-affix">
-                  <span aria-hidden="true" className="product-form-affix-symbol">$</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.00001"
-                    value={form.cost_price}
-                    onChange={(event) => {
-                      const nextCostPrice = normalizeMoneyInput(event.target.value);
-                      setForm({ ...form, cost_price: nextCostPrice, porcentaje_ganancia: recalculateGain(nextCostPrice, form.price) });
-                    }}
-                  />
-                </span>
-                <span className="product-form-hint">Lo que te cuesta a ti.</span>
-              </label>
-              <label className="product-form-field">
-                % de ganancia
-                <span className="product-form-affix product-form-affix-suffix">
-                  <input type="number" step="0.001" value={form.porcentaje_ganancia} onChange={(event) => setForm({ ...form, porcentaje_ganancia: event.target.value, price: event.target.value === "" ? form.price : recalculatePrice(form.cost_price, event.target.value) })} />
-                  <span aria-hidden="true" className="product-form-affix-symbol">%</span>
-                </span>
-                <span className="product-form-hint">Sobre el costo.</span>
-              </label>
-              <div className="product-form-field">
-                <span>Ganas por pieza</span>
-                <output className={`product-form-profit${profit !== null && profit < 0 ? " is-negative" : ""}`}>{profitLabel}</output>
-                <span className="product-form-hint">Precio menos costo.</span>
+          {/* El cajero no ve costos ni margen. */}
+          {!isCashier ? (
+            <section className="product-form-card">
+              <div className="product-form-card-header">
+                <h3 className="product-form-card-title">Costo y ganancia</h3>
+                <p className="product-form-card-subtitle">Opcional. Si escribes el costo y el porcentaje, calculamos el precio por ti.</p>
               </div>
-            </div>
-          </section>
+              <div className="product-form-grid-3">
+                <label className="product-form-field">
+                  Costo del producto
+                  <span className="product-form-affix">
+                    <span aria-hidden="true" className="product-form-affix-symbol">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.00001"
+                      value={form.cost_price}
+                      onChange={(event) => {
+                        const nextCostPrice = normalizeMoneyInput(event.target.value);
+                        setForm({ ...form, cost_price: nextCostPrice, porcentaje_ganancia: recalculateGain(nextCostPrice, form.price) });
+                      }}
+                    />
+                  </span>
+                  <span className="product-form-hint">Lo que te cuesta a ti.</span>
+                </label>
+                <label className="product-form-field">
+                  % de ganancia
+                  <span className="product-form-affix product-form-affix-suffix">
+                    <input type="number" step="0.001" value={form.porcentaje_ganancia} onChange={(event) => setForm({ ...form, porcentaje_ganancia: event.target.value, price: event.target.value === "" ? form.price : recalculatePrice(form.cost_price, event.target.value) })} />
+                    <span aria-hidden="true" className="product-form-affix-symbol">%</span>
+                  </span>
+                  <span className="product-form-hint">Sobre el costo.</span>
+                </label>
+                <div className="product-form-field">
+                  <span>Ganas por pieza</span>
+                  <output className={`product-form-profit${profit !== null && profit < 0 ? " is-negative" : ""}`}>{profitLabel}</output>
+                  <span className="product-form-hint">Precio menos costo.</span>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <CollapsibleSection
             id="codes"
@@ -502,6 +505,7 @@ export function ProductForm({
             title="Proveedor"
           >
             <PrimarySupplierSection
+              hideCosts={isCashier}
               form={form}
               suppliers={suppliers}
               supplierNameInputRef={supplierNameInputRef}
@@ -632,7 +636,7 @@ export function ProductForm({
                 <span className={`product-form-mobile-bar-count${essentialsDone === essentials.length ? " is-complete" : ""}`}>
                   {essentialsDone} de {essentials.length} datos esenciales
                 </span>
-                {profit !== null ? (
+                {!isCashier && profit !== null ? (
                   <span className={`product-form-mobile-bar-profit${profit < 0 ? " is-negative" : ""}`}>Ganas {profitLabel} por pieza</span>
                 ) : null}
               </div>
@@ -673,10 +677,12 @@ export function ProductForm({
                   </li>
                 ))}
               </ul>
-              <div className={`product-form-profit-box${profit !== null && profit < 0 ? " is-negative" : ""}`}>
-                <span>Ganas por pieza</span>
-                <strong>{profitLabel}</strong>
-              </div>
+              {!isCashier ? (
+                <div className={`product-form-profit-box${profit !== null && profit < 0 ? " is-negative" : ""}`}>
+                  <span>Ganas por pieza</span>
+                  <strong>{profitLabel}</strong>
+                </div>
+              ) : null}
               {error ? <p className="error-text">{error}</p> : null}
               {info ? <p className="success-text">{info}</p> : null}
               <div className="product-form-actions">

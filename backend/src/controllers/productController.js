@@ -54,6 +54,11 @@ const restockBatchValidation = [
   body("items.*.reason").optional({ values: "falsy" }).trim(),
   validateRequest
 ];
+// quantity y reason los valida el servicio para responder 400 con mensaje claro.
+const stockAdjustmentValidation = [
+  body("reason").optional({ values: "falsy" }).trim(),
+  validateRequest
+];
 const idValidation = [param("id").isInt(), validateRequest];
 const importConfirmValidation = [
   body("rows").isArray({ min: 1 }),
@@ -217,6 +222,14 @@ const restockProductsBatch = asyncHandler(async (req, res) => {
   res.json(await productService.restockProductsBatch(req.body, req.user));
 });
 
+const decreaseProductStock = asyncHandler(async (req, res) => {
+  res.json(await productService.decreaseProductStock(Number(req.params.id), req.body, req.user));
+});
+
+const getStockAdjustSettings = asyncHandler(async (req, res) => {
+  res.json(await productService.getStockAdjustSettings(req.user));
+});
+
 const previewProductImport = asyncHandler(async (req, res) => {
   res.json(await productService.previewProductImport(req.file, req.user));
 });
@@ -363,6 +376,9 @@ module.exports = {
   getRestockHistoryMetrics,
   restockProduct,
   restockProductsBatch,
+  stockAdjustmentValidation,
+  decreaseProductStock,
+  getStockAdjustSettings,
   previewProductImport,
   confirmProductImport,
   getProductDetail,

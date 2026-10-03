@@ -20,6 +20,7 @@ type ProfileFormState = {
   accent_palette: "default" | "ocean" | "forest" | "ember";
   prescription_template: PrescriptionTemplateKey;
   printer_name: string;
+  cashier_direct_stock: boolean;
   bank_name: string;
   bank_clabe: string;
   bank_beneficiary: string;
@@ -59,6 +60,7 @@ const emptyForm: ProfileFormState = {
   accent_palette: "default",
   prescription_template: "clasico",
   printer_name: "",
+  cashier_direct_stock: false,
   bank_name: "",
   bank_clabe: "",
   bank_beneficiary: "",
@@ -88,6 +90,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
     accent_palette: profile?.accent_palette || "default",
     prescription_template: profile?.prescription_template || "clasico",
     printer_name: profile?.printer_name || "",
+    cashier_direct_stock: profile?.cashier_direct_stock === true,
     bank_name: profile?.bank_name || "",
     bank_clabe: profile?.bank_clabe || "",
     bank_beneficiary: profile?.bank_beneficiary || "",
@@ -107,7 +110,7 @@ function profileToForm(profile: CompanyProfile | null): ProfileFormState {
 }
 
 const sectionFields = {
-  general: ["owner_name", "company_name", "phone", "email", "address", "professional_license", "theme", "accent_palette", "prescription_template", "printer_name"],
+  general: ["owner_name", "company_name", "phone", "email", "address", "professional_license", "theme", "accent_palette", "prescription_template", "printer_name", "cashier_direct_stock"],
   banking: ["bank_name", "bank_clabe", "bank_beneficiary", "card_terminal", "card_bank", "card_instructions", "card_commission"],
   fiscal: ["fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address"],
   stamps: ["pac_provider", "pac_mode", "stamps_available", "stamp_alert_threshold"]
@@ -167,6 +170,7 @@ export function ProfilePage() {
   const [csdPassword, setCsdPassword] = useState("");
   const [liveActivating, setLiveActivating] = useState(false);
   const currentRole = normalizeRole(user?.role);
+  const canManageCashierDirectStock = currentRole === "admin" || currentRole === "superusuario";
 
   async function loadProfile() {
     if (!token) return;
@@ -693,7 +697,9 @@ export function ProfilePage() {
         theme: formData.theme,
         accent_palette: formData.accent_palette,
         prescription_template: formData.prescription_template,
-        printer_name: formData.printer_name
+        printer_name: formData.printer_name,
+        // Solo superusuario/admin pueden cambiarlo (el backend tambien lo exige).
+        ...(canManageCashierDirectStock ? { cashier_direct_stock: formData.cashier_direct_stock } : {})
       })}>
         <div className="panel-header">
           <div>
@@ -730,6 +736,22 @@ export function ProfilePage() {
           <input value={formData.printer_name} onChange={(event) => updateField("printer_name", event.target.value)} />
         </label>
         <p className="muted">Debe coincidir exactamente con el nombre de la impresora configurada en tu sistema.</p>
+        {canManageCashierDirectStock ? (
+          <div className="form-span-2 stock-adjust-setting">
+            <label className="checkbox-row stock-adjust-setting-toggle">
+              <input
+                aria-describedby="cashier-direct-stock-help"
+                checked={formData.cashier_direct_stock}
+                onChange={(event) => updateField("cashier_direct_stock", event.target.checked)}
+                type="checkbox"
+              />
+              <span>Permitir que el cajero ajuste existencias directamente</span>
+            </label>
+            <p className="muted stock-adjust-setting-help" id="cashier-direct-stock-help">
+              Sin aprobación. Cada movimiento queda registrado con su nombre; las bajas piden motivo y avisan al administrador.
+            </p>
+          </div>
+        ) : null}
         <label>
           Tema
           <select value={formData.theme} onChange={(event) => updateField("theme", event.target.value as "light" | "dark")}>

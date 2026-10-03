@@ -2,12 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { RestockHistoryMetrics, RestockHistoryResponse } from "../types";
+import type { RestockHistoryItem, RestockHistoryMetrics, RestockHistoryResponse } from "../types";
 import { currency, shortDateTime } from "../utils/format";
 import { getCatalogScopeFromPath, getCatalogScopeLabel } from "../utils/navigation";
+import { isCashierRole } from "../utils/roles";
+import { getRoleLabel } from "../utils/uiLabels";
 
 function formatQuantity(value: number) {
   return Number.isInteger(value) ? String(Math.trunc(value)) : value.toFixed(3);
+}
+
+// Bajas (entry_type "decrease") llegan con cantidad negativa; se muestra con signo menos tipografico.
+function formatMovementQuantity(item: RestockHistoryItem) {
+  const value = Number(item.quantity_added || 0);
+  return value < 0 ? `−${formatQuantity(Math.abs(value))}` : formatQuantity(value);
+}
+
+function isDecrease(item: RestockHistoryItem) {
+  return item.entry_type === "decrease" || Number(item.quantity_added || 0) < 0;
 }
 
 function normalizeBasePath(pathname: string) {
@@ -15,7 +27,9 @@ function normalizeBasePath(pathname: string) {
 }
 
 export function RestockHistoryPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  // El cajero no ve costos: no se piden las metricas (el backend responde 403) y se ocultan columnas.
+  const isCashier = isCashierRole(user?.role);
   const location = useLocation();
   const restockPath = normalizeBasePath(location.pathname);
   const catalogScope = getCatalogScopeFromPath(location.pathname);
@@ -53,7 +67,7 @@ export function RestockHistoryPage() {
     setError("");
     Promise.all([
       apiRequest<RestockHistoryResponse>(`/products/restock-history?${queryString}`, { token }),
-      apiRequest<RestockHistoryMetrics>(`/products/restock-history/metrics?${queryString}`, { token })
+      isCashier ? Promise.resolve(null) : apiRequest<RestockHistoryMetrics>(`/products/restock-history/metrics?${queryString}`, { token })
     ])
       .then(([historyResponse, metricsResponse]) => {
         setItems(historyResponse.items);
@@ -65,7 +79,7 @@ export function RestockHistoryPage() {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar el historial");
       })
       .finally(() => setLoading(false));
-  }, [queryString, token]);
+  }, [queryString, token, isCashier]);
 
   useEffect(() => {
     setPage(1);
@@ -84,12 +98,19 @@ export function RestockHistoryPage() {
           </div>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
-        <div className="stats-grid">
-          <div className="stat-card"><span className="stat-label">Total gastado</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : currency(metrics?.total_spent || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Valor antes</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : currency(metrics?.inventory_value_before || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Valor despues</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : currency(metrics?.inventory_value_after || 0)}</strong></div>
-          <div className="stat-card"><span className="stat-label">Movimientos</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : (metrics?.total_movements || 0)}</strong></div>
-        </div>
+        {isCashier ? (
+          // Sin tarjetas de costo; los movimientos salen del total del historial (incluye bajas).
+          <div className="stats-grid">
+            <div className="stat-card"><span className="stat-label">Movimientos</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : totalItems}</strong></div>
+          </div>
+        ) : (
+          <div className="stats-grid">
+            <div className="stat-card"><span className="stat-label">Total gastado</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : currency(metrics?.total_spent || 0)}</strong></div>
+            <div className="stat-card"><span className="stat-label">Valor antes</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : currency(metrics?.inventory_value_before || 0)}</strong></div>
+            <div className="stat-card"><span className="stat-label">Valor despues</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : currency(metrics?.inventory_value_after || 0)}</strong></div>
+            <div className="stat-card"><span className="stat-label">Movimientos</span><strong className="stat-value">{loading ? "—" : error ? "⚠️" : (metrics?.total_movements || 0)}</strong></div>
+          </div>
+        )}
       </div>
 
       <div className="panel">
@@ -134,43 +155,61 @@ export function RestockHistoryPage() {
                 <th>Categoria</th>
                 <th>Proveedor</th>
                 <th>Cantidad</th>
-                <th>Costo unitario</th>
-                <th>Costo total</th>
+                {!isCashier ? <th>Costo unitario</th> : null}
+                {!isCashier ? <th>Costo total</th> : null}
                 <th>Stock antes</th>
                 <th>Stock despues</th>
                 <th>Usuario</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td>{shortDateTime(item.created_at)}</td>
-                  <td>
-                    <div>{item.product_name}</div>
-                    <small className="muted">{item.sku || "-"}</small>
-                  </td>
-                  <td>{item.category || "-"}</td>
-                  <td>{item.supplier_name || "-"}</td>
-                  <td>{formatQuantity(item.quantity_added)}</td>
-                  <td>{currency(item.unit_cost)}</td>
-                  <td>{currency(item.total_cost)}</td>
-                  <td>
-                    <div>{formatQuantity(item.stock_before)}</div>
-                    <small className="muted">{currency(item.inventory_value_before)}</small>
-                  </td>
-                  <td>
-                    <div>{formatQuantity(item.stock_after)}</div>
-                    <small className="muted">{currency(item.inventory_value_after)}</small>
-                  </td>
-                  <td>
-                    <div>{item.actor_name || "-"}</div>
-                    <small className="muted">{item.reason || "Sin motivo"}</small>
-                  </td>
-                </tr>
-              ))}
+              {items.map((item) => {
+                const decrease = isDecrease(item);
+                const roleLabel = item.actor_role ? getRoleLabel(item.actor_role).toLowerCase() : "";
+                return (
+                  <tr key={item.id}>
+                    <td>{shortDateTime(item.created_at)}</td>
+                    <td>
+                      <div>{item.product_name}</div>
+                      <small className="muted">{item.sku || "-"}</small>
+                    </td>
+                    <td>{item.category || "-"}</td>
+                    <td>{item.supplier_name || "-"}</td>
+                    <td>
+                      <div className="stock-adjust-quantity">
+                        <span>{formatMovementQuantity(item)}</span>
+                        {decrease ? (
+                          <span className="stock-adjust-badge">
+                            <span aria-hidden="true">↓</span> Baja
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    {!isCashier ? <td>{currency(item.unit_cost ?? 0)}</td> : null}
+                    {!isCashier ? <td>{currency(item.total_cost ?? 0)}</td> : null}
+                    <td>
+                      <div>{formatQuantity(item.stock_before)}</div>
+                      {!isCashier ? <small className="muted">{currency(item.inventory_value_before ?? 0)}</small> : null}
+                    </td>
+                    <td>
+                      <div>{formatQuantity(item.stock_after)}</div>
+                      {!isCashier ? <small className="muted">{currency(item.inventory_value_after ?? 0)}</small> : null}
+                    </td>
+                    <td>
+                      <div>
+                        {item.actor_name || "-"}
+                        {roleLabel ? <span className="muted stock-adjust-role"> ({roleLabel})</span> : null}
+                      </div>
+                      <small className={decrease ? "stock-adjust-reason" : "muted"}>
+                        {decrease ? "Motivo: " : ""}{item.reason || "Sin motivo"}
+                      </small>
+                    </td>
+                  </tr>
+                );
+              })}
               {!items.length ? (
                 <tr>
-                  <td className="muted" colSpan={10}>{loading ? "Cargando historial..." : "No hay reabastecimientos para este filtro."}</td>
+                  <td className="muted" colSpan={isCashier ? 8 : 10}>{loading ? "Cargando historial..." : "No hay reabastecimientos para este filtro."}</td>
                 </tr>
               ) : null}
             </tbody>

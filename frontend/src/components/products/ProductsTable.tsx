@@ -2,15 +2,17 @@ import type { Dispatch, SetStateAction } from "react";
 import { Link } from "react-router-dom";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { Product } from "../../types";
-import { currency } from "../../utils/format";
+import { currency, shortDateTime } from "../../utils/format";
 import { resolveProductImageUrl } from "../../utils/assets";
 import { getMexicoCityDateInputValue } from "../../utils/timezone";
+import { getRoleLabel } from "../../utils/uiLabels";
 import {
   STATUS_LABELS,
   formatQuantity,
   getStatuses,
   getStockLevel,
   getStockStatus,
+  toNumber,
   type StatusKey,
   type StockStatusKey
 } from "../../utils/productStatus";
@@ -20,6 +22,14 @@ import { ProductRowActionsMenu, type ProductRowAction } from "./ProductRowAction
 // Componente de presentacion: busqueda, filtros y paginacion siguen en ProductsPage
 // porque disparan loadProducts desde sus efectos.
 export type ProductsTableProps = {
+  // Cajero con general_settings.cashier_direct_stock en un giro con stock: ajusta
+  // existencias directo; no ve Editar/Completar ni textos del flujo de solicitudes.
+  cashierDirectStock: boolean;
+  // "Bajar existencias" en el menu "...": admin/gerente/superusuario, o cashierDirectStock.
+  canDecreaseStock: boolean;
+  onDecreaseStock: (product: Product) => void;
+  // Aviso de exito en la lista (p. ej. "Existencias actualizadas").
+  info: string;
   catalogScope: CatalogScope | null;
   categories: string[];
   categoryFilter: string;
@@ -95,7 +105,24 @@ function StockLevel({ product, stockStatus }: { product: Product; stockStatus: S
   );
 }
 
+// "Último ajuste manual: María (cajero) · 02/10 14:35". Misma utilidad de fecha que el
+// Historial de reabastecimiento (shortDateTime), sin el año.
+function LastManualStockChange({ product }: { product: Product }) {
+  const change = product.last_manual_stock_change;
+  if (!change) return null;
+  const roleLabel = change.actor_role ? getRoleLabel(change.actor_role).toLowerCase() : "";
+  const who = [change.user_name || "Usuario", roleLabel ? `(${roleLabel})` : ""].filter(Boolean).join(" ");
+  const when = shortDateTime(change.at).replace(/^(\d{2}\/\d{2})\/\d{4}/, "$1");
+  return (
+    <small className="muted stock-adjust-last">Último ajuste manual: {who}{when && when !== "-" ? ` · ${when}` : ""}</small>
+  );
+}
+
 export function ProductsTable({
+  cashierDirectStock,
+  canDecreaseStock,
+  onDecreaseStock,
+  info,
   catalogScope,
   categories,
   categoryFilter,
@@ -148,7 +175,7 @@ export function ProductsTable({
         <strong className="inventory-list-product-name">{product.name}</strong>
         <small className="muted">{[product.category, product.sku].filter(Boolean).join(" · ") || "-"}</small>
         {isInactive ? <small className="inventory-list-tag">Inactivo</small> : null}
-        {product.has_pending_update_request ? (
+        {product.has_pending_update_request && !cashierDirectStock ? (
           <small className="muted">Pendiente de aprobación ({product.pending_update_request_count || 1})</small>
         ) : null}
       </div>
@@ -191,7 +218,10 @@ export function ProductsTable({
   function renderActions(product: Product, needsCapture: boolean, extraClassName = "") {
     return (
       <div className={`inventory-list-actions${extraClassName ? ` ${extraClassName}` : ""}`}>
-        {needsCapture ? (
+        {cashierDirectStock ? (
+          // El formulario de producto sigue siendo solo para admin/gerente.
+          <Link className="button ghost" to={`${restockPath}?restockSearch=${encodeURIComponent(product.name)}`}>+ Entrada</Link>
+        ) : needsCapture ? (
           <button className="button ghost inventory-list-complete" onClick={() => handleEdit(product)} type="button">Completar</button>
         ) : (
           <>
@@ -221,6 +251,14 @@ export function ProductsTable({
         onSelect: () => {
           printBarcodeLabel(product.id, product.name, product.barcode).catch((printError) => setError(printError instanceof Error ? printError.message : "No fue posible imprimir el código de barras"));
         }
+      });
+    }
+    // Solo con existencias: sin stock no hay nada que bajar (y el backend lo rechazaria).
+    if (canDecreaseStock && showStockStatus && toNumber(product.stock) > 0) {
+      actions.push({
+        key: "decrease",
+        label: "Bajar existencias",
+        onSelect: () => onDecreaseStock(product)
       });
     }
     if (!isCashier) {
@@ -333,6 +371,7 @@ export function ProductsTable({
         </div>
       ) : null}
       {error ? <p className="error-text">{error}</p> : null}
+      {info ? <p className="success-text" role="status">{info}</p> : null}
 
       {isMobile ? (
         <div className="inventory-mobile-list">
@@ -369,7 +408,12 @@ export function ProductsTable({
                   </div>
                   {showStockStatus || showStatuses ? (
                     <div className="inventory-mobile-card-stock">
-                      {showStockStatus ? <StockLevel product={product} stockStatus={stockStatus} /> : null}
+                      {showStockStatus ? (
+                        <>
+                          <StockLevel product={product} stockStatus={stockStatus} />
+                          <LastManualStockChange product={product} />
+                        </>
+                      ) : null}
                       {showStatuses ? renderStatuses(statuses) : null}
                     </div>
                   ) : null}
@@ -428,6 +472,7 @@ export function ProductsTable({
                     {showStockStatus ? (
                       <td>
                         <StockLevel product={product} stockStatus={stockStatus} />
+                        <LastManualStockChange product={product} />
                       </td>
                     ) : null}
                     {showStatusColumn ? (
