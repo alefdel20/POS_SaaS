@@ -7,18 +7,25 @@ import { UNIT_SHORT_LABELS, formatQuantity, toNumber } from "../../utils/product
 
 const MIN_REASON_LENGTH = 5;
 
+// Solo estos campos: lo abren la lista de Inventario (Product) y Reabastecer (RestockProductItem).
+export type StockAdjustProduct = Pick<Product, "id" | "name" | "stock" | "unidad_de_venta">;
+
 type StockAdjustDialogProps = {
-  product: Product;
+  product: StockAdjustProduct;
   token: string;
   onClose: () => void;
   onSaved: (product: Product) => void;
   // 403: el interruptor se apago a mitad de sesion (cajero).
   onForbidden?: () => void;
+  // Boton que abrio el dialogo (Safari no le da foco al hacer clic). Sin el: activeElement.
+  returnFocusTo?: HTMLElement | null;
+  // Si al cerrar ese elemento ya no esta en la pagina (p. ej. una recarga quito la fila).
+  onReturnFocusMissing?: () => void;
 };
 
 // "Bajar existencias": POST /products/:id/stock-adjustment con la cantidad a RESTAR y motivo.
 // Las reglas de cantidad replican las del backend (enteros o 3 decimales, sin quedar < 0).
-export function StockAdjustDialog({ product, token, onClose, onSaved, onForbidden }: StockAdjustDialogProps) {
+export function StockAdjustDialog({ product, token, onClose, onSaved, onForbidden, returnFocusTo, onReturnFocusMissing }: StockAdjustDialogProps) {
   const titleId = useId();
   const quantityId = useId();
   const reasonId = useId();
@@ -29,8 +36,11 @@ export function StockAdjustDialog({ product, token, onClose, onSaved, onForbidde
   const [reasonTouched, setReasonTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  // Se leen al desmontar (efecto de una sola vez): ref para no usar valores viejos.
+  const returnFocusMissingRef = useRef(onReturnFocusMissing);
+  returnFocusMissingRef.current = onReturnFocusMissing;
 
-  const unit = getResolvedSaleUnit(product.unidad_de_venta);
+  const unit =getResolvedSaleUnit(product.unidad_de_venta);
   const unitLabel = UNIT_SHORT_LABELS[unit] || unit;
   const integerOnly = isIntegerUnit(unit);
   const currentStock = toNumber(product.stock);
@@ -56,9 +66,13 @@ export function StockAdjustDialog({ product, token, onClose, onSaved, onForbidde
 
   // Foco inicial en la cantidad y regreso al elemento que abrio el dialogo al cerrar.
   useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const previouslyFocused = returnFocusTo ?? (document.activeElement as HTMLElement | null);
     quantityRef.current?.focus();
     return () => {
+      if (previouslyFocused && !previouslyFocused.isConnected && returnFocusMissingRef.current) {
+        returnFocusMissingRef.current();
+        return;
+      }
       previouslyFocused?.focus?.();
     };
   }, []);

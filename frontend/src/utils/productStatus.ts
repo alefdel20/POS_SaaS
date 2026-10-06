@@ -38,7 +38,8 @@ export function formatQuantity(value: number, unit: string) {
 }
 
 // stock, minimo y maximo en 0: nunca se capturaron (p. ej. paquete del onboarding).
-export function isUncaptured(product: Product) {
+// Pick: tambien lo usa Reabastecer con RestockProductItem.
+export function isUncaptured(product: Pick<Product, "stock" | "stock_minimo" | "stock_maximo">) {
   return toNumber(product.stock) === 0 && toNumber(product.stock_minimo) === 0 && toNumber(product.stock_maximo) === 0;
 }
 

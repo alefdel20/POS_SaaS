@@ -19,7 +19,8 @@ import type {
 } from "../types";
 import { currency, shortDateTime } from "../utils/format";
 import { resolveProductImageUrl } from "../utils/assets";
-import { ROUTE_ROLES, hasAnyRole, isCashierRole } from "../utils/roles";
+import { ROLE_CASHIER, ROLE_MANAGER, ROUTE_ROLES, hasAnyRole, isCashierRole } from "../utils/roles";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import {
   VETERINARY_PRODUCT_CATEGORIES,
   canUseExpiryDate,
@@ -52,10 +53,11 @@ import {
   parseRestockDraftQuantity,
   shouldApplyAutomaticIeps
 } from "../utils/productForm";
+import { STATUS_LABELS, isUncaptured } from "../utils/productStatus";
 import { ExtraSuppliersModal } from "../components/products/SuppliersEditor";
 import { ProductForm } from "../components/products/ProductForm";
 import { ProductsTable } from "../components/products/ProductsTable";
-import { StockAdjustDialog } from "../components/products/StockAdjustDialog";
+import { StockAdjustDialog, type StockAdjustProduct } from "../components/products/StockAdjustDialog";
 
 type RestockRowFeedback = {
   status: "success" | "error";
@@ -69,6 +71,14 @@ type RestockBatchResultLike = {
   status?: string | null;
   message?: string | null;
   product?: { id?: number | string | null } | null;
+};
+
+// Lo que no se pase toma el valor actual del estado de Reabastecer.
+type RestockLoadOptions = {
+  search?: string;
+  page?: number;
+  pageSize?: 10 | 15;
+  stockStatus?: "all" | "low" | "normal";
 };
 
 export function ProductsPage() {
@@ -96,8 +106,6 @@ export function ProductsPage() {
   // Categorias del select de la lista, separadas de `categories` (datalist del formulario),
   // que se recarga filtrada mientras se escribe en el formulario.
   const [listCategories, setListCategories] = useState<string[]>([]);
-  const [restockCategoryFilter, setRestockCategoryFilter] = useState("");
-  const [restockSupplierFilter, setRestockSupplierFilter] = useState("");
   const [restockDrafts, setRestockDrafts] = useState<Record<number, string>>({});
   // Copia del producto al capturar cantidad: permite guardar borradores de filas
   // que ya no estan en la pagina/filtro cargado.
@@ -149,6 +157,8 @@ export function ProductsPage() {
   // "+ Entrada" usa su propio parametro para no sembrar el buscador de la lista.
   const restockSearchFromQuery = searchParams.get("restockSearch") || "";
   const seededRestockSearchRef = useRef<string | null>(null);
+  const restockSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const isMobile = useMediaQuery("(max-width: 640px)");
   const skuSuggestion = useMemo(() => buildSkuSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
   const barcodeSuggestion = useMemo(() => buildBarcodeSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
   const apiBaseUrl = API_BASE_URL;
@@ -167,7 +177,13 @@ export function ProductsPage() {
   // Cajero sin ajuste directo: sigue con solicitudes de cambio (comportamiento previo).
   const usesRequestFlow = isCashier && !cashierDirectStockActive;
   const canDecreaseStock = hasAnyRole(user?.role, ROUTE_ROLES.gerente) || cashierDirectStockActive;
-  const [stockAdjustProduct, setStockAdjustProduct] = useState<Product | null>(null);
+  // Mismos roles que las rutas */restock de AppRouter (clinico no entra) y solo giros con stock.
+  const canOpenRestock = showStockStatus && hasAnyRole(user?.role, [...ROUTE_ROLES.management, ROLE_MANAGER, ROLE_CASHIER]);
+  const [stockAdjustProduct, setStockAdjustProduct] = useState<StockAdjustProduct | null>(null);
+  // Boton "Bajar existencias" de Reabastecer que abrio el dialogo (null desde la lista).
+  const stockAdjustOpenerRef = useRef<HTMLElement | null>(null);
+  // Tras la recarga de Reabastecer por una baja: revisar si el boton sigue en la pagina.
+  const pendingStockAdjustFocusRef = useRef(false);
   const [listInfo, setListInfo] = useState("");
   // Aviso visible en Reabastecer solo para el ajuste directo del cajero (la vista no
   // muestra `error`/`info`; con el interruptor apagado nunca se llena).
@@ -314,14 +330,12 @@ export function ProductsPage() {
     setListCategories(response);
   }
 
-  async function loadRestockProducts(
-    nextSearch = restockSearch,
-    nextCategory = restockCategoryFilter,
-    nextSupplier = restockSupplierFilter,
-    nextPage = restockPage,
-    nextPageSize = restockPageSize,
-    nextStockFilter: "all" | "low" | "normal" = restockStockFilter
-  ) {
+  async function loadRestockProducts({
+    search: nextSearch = restockSearch,
+    page: nextPage = restockPage,
+    pageSize: nextPageSize = restockPageSize,
+    stockStatus: nextStockFilter = restockStockFilter
+  }: RestockLoadOptions = {}) {
     if (!token) return;
     const requestId = restockRequestIdRef.current + 1;
     restockRequestIdRef.current = requestId;
@@ -334,12 +348,6 @@ export function ProductsPage() {
       });
       if (nextSearch.trim()) {
         params.set("search", nextSearch.trim());
-      }
-      if (nextCategory.trim()) {
-        params.set("category", nextCategory.trim());
-      }
-      if (nextSupplier.trim()) {
-        params.set("supplier", nextSupplier.trim());
       }
       if (nextStockFilter && nextStockFilter !== "all") {
         params.set("stockStatus", nextStockFilter);
@@ -543,7 +551,7 @@ export function ProductsPage() {
         setTimeout(() => {
           setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; });
           setRestockItems((current) => current.filter((i) => i.id !== item.id || !i._injected));
-          loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter).catch(() => undefined);
+          loadRestockProducts({ search: restockSearch, page: 1, pageSize: restockPageSize, stockStatus: restockStockFilter }).catch(() => undefined);
         }, 5000);
         await loadRequestSummary();
       } else {
@@ -568,14 +576,14 @@ export function ProductsPage() {
         setTimeout(() => {
           setRecentlySaved((current) => { const next = new Set(current); next.delete(item.id); return next; });
           setRestockItems((current) => current.filter((i) => i.id !== item.id || !i._injected));
-          loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter).catch(() => undefined);
+          loadRestockProducts({ search: restockSearch, page: 1, pageSize: restockPageSize, stockStatus: restockStockFilter }).catch(() => undefined);
         }, 5000);
       }
 
       clearRestockDrafts([item.id]);
       await loadProducts(search, page, pageSize, categoryFilter);
       setRestockPage(1);
-      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter);
+      await loadRestockProducts({ search: restockSearch, page: 1, pageSize: restockPageSize, stockStatus: restockStockFilter });
       setRestockItems((current) => {
         const alreadyPresent = current.some((i) => i.id === item.id);
         if (alreadyPresent) return current;
@@ -709,7 +717,7 @@ export function ProductsPage() {
 
       await loadProducts(search, page, pageSize, categoryFilter);
       setRestockPage(1);
-      await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter);
+      await loadRestockProducts({ search: restockSearch, page: 1, pageSize: restockPageSize, stockStatus: restockStockFilter });
       const savedItems = validDraftEntries
         .filter((e) => successfulIds.includes(e.item.id))
         .map((e) => e.item);
@@ -728,7 +736,7 @@ export function ProductsPage() {
             return next;
           });
           setRestockItems((current) => current.filter((i) => !i._injected));
-          loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter).catch(() => undefined);
+          loadRestockProducts({ search: restockSearch, page: 1, pageSize: restockPageSize, stockStatus: restockStockFilter }).catch(() => undefined);
         }, 5000);
       }
     } catch (restockError) {
@@ -775,13 +783,31 @@ export function ProductsPage() {
     }
   }
 
-  function openStockAdjust(product: Product) {
+  function openStockAdjust(product: StockAdjustProduct, opener: HTMLElement | null = null) {
+    stockAdjustOpenerRef.current = opener;
     setListInfo("");
     setStockAdjustProduct(product);
   }
 
-  async function handleStockAdjustSaved() {
+  async function handleStockAdjustSaved(updatedProduct: Product) {
     setStockAdjustProduct(null);
+    if (isRestockRoute) {
+      // Reabastecer no muestra listInfo: aviso en la fila, misma pagina y filtros, y los
+      // borradores (restockDrafts/restockDraftItems) se conservan.
+      setRestockRowFeedback((current) => ({
+        ...current,
+        [updatedProduct.id]: { status: "success", message: "Existencias actualizadas" }
+      }));
+      pendingStockAdjustFocusRef.current = true;
+      try {
+        await loadRestockProducts({ search: restockSearch, page: restockPage, pageSize: restockPageSize, stockStatus: restockStockFilter });
+      } catch (loadError) {
+        pendingStockAdjustFocusRef.current = false;
+        stockAdjustOpenerRef.current = null;
+        setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
+      }
+      return;
+    }
     setListInfo("Existencias actualizadas");
     await loadProducts(search, page, pageSize, categoryFilter).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
@@ -853,7 +879,7 @@ export function ProductsPage() {
         loadProducts(search, page, pageSize, categoryFilter),
         loadCategories(),
         loadSuppliers(),
-        ...(isRestockRoute ? [loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter)] : [])
+        ...(isRestockRoute ? [loadRestockProducts({ search: restockSearch, page: restockPage, pageSize: restockPageSize, stockStatus: restockStockFilter })] : [])
       ]);
     } catch (confirmError) {
       setError(confirmError instanceof Error ? confirmError.message : "No fue posible importar productos");
@@ -867,7 +893,7 @@ export function ProductsPage() {
       setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los productos");
     });
     if (isRestockRoute) {
-      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter).catch((loadError) => {
+      loadRestockProducts({ search: restockSearch, page: restockPage, pageSize: restockPageSize, stockStatus: restockStockFilter }).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar productos por reabastecer");
       });
     }
@@ -987,13 +1013,27 @@ export function ProductsPage() {
         return;
       }
       setRestockPage(1);
-      loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, 1, restockPageSize, restockStockFilter).catch((loadError) => {
+      loadRestockProducts({ search: restockSearch, page: 1, pageSize: restockPageSize, stockStatus: restockStockFilter }).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
       });
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [catalogScope, restockSearch, restockCategoryFilter, restockSupplierFilter, token, isRestockRoute, restockPageSize]);
+  }, [catalogScope, restockSearch, token, isRestockRoute, restockPageSize]);
+
+  // Baja desde Reabastecer: con la recarga ya aplicada, el foco vuelve al boton que abrio el
+  // dialogo; si ya no existe (stock en 0 o la fila salio del filtro), pasa a la busqueda.
+  useEffect(() => {
+    if (!pendingStockAdjustFocusRef.current) return;
+    pendingStockAdjustFocusRef.current = false;
+    const opener = stockAdjustOpenerRef.current;
+    stockAdjustOpenerRef.current = null;
+    if (opener?.isConnected) {
+      opener.focus();
+    } else {
+      restockSearchInputRef.current?.focus();
+    }
+  }, [restockItems]);
 
   useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
@@ -1193,7 +1233,7 @@ export function ProductsPage() {
       });
       await loadProducts("", 1, pageSize, categoryFilter);
       if (isRestockRoute) {
-        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter);
+        await loadRestockProducts({ search: restockSearch, page: restockPage, pageSize: restockPageSize, stockStatus: restockStockFilter });
       }
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "No fue posible eliminar el producto");
@@ -1427,7 +1467,7 @@ export function ProductsPage() {
       await loadSuppliers();
       await loadCategories();
       if (!isCashier) {
-        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter);
+        await loadRestockProducts({ search: restockSearch, page: restockPage, pageSize: restockPageSize, stockStatus: restockStockFilter });
       }
       if (isCashier) {
         await loadRequestSummary();
@@ -1675,7 +1715,7 @@ export function ProductsPage() {
       });
       await loadProducts(search, page, pageSize, categoryFilter);
       if (isRestockRoute) {
-        await loadRestockProducts(restockSearch, restockCategoryFilter, restockSupplierFilter, restockPage, restockPageSize, restockStockFilter);
+        await loadRestockProducts({ search: restockSearch, page: restockPage, pageSize: restockPageSize, stockStatus: restockStockFilter });
       }
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : "No fue posible actualizar el producto");
@@ -1765,6 +1805,7 @@ export function ProductsPage() {
       <ProductsTable
         cashierDirectStock={cashierDirectStockActive}
         canDecreaseStock={canDecreaseStock}
+        canOpenRestock={canOpenRestock}
         onDecreaseStock={openStockAdjust}
         info={listInfo}
         catalogScope={catalogScope}
@@ -1837,38 +1878,37 @@ export function ProductsPage() {
         {restockDirectNotice ? (
           <p className={restockDirectNotice.status === "error" ? "error-text" : "success-text"} role="status">{restockDirectNotice.message}</p>
         ) : null}
-        <div className="inline-actions quick-filter-row">
-          <input
-            className="search-input"
-            placeholder="Buscar por nombre, SKU, categoría o proveedor"
-            value={restockSearch}
-            onChange={(event) => setRestockSearch(event.target.value)}
-          />
-          <input
-            list="product-category-options"
-            placeholder="Categoría"
-            value={restockCategoryFilter}
-            onChange={(event) => setRestockCategoryFilter(event.target.value)}
-          />
-          <input
-            list="supplier-options"
-            placeholder="Proveedor"
-            value={restockSupplierFilter}
-            onChange={(event) => setRestockSupplierFilter(event.target.value)}
-          />
-          <button
-            className="button ghost"
-            onClick={() => {
-              setRestockSearch("");
-              setRestockCategoryFilter("");
-              setRestockSupplierFilter("");
-              setRestockPage(1);
-            }}
-            type="button"
+        {/* La busqueda del backend ya cubre nombre, SKU, categoria y proveedor principal. */}
+        <div className="restock-filter-row quick-filter-row">
+          <div className={`restock-filter-search${restockSearch ? " has-value" : ""}`}>
+            <input
+              aria-label="Buscar productos por reabastecer"
+              placeholder={isMobile ? "Buscar producto" : "Buscar por nombre, SKU, categoría o proveedor"}
+              ref={restockSearchInputRef}
+              value={restockSearch}
+              onChange={(event) => setRestockSearch(event.target.value)}
+            />
+            {restockSearch ? (
+              <button
+                aria-label="Borrar búsqueda"
+                className="restock-filter-clear"
+                onClick={() => {
+                  setRestockSearch("");
+                  setRestockPage(1);
+                  restockSearchInputRef.current?.focus();
+                }}
+                type="button"
+              >
+                <span aria-hidden="true">✕</span>
+              </button>
+            ) : null}
+          </div>
+          <select
+            aria-label="Productos por página"
+            className="restock-filter-page-size"
+            value={restockPageSize}
+            onChange={(event) => { setRestockPage(1); setRestockPageSize(Number(event.target.value) as 10 | 15); }}
           >
-            Limpiar filtros
-          </button>
-          <select value={restockPageSize} onChange={(event) => { setRestockPage(1); setRestockPageSize(Number(event.target.value) as 10 | 15); }}>
             <option value={10}>10 por página</option>
             <option value={15}>15 por página</option>
           </select>
@@ -1903,7 +1943,11 @@ export function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {displayRestockItems.map((item) => (
+              {displayRestockItems.map((item) => {
+                // 0/0/0 sin capturar: el backend lo marca is_low_stock (0 <= 0); aqui solo cambia
+                // la etiqueta. La fila inyectada tras guardar trae los valores previos: se excluye.
+                const isRowUncaptured = !item._injected && isUncaptured(item);
+                return (
                 <tr key={`restock-${item.id}`}>
                   <td>
                     <div>
@@ -1913,11 +1957,13 @@ export function ProductsPage() {
                           <span className="status-badge appointment-status-completed" style={{ marginLeft: "0.4rem", fontSize: "0.7rem" }}>✓ Recién actualizado</span>
                         ) : null}
                       </div>
-                      <small className={item.is_low_stock ? "error-text" : "muted"}>
-                        {item.is_low_stock
-                          ? `Stock bajo · faltante: ${formatRestockQuantity(item.shortage, item.unidad_de_venta)}`
-                          : "Stock normal"}
-                      </small>
+                      {!isRowUncaptured ? (
+                        <small className={item.is_low_stock ? "error-text" : "muted"}>
+                          {item.is_low_stock
+                            ? `Stock bajo · faltante: ${formatRestockQuantity(item.shortage, item.unidad_de_venta)}`
+                            : "Stock normal"}
+                        </small>
+                      ) : null}
                       <small className="muted"> Cantidad a agregar</small>
                     </div>
                   </td>
@@ -1952,6 +1998,11 @@ export function ProductsPage() {
                       <span className="status-badge appointment-status-scheduled">
                         Pendiente ({item.pending_update_request_count})
                       </span>
+                    ) : isRowUncaptured ? (
+                      <span className="inventory-list-status is-uncaptured">
+                        <span aria-hidden="true" className="inventory-list-status-dot" />
+                        {STATUS_LABELS.uncaptured}
+                      </span>
                     ) : (
                       <span className={`status-badge ${item.is_low_stock ? "restock-status-low" : "appointment-status-completed"}`}>
                         {item.is_low_stock ? "Stock bajo" : "Stock normal"}
@@ -1964,11 +2015,26 @@ export function ProductsPage() {
 	                      const isRowSaving = Boolean(restockSavingIds[item.id]) || isSavingRestockBatch;
 	                      const disableSave = isRowSaving || nextStock === null;
 	                      const rowFeedback = restockRowFeedback[item.id];
+	                      // canDecreaseStock ya incluye al cajero solo con el interruptor prendido: si
+	                      // un 403 lo apaga (onForbidden), el boton desaparece. Las filas inyectadas
+	                      // tras guardar traen el stock previo, por eso no lo muestran.
+	                      const showDecrease = canDecreaseStock && showStockStatus && item.stock > 0 && !item._injected;
 	                      return (
-	                        <div>
+	                        <div className="restock-row-actions">
 	                          <button className="button ghost" disabled={disableSave} onClick={() => handleRestockAction(item)} type="button">
 	                            {isRowSaving ? (usesRequestFlow ? "Enviando..." : "Guardando...") : "Guardar"}
 	                          </button>
+	                          {showDecrease ? (
+	                            <button
+	                              aria-label={`Bajar existencias de ${item.name}`}
+	                              className="button ghost"
+	                              disabled={isRowSaving}
+	                              onClick={(event) => openStockAdjust(item, event.currentTarget)}
+	                              type="button"
+	                            >
+	                              Bajar existencias
+	                            </button>
+	                          ) : null}
 	                          {rowFeedback ? (
 	                            <small className={rowFeedback.status === "error" ? "error-text" : "success-text"}>{rowFeedback.message}</small>
 	                          ) : null}
@@ -1977,7 +2043,8 @@ export function ProductsPage() {
 	                    })()}
 	                  </td>
                 </tr>
-              ))}
+                );
+              })}
               {displayRestockItems.length === 0 ? (
                 <tr>
                   <td className="muted" colSpan={isCashier ? 10 : 11}>{loadingRestock ? "Cargando..." : "No hay productos para este filtro."}</td>
@@ -2080,8 +2147,10 @@ export function ProductsPage() {
         <StockAdjustDialog
           onClose={() => setStockAdjustProduct(null)}
           onForbidden={() => setCashierDirectStock(false)}
-          onSaved={() => handleStockAdjustSaved().catch(() => undefined)}
+          onReturnFocusMissing={isRestockRoute ? () => restockSearchInputRef.current?.focus() : undefined}
+          onSaved={(updatedProduct) => handleStockAdjustSaved(updatedProduct).catch(() => undefined)}
           product={stockAdjustProduct}
+          returnFocusTo={stockAdjustOpenerRef.current}
           token={token}
         />
       ) : null}

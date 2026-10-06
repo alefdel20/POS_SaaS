@@ -27,6 +27,8 @@ export type ProductsTableProps = {
   cashierDirectStock: boolean;
   // "Bajar existencias" en el menu "...": admin/gerente/superusuario, o cashierDirectStock.
   canDecreaseStock: boolean;
+  // Boton "Productos por reabastecer": roles de las rutas */restock y solo giros con stock.
+  canOpenRestock: boolean;
   onDecreaseStock: (product: Product) => void;
   // Aviso de exito en la lista (p. ej. "Existencias actualizadas").
   info: string;
@@ -121,6 +123,7 @@ function LastManualStockChange({ product }: { product: Product }) {
 export function ProductsTable({
   cashierDirectStock,
   canDecreaseStock,
+  canOpenRestock,
   onDecreaseStock,
   info,
   catalogScope,
@@ -289,11 +292,17 @@ export function ProductsTable({
           <h2 className="inventory-list-title">{catalogScope ? scopedModuleLabel : "Inventario"}</h2>
           <p className="muted inventory-list-subtitle">{totalProducts} {countLabel}</p>
         </div>
-        {!isCashier ? (
+        {canOpenRestock || !isCashier ? (
           <div className="inline-actions">
-            <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button>
-            {/* En movil lo reemplaza el boton flotante "+ Agregar" (mismo handler). */}
-            {!isMobile ? <button className="button" onClick={resetProductEditor} type="button">+ Agregar producto</button> : null}
+            {/* El cajero ve solo este boton; Importar y Agregar siguen siendo de admin/gerente. */}
+            {canOpenRestock ? <Link className="button ghost inventory-list-restock-link" to={restockPath}>Productos por reabastecer</Link> : null}
+            {!isCashier ? (
+              <>
+                <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button>
+                {/* En movil lo reemplaza el boton flotante "+ Agregar" (mismo handler). */}
+                {!isMobile ? <button className="button" onClick={resetProductEditor} type="button">+ Agregar producto</button> : null}
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>

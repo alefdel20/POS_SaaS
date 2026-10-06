@@ -3961,3 +3961,120 @@ td {
     min-height: 48px;
   }
 }
+
+/* ===== Reabastecer: barra de filtros y acceso desde Inventario (modulo 6) ===== */
+/* Busqueda flexible + "10 por pagina" compacto en una fila; los chips van en su propia fila. */
+.restock-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.restock-filter-search {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.restock-filter-search input {
+  width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+/* Espacio para la X solo cuando aparece: sin texto el placeholder usa todo el ancho. */
+.restock-filter-search.has-value input {
+  padding-right: 3.25rem;
+}
+
+.restock-filter-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.25rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.restock-filter-clear:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.restock-filter-clear:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.75);
+  outline-offset: 0;
+}
+
+.restock-filter-page-size {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+/* Link con aspecto de boton secundario (encabezado de Inventario). */
+.inventory-list-restock-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .restock-filter-row {
+    gap: 0.5rem;
+  }
+
+  .restock-filter-search input,
+  .restock-filter-page-size {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .restock-filter-search input {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .restock-filter-search.has-value input {
+    padding-right: 3rem;
+  }
+
+  .restock-filter-page-size {
+    padding-left: 0.75rem;
+    padding-right: 0.5rem;
+  }
+
+  /* Ancho completo ya lo da .inventory-list-header .inline-actions .button. */
+  .inventory-list-header .inline-actions .inventory-list-restock-link {
+    min-height: 48px;
+  }
+}
+
+/* ===== Reabastecer: acciones de la fila, Guardar y Bajar existencias (modulo 7) ===== */
+.restock-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.restock-row-actions .button {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .restock-row-actions .button {
+    min-height: 48px;
+  }
+}
