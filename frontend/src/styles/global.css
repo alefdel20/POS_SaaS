@@ -4078,3 +4078,63 @@ td {
     min-height: 48px;
   }
 }
+
+/* ===== Reabastecer: Inventario + Historial y chip "Sin capturar" pulsable (modulo 8) ===== */
+/* Escritorio: los dos botones se integran a la fila del encabezado como antes. */
+.restock-header-nav {
+  display: flex;
+  gap: 0.6rem;
+}
+
+/* Link con aspecto de boton (Inventario) alineado igual que el <button> de Historial. */
+.restock-header-nav .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Envuelve al chip: sin estilo propio de boton, area tactil de 44 px y el mismo foco que .button. */
+.restock-status-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.restock-status-action:hover .inventory-list-status,
+.restock-status-action:focus-visible .inventory-list-status {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.restock-status-action:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.75);
+  outline-offset: 2px;
+}
+
+.restock-status-action:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+@media (max-width: 640px) {
+  /* Inventario e Historial 50/50 en su propia fila; Guardar todos y el total quedan debajo. */
+  .restock-header-nav {
+    flex: 1 1 100%;
+  }
+
+  .restock-header-nav .button {
+    flex: 1 1 0;
+    min-height: 48px;
+  }
+
+  .restock-status-action {
+    min-height: 48px;
+  }
+}

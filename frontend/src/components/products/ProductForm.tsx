@@ -26,6 +26,10 @@ export type ProductFormProps = {
   categories: string[];
   currentImagePath: string | null;
   editingId: number | null;
+  // ?edit=<id> sin producto cargado: "cargando" o el error de GET /products/:id. En ambos casos
+  // no es un alta y no se puede guardar.
+  editLoadError: string;
+  editLoadPending: boolean;
   error: string;
   form: ProductFormState;
   handleImageSelection: (file: File | null) => void;
@@ -37,6 +41,8 @@ export type ProductFormProps = {
   imageFile: File | null;
   imagePreview: string | null;
   info: string;
+  // Enlace superior: "‹ Inventario" o "‹ Reabastecer" (edicion abierta desde Reabastecer).
+  inventoryLabel: string;
   inventoryPath: string;
   isCashier: boolean;
   loadCategories: (searchTerm?: string) => Promise<void>;
@@ -124,6 +130,8 @@ export function ProductForm({
   categories,
   currentImagePath,
   editingId,
+  editLoadError,
+  editLoadPending,
   error,
   form,
   handleImageSelection,
@@ -135,6 +143,7 @@ export function ProductForm({
   imageFile,
   imagePreview,
   info,
+  inventoryLabel,
   inventoryPath,
   isCashier,
   loadCategories,
@@ -224,9 +233,17 @@ export function ProductForm({
   const essentialsDone = essentials.filter((item) => item.done).length;
   const essentialsPercent = Math.round((essentialsDone / essentials.length) * 100);
   const previewMeta = [form.category.trim(), getResolvedSaleUnit(form.unidad_de_venta)].filter(Boolean).join(" · ");
+  // Cargando o fallo de ?edit=<id>: sigue siendo una edicion (nunca "Nuevo producto" vacio).
+  const isEditLoadBlocked = editLoadPending || Boolean(editLoadError);
+  const isEditing = Boolean(editingId) || isEditLoadBlocked;
   const title = isCashier
-    ? (editingId ? "Solicitar cambio en producto" : "Solicitar cambio de producto")
-    : (editingId ? "Editar producto" : "Nuevo producto");
+    ? (isEditing ? "Solicitar cambio en producto" : "Solicitar cambio de producto")
+    : (isEditing ? "Editar producto" : "Nuevo producto");
+  const submitLabel = editLoadPending
+    ? "Cargando producto..."
+    : editLoadError
+      ? "No se pudo cargar el producto"
+      : saving ? "Guardando..." : isCashier ? "Enviar solicitud" : editingId ? "Actualizar producto" : "Guardar producto";
 
   return (
     <form
@@ -237,10 +254,12 @@ export function ProductForm({
     >
       <div className="product-form-page-header">
         <Link className="product-form-back" to={inventoryPath}>
-          <span aria-hidden="true">‹</span> Inventario
+          <span aria-hidden="true">‹</span> {inventoryLabel}
         </Link>
         <h2 className="product-form-title">{title}</h2>
       </div>
+      {editLoadError ? <p className="error-text" role="alert">{editLoadError}</p> : null}
+      {editLoadPending ? <p className="muted" role="status">Cargando producto...</p> : null}
       {isCashier && requestSummary ? (
         <div className="stats-grid">
           <div className="info-card compact-box"><strong>{requestSummary.pending}</strong><span className="muted">Pendientes</span></div>
@@ -641,8 +660,8 @@ export function ProductForm({
                 ) : null}
               </div>
               <div className="product-form-actions">
-                <button className="button" disabled={saving} type="submit">
-                  {saving ? "Guardando..." : isCashier ? "Enviar solicitud" : editingId ? "Actualizar producto" : "Guardar producto"}
+                <button className="button" disabled={saving || isEditLoadBlocked} type="submit">
+                  {submitLabel}
                 </button>
                 {editingId ? (
                   <button className="button ghost product-form-cancel" onClick={resetProductEditor} type="button">
@@ -686,8 +705,8 @@ export function ProductForm({
               {error ? <p className="error-text">{error}</p> : null}
               {info ? <p className="success-text">{info}</p> : null}
               <div className="product-form-actions">
-                <button className="button" disabled={saving} type="submit">
-                  {saving ? "Guardando..." : isCashier ? "Enviar solicitud" : editingId ? "Actualizar producto" : "Guardar producto"}
+                <button className="button" disabled={saving || isEditLoadBlocked} type="submit">
+                  {submitLabel}
                 </button>
                 {editingId ? (
                   <button className="button ghost product-form-cancel" onClick={resetProductEditor} type="button">

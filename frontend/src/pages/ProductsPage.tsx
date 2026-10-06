@@ -1,5 +1,5 @@
 import { type KeyboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest, apiDownload } from "../api/client";
 import { API_BASE_URL } from "../api/config";
 import { useAuth } from "../context/AuthContext";
@@ -81,6 +81,14 @@ type RestockLoadOptions = {
   stockStatus?: "all" | "low" | "normal";
 };
 
+type EditReturnTo = "restock";
+
+// ?returnTo= de la edicion: solo se acepta exactamente "restock" y nunca se usa como ruta
+// (el destino sale de restockProductPath). Cualquier otro valor se ignora.
+function parseEditReturnTo(value: string | null): EditReturnTo | null {
+  return value === "restock" ? "restock" : null;
+}
+
 export function ProductsPage() {
   const { token, user } = useAuth();
   const location = useLocation();
@@ -153,6 +161,16 @@ export function ProductsPage() {
     suppliers: emptyProductState.suppliers.map((supplier) => ({ ...supplier }))
   }));
   const editProductIdFromQuery = Number(searchParams.get("edit") || 0) || null;
+  const editReturnTo = parseEditReturnTo(searchParams.get("returnTo"));
+  // Red de seguridad de ?edit=<id> cuando el producto no esta en la pagina cargada de la lista:
+  // GET /products/:id una sola vez por id; si falla, el formulario no se puede guardar.
+  const [editLoadError, setEditLoadError] = useState("");
+  const editFetchIdRef = useRef<number | null>(null);
+  // Valores vigentes para la respuesta asincrona (el efecto que la pidio pudo quedar viejo).
+  const editProductIdRef = useRef(editProductIdFromQuery);
+  editProductIdRef.current = editProductIdFromQuery;
+  const editingIdRef = useRef(editingId);
+  editingIdRef.current = editingId;
   const searchFromQuery = searchParams.get("search") || "";
   // "+ Entrada" usa su propio parametro para no sembrar el buscador de la lista.
   const restockSearchFromQuery = searchParams.get("restockSearch") || "";
@@ -179,6 +197,11 @@ export function ProductsPage() {
   const canDecreaseStock = hasAnyRole(user?.role, ROUTE_ROLES.gerente) || cashierDirectStockActive;
   // Mismos roles que las rutas */restock de AppRouter (clinico no entra) y solo giros con stock.
   const canOpenRestock = showStockStatus && hasAnyRole(user?.role, [...ROUTE_ROLES.management, ROLE_MANAGER, ROLE_CASHIER]);
+  // Lista de Inventario y formulario de producto: AppRouter los abre a management/gerente
+  // (el clinico no entra a Reabastecer, el cajero no entra a la lista).
+  const canOpenInventoryList = hasAnyRole(user?.role, ROUTE_ROLES.gerente);
+  // Chip "Sin capturar · Completar" de Reabastecer mientras pide GET /products/:id.
+  const [openingEditProductId, setOpeningEditProductId] = useState<number | null>(null);
   const [stockAdjustProduct, setStockAdjustProduct] = useState<StockAdjustProduct | null>(null);
   // Boton "Bajar existencias" de Reabastecer que abrio el dialogo (null desde la lista).
   const stockAdjustOpenerRef = useRef<HTMLElement | null>(null);
@@ -199,6 +222,8 @@ export function ProductsPage() {
       : location.pathname;
   const newProductPath = `${productBasePath}/new`;
   const restockProductPath = `${productBasePath}/restock`;
+  // /new?edit=<id> sin el producto cargado todavia: no es un alta, no se puede guardar.
+  const editLoadPending = isNewProductRoute && Boolean(editProductIdFromQuery) && !editingId && !editLoadError;
   const appliesAutomaticIeps = showIepsField && shouldApplyAutomaticIeps(form.category);
   const productModuleLabel = getProductModuleLabel(user?.pos_type);
   const scopedModuleLabel = catalogScope ? getCatalogScopeLabel(catalogScope) : productModuleLabel;
@@ -789,6 +814,27 @@ export function ProductsPage() {
     setStockAdjustProduct(product);
   }
 
+  // Chip "Sin capturar · Completar" de Reabastecer: RestockProductItem no trae lo que pide
+  // productToForm (precio, codigo, proveedores...), asi que se pide el producto completo y solo
+  // si responde bien se abre la edicion. Si falla no se navega.
+  async function openRestockProductEdit(item: RestockProductItem) {
+    if (!token || openingEditProductId !== null) return;
+    setOpeningEditProductId(item.id);
+    setRestockDirectNotice(null);
+    clearRestockRowFeedback(item.id);
+    try {
+      const product = await apiRequest<Product>(`/products/${item.id}`, { token });
+      handleEdit(product, { returnTo: "restock" });
+    } catch {
+      setRestockRowFeedback((current) => ({
+        ...current,
+        [item.id]: { status: "error", message: "No se pudo abrir el producto" }
+      }));
+    } finally {
+      setOpeningEditProductId(null);
+    }
+  }
+
   async function handleStockAdjustSaved(updatedProduct: Product) {
     setStockAdjustProduct(null);
     if (isRestockRoute) {
@@ -1035,18 +1081,43 @@ export function ProductsPage() {
     }
   }, [restockItems]);
 
+  // Otro id o salir del formulario: se olvida el error y se permite pedir de nuevo.
+  useEffect(() => {
+    setEditLoadError("");
+    editFetchIdRef.current = null;
+  }, [editProductIdFromQuery, isNewProductRoute]);
+
   useEffect(() => {
     if (!editProductIdFromQuery || editingId === editProductIdFromQuery) {
       return;
     }
 
+    const editOptions = editReturnTo ? { returnTo: editReturnTo } : undefined;
     const productToEdit = products.find((product) => product.id === editProductIdFromQuery);
-    if (!productToEdit) {
+    if (productToEdit) {
+      handleEdit(productToEdit, editOptions);
       return;
     }
 
-    handleEdit(productToEdit);
-  }, [editProductIdFromQuery, editingId, products]);
+    // F5 o enlace directo con un producto fuera de la pagina cargada de la lista: se pide por
+    // id y se carga con el mismo handleEdit. Sin esto quedaria "Nuevo producto" vacio y guardar
+    // crearia un duplicado.
+    if (!isNewProductRoute || editingId || !token || editFetchIdRef.current === editProductIdFromQuery) {
+      return;
+    }
+    const requestedId = editProductIdFromQuery;
+    editFetchIdRef.current = requestedId;
+    apiRequest<Product>(`/products/${requestedId}`, { token })
+      .then((product) => {
+        // Si mientras tanto cambio el id o la lista ya lo cargo, no se pisa el formulario.
+        if (editProductIdRef.current !== requestedId || editingIdRef.current === requestedId) return;
+        handleEdit(product, editOptions);
+      })
+      .catch(() => {
+        if (editProductIdRef.current !== requestedId || editingIdRef.current === requestedId) return;
+        setEditLoadError("No se pudo cargar el producto. Regresa o recarga la página para intentarlo de nuevo.");
+      });
+  }, [editProductIdFromQuery, editingId, products, isNewProductRoute, token, editReturnTo]);
 
   useEffect(() => {
     if (!editProductIdFromQuery || isNewProductRoute || isRestockRoute) {
@@ -1063,7 +1134,8 @@ export function ProductsPage() {
   }, [emptyProductState]);
 
   useEffect(() => {
-    if (!isNewProductRoute || editingId || !draftStorageKey) {
+    // Con ?edit=<id> (aun cargando o con error) no es un alta: no se pisa el borrador de alta.
+    if (!isNewProductRoute || editingId || editProductIdFromQuery || !draftStorageKey) {
       return;
     }
     try {
@@ -1075,7 +1147,7 @@ export function ProductsPage() {
     } catch {
       // Best effort only. A draft should never block the product form.
     }
-  }, [draftStorageKey, editingId, form, isNewProductRoute]);
+  }, [draftStorageKey, editingId, editProductIdFromQuery, form, isNewProductRoute]);
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -1245,6 +1317,12 @@ export function ProductsPage() {
     if (!token) return;
     const wasEditing = Boolean(editingId);
     setInfo("");
+
+    // ?edit=<id> sin producto cargado (cargando o fallo): guardar haria un alta duplicada.
+    if (isNewProductRoute && editProductIdFromQuery && !editingId) {
+      setError("No se pudo cargar el producto");
+      return;
+    }
 
     if (isCashier && !editingId) {
       setError("Selecciona un producto existente para solicitar cambios");
@@ -1445,7 +1523,12 @@ export function ProductsPage() {
         setPage(1);
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
-      if (wasEditing && !isCashier) {
+      if (wasEditing && !isCashier && editReturnTo === "restock") {
+        // Abierto desde Reabastecer ("Sin capturar · Completar"): vuelve ahi con su aviso.
+        // Mismo replace que abajo; la recarga de Reabastecer de mas abajo quita el "Sin capturar".
+        setRestockDirectNotice({ status: "success", message: "Producto actualizado" });
+        navigate(restockProductPath, { replace: true });
+      } else if (wasEditing && !isCashier) {
         // Actualizar regresa al inventario del mismo alcance (mismo destino que "‹ Inventario").
         // replace: el "atras" no reabre la edicion ya guardada.
         navigate(productBasePath, { replace: true });
@@ -1489,12 +1572,14 @@ export function ProductsPage() {
     }
   }
 
-  function handleEdit(product: Product) {
+  // Sin options (lista de Inventario): exactamente el comportamiento previo.
+  function handleEdit(product: Product, options?: { returnTo?: EditReturnTo }) {
     if (hasUnsavedChanges && !window.confirm("Hay cambios sin guardar. ¿Deseas descartarlos?")) {
       return;
     }
 
     const nextForm = productToForm(product);
+    setEditLoadError("");
     setEditingId(product.id);
     setForm(nextForm);
     setContenidoPorUnidad("");
@@ -1506,17 +1591,29 @@ export function ProductsPage() {
     setCurrentImagePath(product.image_path || null);
     setImagePreview(resolveProductImageUrl(product.image_path));
     setRemoveImageRequested(false);
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-      next.set("edit", String(product.id));
-      next.set("search", search || product.name);
-      return next;
-    });
-    if (!isNewProductRoute) {
-      navigate({
-        pathname: newProductPath,
-        search: `?edit=${product.id}&search=${encodeURIComponent(search || product.name)}`
+    if (options?.returnTo === "restock") {
+      // Desde Reabastecer: sin "search" (no siembra la busqueda de la lista) y sin el
+      // setSearchParams previo sobre /restock (ese push dejaba un "atras" que reabria la
+      // edicion). Ya en /new (F5 o enlace directo) la URL se queda como esta.
+      if (!isNewProductRoute) {
+        navigate({
+          pathname: newProductPath,
+          search: `?edit=${product.id}&returnTo=restock`
+        });
+      }
+    } else {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.set("edit", String(product.id));
+        next.set("search", search || product.name);
+        return next;
       });
+      if (!isNewProductRoute) {
+        navigate({
+          pathname: newProductPath,
+          search: `?edit=${product.id}&search=${encodeURIComponent(search || product.name)}`
+        });
+      }
     }
     setSupplierDrafts([]);
     setShowSuppliersModal(false);
@@ -1540,14 +1637,20 @@ export function ProductsPage() {
     setImagePreview(null);
     setCurrentImagePath(null);
     setRemoveImageRequested(false);
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-      next.delete("edit");
-      next.delete("search");
-      return next;
-    });
-    if (!isNewProductRoute) {
-      navigate(newProductPath);
+    if (isNewProductRoute && editReturnTo === "restock") {
+      // "Cancelar" de una edicion abierta desde Reabastecer: vuelve ahi. replace: el "atras"
+      // no reabre la edicion cancelada.
+      navigate(restockProductPath, { replace: true });
+    } else {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("edit");
+        next.delete("search");
+        return next;
+      });
+      if (!isNewProductRoute) {
+        navigate(newProductPath);
+      }
     }
     setSupplierDrafts([]);
     setShowSuppliersModal(false);
@@ -1745,7 +1848,10 @@ export function ProductsPage() {
         imageFile={imageFile}
         imagePreview={imagePreview}
         info={info}
-        inventoryPath={productBasePath}
+        editLoadError={editLoadError}
+        editLoadPending={editLoadPending}
+        inventoryLabel={editReturnTo === "restock" ? "Reabastecer" : "Inventario"}
+        inventoryPath={editReturnTo === "restock" ? restockProductPath : productBasePath}
         isCashier={isCashier}
         loadCategories={loadCategories}
         loadSuppliers={loadSuppliers}
@@ -1858,7 +1964,11 @@ export function ProductsPage() {
             </p>
           </div>
 	          <div className="inline-actions">
-	            <button className="button ghost" onClick={() => navigate(`${restockProductPath}/history`)} type="button">Historial</button>
+	            {/* En movil: Inventario e Historial 50/50 en una fila; lo demas debajo. */}
+	            <div className="restock-header-nav">
+	              {canOpenInventoryList ? <Link className="button ghost" to={productBasePath}>Inventario</Link> : null}
+	              <button className="button ghost" onClick={() => navigate(`${restockProductPath}/history`)} type="button">Historial</button>
+	            </div>
 	            <button
 	              className="button"
 	              disabled={!hasRestockDraftChanges || loadingRestock || isAnyRestockSaveRunning}
@@ -1998,6 +2108,22 @@ export function ProductsPage() {
                       <span className="status-badge appointment-status-scheduled">
                         Pendiente ({item.pending_update_request_count})
                       </span>
+                    ) : isRowUncaptured && canOpenInventoryList ? (
+                      // Mismo destino que "Completar" de la lista; el cajero (sin formulario de
+                      // producto) y las filas inyectadas ven el chip sin boton.
+                      <button
+                        aria-busy={openingEditProductId === item.id}
+                        aria-label={`Completar datos de ${item.name}`}
+                        className="restock-status-action"
+                        disabled={openingEditProductId !== null}
+                        onClick={() => openRestockProductEdit(item).catch(() => undefined)}
+                        type="button"
+                      >
+                        <span className="inventory-list-status is-uncaptured">
+                          <span aria-hidden="true" className="inventory-list-status-dot" />
+                          {STATUS_LABELS.uncaptured} · Completar ›
+                        </span>
+                      </button>
                     ) : isRowUncaptured ? (
                       <span className="inventory-list-status is-uncaptured">
                         <span aria-hidden="true" className="inventory-list-status-dot" />

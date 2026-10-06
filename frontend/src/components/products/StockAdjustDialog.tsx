@@ -40,7 +40,7 @@ export function StockAdjustDialog({ product, token, onClose, onSaved, onForbidde
   const returnFocusMissingRef = useRef(onReturnFocusMissing);
   returnFocusMissingRef.current = onReturnFocusMissing;
 
-  const unit =getResolvedSaleUnit(product.unidad_de_venta);
+  const unit = getResolvedSaleUnit(product.unidad_de_venta);
   const unitLabel = UNIT_SHORT_LABELS[unit] || unit;
   const integerOnly = isIntegerUnit(unit);
   const currentStock = toNumber(product.stock);
