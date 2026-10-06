@@ -1,4 +1,4 @@
-import { type KeyboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest, apiDownload } from "../api/client";
 import { API_BASE_URL } from "../api/config";
@@ -176,6 +176,8 @@ export function ProductsPage() {
   const restockSearchFromQuery = searchParams.get("restockSearch") || "";
   const seededRestockSearchRef = useRef<string | null>(null);
   const restockSearchInputRef = useRef<HTMLInputElement | null>(null);
+  // Campo "Nuevo stock" que se acaba de enfocar con un clic (ver handleRestockStockMouseUp).
+  const restockStockClickFocusRef = useRef<HTMLInputElement | null>(null);
   const isMobile = useMediaQuery("(max-width: 640px)");
   const skuSuggestion = useMemo(() => buildSkuSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
   const barcodeSuggestion = useMemo(() => buildBarcodeSuggestion(form.name, form.category, form.suppliers[0]?.supplier_name || ""), [form.category, form.name, form.suppliers]);
@@ -413,6 +415,29 @@ export function ProductsPage() {
 
   function getRestockDraftValue(productId: number) {
     return restockDrafts[productId] ?? "0";
+  }
+
+  // "Nuevo stock": al enfocar (Tab o clic) se selecciona el contenido para escribir encima del
+  // "0". Solo selecciona: no cambia el valor ni el borrador.
+  function selectRestockStockInput(event: { currentTarget: HTMLInputElement }) {
+    event.currentTarget.select();
+  }
+
+  // Solo el clic que enfoca el campo; con el campo ya enfocado el clic coloca el cursor.
+  function handleRestockStockMouseDown(event: MouseEvent<HTMLInputElement>) {
+    restockStockClickFocusRef.current = document.activeElement === event.currentTarget ? null : event.currentTarget;
+  }
+
+  // Chrome y Safari quitan al soltar el boton la seleccion hecha en onFocus. Se vuelve a
+  // seleccionar despues de ese mouseup, sin preventDefault: las flechas del spinner necesitan
+  // su mouseup para dejar de repetir.
+  function handleRestockStockMouseUp(event: MouseEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    if (restockStockClickFocusRef.current !== input) return;
+    restockStockClickFocusRef.current = null;
+    window.setTimeout(() => {
+      if (document.activeElement === input) input.select();
+    }, 0);
   }
 
   function normalizeRestockProductId(value: unknown) {
@@ -2084,11 +2109,16 @@ export function ProductsPage() {
 	                  <td>
 	                    <input
 	                      disabled={Boolean(restockSavingIds[item.id]) || isSavingRestockBatch}
+	                      // Teclado numerico en movil: sin punto para unidades enteras, con punto para kg/L.
+	                      inputMode={isIntegerUnit(getResolvedSaleUnit(item.unidad_de_venta)) ? "numeric" : "decimal"}
 	                      min="0"
 	                      step={isIntegerUnit(getResolvedSaleUnit(item.unidad_de_venta)) ? "1" : "0.001"}
 	                      type="number"
 	                      value={getRestockDraftValue(item.id)}
 	                      onChange={(event) => setRestockDraftValue(item, event.target.value)}
+	                      onFocus={selectRestockStockInput}
+	                      onMouseDown={handleRestockStockMouseDown}
+	                      onMouseUp={handleRestockStockMouseUp}
 	                    />
 	                  </td>
                   <td>
