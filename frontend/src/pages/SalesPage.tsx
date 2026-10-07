@@ -619,17 +619,6 @@ export function SalesPage() {
   const canUseInvoice = cfdiAddonActive && hasFiscalProfile;
   const hasValidCashReceived = paymentMethod !== "cash"
     || (cashReceived.trim() !== "" && cashReceivedAmount > 0 && cashReceivedAmount >= total);
-  const transferDetails = {
-    bank: profile?.bank_name || "-",
-    clabe: profile?.bank_clabe || "-",
-    beneficiary: profile?.bank_beneficiary || "-"
-  };
-  const cardDetails = {
-    terminal: profile?.card_terminal || "",
-    bank: profile?.card_bank || "",
-    instructions: profile?.card_instructions || "",
-    commission: profile?.card_commission ?? null
-  };
   const canQuickCreateProduct = isManagementRole(user?.role) || isCashierRole(user?.role);
   const requiresQuickCreateReason = isCashierRole(user?.role);
   const canUseCredit = canUseCreditCollections(user?.pos_type);

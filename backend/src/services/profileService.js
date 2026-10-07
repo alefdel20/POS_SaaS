@@ -6,6 +6,19 @@ const { requireActorBusinessId } = require("../utils/tenant");
 const { buildStoredBusinessAssetPath, deleteStoredBusinessAsset } = require("../utils/businessAssets");
 const { getBusinessSubscriptionSummary } = require("./businessSubscriptionService");
 
+// GET /profile proyectado por rol (unica fuente de verdad de los campos por rol).
+// Gerente sigue con la respuesta completa: ProfilePage le es accesible y lee contacto,
+// banco y subscription; su proyeccion queda pendiente de esa decision.
+const PROFILE_FULL_ROLES = ["superusuario", "admin", "gerente"];
+const PROFILE_FIELDS_BY_ROLE = {
+  // Ticket (SalesPage), prellenado de factura y tema (App.tsx).
+  cajero: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "cashier_direct_stock"],
+  // Expediente completo del Carnet (CarnetPage) y tema.
+  clinico: ["company_name", "theme", "accent_palette", "business_image_path", "signature_image_path"]
+};
+// Rol desconocido: solo tema, sin datos sensibles.
+const PROFILE_MINIMAL_FIELDS = ["theme", "accent_palette"];
+
 function isSchemaError(error) {
   return ["42P01", "42703", "42704"].includes(String(error?.code || ""));
 }
@@ -65,6 +78,15 @@ function mapProfile(profile, subscription = null) {
   };
 }
 
+function mapProfileForRole(profile, role, subscription = null) {
+  const mapped = mapProfile(profile, subscription);
+  if (!mapped) return mapped;
+  const normalizedRole = normalizeRole(role);
+  if (PROFILE_FULL_ROLES.includes(normalizedRole)) return mapped;
+  const fields = PROFILE_FIELDS_BY_ROLE[normalizedRole] || PROFILE_MINIMAL_FIELDS;
+  return Object.fromEntries(fields.map((field) => [field, mapped[field]]));
+}
+
 function ensureProfileManagementAccess(actor, section) {
   const actorRole = normalizeRole(actor?.role);
   if (!["superusuario", "admin"].includes(actorRole || "")) throw new ApiError(403, "Forbidden");
@@ -110,7 +132,7 @@ async function isCashierDirectStockEnabled(actor, client = pool) {
 async function getProfile(actor) {
   const profile = await ensureDefaultProfile(actor);
   const subscription = await getBusinessSubscriptionSummary(profile.business_id);
-  return mapProfile(profile, subscription);
+  return mapProfileForRole(profile, actor?.role, subscription);
 }
 
 async function getDoctorProfile(actor) {

@@ -5,10 +5,13 @@ const kitService = require("../services/kitService");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { normalizeRole } = require("../utils/roles");
 
-// El cajero no ve costos de componentes (Ventas solo usa nombre, cantidad y precio).
-// Admin/gerente/superusuario reciben el kit sin cambios.
+// Allowlist: solo estos roles ven product_cost de los componentes. normalizeRole ya
+// convierte "superadmin" en "superusuario". Cualquier otro rol (o uno desconocido/ausente)
+// recibe el kit sin costos; Ventas solo usa nombre, cantidad y precio.
+const KIT_COST_ROLES = ["superusuario", "admin", "gerente"];
+
 function stripKitCostsForActor(kit, actor) {
-  if (!kit || normalizeRole(actor?.role) !== "cajero" || !Array.isArray(kit.items)) return kit;
+  if (!kit || !Array.isArray(kit.items) || KIT_COST_ROLES.includes(normalizeRole(actor?.role))) return kit;
   return {
     ...kit,
     items: kit.items.map(({ product_cost: _productCost, ...item }) => item)

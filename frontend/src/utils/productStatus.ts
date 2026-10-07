@@ -1,4 +1,4 @@
-import type { Product } from "../types";
+import type { Product, ProductStockStatus } from "../types";
 import { isIntegerUnit } from "../constants/saleUnits";
 
 // Estados, barra y etiquetas de inventario: una sola fuente para la tabla y las tarjetas.
@@ -37,18 +37,18 @@ export function formatQuantity(value: number, unit: string) {
   return String(Number(value.toFixed(3)));
 }
 
-// stock, minimo y maximo en 0: nunca se capturaron (p. ej. paquete del onboarding).
-// Pick: tambien lo usa Reabastecer con RestockProductItem.
-export function isUncaptured(product: Pick<Product, "stock" | "stock_minimo" | "stock_maximo">) {
-  return toNumber(product.stock) === 0 && toNumber(product.stock_minimo) === 0 && toNumber(product.stock_maximo) === 0;
-}
+// stock_status viene del backend (unconfigured = "Sin capturar": minimo y maximo en 0).
+const STOCK_STATUS_KEYS: Record<ProductStockStatus, StockStatusKey> = {
+  unconfigured: "uncaptured",
+  out: "out",
+  low: "low",
+  normal: "ok"
+};
 
-// Calculado en cliente con campos que la API ya manda; no cambia is_low_stock.
-export function getStockStatus(product: Product): StockStatusKey {
-  if (isUncaptured(product)) return "uncaptured";
-  if (toNumber(product.stock) <= 0) return "out";
-  if (product.is_low_stock) return "low";
-  return "ok";
+// Pick: tambien lo usa Reabastecer con RestockProductItem. Las respuestas de guardado
+// (RETURNING *) no traen stock_status; la lista se recarga enseguida, mientras tanto "ok".
+export function getStockStatus(product: Pick<Product, "stock_status">): StockStatusKey {
+  return product.stock_status ? STOCK_STATUS_KEYS[product.stock_status] : "ok";
 }
 
 // expires_at llega como texto YYYY-MM-DD (columna DATE; pool.js fuerza el parser de pg a

@@ -5,7 +5,8 @@ const { uploadProfileAsset } = require("../middleware/profileAssetUpload");
 
 const router = express.Router();
 
-router.get("/", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero", "cashier", "user"]), controller.getProfile);
+// clinico recibe un perfil reducido (ver PROFILE_FIELDS_BY_ROLE en profileService).
+router.get("/", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero", "cashier", "user", "clinico"]), controller.getProfile);
 router.get("/doctor", requireRole(["superusuario", "superadmin", "admin", "clinico"]), controller.getDoctorProfile);
 router.put("/general", requireRole(["superusuario", "superadmin", "admin"]), controller.generalValidation, controller.updateGeneral);
 router.put("/doctor", requireRole(["superusuario", "superadmin", "admin", "clinico"]), controller.doctorValidation, controller.updateDoctorProfile);

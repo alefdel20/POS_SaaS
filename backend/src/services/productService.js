@@ -708,6 +708,35 @@ function buildEffectivePriceCase() {
   `;
 }
 
+// Estado de stock: unica definicion para inventario, Reabastecer y dashboard.
+// Precedencia: unconfigured (min y max <= 0) > out (stock <= 0) > low (min > 0 y stock <= min) > normal.
+// is_low_stock = out o low.
+function buildStockStatusSql(alias = "product_data") {
+  const stock = `COALESCE(${alias}.stock, 0)`;
+  const minimum = `COALESCE(${alias}.stock_minimo, 0)`;
+  const maximum = `COALESCE(${alias}.stock_maximo, 0)`;
+  return `(CASE
+    WHEN ${minimum} <= 0 AND ${maximum} <= 0 THEN 'unconfigured'
+    WHEN ${stock} <= 0 THEN 'out'
+    WHEN ${minimum} > 0 AND ${stock} <= ${minimum} THEN 'low'
+    ELSE 'normal'
+  END)`;
+}
+
+function buildIsLowStockSql(alias = "product_data") {
+  return `(${buildStockStatusSql(alias)} IN ('out', 'low'))`;
+}
+
+// Faltante: out contra el maximo (o el minimo si no hay maximo); low contra el minimo; resto 0.
+function buildStockShortageSql(alias = "product_data") {
+  const stock = `COALESCE(${alias}.stock, 0)`;
+  return `(CASE ${buildStockStatusSql(alias)}
+    WHEN 'out' THEN GREATEST(COALESCE(NULLIF(${alias}.stock_maximo, 0), ${alias}.stock_minimo, 0) - ${stock}, 0)
+    WHEN 'low' THEN GREATEST(COALESCE(${alias}.stock_minimo, 0) - ${stock}, 0)
+    ELSE 0
+  END)`;
+}
+
 function buildProductSelect(effectivePriceCase) {
   return `
     SELECT
@@ -721,7 +750,8 @@ function buildProductSelect(effectivePriceCase) {
       COALESCE(supplier_meta.supplier_names, ARRAY[]::text[]) AS supplier_names,
       COALESCE(pending_requests.pending_update_request_count, 0) AS pending_update_request_count,
       COALESCE(sales_21.recent_units_sold, 0) AS recent_units_sold,
-      product_data.stock <= product_data.stock_minimo AS is_low_stock,
+      ${buildStockStatusSql()} AS stock_status,
+      ${buildIsLowStockSql()} AS is_low_stock,
       COALESCE(sales_21.recent_units_sold, 0) = 0
         AND product_data.created_at <= NOW() - INTERVAL '21 days' AS is_low_rotation,
       product_data.expires_at IS NOT NULL AND product_data.expires_at <= CURRENT_DATE + INTERVAL '14 days' AS is_near_expiry,
@@ -1506,14 +1536,15 @@ async function listRestockProducts(filters = {}, actor) {
     "product_data.status = 'activo'"
   ];
 
-  if (filters.lowStockOnly) {
-    conditions.push("COALESCE(product_data.stock, 0) <= COALESCE(product_data.stock_minimo, 0)");
+  // "low" (Stock bajo) y lowStockOnly = out + low; unconfigured y normal quedan fuera.
+  if (filters.lowStockOnly || filters.stockStatus === "low") {
+    conditions.push(buildIsLowStockSql());
   }
 
-  if (filters.stockStatus === "low") {
-    conditions.push("COALESCE(product_data.stock, 0) <= COALESCE(product_data.stock_minimo, 0)");
-  } else if (filters.stockStatus === "normal") {
-    conditions.push("COALESCE(product_data.stock, 0) > COALESCE(product_data.stock_minimo, 0)");
+  if (filters.stockStatus === "normal") {
+    conditions.push(`${buildStockStatusSql()} = 'normal'`);
+  } else if (filters.stockStatus === "unconfigured") {
+    conditions.push(`${buildStockStatusSql()} = 'unconfigured'`);
   }
 
   if (filters.category) {
@@ -1586,12 +1617,13 @@ async function listRestockProducts(filters = {}, actor) {
        product_suppliers.purchase_cost AS recent_purchase_cost,
        product_suppliers.cost_updated_at,
        pending_requests.pending_update_request_count,
-       (COALESCE(product_data.stock, 0) <= COALESCE(product_data.stock_minimo, 0)) AS is_low_stock,
-       GREATEST(COALESCE(product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0), 0) AS shortage,
+       ${buildStockStatusSql()} AS stock_status,
+       ${buildIsLowStockSql()} AS is_low_stock,
+       ${buildStockShortageSql()} AS shortage,
        GREATEST(COALESCE(product_data.stock_maximo, product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0), 0) AS suggested_restock
      ${baseQuery}
      ORDER BY
-       CASE WHEN COALESCE(product_data.stock, 0) <= COALESCE(product_data.stock_minimo, 0) THEN 0 ELSE 1 END,
+       CASE WHEN ${buildIsLowStockSql()} THEN 0 ELSE 1 END,
        shortage DESC,
        suggested_restock DESC,
        product_data.name ASC
@@ -2934,6 +2966,9 @@ async function cancelDiscount(productId, actor) {
 }
 
 module.exports = {
+  buildStockStatusSql,
+  buildIsLowStockSql,
+  buildStockShortageSql,
   listProducts,
   getProductDetail,
   listSuppliers,

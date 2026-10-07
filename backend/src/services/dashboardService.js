@@ -1,7 +1,7 @@
 const pool = require("../db/pool");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
-const { listRestockProducts } = require("./productService");
+const { listRestockProducts, buildIsLowStockSql } = require("./productService");
 const { normalizeRole } = require("../utils/roles");
 const { getProductUpdateRequestSummary } = require("./productUpdateRequestService");
 const { subjectTranslationJoin } = require("../utils/healthcareSubjectTranslation");
@@ -85,7 +85,7 @@ async function getSummary(actor) {
          ((SELECT total_sales_month FROM sales_month) - (SELECT total_cost_month FROM sales_month)) AS estimated_profit_month,
          (SELECT pending_credit_balance FROM credit_balance) AS pending_credit_balance,
          COALESCE((SELECT COUNT(*) FROM products WHERE products.business_id = $1), 0) AS total_products,
-         COALESCE((SELECT COUNT(*) FROM products WHERE products.business_id = $1 AND stock_minimo > 0 AND stock <= stock_minimo), 0) AS low_stock_products,
+         COALESCE((SELECT COUNT(*) FROM products WHERE products.business_id = $1 AND products.is_active = TRUE AND products.status = 'activo' AND ${buildIsLowStockSql("products")}), 0) AS low_stock_products,
          COALESCE((SELECT SUM(COALESCE(stock_maximo, 0) * COALESCE(cost_price, 0)) FROM products WHERE products.business_id = $1), 0) AS inventory_total_value,
          COALESCE((SELECT SUM(COALESCE(stock, 0)) FROM products WHERE products.business_id = $1), 0) AS total_current_stock,
          COALESCE((SELECT SUM(COALESCE(stock, 0) * COALESCE(cost_price, 0)) FROM products WHERE products.business_id = $1), 0) AS current_stock_total_value,

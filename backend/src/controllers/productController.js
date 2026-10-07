@@ -28,7 +28,7 @@ const restockValidation = [
   query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
   query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
   query("includeMeta").optional({ values: "falsy" }).isBoolean(),
-  query("stockStatus").optional({ values: "falsy" }).isIn(["all", "low", "normal"]),
+  query("stockStatus").optional({ values: "falsy" }).isIn(["all", "low", "normal", "unconfigured"]),
   validateRequest
 ];
 const restockHistoryValidation = [

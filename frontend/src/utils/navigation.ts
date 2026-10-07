@@ -114,7 +114,7 @@ function filterByBusinessContext(items: SidebarMenuItem[], posType?: string | nu
         ) {
           return { ...nextItem, roles: "sales" };
         }
-        if (nextItem.to && ["/health/sales/food", "/health/products/food", "/health/suppliers/food", "/health/sales/accessories", "/health/products/accessories", "/health/suppliers/accessories", "/health/suppliers/medications"].includes(nextItem.to)) {
+        if (nextItem.to && ["/health/products/food", "/health/suppliers/food", "/health/products/accessories", "/health/suppliers/accessories", "/health/suppliers/medications"].includes(nextItem.to)) {
           return null;
         }
       }
@@ -447,8 +447,8 @@ export function getSidebarSectionsForVertical(posType?: string | null, role?: st
     {
       title: "Operación",
       items: [
-        { label: "Productos", to: "/products", roles: "restaurantStaff", activeMatch: ["/products"] },
-        { label: "Historial", to: "/sales-history", roles: "restaurantStaff", activeMatch: ["/sales-history"] }
+        { label: "Productos", to: "/products", roles: "gerente", activeMatch: ["/products"] },
+        { label: "Historial", to: "/sales-history", roles: "gerente", activeMatch: ["/sales-history"] }
       ]
     },
     {

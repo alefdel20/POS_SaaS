@@ -53,7 +53,7 @@ import {
   parseRestockDraftQuantity,
   shouldApplyAutomaticIeps
 } from "../utils/productForm";
-import { STATUS_LABELS, isUncaptured } from "../utils/productStatus";
+import { STATUS_LABELS } from "../utils/productStatus";
 import { ExtraSuppliersModal } from "../components/products/SuppliersEditor";
 import { ProductForm } from "../components/products/ProductForm";
 import { ProductsTable } from "../components/products/ProductsTable";
@@ -73,12 +73,15 @@ type RestockBatchResultLike = {
   product?: { id?: number | string | null } | null;
 };
 
+// "low" = Stock bajo (agotados + bajos); "unconfigured" = Sin capturar.
+type RestockStockFilter = "all" | "low" | "normal" | "unconfigured";
+
 // Lo que no se pase toma el valor actual del estado de Reabastecer.
 type RestockLoadOptions = {
   search?: string;
   page?: number;
   pageSize?: 10 | 15;
-  stockStatus?: "all" | "low" | "normal";
+  stockStatus?: RestockStockFilter;
 };
 
 type EditReturnTo = "restock";
@@ -130,7 +133,7 @@ export function ProductsPage() {
   const [restockModalLotNumber, setRestockModalLotNumber] = useState("");
   const [restockModalExpiresAt, setRestockModalExpiresAt] = useState("");
   const [loadingRestock, setLoadingRestock] = useState(false);
-  const [restockStockFilter, setRestockStockFilter] = useState<"all" | "low" | "normal">("all");
+  const [restockStockFilter, setRestockStockFilter] = useState<RestockStockFilter>("all");
   const [recentlySaved, setRecentlySaved] = useState<Set<number>>(new Set());
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
@@ -637,7 +640,7 @@ export function ProductsPage() {
       setRestockItems((current) => {
         const alreadyPresent = current.some((i) => i.id === item.id);
         if (alreadyPresent) return current;
-        const injected: RestockProductItem = { ...item, is_low_stock: false, _injected: true };
+        const injected: RestockProductItem = { ...item, stock_status: "normal", is_low_stock: false, _injected: true };
         return [injected, ...current];
       });
       return true;
@@ -775,7 +778,7 @@ export function ProductsPage() {
         const currentIds = new Set(current.map((i) => i.id));
         const missing = savedItems.filter((i) => !currentIds.has(i.id));
         if (missing.length === 0) return current;
-        const injected = missing.map((i) => ({ ...i, is_low_stock: false, _injected: true }));
+        const injected = missing.map((i) => ({ ...i, stock_status: "normal" as const, is_low_stock: false, _injected: true }));
         return [...injected, ...current];
       });
       if (successfulIds.length > 0) {
@@ -2049,14 +2052,14 @@ export function ProductsPage() {
           </select>
         </div>
         <div className="inline-actions quick-filter-row">
-          {(["all", "low", "normal"] as const).map((value) => (
+          {(["all", "low", "normal", "unconfigured"] as const).map((value) => (
             <button
               className={`button ghost${restockStockFilter === value ? " active-filter" : ""}`}
               key={value}
               onClick={() => { setRestockPage(1); setRestockStockFilter(value); }}
               type="button"
             >
-              {value === "all" ? "Todos" : value === "low" ? "Stock bajo" : "Stock normal"}
+              {value === "all" ? "Todos" : value === "low" ? "Stock bajo" : value === "normal" ? "Stock normal" : STATUS_LABELS.uncaptured}
             </button>
           ))}
         </div>
@@ -2079,9 +2082,10 @@ export function ProductsPage() {
             </thead>
             <tbody>
               {displayRestockItems.map((item) => {
-                // 0/0/0 sin capturar: el backend lo marca is_low_stock (0 <= 0); aqui solo cambia
-                // la etiqueta. La fila inyectada tras guardar trae los valores previos: se excluye.
-                const isRowUncaptured = !item._injected && isUncaptured(item);
+                // stock_status viene del backend. La fila inyectada tras guardar trae los valores
+                // previos y se marca "normal" al inyectarse; nunca se muestra como sin capturar.
+                const isRowUncaptured = !item._injected && item.stock_status === "unconfigured";
+                const lowStockLabel = item.stock_status === "out" ? STATUS_LABELS.out : "Stock bajo";
                 return (
                 <tr key={`restock-${item.id}`}>
                   <td>
@@ -2095,7 +2099,7 @@ export function ProductsPage() {
                       {!isRowUncaptured ? (
                         <small className={item.is_low_stock ? "error-text" : "muted"}>
                           {item.is_low_stock
-                            ? `Stock bajo · faltante: ${formatRestockQuantity(item.shortage, item.unidad_de_venta)}`
+                            ? `${lowStockLabel}${item.shortage > 0 ? ` · faltante: ${formatRestockQuantity(item.shortage, item.unidad_de_venta)}` : ""}`
                             : "Stock normal"}
                         </small>
                       ) : null}
@@ -2161,7 +2165,7 @@ export function ProductsPage() {
                       </span>
                     ) : (
                       <span className={`status-badge ${item.is_low_stock ? "restock-status-low" : "appointment-status-completed"}`}>
-                        {item.is_low_stock ? "Stock bajo" : "Stock normal"}
+                        {item.is_low_stock ? lowStockLabel : "Stock normal"}
                       </span>
                     )}
                   </td>

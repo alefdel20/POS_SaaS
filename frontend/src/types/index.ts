@@ -3,6 +3,8 @@ import type { SaleUnit } from "../constants/saleUnits";
 export type Role = "superusuario" | "superadmin" | "admin" | "gerente" | "clinico" | "soporte" | "support" | "cajero" | "cashier" | "user" | "cocina" | "kitchen";
 export type BusinessType = "Tienda" | "Tlapaleria" | "Papeleria" | "Veterinaria" | "Dentista" | "Farmacia" | "FarmaciaConsultorio" | "ClinicaChica" | "Otro";
 export type PosType = string;
+// Calculado en backend (productService.buildStockStatusSql).
+export type ProductStockStatus = "unconfigured" | "out" | "low" | "normal";
 
 export interface User {
   id: number;
@@ -308,6 +310,7 @@ export interface Product {
   has_legacy_liquidation?: boolean;
   effective_price?: number;
   recent_units_sold?: number;
+  stock_status?: ProductStockStatus;
   is_low_stock?: boolean;
   is_low_rotation?: boolean;
   is_near_expiry?: boolean;
@@ -526,6 +529,7 @@ export interface RestockProductItem {
   recent_purchase_cost?: number | null;
   cost_updated_at?: string | null;
   pending_update_request_count?: number;
+  stock_status?: ProductStockStatus;
   is_low_stock?: boolean;
   shortage: number;
   suggested_restock: number;
