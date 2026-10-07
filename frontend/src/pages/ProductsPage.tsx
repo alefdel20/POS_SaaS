@@ -178,6 +178,8 @@ export function ProductsPage() {
   // "+ Entrada" usa su propio parametro para no sembrar el buscador de la lista.
   const restockSearchFromQuery = searchParams.get("restockSearch") || "";
   const seededRestockSearchRef = useRef<string | null>(null);
+  // Ultima busqueda/alcance/tamano que reinicio Reabastecer a la pagina 1 (ver efecto con debounce).
+  const restockQueryKeyRef = useRef<string | null>(null);
   const restockSearchInputRef = useRef<HTMLInputElement | null>(null);
   // Campo "Nuevo stock" que se acaba de enfocar con un clic (ver handleRestockStockMouseUp).
   const restockStockClickFocusRef = useRef<HTMLInputElement | null>(null);
@@ -243,12 +245,8 @@ export function ProductsPage() {
   const restockRequestIdRef = useRef(0);
   const validRestockDraftEntries = useMemo(() => getValidRestockDraftEntries(), [restockDrafts, restockDraftItems, restockItems]);
   const hasRestockDraftChanges = validRestockDraftEntries.length > 0;
-  const displayProducts = useMemo(
-    () => statusFilter === "inactivo"
-      ? products.filter(p => (p.status ?? (p.is_active ? "activo" : "inactivo")) === "inactivo")
-      : products,
-    [products, statusFilter]
-  );
+  // Activos/Inactivos se filtran en backend antes de paginar (loadProducts).
+  const displayProducts = products;
   const displayRestockItems = useMemo(() => {
     const filtered = restockItems;
     return [...filtered].sort((a, b) => (recentlySaved.has(b.id) ? 1 : 0) - (recentlySaved.has(a.id) ? 1 : 0));
@@ -318,6 +316,8 @@ export function ProductsPage() {
     }
     if (nextStatusFilter === "activo") {
       params.set("activeOnly", "true");
+    } else if (nextStatusFilter === "inactivo") {
+      params.set("status", "inactivo");
     }
 
     const response = await apiRequest<PaginatedProductsResponse>(`/products?${params.toString()}`, { token });
@@ -410,7 +410,14 @@ export function ProductsPage() {
     });
   }
 
+  // Criterio unico del aviso de Reabastecer ("Producto actualizado", "Entrada guardada", lote):
+  // se quita al iniciar cualquier otra accion del usuario en la pantalla y al salir de ella.
+  function dismissRestockNotice() {
+    setRestockDirectNotice(null);
+  }
+
   function setRestockDraftValue(item: RestockProductItem, value: string) {
+    dismissRestockNotice();
     setRestockDrafts((current) => ({ ...current, [item.id]: value }));
     setRestockDraftItems((current) => ({ ...current, [item.id]: item }));
     clearRestockRowFeedback(item.id);
@@ -839,6 +846,7 @@ export function ProductsPage() {
   function openStockAdjust(product: StockAdjustProduct, opener: HTMLElement | null = null) {
     stockAdjustOpenerRef.current = opener;
     setListInfo("");
+    dismissRestockNotice();
     setStockAdjustProduct(product);
   }
 
@@ -999,6 +1007,12 @@ export function ProductsPage() {
     setListInfo("");
   }, [isNewProductRoute, isRestockRoute]);
 
+  // ProductsPage se reutiliza entre rutas: salir de Reabastecer cuenta como desmontar su aviso.
+  // (El aviso de "Producto actualizado" se pone en /new justo antes de volver: no se toca aqui.)
+  useEffect(() => {
+    if (!isRestockRoute) dismissRestockNotice();
+  }, [isRestockRoute]);
+
   useEffect(() => {
     if (!searchFromQuery || search === searchFromQuery) {
       return;
@@ -1082,10 +1096,18 @@ export function ProductsPage() {
   }, [catalogScope, search, pageSize, token, categoryFilter, statusFilter]);
 
   useEffect(() => {
+    // Solo una busqueda, alcance o tamano de pagina nuevos regresan a la pagina 1. Volver a
+    // Reabastecer (p. ej. tras editar) no cambia la llave: se conservan pagina, filtro, busqueda
+    // y tamano, y el efecto de carga principal ya recarga con ese estado.
+    if (!isRestockRoute) {
+      return undefined;
+    }
+    const restockQueryKey = JSON.stringify([catalogScope, restockSearch, restockPageSize, token]);
+    if (restockQueryKeyRef.current === restockQueryKey) {
+      return undefined;
+    }
     const timeout = setTimeout(() => {
-      if (!isRestockRoute) {
-        return;
-      }
+      restockQueryKeyRef.current = restockQueryKey;
       setRestockPage(1);
       loadRestockProducts({ search: restockSearch, page: 1, pageSize: restockPageSize, stockStatus: restockStockFilter }).catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
@@ -1370,12 +1392,16 @@ export function ProductsPage() {
       setError("Nombre y categoría son obligatorios");
       return;
     }
+    // Giros sin control de existencias (Restaurante): stock/minimo/maximo ni se validan ni se envian.
+    const validatesStock = showStockStatus;
     if (
       Number.isNaN(price) || price <= 0
-      || Number.isNaN(stock) || stock < 0
       || Number.isNaN(costPrice) || costPrice < 0
-      || Number.isNaN(stockMinimo) || stockMinimo < 0
-      || Number.isNaN(stockMaximo) || stockMaximo < 0
+      || (validatesStock && (
+        Number.isNaN(stock) || stock < 0
+        || Number.isNaN(stockMinimo) || stockMinimo < 0
+        || Number.isNaN(stockMaximo) || stockMaximo < 0
+      ))
     ) {
       setError("Precio, costo, stock y stock mínimo deben ser numéricos válidos");
       return;
@@ -1396,17 +1422,19 @@ export function ProductsPage() {
       setError("El IEPS debe ser numerico y valido");
       return;
     }
-    if (stockMaximo < stockMinimo) {
+    if (validatesStock && stockMaximo < stockMinimo) {
       setError("El stock máximo no puede ser menor al stock mínimo");
       return;
     }
-    try {
-      validateQuantityByUnitInput(stock, resolvedSaleUnit, "Stock");
-      validateQuantityByUnitInput(stockMinimo, resolvedSaleUnit, "Stock mínimo");
-      validateQuantityByUnitInput(stockMaximo, resolvedSaleUnit, "Stock máximo");
-    } catch (validationError) {
-      setError(validationError instanceof Error ? validationError.message : "No fue posible validar cantidades");
-      return;
+    if (validatesStock) {
+      try {
+        validateQuantityByUnitInput(stock, resolvedSaleUnit, "Stock");
+        validateQuantityByUnitInput(stockMinimo, resolvedSaleUnit, "Stock mínimo");
+        validateQuantityByUnitInput(stockMaximo, resolvedSaleUnit, "Stock máximo");
+      } catch (validationError) {
+        setError(validationError instanceof Error ? validationError.message : "No fue posible validar cantidades");
+        return;
+      }
     }
 
     if (imageFile) {
@@ -1486,9 +1514,10 @@ export function ProductsPage() {
       ieps,
       porcentaje_ganancia: porcentajeGanancia,
       unidad_de_venta: form.unidad_de_venta || null,
-      stock,
-      stock_minimo: stockMinimo,
-      stock_maximo: stockMaximo,
+      // undefined: JSON.stringify omite la llave; al editar, el backend conserva los valores actuales.
+      stock: validatesStock ? stock : undefined,
+      stock_minimo: validatesStock ? stockMinimo : undefined,
+      stock_maximo: validatesStock ? stockMaximo : undefined,
       expires_at: showExpiryField ? (form.expires_at || null) : null,
       lot_number: showExpiryField ? (form.lot_number || null) : null,
       supplier_id: primarySupplier?.supplier_id ?? null,
@@ -1660,7 +1689,10 @@ export function ProductsPage() {
     setPrecioGranel("");
     setBarcodeGranel("");
     syncBaseline(emptyProductState);
-    clearProductDraft();
+    // Cancelar una edicion (incluso con ?edit= cargando o con error) no toca el borrador de alta.
+    if (!editingId && !editProductIdFromQuery) {
+      clearProductDraft();
+    }
     setImageFile(null);
     setImagePreview(null);
     setCurrentImagePath(null);
@@ -1893,6 +1925,7 @@ export function ProductsPage() {
         setError={setError}
         setForm={setForm}
         showExpiryField={showExpiryField}
+        showStockFields={showStockStatus}
         showIepsField={showIepsField}
         showProductImage={showProductImage}
         skuSuggestion={skuSuggestion}
@@ -2024,13 +2057,14 @@ export function ProductsPage() {
               placeholder={isMobile ? "Buscar producto" : "Buscar por nombre, SKU, categoría o proveedor"}
               ref={restockSearchInputRef}
               value={restockSearch}
-              onChange={(event) => setRestockSearch(event.target.value)}
+              onChange={(event) => { dismissRestockNotice(); setRestockSearch(event.target.value); }}
             />
             {restockSearch ? (
               <button
                 aria-label="Borrar búsqueda"
                 className="restock-filter-clear"
                 onClick={() => {
+                  dismissRestockNotice();
                   setRestockSearch("");
                   setRestockPage(1);
                   restockSearchInputRef.current?.focus();
@@ -2045,7 +2079,7 @@ export function ProductsPage() {
             aria-label="Productos por página"
             className="restock-filter-page-size"
             value={restockPageSize}
-            onChange={(event) => { setRestockPage(1); setRestockPageSize(Number(event.target.value) as 10 | 15); }}
+            onChange={(event) => { dismissRestockNotice(); setRestockPage(1); setRestockPageSize(Number(event.target.value) as 10 | 15); }}
           >
             <option value={10}>10 por página</option>
             <option value={15}>15 por página</option>
@@ -2056,7 +2090,7 @@ export function ProductsPage() {
             <button
               className={`button ghost${restockStockFilter === value ? " active-filter" : ""}`}
               key={value}
-              onClick={() => { setRestockPage(1); setRestockStockFilter(value); }}
+              onClick={() => { dismissRestockNotice(); setRestockPage(1); setRestockStockFilter(value); }}
               type="button"
             >
               {value === "all" ? "Todos" : value === "low" ? "Stock bajo" : value === "normal" ? "Stock normal" : STATUS_LABELS.uncaptured}
@@ -2216,9 +2250,9 @@ export function ProductsPage() {
         <div className="panel-header product-table-footer">
           <p className="muted">{restockTotalItems} productos encontrados</p>
           <div className="inline-actions">
-            <button className="button ghost" disabled={restockPage <= 1 || loadingRestock || isAnyRestockSaveRunning} onClick={() => setRestockPage((current) => Math.max(current - 1, 1))} type="button">Anterior</button>
+            <button className="button ghost" disabled={restockPage <= 1 || loadingRestock || isAnyRestockSaveRunning} onClick={() => { dismissRestockNotice(); setRestockPage((current) => Math.max(current - 1, 1)); }} type="button">Anterior</button>
             <span className="muted">Página {restockPage} de {restockTotalPages}</span>
-            <button className="button ghost" disabled={restockPage >= restockTotalPages || loadingRestock || isAnyRestockSaveRunning} onClick={() => setRestockPage((current) => Math.min(current + 1, restockTotalPages))} type="button">Siguiente</button>
+            <button className="button ghost" disabled={restockPage >= restockTotalPages || loadingRestock || isAnyRestockSaveRunning} onClick={() => { dismissRestockNotice(); setRestockPage((current) => Math.min(current + 1, restockTotalPages)); }} type="button">Siguiente</button>
           </div>
         </div>
       </div>

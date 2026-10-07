@@ -2,13 +2,20 @@ const addonService = require("../services/addonService");
 const cfdiService = require("../services/cfdiService");
 const ApiError = require("../utils/ApiError");
 
+// Config CFDI sin secretos de Facturapi: las llaves y el org_id nunca salen al cliente.
+function toPublicCfdiConfig(config) {
+  if (!config) return null;
+  const { facturapi_org_id, facturapi_live_key, facturapi_test_key, ...publicConfig } = config;
+  return { ...publicConfig, has_organization: Boolean(facturapi_org_id) };
+}
+
 // GET /cfdi/status — estado del addon para el negocio del usuario
 async function getAddonStatus(req, res, next) {
   try {
     const businessId = req.user.business_id;
     const addon = await addonService.getAddonStatus(businessId, addonService.CFDI_ADDON_KEY);
     const config = addon?.status === 'active' ? await cfdiService.getCfdiConfig(businessId) : null;
-    res.json({ addon: addon || { status: 'inactive' }, config });
+    res.json({ addon: addon || { status: 'inactive' }, config: toPublicCfdiConfig(config) });
   } catch (err) { next(err); }
 }
 
@@ -41,7 +48,7 @@ async function updateCfdiConfig(req, res, next) {
     const addon = await addonService.getAddonStatus(businessId, addonService.CFDI_ADDON_KEY);
     if (addon?.status !== 'active') throw new ApiError(403, "Add-on CFDI no activo");
     const config = await cfdiService.upsertCfdiConfig(businessId, req.body);
-    res.json(config);
+    res.json(toPublicCfdiConfig(config));
   } catch (err) { next(err); }
 }
 
@@ -90,7 +97,7 @@ async function createOrganization(req, res, next) {
     if (addon?.status !== 'active') throw new ApiError(403, "Add-on CFDI no activo");
 
     const config = await cfdiService.createOrganization(businessId, req.body.legal_name);
-    res.status(201).json({ ok: true, config });
+    res.status(201).json({ ok: true, config: toPublicCfdiConfig(config) });
   } catch (err) { next(err); }
 }
 

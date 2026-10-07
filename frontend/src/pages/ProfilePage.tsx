@@ -43,7 +43,7 @@ type CfdiConfig = {
   rfc?: string | null;
   tax_regime?: string | null;
   zip_code?: string | null;
-  facturapi_org_id?: string | null;
+  has_organization?: boolean;
   csd_uploaded?: boolean;
   csd_expires_at?: string | null;
   pac_mode?: string | null;
@@ -1267,7 +1267,7 @@ export function ProfilePage() {
 
             <div style={{ borderTop: "1px solid var(--border)", marginTop: "1.5rem", paddingTop: "1.5rem" }}>
               <h3>Facturación con RFC propio</h3>
-              {!cfdiStatus.config?.facturapi_org_id ? (
+              {!cfdiStatus.config?.has_organization ? (
                 <div className="info-card">
                   <p className="muted">Actualmente se usa el RFC genérico de pruebas para timbrar. Para facturar con tu propio RFC, primero guarda tus datos fiscales arriba y luego activa tu organización.</p>
                   <button className="button" disabled={orgCreating || !cfdiForm.legal_name} onClick={createCfdiOrganization} type="button">

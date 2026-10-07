@@ -126,10 +126,14 @@ export function Header({ isSidebarOpen, onMenuToggle, menuToggleRef, showMenuTog
               ? "⏳ Tu prueba gratuita vence hoy. ¡Activa tu plan!"
               : `🎉 Prueba gratuita: ${user.trial_days_remaining} días restantes.`
           }
-          {" "}
-          <a href="/profile" style={{ fontWeight: 600, textDecoration: "underline", color: "inherit" }}>
-            Activar plan
-          </a>
+          {isManagementRole(user.role) ? (
+            <>
+              {" "}
+              <a href="/profile" style={{ fontWeight: 600, textDecoration: "underline", color: "inherit" }}>
+                Activar plan
+              </a>
+            </>
+          ) : null}
         </div>
       ) : null}
       <header className="header">

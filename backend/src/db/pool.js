@@ -19,6 +19,17 @@ const poolConfig = {
   statement_timeout: 15000,
   query_timeout: 15000,
   idle_in_transaction_session_timeout: 30000,
+  // pg-pool espera este hook antes de entregar un cliente nuevo: la zona horaria queda aplicada
+  // antes de la primera consulta. Si falla, pg-pool descarta ese cliente y el error llega a quien
+  // pidio la conexion (la consulta falla; el proceso no se cae).
+  onConnect: async (client) => {
+    try {
+      await client.query(`SET TIME ZONE '${TIME_ZONE}'`);
+    } catch (error) {
+      console.error(`[SQL:timezone:error] ${error.message}`);
+      throw error;
+    }
+  },
 };
 
 const pool = new pg.Pool(poolConfig);
@@ -27,12 +38,6 @@ const pool = new pg.Pool(poolConfig);
 // sin handler tumba el proceso. pg ya descarta el cliente y reconecta bajo demanda.
 pool.on("error", (error) => {
   console.error(`[SQL:pool:error] ${error.message}`);
-});
-
-pool.on("connect", (client) => {
-  client.query(`SET TIME ZONE '${TIME_ZONE}'`).catch((error) => {
-    console.error(`[SQL:timezone:error] ${error.message}`);
-  });
 });
 
 const TENANT_TABLES = [

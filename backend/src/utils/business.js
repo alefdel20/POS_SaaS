@@ -116,6 +116,14 @@ function isPharmacyClinicPos(posType) {
   return normalizePosType(posType) === "FarmaciaConsultorio";
 }
 
+// Espejo de NO_STOCK_CONTROL_POS_TYPES (frontend/src/utils/pos.ts): Restaurante cobra comandas
+// sin descontar existencias, asi que sus productos no exigen stock/minimo/maximo.
+const POS_TYPES_WITHOUT_STOCK_CONTROL = new Set(["Restaurante"]);
+
+function controlsStock(posType) {
+  return !POS_TYPES_WITHOUT_STOCK_CONTROL.has(normalizePosType(posType));
+}
+
 module.exports = {
   POS_TYPE_CATALOG,
   POS_TYPE_OPTIONS,
@@ -129,5 +137,6 @@ module.exports = {
   canUseCreditCollections,
   hidesAesthetics,
   usesHumanPatientsOnly,
-  isPharmacyClinicPos
+  isPharmacyClinicPos,
+  controlsStock
 };

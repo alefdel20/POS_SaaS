@@ -10,7 +10,7 @@ const { uploadCsd } = require("../middleware/csdUpload");
 router.get("/status", ctrl.getAddonStatus);
 router.post("/admin/activate", requireRole(["superusuario"]), ctrl.activateAddon);
 router.post("/admin/deactivate", requireRole(["superusuario"]), ctrl.deactivateAddon);
-router.put("/config", ctrl.updateCfdiConfig);
+router.put("/config", requireRole(["admin", "superusuario"]), ctrl.updateCfdiConfig);
 router.get("/invoices", ctrl.listInvoices);
 router.post("/invoices", ctrl.stampInvoice);
 router.post("/organization", requireRole(["admin", "superusuario"]), ctrl.createOrganization);

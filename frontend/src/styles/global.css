@@ -1248,6 +1248,11 @@ td {
   color: #9ae6b4;
 }
 
+/* Tema claro: #166534 cumple WCAG AA (>= 4.5:1) sobre panel blanco y sobre el fondo #dce5ef. */
+:root[data-theme="light"] .success-text {
+  color: #166534;
+}
+
 .access-denied-panel {
   max-width: 480px;
   text-align: center;

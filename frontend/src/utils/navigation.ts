@@ -82,7 +82,8 @@ function isRoleAllowed(role?: string | null, roleGroup: SidebarRoleGroup = "all"
   if (roleGroup === "management") return isManagementRole(role);
   if (roleGroup === "gerente") return isManagementRole(role) || normalizeRole(role) === ROLE_MANAGER;
   if (roleGroup === "clinical") return canAccessClinical(role);
-  if (roleGroup === "profile") return isManagementRole(role) || normalizeRole(role) === "clinico" || normalizeRole(role) === ROLE_MANAGER;
+  // Perfil y Alertas: gerente excluido (sin datos bancarios ni de suscripción).
+  if (roleGroup === "profile") return isManagementRole(role) || normalizeRole(role) === "clinico";
   if (roleGroup === "invoices") return canAccessInvoices(role);
   if (roleGroup === "businesses") return canAccessBusinesses(role);
   if (roleGroup === "financialDashboard") return canAccessFinancialDashboard(role);

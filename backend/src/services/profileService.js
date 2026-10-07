@@ -7,12 +7,12 @@ const { buildStoredBusinessAssetPath, deleteStoredBusinessAsset } = require("../
 const { getBusinessSubscriptionSummary } = require("./businessSubscriptionService");
 
 // GET /profile proyectado por rol (unica fuente de verdad de los campos por rol).
-// Gerente sigue con la respuesta completa: ProfilePage le es accesible y lee contacto,
-// banco y subscription; su proyeccion queda pendiente de esa decision.
-const PROFILE_FULL_ROLES = ["superusuario", "admin", "gerente"];
+const PROFILE_FULL_ROLES = ["superusuario", "admin"];
 const PROFILE_FIELDS_BY_ROLE = {
   // Ticket (SalesPage), prellenado de factura y tema (App.tsx).
   cajero: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "cashier_direct_stock"],
+  // Ticket (SalesPage), tema (App.tsx) y bloque fiscal/timbres del Dashboard. Sin banco ni subscription.
+  gerente: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "has_fiscal_profile", "stamps_available", "billing_ready"],
   // Expediente completo del Carnet (CarnetPage) y tema.
   clinico: ["company_name", "theme", "accent_palette", "business_image_path", "signature_image_path"]
 };

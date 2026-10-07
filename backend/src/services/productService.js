@@ -415,6 +415,7 @@ function normalizeListOptions(search, options) {
       category: options.category ? String(options.category).trim() : "",
       catalog_scope: normalizeCatalogScope(options.catalog_scope),
       activeOnly: Boolean(options.activeOnly),
+      inactiveOnly: Boolean(options.inactiveOnly) && !options.activeOnly,
       page: options.page ? Number(options.page) : null,
       pageSize: options.pageSize ? Number(options.pageSize) : null
     };
@@ -932,6 +933,8 @@ async function listProducts(search, activeOnlyOrOptions = false, actor) {
     conditions.push(`(product_data.branch_id = $${filters.length} OR product_data.branch_id IS NULL)`);
   }
   if (options.activeOnly) conditions.push("product_data.is_active = TRUE AND product_data.status = 'activo'");
+  // Inactivos = complemento exacto de activeOnly (antes de paginar, para total y totalPages).
+  if (options.inactiveOnly) conditions.push("NOT (product_data.is_active = TRUE AND product_data.status = 'activo')");
   if (options.category) {
     filters.push(options.category);
     conditions.push(`product_data.category = $${filters.length}`);

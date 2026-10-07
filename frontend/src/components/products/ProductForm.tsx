@@ -59,6 +59,8 @@ export type ProductFormProps = {
   showExpiryField: boolean;
   showIepsField: boolean;
   showProductImage: boolean;
+  // Giros sin control de existencias (Restaurante): sin seccion Existencias ni sus obligatorios.
+  showStockFields: boolean;
   skuSuggestion: string;
   supplierNameInputRef: RefObject<HTMLInputElement | null>;
   suppliers: Supplier[];
@@ -160,6 +162,7 @@ export function ProductForm({
   showExpiryField,
   showIepsField,
   showProductImage,
+  showStockFields,
   skuSuggestion,
   supplierNameInputRef,
   suppliers,
@@ -226,9 +229,11 @@ export function ProductForm({
     { label: "Nombre", done: hasText(form.name) },
     { label: "Precio al público", done: hasText(form.price) },
     { label: "Categoría", done: hasText(form.category) },
-    { label: "Cuántos tienes", done: hasText(form.stock) },
-    { label: "Aviso de “por acabarse”", done: hasText(form.stock_minimo) },
-    { label: "Máximo que quieres tener", done: hasText(form.stock_maximo) }
+    ...(showStockFields ? [
+      { label: "Cuántos tienes", done: hasText(form.stock) },
+      { label: "Aviso de “por acabarse”", done: hasText(form.stock_minimo) },
+      { label: "Máximo que quieres tener", done: hasText(form.stock_maximo) }
+    ] : [])
   ];
   const essentialsDone = essentials.filter((item) => item.done).length;
   const essentialsPercent = Math.round((essentialsDone / essentials.length) * 100);
@@ -400,6 +405,7 @@ export function ProductForm({
             ) : null}
           </section>
 
+          {showStockFields ? (
           <section className="product-form-card">
             <div className="product-form-card-header">
               <h3 className="product-form-card-title">Existencias</h3>
@@ -423,6 +429,7 @@ export function ProductForm({
               </label>
             </div>
           </section>
+          ) : null}
 
           {/* El cajero no ve costos ni margen. */}
           {!isCashier ? (

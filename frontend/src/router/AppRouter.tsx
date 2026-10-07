@@ -45,7 +45,11 @@ import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 import { PublicMenuPage } from "../pages/PublicMenuPage";
 import { ROUTE_ROLES } from "../utils/roles";
 import { getDefaultRouteForUser } from "../utils/navigation";
+import { POS_TYPE_OPTIONS, controlsStock } from "../utils/pos";
 import { Navigate } from "react-router-dom";
+
+// Reabastecer solo existe en giros que controlan existencias (Restaurante queda fuera).
+const STOCK_CONTROL_POS_TYPES = POS_TYPE_OPTIONS.map((option) => option.value).filter((posType) => controlsStock(posType));
 
 function RoleHomeRedirect() {
   const { user } = useAuth();
@@ -74,7 +78,7 @@ export function AppRouter() {
             <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.sales]} posTypes={["Veterinaria"]} />}>
               <Route path="/prescription-checkout-requests" element={<PrescriptionCheckoutQueuePage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} posTypes={STOCK_CONTROL_POS_TYPES} />}>
               <Route path="/products/restock" element={<ProductsPage />} />
               <Route path="/products/restock/history" element={<RestockHistoryPage />} />
               <Route path="/retail/products/restock" element={<ProductsPage />} />
@@ -121,7 +125,7 @@ export function AppRouter() {
               <Route path="/retail/admin/summary" element={<DashboardPage />} />
               <Route path="/health/admin/summary" element={<DashboardPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} />}>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, "gerente", "cajero"]} posTypes={STOCK_CONTROL_POS_TYPES} />}>
               <Route path="/health/products/restock" element={<ProductsPage />} />
               <Route path="/health/products/restock/history" element={<RestockHistoryPage />} />
             </Route>
@@ -138,12 +142,15 @@ export function AppRouter() {
               <Route path="/retail/admin/approvals" element={<ProductUpdateRequestsPage />} />
               <Route path="/health/admin/approvals" element={<ProductUpdateRequestsPage />} />
             </Route>
-            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.clinical, ...ROUTE_ROLES.gerente]} />}>
+            {/* Perfil y Alertas: sin gerente (no debe ver banco ni suscripción). */}
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.clinical]} />}>
               <Route path="/alertas" element={<AlertsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/retail/admin/profile" element={<ProfilePage />} />
               <Route path="/health/admin/profile" element={<ProfilePage />} />
               <Route path="/health/doctor/profile" element={<ProfilePage />} />
+            </Route>
+            <Route element={<ProtectedRoute roles={[...ROUTE_ROLES.management, ...ROUTE_ROLES.clinical, ...ROUTE_ROLES.gerente]} />}>
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/products/new" element={<ProductsPage />} />
               <Route path="/retail/products" element={<ProductsPage />} />

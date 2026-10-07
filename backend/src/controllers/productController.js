@@ -5,12 +5,14 @@ const productService = require("../services/productService");
 const { getProductBarcodeSvg } = require("../services/adminInvoiceService");
 const { PRODUCT_CATALOG_TYPES } = require("../utils/domainEnums");
 const { SALE_UNITS } = require("../constants/saleUnits");
+const { controlsStock } = require("../utils/business");
 
 const listValidation = [
   query("search").optional().trim(),
   query("category").optional({ values: "falsy" }).trim(),
   query("catalog_scope").optional().isIn(["food", "accessories", "medications-supplies"]),
   query("activeOnly").optional().isBoolean(),
+  query("status").optional({ values: "falsy" }).isIn(["all", "activo", "inactivo"]),
   query("page").optional({ values: "falsy" }).isInt({ min: 1 }),
   query("pageSize").optional({ values: "falsy" }).isIn(["10", "15"]),
   validateRequest
@@ -75,7 +77,9 @@ const createValidation = [
   body("unidad_de_venta").optional({ values: "falsy" }).isIn(SALE_UNITS),
   body("porcentaje_ganancia").optional({ values: "falsy" }).isFloat(),
   body("ieps").optional({ values: "falsy" }).isFloat({ min: 0 }),
-  body("stock_minimo").isFloat({ min: 0 }),
+  // Giros con existencias: stock_minimo obligatorio. Restaurante: opcional (el servicio usa 0).
+  body("stock_minimo").if((_value, { req }) => controlsStock(req.user?.pos_type)).isFloat({ min: 0 }),
+  body("stock_minimo").if((_value, { req }) => !controlsStock(req.user?.pos_type)).optional().isFloat({ min: 0 }),
   body("stock_maximo").optional().isFloat({ min: 0 }),
   body("supplier_id").optional({ values: "falsy" }).isInt(),
   body("supplier_name").optional({ values: "falsy" }).trim(),
@@ -174,7 +178,8 @@ const listProducts = asyncHandler(async (req, res) => {
   res.json(await productService.listProducts(req.query.search, {
     category: req.query.category,
     catalog_scope: req.query.catalog_scope,
-    activeOnly: req.query.activeOnly === "true",
+    activeOnly: req.query.activeOnly === "true" || req.query.status === "activo",
+    inactiveOnly: req.query.status === "inactivo",
     page: req.query.page,
     pageSize: req.query.pageSize,
     branchId

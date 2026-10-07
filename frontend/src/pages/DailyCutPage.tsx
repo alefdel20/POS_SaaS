@@ -3,7 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { DailyCut, ManualCut, User } from "../types";
 import { currency, dateLabel, shortDate } from "../utils/format";
-import { isCashierRole } from "../utils/roles";
+import { isCashierRole, isManagementRole } from "../utils/roles";
 import { getMexicoCityDateInputValue } from "../utils/timezone";
 import { resolveBusinessVertical } from "../utils/navigation";
 import { API_BASE_URL } from "../api/config";
@@ -398,7 +398,7 @@ export function DailyCutPage() {
             <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📊</div>
             <p style={{ fontWeight: 700, fontSize: "1rem", margin: "0 0 0.35rem" }}>Gráficas de rendimiento</p>
             <p className="muted" style={{ margin: "0 0 1rem" }}>Disponible en planes Premium y Enterprise.</p>
-            <a href="/profile" className="button">Actualizar plan</a>
+            {isManagementRole(user?.role) ? <a href="/profile" className="button">Actualizar plan</a> : null}
           </div>
         ) : (
           <>
