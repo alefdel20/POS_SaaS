@@ -835,8 +835,7 @@ async function syncLowStockReminderForBusiness(businessId, client = pool) {
        WHERE business_id = $1
          AND is_active = TRUE
          AND status = 'activo'
-         AND stock_minimo > 0
-         AND stock <= stock_minimo
+         AND ${buildIsLowStockSql("products")}
        ORDER BY name ASC`,
       [businessId]
     );

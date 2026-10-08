@@ -14,6 +14,8 @@ const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
 const { normalizeFrequency } = require("../utils/fixedExpenseFrequency");
 const { controlsStock } = require("../utils/business");
+// Unico criterio de "stock bajo" (agotado o bajo minimo), mismo que inventario/Reabastecer/dashboard.
+const { buildIsLowStockSql } = require("./productService");
 const {
   listSubscriptionCalendarEvents,
   syncBusinessPaymentReminder
@@ -764,7 +766,7 @@ async function ensureAutomaticReminders(actor) {
     ? (await pool.query(
       `SELECT id, name, stock, stock_minimo, stock_maximo
        FROM products
-       WHERE business_id = $1 AND is_active = TRUE AND status = 'activo' AND stock_minimo > 0 AND stock <= stock_minimo`,
+       WHERE business_id = $1 AND is_active = TRUE AND status = 'activo' AND ${buildIsLowStockSql("products")}`,
       [businessId]
     )).rows
     : [];
@@ -846,7 +848,7 @@ async function ensureLowStockRemindersForProductIds(productIds = [], actor) {
   const { rows } = await pool.query(
     `SELECT id, name, stock, stock_minimo, stock_maximo
      FROM products
-     WHERE business_id = $1 AND is_active = TRUE AND status = 'activo' AND stock_minimo > 0 AND stock <= stock_minimo
+     WHERE business_id = $1 AND is_active = TRUE AND status = 'activo' AND ${buildIsLowStockSql("products")}
      ORDER BY name ASC`,
     [businessId]
   );
