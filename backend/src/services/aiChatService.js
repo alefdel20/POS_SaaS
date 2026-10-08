@@ -2,13 +2,12 @@ const pool = require("../db/pool");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
 const ApiError = require("../utils/ApiError");
+const { getModelName } = require("./llm");
 
 async function createSession(actor, data) {
   const businessId = requireActorBusinessId(actor);
   const title = String(data.title || "Nueva conversación").slice(0, 180);
-  const model = process.env.AI_PROVIDER === "deepseek"
-    ? (process.env.DEEPSEEK_MODEL || "deepseek-chat")
-    : (process.env.OLLAMA_MODEL || "gemma4");
+  const model = getModelName("chat");
 
   const { rows } = await pool.query(
     `INSERT INTO ai_chat_sessions (business_id, user_id, title, model, status, created_at, updated_at)

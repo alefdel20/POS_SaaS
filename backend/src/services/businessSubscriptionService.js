@@ -594,11 +594,16 @@ async function registerBusinessSubscriptionPayment(businessId, payload = {}, act
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // Un cobro exitoso termina el trial: mismo criterio que upgradePlan.
+    // enforcement solo se activa si habia trial (el CASE lee el valor previo
+    // de trial_ends_at); un negocio sin trial conserva su enforcement.
     const { rows } = await client.query(
       `UPDATE business_subscriptions
        SET next_payment_date = $1,
            last_payment_date = $2,
            last_payment_note = $3,
+           enforcement_enabled = CASE WHEN trial_ends_at IS NOT NULL THEN TRUE ELSE enforcement_enabled END,
+           trial_ends_at = NULL,
            updated_by = $4,
            updated_at = NOW()
        WHERE business_id = $5
@@ -852,6 +857,10 @@ async function upgradePlan(businessId, targetPlanKey, planType, cardToken) {
     ? plan.subscription_amount * 10
     : plan.subscription_amount;
 
+  // Plan pagado: termina el trial (si lo hay). Sin esto deriveSubscriptionState
+  // bloquea el negocio al vencer trial_ends_at aunque ya pague. enforcement se
+  // activa porque el trial nace con FALSE y sin trial nunca bloquearia por
+  // falta de pago. trial_started_at se conserva como registro.
   await pool.query(
     `UPDATE business_subscriptions
      SET plan_name = $1,
@@ -859,7 +868,9 @@ async function upgradePlan(businessId, targetPlanKey, planType, cardToken) {
          openpay_plan_id = $3,
          openpay_subscription_id = $4,
          plan_type = $5,
-         subscription_status = 'active'
+         subscription_status = 'active',
+         trial_ends_at = NULL,
+         enforcement_enabled = TRUE
      WHERE business_id = $6`,
     [plan.plan_name, subscriptionAmount, newOpenpayPlanId, newSubscriptionId, planType, businessId]
   );

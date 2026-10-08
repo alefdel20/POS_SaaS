@@ -6,10 +6,6 @@ const llmService = require("../services/llmService");
 const { getBusinessContext, buildSystemPrompt } = require("../utils/aiContextBuilder");
 const { TOOLS, executeTool } = require("../utils/aiFunctions");
 
-const CURRENT_MODEL = process.env.AI_PROVIDER === "deepseek"
-  ? (process.env.DEEPSEEK_MODEL || "deepseek-chat")
-  : (process.env.OLLAMA_MODEL || "gemma4");
-
 // ─── Validations ─────────────────────────────────────────────────────────────
 
 const createSessionValidation = [
@@ -112,7 +108,7 @@ async function sendMessage(req, res, next) {
     await aiChatService.addMessage(actor, sessionId, {
       role: "user",
       content: userMessage,
-      model: CURRENT_MODEL
+      model: llmService.getModelName("chat")
     });
   } catch (err) {
     return next(err);
@@ -123,7 +119,9 @@ async function sendMessage(req, res, next) {
   res.setHeader("Connection", "keep-alive");
 
   let fullResponse = "";
-  const tokenHolder = {};
+  // Every round (tool calls + final answer) is a separate billed request, so
+  // its usage is added here instead of overwriting the previous round's.
+  const tokenHolder = { inputTokens: 0, outputTokens: 0 };
   let messages = llmMessages.slice();
   let toolCallCount = 0;
   const MAX_TOOL_CALLS = 3;
@@ -132,8 +130,9 @@ async function sendMessage(req, res, next) {
     while (true) {
       let pendingToolCalls = null;
       let pendingReasoningContent = null;
+      const roundTokens = {};
 
-      for await (const chunk of llmService.streamChat(messages, { tokenHolder, tools: TOOLS })) {
+      for await (const chunk of llmService.streamChat(messages, { tokenHolder: roundTokens, tools: TOOLS })) {
         if (chunk && typeof chunk === "object" && chunk.type === "tool_call") {
           pendingToolCalls = chunk.tool_calls;
           pendingReasoningContent = chunk.reasoning_content || null;
@@ -142,6 +141,9 @@ async function sendMessage(req, res, next) {
         fullResponse += chunk;
         res.write("data: " + JSON.stringify({ delta: chunk }) + "\n\n");
       }
+
+      tokenHolder.inputTokens += roundTokens.inputTokens || 0;
+      tokenHolder.outputTokens += roundTokens.outputTokens || 0;
 
       if (!pendingToolCalls || toolCallCount >= MAX_TOOL_CALLS) break;
 
@@ -188,7 +190,7 @@ async function sendMessage(req, res, next) {
       {
         role: "assistant",
         content: fullResponse,
-        model: CURRENT_MODEL,
+        model: llmService.getModelName("chat"),
         input_tokens: inputTokens,
         output_tokens: outputTokens
       },
@@ -242,7 +244,7 @@ async function chatQuick(req, res, next) {
   const tokenHolder = {};
 
   try {
-    for await (const chunk of llmService.streamChat(llmMessages, { tokenHolder })) {
+    for await (const chunk of llmService.streamChat(llmMessages, { tokenHolder, feature: "quick" })) {
       fullResponse += chunk;
       res.write("data: " + JSON.stringify({ delta: chunk }) + "\n\n");
     }
@@ -325,7 +327,7 @@ async function analyzeTicketImage(req, res, next) {
       {
         role: "assistant",
         content: JSON.stringify(products),
-        model: process.env.AI_VISION_MODEL || CURRENT_MODEL,
+        model: process.env.AI_VISION_MODEL || llmService.getModelName("vision"),
         input_tokens,
         output_tokens
       },
