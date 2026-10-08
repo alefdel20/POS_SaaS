@@ -38,7 +38,7 @@ async function getBusinessContext(businessId, branchId) {
       `SELECT name, stock, stock_minimo, category
        FROM products
        WHERE business_id = $1 AND is_active = TRUE
-         AND stock < stock_minimo AND stock_minimo > 0
+         AND stock <= stock_minimo AND stock_minimo > 0
        ORDER BY (stock - stock_minimo) ASC
        LIMIT 10`,
       [bid]

@@ -1003,9 +1003,10 @@ export function ProductsPage() {
   }, [token, isCashier]);
 
   // El aviso de la lista no sobrevive a un cambio de ruta (alta, reabastecer).
+  // Tampoco a paginar, buscar o cambiar de filtro.
   useEffect(() => {
     setListInfo("");
-  }, [isNewProductRoute, isRestockRoute]);
+  }, [isNewProductRoute, isRestockRoute, page, pageSize, categoryFilter, statusFilter, search, catalogScope]);
 
   // ProductsPage se reutiliza entre rutas: salir de Reabastecer cuenta como desmontar su aviso.
   // (El aviso de "Producto actualizado" se pone en /new justo antes de volver: no se toca aqui.)
@@ -1569,7 +1570,10 @@ export function ProductsPage() {
       }
       setForm(emptyProductState);
       syncBaseline(emptyProductState);
-      clearProductDraft();
+      // Guardar una edicion (o la solicitud del cajero) no toca el borrador de alta.
+      if (!wasEditing) {
+        clearProductDraft();
+      }
       setEditingId(null);
       setImageFile(null);
       setImagePreview(null);
@@ -1839,7 +1843,9 @@ export function ProductsPage() {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (categoryFilter) params.set("category", categoryFilter);
+      if (catalogScope) params.set("catalog_scope", catalogScope);
       if (statusFilter === "activo") params.set("activeOnly", "true");
+      else if (statusFilter === "inactivo") params.set("status", "inactivo");
       if (selectedProductIds.length > 0) params.set("ids", selectedProductIds.join(","));
       const qs = params.toString() ? `?${params.toString()}` : "";
       const blob = await apiDownload(`/products/export/${format}${qs}`, { token });

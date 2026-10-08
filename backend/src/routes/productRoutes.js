@@ -1,6 +1,6 @@
 const express = require("express");
 const controller = require("../controllers/productController");
-const { requireAuth, requireRole } = require("../middleware/authMiddleware");
+const { requireAuth, requireRole, requireStockControl } = require("../middleware/authMiddleware");
 const { uploadProductImage } = require("../middleware/productImageUpload");
 const { uploadProductImportFile } = require("../middleware/productImportUpload");
 const { exportLimiter } = require("../middleware/rateLimiters");
@@ -14,14 +14,14 @@ router.get("/search", requireRole(["superusuario", "superadmin", "admin", "geren
 router.get("/discounts/active", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.listActiveDiscounts);
 router.put("/discounts/:id", requireRole(["superusuario", "superadmin", "admin"]), controller.updateDiscountValidation, controller.updateDiscount);
 router.delete("/discounts/:id", requireRole(["superusuario", "superadmin", "admin"]), controller.idValidation, controller.cancelDiscount);
-router.get("/restock", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockValidation, controller.listRestockProducts);
-router.get("/restock-history", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockHistoryValidation, controller.listRestockHistory);
-router.get("/restock-history/metrics", requireRole(["superusuario", "superadmin", "admin", "gerente"]), controller.restockHistoryValidation, controller.getRestockHistoryMetrics);
+router.get("/restock", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.restockValidation, controller.listRestockProducts);
+router.get("/restock-history", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.restockHistoryValidation, controller.listRestockHistory);
+router.get("/restock-history/metrics", requireRole(["superusuario", "superadmin", "admin", "gerente"]), requireStockControl, controller.restockHistoryValidation, controller.getRestockHistoryMetrics);
 router.get("/stock-adjust-settings", requireAuth, controller.getStockAdjustSettings);
 // Cajero: el servicio exige general_settings.cashier_direct_stock (403 si esta apagado).
-router.patch("/:id/restock", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.idValidation, controller.restockUpdateValidation, controller.restockProduct);
-router.post("/restock/batch", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.restockBatchValidation, controller.restockProductsBatch);
-router.post("/:id/stock-adjustment", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.idValidation, controller.stockAdjustmentValidation, controller.decreaseProductStock);
+router.patch("/:id/restock", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.idValidation, controller.restockUpdateValidation, controller.restockProduct);
+router.post("/restock/batch", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.restockBatchValidation, controller.restockProductsBatch);
+router.post("/:id/stock-adjustment", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.idValidation, controller.stockAdjustmentValidation, controller.decreaseProductStock);
 router.get("/suppliers", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.supplierListValidation, controller.listSuppliers);
 router.get("/categories", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.categoryListValidation, controller.listCategories);
 router.post("/import/preview", requireRole(["superusuario", "superadmin", "admin"]), exportLimiter, uploadProductImportFile, controller.previewProductImport);

@@ -3,7 +3,8 @@ import { Link, Navigate, Outlet } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { Role } from "../types";
-import { getDefaultRouteForRole, hasAnyRole } from "../utils/roles";
+import { getDefaultRouteForUser } from "../utils/navigation";
+import { hasAnyRole } from "../utils/roles";
 
 function ForcedPasswordChange() {
   const { token, refreshUser, logout } = useAuth();
@@ -87,7 +88,7 @@ export function ProtectedRoute({ roles, posTypes }: { roles?: Role[]; posTypes?:
             <h2>Acceso denegado</h2>
             <p className="muted">Tu rol no tiene permisos para usar este modulo clinico u operativo.</p>
             <div className="inline-actions">
-              <Link className="button" to={getDefaultRouteForRole(user.role)}>Ir a mi inicio</Link>
+              <Link className="button" to={getDefaultRouteForUser(user.role, user.pos_type)}>Ir a mi inicio</Link>
             </div>
           </div>
         </div>
@@ -102,7 +103,7 @@ export function ProtectedRoute({ roles, posTypes }: { roles?: Role[]; posTypes?:
           <h2>Acceso denegado</h2>
           <p className="muted">Este modulo no esta disponible para el tipo de POS actual.</p>
           <div className="inline-actions">
-            <Link className="button" to={getDefaultRouteForRole(user.role)}>Ir a mi inicio</Link>
+            <Link className="button" to={getDefaultRouteForUser(user.role, user.pos_type)}>Ir a mi inicio</Link>
           </div>
         </div>
       </div>

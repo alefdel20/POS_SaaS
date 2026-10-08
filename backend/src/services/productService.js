@@ -7,7 +7,7 @@ const { saveAuditLog } = require("./auditLogService");
 const { emitActorAutomationEvent } = require("./automationEventService");
 const productUpdateRequestService = require("./productUpdateRequestService");
 const { isCashierDirectStockEnabled } = require("./profileService");
-const { canUseExpiryDate, canUseIeps, normalizePosType } = require("../utils/business");
+const { canUseExpiryDate, canUseIeps, controlsStock, normalizePosType } = require("../utils/business");
 const { normalizeRole } = require("../utils/roles");
 const { normalizeProductCatalogType } = require("../utils/domainEnums");
 const { getMexicoCityDate } = require("../utils/timezone");
@@ -824,17 +824,22 @@ function mapProductRow(row) {
 
 async function syncLowStockReminderForBusiness(businessId, client = pool) {
   const sourceKey = `auto:stock-low:${businessId}`;
-  const { rows } = await client.query(
-    `SELECT id, name, stock, stock_minimo, stock_maximo
-     FROM products
-     WHERE business_id = $1
-       AND is_active = TRUE
-       AND status = 'activo'
-       AND stock_minimo > 0
-       AND stock <= stock_minimo
-     ORDER BY name ASC`,
-    [businessId]
-  );
+  // Giros sin control de existencias (Restaurante): lista vacia, igual que
+  // reminderService.ensureAutomaticReminders; borra el "STOCK BAJO" si existia.
+  const { rows: businessRows } = await client.query("SELECT pos_type FROM businesses WHERE id = $1", [businessId]);
+  const { rows } = !controlsStock(businessRows[0]?.pos_type)
+    ? { rows: [] }
+    : await client.query(
+      `SELECT id, name, stock, stock_minimo, stock_maximo
+       FROM products
+       WHERE business_id = $1
+         AND is_active = TRUE
+         AND status = 'activo'
+         AND stock_minimo > 0
+         AND stock <= stock_minimo
+       ORDER BY name ASC`,
+      [businessId]
+    );
 
   if (!rows.length) {
     await client.query(
@@ -1623,7 +1628,12 @@ async function listRestockProducts(filters = {}, actor) {
        ${buildStockStatusSql()} AS stock_status,
        ${buildIsLowStockSql()} AS is_low_stock,
        ${buildStockShortageSql()} AS shortage,
-       GREATEST(COALESCE(product_data.stock_maximo, product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0), 0) AS suggested_restock
+       -- Hasta el maximo (o el minimo si el maximo es 0/NULL), nunca por debajo del faltante.
+       GREATEST(
+         COALESCE(NULLIF(product_data.stock_maximo, 0), product_data.stock_minimo, 0) - COALESCE(product_data.stock, 0),
+         ${buildStockShortageSql()},
+         0
+       ) AS suggested_restock
      ${baseQuery}
      ORDER BY
        CASE WHEN ${buildIsLowStockSql()} THEN 0 ELSE 1 END,
@@ -2666,7 +2676,9 @@ async function applyBulkDiscount(productIds, payload, actor) {
 async function exportProductsExcel(filters, actor) {
   const allRows = await listProducts(filters.search || "", {
     category: filters.category,
+    catalog_scope: filters.catalog_scope,
     activeOnly: Boolean(filters.activeOnly),
+    inactiveOnly: Boolean(filters.inactiveOnly),
     page: null
   }, actor);
   const rows = Array.isArray(filters.ids) && filters.ids.length > 0
@@ -2706,7 +2718,9 @@ async function exportProductsPdf(filters, actor) {
   const PDFDocument = require("pdfkit");
   const allRows = await listProducts(filters.search || "", {
     category: filters.category,
+    catalog_scope: filters.catalog_scope,
     activeOnly: Boolean(filters.activeOnly),
+    inactiveOnly: Boolean(filters.inactiveOnly),
     page: null
   }, actor);
   const rows = Array.isArray(filters.ids) && filters.ids.length > 0

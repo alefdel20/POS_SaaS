@@ -336,7 +336,9 @@ const exportProductsExcel = asyncHandler(async (req, res) => {
   const filters = {
     search: req.query.search || undefined,
     category: req.query.category || undefined,
-    activeOnly: req.query.activeOnly === "true" ? true : undefined,
+    catalog_scope: req.query.catalog_scope || undefined,
+    activeOnly: req.query.activeOnly === "true" || req.query.status === "activo" ? true : undefined,
+    inactiveOnly: req.query.status === "inactivo" ? true : undefined,
     ids: req.query.ids ? req.query.ids.split(",").map(Number).filter(Boolean) : undefined
   };
   const { buffer, filename } = await productService.exportProductsExcel(filters, req.user);
@@ -349,7 +351,9 @@ const exportProductsPdf = asyncHandler(async (req, res) => {
   const filters = {
     search: req.query.search || undefined,
     category: req.query.category || undefined,
-    activeOnly: req.query.activeOnly === "true" ? true : undefined,
+    catalog_scope: req.query.catalog_scope || undefined,
+    activeOnly: req.query.activeOnly === "true" || req.query.status === "activo" ? true : undefined,
+    inactiveOnly: req.query.status === "inactivo" ? true : undefined,
     ids: req.query.ids ? req.query.ids.split(",").map(Number).filter(Boolean) : undefined
   };
   const { buffer, filename } = await productService.exportProductsPdf(filters, req.user);

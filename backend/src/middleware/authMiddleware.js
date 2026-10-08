@@ -4,6 +4,7 @@ const ApiError = require("../utils/ApiError");
 const userService = require("../services/userService");
 const { normalizeRole } = require("../utils/roles");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { controlsStock } = require("../utils/business");
 const { assertBusinessAccessAllowed } = require("../services/businessSubscriptionService");
 
 async function requireAuth(req, res, next) {
@@ -121,6 +122,19 @@ function requirePosType(posTypes) {
   };
 }
 
+// Reabastecer / ajustes de existencias: 403 en giros sin control de stock (Restaurante).
+function requireStockControl(req, res, next) {
+  if (!req.user) {
+    return next(new ApiError(401, "Autenticación requerida"));
+  }
+
+  if (!controlsStock(req.user.pos_type)) {
+    return next(new ApiError(403, "Acceso denegado"));
+  }
+
+  next();
+}
+
 function requireClinicalAccess(req, res, next) {
   if (!req.user) {
     return next(new ApiError(401, "Autenticación requerida"));
@@ -138,5 +152,6 @@ module.exports = {
   requireAuth,
   requireRole,
   requirePosType,
+  requireStockControl,
   requireClinicalAccess,
 };

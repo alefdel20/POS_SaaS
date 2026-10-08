@@ -3,6 +3,7 @@ const { requireActorBusinessId } = require("../utils/tenant");
 const { getMexicoCityDate } = require("../utils/timezone");
 const { listRestockProducts, buildIsLowStockSql } = require("./productService");
 const { normalizeRole } = require("../utils/roles");
+const { controlsStock } = require("../utils/business");
 const { getProductUpdateRequestSummary } = require("./productUpdateRequestService");
 const { subjectTranslationJoin } = require("../utils/healthcareSubjectTranslation");
 
@@ -111,7 +112,10 @@ async function getSummary(actor) {
        LIMIT 5`,
       [businessId, today]
     ),
-    listRestockProducts({ lowStockOnly: true, page: 1, pageSize: 10 }, actor),
+    // Giros sin control de existencias (Restaurante): widget vacio, sin consultar Reabastecer.
+    controlsStock(actor?.pos_type)
+      ? listRestockProducts({ lowStockOnly: true, page: 1, pageSize: 10 }, actor)
+      : Promise.resolve({ items: [] }),
     pool.query(
       `SELECT stamps_available, fiscal_rfc, fiscal_business_name, fiscal_regime, fiscal_address
        FROM company_profiles
