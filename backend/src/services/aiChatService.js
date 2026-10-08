@@ -54,20 +54,26 @@ async function getSession(actor, sessionId) {
   return { ...sessionRows[0], messages: messageRows };
 }
 
+// business_id comes from the session row, and the same statement checks that
+// the session belongs to the actor's business: a session id from another
+// business (or a deleted/archived session) inserts nothing.
+const INSERT_SESSION_MESSAGE_SQL =
+  `INSERT INTO ai_chat_messages (business_id, session_id, role, content, tokens_used, created_at)
+   SELECT s.business_id, s.id, $3, $4, $5, NOW()
+   FROM ai_chat_sessions s
+   WHERE s.id = $1 AND s.business_id = $2 AND s.status = 'active'
+   RETURNING *`;
+
 async function addMessage(actor, sessionId, messageData) {
   const businessId = requireActorBusinessId(actor);
-  const { rows } = await pool.query(
-    `INSERT INTO ai_chat_messages
-       (session_id, role, content, tokens_used, created_at)
-     VALUES ($1, $2, $3, $4, NOW())
-     RETURNING *`,
-    [
-      Number(sessionId),
-      messageData.role,
-      messageData.content,
-      messageData.tokens_used || 0
-    ]
-  );
+  const { rows } = await pool.query(INSERT_SESSION_MESSAGE_SQL, [
+    Number(sessionId),
+    businessId,
+    messageData.role,
+    messageData.content,
+    messageData.tokens_used || 0
+  ]);
+  if (!rows[0]) throw new ApiError(404, "Sesión no encontrada.");
   return rows[0];
 }
 
@@ -79,10 +85,11 @@ async function updateTokenUsage(actor, tokensUsed) {
   const month = Number(monthStr);
 
   await pool.query(
-    `INSERT INTO ai_token_usage (business_id, month, year, total_tokens_used, created_at)
-     VALUES ($1, $2, $3, $4, NOW())
+    `INSERT INTO ai_token_usage (business_id, month, year, total_tokens_used)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (business_id, month, year)
-     DO UPDATE SET total_tokens_used = ai_token_usage.total_tokens_used + EXCLUDED.total_tokens_used`,
+     DO UPDATE SET total_tokens_used = ai_token_usage.total_tokens_used + EXCLUDED.total_tokens_used,
+                   updated_at = NOW()`,
     [businessId, month, year, Number(tokensUsed)]
   );
 }
@@ -112,28 +119,27 @@ async function saveAssistantTurn(actor, sessionId, assistantMessage, tokensUsed)
   try {
     await client.query("BEGIN");
 
-    const { rows } = await client.query(
-      `INSERT INTO ai_chat_messages
-         (session_id, role, content, tokens_used, created_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       RETURNING *`,
-      [
-        Number(sessionId),
-        assistantMessage.role,
-        assistantMessage.content,
-        assistantMessage.tokens_used || 0
-      ]
-    );
+    const { rows } = await client.query(INSERT_SESSION_MESSAGE_SQL, [
+      Number(sessionId),
+      businessId,
+      assistantMessage.role,
+      assistantMessage.content,
+      assistantMessage.tokens_used || 0
+    ]);
+    // Thrown inside the transaction: the catch below rolls back before
+    // ai_token_usage is touched.
+    if (!rows[0]) throw new ApiError(404, "Sesión no encontrada.");
 
     const today = getMexicoCityDate();
     const [yearStr, monthStr] = today.split("-");
     const year = Number(yearStr);
     const month = Number(monthStr);
     await client.query(
-      `INSERT INTO ai_token_usage (business_id, month, year, total_tokens_used, created_at)
-       VALUES ($1, $2, $3, $4, NOW())
+      `INSERT INTO ai_token_usage (business_id, month, year, total_tokens_used)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (business_id, month, year)
-       DO UPDATE SET total_tokens_used = ai_token_usage.total_tokens_used + EXCLUDED.total_tokens_used`,
+       DO UPDATE SET total_tokens_used = ai_token_usage.total_tokens_used + EXCLUDED.total_tokens_used,
+                     updated_at = NOW()`,
       [businessId, month, year, Number(tokensUsed)]
     );
 
