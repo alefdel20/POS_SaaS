@@ -8,6 +8,7 @@ const openPayService = require("../services/openPayService");
 const { saveAuditLog } = require("../services/auditLogService");
 const { sendCancellationEmail } = require("../services/emailService");
 const subscriptionService = require("../services/businessSubscriptionService");
+const { requirePremiumPlan } = require("../config/planFeatures");
 
 const cancelValidation = [
   body("reason").optional({ nullable: true, checkFalsy: false }).trim(),
@@ -206,6 +207,13 @@ const alertHoursValidation = [
 
 const updateAlertHours = asyncHandler(async (req, res) => {
   const businessId = requireActorBusinessId(req.user);
+  // Alertas de stock (ankode-agent stockAlerts.js) son Premium o superior; trial
+  // vencido cuenta como Basico (requirePremiumPlan).
+  const touchesStockHours = ["stock_alert_hour_morning", "stock_alert_hour_evening"]
+    .some((field) => req.body?.[field] !== undefined);
+  if (touchesStockHours) {
+    await requirePremiumPlan(businessId);
+  }
   const norm = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
   const stockMorning = norm(req.body.stock_alert_hour_morning);
   const stockEvening = norm(req.body.stock_alert_hour_evening);

@@ -15,7 +15,9 @@ const PLAN_FEATURES = {
     ai_chat: true,
     ai_agents: true,
     sales_reports: true,
-    stock_alerts: false,
+    // ankode-agent (stockAlerts.js) ya envia desde Premium; enforcement de las
+    // horas via requirePremiumPlan() en subscriptionController.updateAlertHours.
+    stock_alerts: true,
     // Premium o superior: WhatsApp agent (recordatorios T-7/T-0, daily digest)
     // esta disponible desde Premium, no solo Enterprise. Enforcement real via
     // requirePremiumPlan() en internalReminderService.js — este flag es

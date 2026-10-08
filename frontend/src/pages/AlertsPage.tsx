@@ -3,6 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { CompanyProfile } from "../types";
 import { normalizeRole } from "../utils/roles";
+import { controlsStock } from "../utils/pos";
 
 const MORNING_OPTIONS = [
   { value: "6", label: "6:00 AM" },
@@ -74,8 +75,10 @@ export function AlertsPage() {
   const [alertConfigLoaded, setAlertConfigLoaded] = useState(false);
 
   const currentRole = normalizeRole(user?.role);
-  const [planName, setPlanName] = useState<string | null>(null);
-  const isPremiumPlan = ["Premium", "Enterprise", "All-Inclusive"].includes(planName || "");
+  // plan_key viene de resolvePlanKey() del backend (substring sobre plan_name),
+  // no de una lista exacta: "Plan Premium Mensual" tambien es premium.
+  const isPremiumPlan = user?.plan_key === "premium" || user?.plan_key === "enterprise";
+  const showStockAlerts = controlsStock(user?.pos_type);
   const canEditAlerts = isPremiumPlan && (currentRole === "admin" || currentRole === "superusuario");
 
   useEffect(() => {
@@ -86,7 +89,6 @@ export function AlertsPage() {
         const response = await apiRequest<CompanyProfile>("/profile", { token });
         if (cancelled) return;
         const sub = response.subscription;
-        setPlanName(sub?.plan_name ?? null);
         setReportHour(sub?.report_hour ?? null);
         setReportWhatsappEnabled(sub?.report_whatsapp_enabled ?? true);
         setReportEmailEnabled(sub?.report_email_enabled ?? false);
@@ -261,8 +263,8 @@ export function AlertsPage() {
         </div>
       </div>
 
-      {/* Sección 2: Alertas de stock bajo */}
-      <div className="panel grid-form">
+      {/* Sección 2: Alertas de stock bajo — oculta en giros sin control de existencias (Restaurante) */}
+      {showStockAlerts ? <div className="panel grid-form">
         <div className="panel-header">
           <div>
             <h2>Alertas de stock bajo</h2>
@@ -304,7 +306,7 @@ export function AlertsPage() {
           </button>
           {alertHoursSaved ? <p className="success-text">Alertas actualizadas correctamente</p> : null}
         </div>
-      </div>
+      </div> : null}
 
       {/* Sección 3: Inventario estancado — umbral configurable + canales, respaldado por alert_configs (antes vivía en Perfil) */}
       <div className="panel grid-form">

@@ -13,6 +13,7 @@ const { TIME_ZONE, getMexicoCityDate, getMexicoCityDateTime } = require("../util
 const { saveAuditLog } = require("./auditLogService");
 const { normalizeRole } = require("../utils/roles");
 const { normalizeFrequency } = require("../utils/fixedExpenseFrequency");
+const { controlsStock } = require("../utils/business");
 const {
   listSubscriptionCalendarEvents,
   syncBusinessPaymentReminder
@@ -746,21 +747,29 @@ async function syncConsolidatedLowStockReminder(products, actor) {
   return upsertAutomaticReminder(buildLowStockReminderPayload(businessId, products, today), actor);
 }
 
+// El actor del scheduler no trae pos_type, asi que se lee del negocio.
+async function businessControlsStock(businessId) {
+  const { rows } = await pool.query("SELECT pos_type FROM businesses WHERE id = $1", [businessId]);
+  return controlsStock(rows[0]?.pos_type);
+}
+
 async function ensureAutomaticReminders(actor) {
   const businessId = getBusinessId(actor);
   const today = getTodayLocalDate();
   const upcomingDate = addDays(today, 3);
   await syncBusinessPaymentReminder(businessId);
-  const [lowStockRows] = await Promise.all([
-    pool.query(
+  // Giros sin control de existencias (Restaurante): sin "STOCK BAJO"; la lista
+  // vacia tambien borra el recordatorio consolidado si ya existia.
+  const lowStockRows = await businessControlsStock(businessId)
+    ? (await pool.query(
       `SELECT id, name, stock, stock_minimo, stock_maximo
        FROM products
        WHERE business_id = $1 AND is_active = TRUE AND status = 'activo' AND stock_minimo > 0 AND stock <= stock_minimo`,
       [businessId]
-    )
-  ]);
+    )).rows
+    : [];
 
-  await syncConsolidatedLowStockReminder(lowStockRows.rows, actor);
+  await syncConsolidatedLowStockReminder(lowStockRows, actor);
 
   // medical_preventive_events was cut over to healthcare.preventive_events
   // (Fase 2) — same translation dashboardService.js uses for its dashboard
@@ -828,6 +837,10 @@ async function ensureLowStockRemindersForProductIds(productIds = [], actor) {
   const normalizedIds = [...new Set(productIds.map(Number).filter(Boolean))];
   if (!normalizedIds.length) {
     await ensureAutomaticReminders(actor);
+    return [];
+  }
+  if (!(await businessControlsStock(businessId))) {
+    await syncConsolidatedLowStockReminder([], actor);
     return [];
   }
   const { rows } = await pool.query(
