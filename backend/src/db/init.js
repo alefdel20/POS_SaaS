@@ -3,7 +3,14 @@ const pool = require("./pool");
 
 const POS_TYPES = ["Tlapaleria", "Tienda", "Farmacia", "Veterinaria", "Papeleria", "Dentista", "FarmaciaConsultorio", "ClinicaChica", "Otro", "Restaurante"];
 const SEED_BUSINESS = { name: "Negocio Semilla", slug: "default" };
-const INIT_VERSION_MARKER = "=== DB INIT VERSION 2026-04-01 FIX 3 ===";
+// IMPORTANTE: incrementar este marcador cada vez que se edite el DDL de este archivo. Se guarda en
+// schema_meta al terminar la migracion; si coincide al arrancar, ensureDatabaseCompatibility() no
+// ejecuta DDL. Sin el incremento, los cambios nuevos de esquema NO se aplican en BDs ya migradas.
+const INIT_VERSION_MARKER = "=== DB INIT VERSION 2026-10-09 LOCK-FIX ===";
+// Clave fija (bigint, forma de un solo argumento) del advisory lock que serializa la migracion entre
+// instancias. Los demas advisory locks del backend usan la forma (int, int), que en Postgres es un
+// espacio de claves distinto, asi que no colisionan. No cambiar: todas las instancias deben usar la misma.
+const SCHEMA_MIGRATION_ADVISORY_LOCK_KEY = "7240259001";
 // Override client-side (pg) query_timeout para statements de migracion que escalan con el
 // tamano de la tabla. Debe ser un numero positivo: pg evalua `config.query_timeout || default`,
 // asi que 0 caeria de vuelta al default del pool (15000). No afecta el SET LOCAL statement_timeout
@@ -4256,18 +4263,68 @@ async function ensureSupportUsers(client) {
   );
 }
 
+// Devuelve la version guardada en schema_meta, o null si la tabla aun no existe.
+async function readAppliedSchemaVersion(db) {
+  const { rows } = await db.query("SELECT to_regclass('public.schema_meta') IS NOT NULL AS has_table");
+  if (!rows[0]?.has_table) {
+    return null;
+  }
+  const result = await db.query("SELECT version FROM schema_meta WHERE id = 1");
+  return result.rows[0]?.version || null;
+}
+
+async function saveAppliedSchemaVersion(client) {
+  await execQuery(
+    client,
+    `CREATE TABLE IF NOT EXISTS schema_meta (
+      id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      version TEXT NOT NULL,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`
+  );
+  await execQuery(
+    client,
+    `INSERT INTO schema_meta (id, version, applied_at) VALUES (1, $1, NOW())
+     ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, applied_at = EXCLUDED.applied_at`,
+    [INIT_VERSION_MARKER]
+  );
+}
+
 async function ensureDatabaseCompatibility() {
+  console.info(INIT_VERSION_MARKER);
+
+  // Camino rapido sin transaccion ni locks fuertes: si el esquema ya esta en esta version no hay DDL que correr.
+  if ((await readAppliedSchemaVersion(pool)) === INIT_VERSION_MARKER) {
+    console.info("[DB-COMPAT] schema_meta up to date, skipping ensureDatabaseCompatibility");
+    return;
+  }
+
   const client = await pool.connect();
 
-  console.info(INIT_VERSION_MARKER);
   console.info("[DB-COMPAT] start ensureDatabaseCompatibility");
 
   try {
     console.info("[DB-COMPAT] BEGIN");
     await execQuery(client, "BEGIN");
 
+    // statement_timeout = 0 antes del advisory lock: la espera mientras otra instancia migra no debe
+    // cortarse por el statement_timeout del pool. El query_timeout del cliente se amplia por la misma razon.
     await execQuery(client, "SET LOCAL statement_timeout = 0");
+    console.info("[DB-COMPAT] waiting for migration advisory lock");
+    await execQuery(
+      client,
+      "SELECT pg_advisory_xact_lock($1::bigint)",
+      [SCHEMA_MIGRATION_ADVISORY_LOCK_KEY],
+      MIGRATION_QUERY_TIMEOUT_MS
+    );
+    // Despues del advisory lock: su espera tambien contaria contra lock_timeout.
     await execQuery(client, "SET LOCAL lock_timeout = 10000");
+
+    if ((await readAppliedSchemaVersion(client)) === INIT_VERSION_MARKER) {
+      console.info("[DB-COMPAT] schema migrated by another instance, skipping DDL");
+      await execQuery(client, "COMMIT");
+      return;
+    }
 
     console.info("[DB-COMPAT] SET TIME ZONE");
     await execQuery(client, "SET TIME ZONE 'America/Mexico_City'");
@@ -4310,6 +4367,9 @@ async function ensureDatabaseCompatibility() {
 
     console.info("[DB-COMPAT] ensureSupportUsers");
     await ensureSupportUsers(client);
+
+    console.info("[DB-COMPAT] save schema_meta version");
+    await saveAppliedSchemaVersion(client);
 
     console.info("[DB-COMPAT] COMMIT");
     await execQuery(client, "COMMIT");
