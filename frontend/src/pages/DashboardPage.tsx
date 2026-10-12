@@ -207,7 +207,13 @@ export function DashboardPage() {
                 <div className="info-card">
                   <p>Timbres disponibles: <strong>{summary === null ? "—" : (summary.stamps_available ?? profile?.stamps_available ?? 0)}</strong></p>
                   <p>Facturación lista: <strong>{summary === null ? "—" : summary.billing_ready ? "Sí" : "No"}</strong></p>
-                  {!profile?.has_fiscal_profile ? <p className="muted">Completa Perfil &gt; Datos fiscales para habilitar facturación.</p> : null}
+                  {!profile?.has_fiscal_profile ? (
+                    <p className="muted">
+                      {role === "gerente"
+                        ? "Pide al administrador que complete los datos fiscales."
+                        : <>Completa Perfil &gt; Datos fiscales para habilitar facturación.</>}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>
