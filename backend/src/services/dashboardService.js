@@ -13,6 +13,28 @@ function toNumber(value) {
   return Number(value || 0);
 }
 
+// Catalog totals of the dashboard cards ("Productos registrados", "Stock actual
+// total", "Valor de productos de la tienda", "Valor del stock actual"). Single
+// source shared with the AI context (aiContextBuilder.js): both report the same
+// numbers. Both values are at cost_price (stock_maximo x cost and stock x cost).
+function buildCatalogTotalsSql(businessParam) {
+  return `COALESCE((SELECT COUNT(*) FROM products WHERE products.business_id = ${businessParam}), 0) AS total_products,
+         COALESCE((SELECT SUM(COALESCE(stock_maximo, 0) * COALESCE(cost_price, 0)) FROM products WHERE products.business_id = ${businessParam}), 0) AS inventory_total_value,
+         COALESCE((SELECT SUM(COALESCE(stock, 0)) FROM products WHERE products.business_id = ${businessParam}), 0) AS total_current_stock,
+         COALESCE((SELECT SUM(COALESCE(stock, 0) * COALESCE(cost_price, 0)) FROM products WHERE products.business_id = ${businessParam}), 0) AS current_stock_total_value`;
+}
+
+async function getCatalogTotals(businessId, client = pool) {
+  const { rows } = await client.query(`SELECT ${buildCatalogTotalsSql("$1")}`, [Number(businessId)]);
+  const row = rows[0] || {};
+  return {
+    total_products: toNumber(row.total_products),
+    total_current_stock: toNumber(row.total_current_stock),
+    current_stock_total_value: toNumber(row.current_stock_total_value),
+    inventory_total_value: toNumber(row.inventory_total_value)
+  };
+}
+
 function isHealthcareVertical(posType) {
   return ["Veterinaria", "Dentista", "Farmacia", "FarmaciaConsultorio", "ClinicaChica"].includes(String(posType || ""));
 }
@@ -85,11 +107,8 @@ async function getSummary(actor) {
          (SELECT total_sales_month FROM sales_month) AS total_sales_month,
          ((SELECT total_sales_month FROM sales_month) - (SELECT total_cost_month FROM sales_month)) AS estimated_profit_month,
          (SELECT pending_credit_balance FROM credit_balance) AS pending_credit_balance,
-         COALESCE((SELECT COUNT(*) FROM products WHERE products.business_id = $1), 0) AS total_products,
+         ${buildCatalogTotalsSql("$1")},
          COALESCE((SELECT COUNT(*) FROM products WHERE products.business_id = $1 AND products.is_active = TRUE AND products.status = 'activo' AND ${buildIsLowStockSql("products")}), 0) AS low_stock_products,
-         COALESCE((SELECT SUM(COALESCE(stock_maximo, 0) * COALESCE(cost_price, 0)) FROM products WHERE products.business_id = $1), 0) AS inventory_total_value,
-         COALESCE((SELECT SUM(COALESCE(stock, 0)) FROM products WHERE products.business_id = $1), 0) AS total_current_stock,
-         COALESCE((SELECT SUM(COALESCE(stock, 0) * COALESCE(cost_price, 0)) FROM products WHERE products.business_id = $1), 0) AS current_stock_total_value,
          COALESCE((SELECT COUNT(*) FROM users WHERE users.business_id = $1 AND is_active = TRUE), 0) AS active_users,
          COALESCE((SELECT COUNT(*) FROM reminders WHERE reminders.business_id = $1 AND is_completed = FALSE), 0) AS pending_reminders`,
       [businessId, today]
@@ -434,4 +453,4 @@ async function getOperationalSummary({ actor, businessId, today, role, isClinica
   };
 }
 
-module.exports = { getSummary };
+module.exports = { getSummary, getCatalogTotals, buildCatalogTotalsSql };

@@ -1,5 +1,6 @@
 const pool = require("../db/pool");
 const { getMexicoCityDate } = require("./timezone");
+const { getCatalogTotals } = require("../services/dashboardService");
 
 async function getBusinessContext(businessId, branchId) {
   const today = getMexicoCityDate();
@@ -14,12 +15,18 @@ async function getBusinessContext(businessId, branchId) {
     suppliers: [],
     monthlyExpenses: [],
     branches: [],
-    branchName: null
+    branchName: null,
+    catalog: null
   };
 
   const bid = Number(businessId);
 
   await Promise.allSettled([
+    // Catálogo: mismos totales que las tarjetas del dashboard (dashboardService.getCatalogTotals)
+    getCatalogTotals(bid).then((totals) => {
+      context.catalog = totals;
+    }),
+
     // Ventas de hoy
     pool.query(
       `SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS revenue
@@ -198,6 +205,15 @@ function buildSystemPrompt(user, businessContext) {
   const suppliers = ctx.suppliers || [];
   const monthlyExpenses = ctx.monthlyExpenses || [];
   const branches = ctx.branches || [];
+  const catalog = ctx.catalog;
+
+  // Ambos valores son a costo (cost_price), igual que el dashboard; ninguno es a precio de venta.
+  const catalogLine = catalog
+    ? `Catálogo: ${catalog.total_products} producto(s) registrados, ${catalog.total_current_stock} unidad(es) en stock (suma de existencias). ` +
+      `Valor del stock actual (existencias × costo; en el dashboard "Valor del stock actual"): $${Number(catalog.current_stock_total_value).toFixed(2)} MXN. ` +
+      `Valor a stock máximo (stock máximo × costo; en el dashboard "Valor de productos de la tienda"): $${Number(catalog.inventory_total_value).toFixed(2)} MXN. ` +
+      `Ambos valores están a costo, no a precio de venta.`
+    : "No hay datos del catálogo disponibles por ahora.";
 
   const salesLine = sales
     ? `Hoy se han registrado ${sales.count} venta(s) por $${Number(sales.revenue).toFixed(2)} MXN.`
@@ -224,7 +240,7 @@ function buildSystemPrompt(user, businessContext) {
     : "Sin ventas registradas en el mes actual.";
 
   const suppliersLine = suppliers.length
-    ? `Proveedores activos (${suppliers.length}): ${suppliers.map((s) => `${s.name} (${s.product_count} producto(s))`).join(", ")}.`
+    ? `Proveedores activos (${suppliers.length}): ${suppliers.map((s) => `${s.name} (${s.product_count} producto(s) ligado(s))`).join(", ")}.`
     : "No hay proveedores activos registrados.";
 
   const expensesLine = monthlyExpenses.length
@@ -246,6 +262,9 @@ function buildSystemPrompt(user, businessContext) {
     lowStockLine,
     topSellersLine,
     creditsLine,
+    ``,
+    `CATÁLOGO:`,
+    catalogLine,
     ``,
     `HISTORIAL DE VENTAS:`,
     weeklyLine,
@@ -273,6 +292,8 @@ function buildSystemPrompt(user, businessContext) {
     `- Puedes informar sobre gastos del mes por categoría.`,
     `- Puedes informar sobre sucursales del negocio.`,
     `- Si el usuario pregunta sobre ventas, inventario, clientes o finanzas, usa el contexto anterior.`,
+    `- Para cuántos productos hay, cuántas unidades hay en stock o cuánto vale el inventario, usa SOLO la sección CATÁLOGO; nunca uses ni sumes los productos ligados a proveedores.`,
+    `- Los dos valores del catálogo están a costo: "valor del stock actual" son las existencias de hoy y "valor a stock máximo" es el inventario lleno. No tienes el valor a precio de venta; si te lo piden, dilo.`,
     `- NO puedes modificar ningún dato del sistema — eres solo lectura.`,
     `- NO respondas sobre política, entretenimiento, deportes u otros temas ajenos al negocio.`,
     `- NO inventes datos — si no tienes la información, dilo claramente y sugiere qué acción tomar en el sistema.`
