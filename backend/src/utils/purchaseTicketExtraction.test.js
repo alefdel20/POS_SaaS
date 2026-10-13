@@ -101,12 +101,13 @@ test("vision anthropic: sin streaming, sin tools, solo prompt de sistema e image
   const body = JSON.parse(calls[0].init.body);
   assert.deepEqual(Object.keys(body).sort(), ["max_tokens", "messages", "model", "output_config", "system"]);
   assert.equal(body.model, "claude-haiku-5-5");
-  assert.equal(body.max_tokens, 4096);
+  // Own limit for vision, above the shared AI_MAX_TOKENS (4096).
+  assert.equal(body.max_tokens, 8192);
   assert.equal(body.stream, undefined);
   assert.equal(body.tools, undefined);
   assert.equal(body.tool_choice, undefined);
   assert.equal(body.system, TICKET_SYSTEM_PROMPT);
-  assert.deepEqual(body.output_config, { format: { type: "json_schema", schema: TICKET_JSON_SCHEMA } });
+  assert.deepEqual(body.output_config, { effort: "low", format: { type: "json_schema", schema: TICKET_JSON_SCHEMA } });
   // The user turn is the image alone: no text block that could carry instructions.
   assert.equal(body.messages.length, 1);
   assert.equal(body.messages[0].role, "user");
@@ -148,24 +149,27 @@ test("la extraccion exige AI_PROVIDER_VISION=anthropic (deepseek no tiene salida
 
 // ─── Model stop reasons and invalid JSON: explicit errors, never [] ───────────
 
-test("refusal: error AI_REFUSAL", async () => {
+// Errors after the API answered keep the billed tokens for the caller.
+const billed = (code) => (err) => err.code === code && err.input_tokens === 1500 && err.output_tokens === 180;
+
+test("refusal: error AI_REFUSAL con tokens", async () => {
   mockFetch(() => anthropicMessage({ text: "", stopReason: "refusal", stopDetails: { type: "refusal", category: null, explanation: null } }));
-  await assert.rejects(extractPurchaseTicket(PNG_BYTES, "image/png"), (err) => err.code === "AI_REFUSAL");
+  await assert.rejects(extractPurchaseTicket(PNG_BYTES, "image/png"), billed("AI_REFUSAL"));
 });
 
-test("max_tokens: error AI_MAX_TOKENS sin intentar leer el JSON cortado", async () => {
+test("max_tokens: error AI_MAX_TOKENS con tokens, sin intentar leer el JSON cortado", async () => {
   mockFetch(() => anthropicMessage({ text: "{\"supplier_name\": \"Abarr", stopReason: "max_tokens" }));
-  await assert.rejects(extractPurchaseTicket(PNG_BYTES, "image/png"), (err) => err.code === "AI_MAX_TOKENS");
+  await assert.rejects(extractPurchaseTicket(PNG_BYTES, "image/png"), billed("AI_MAX_TOKENS"));
 });
 
-test("respuesta que no es JSON: error AI_INVALID_JSON", async () => {
+test("respuesta que no es JSON: error AI_INVALID_JSON con tokens", async () => {
   mockFetch(() => anthropicMessage({ text: "Claro, aquí está el ticket: Leche x12" }));
-  await assert.rejects(extractPurchaseTicket(PNG_BYTES, "image/png"), (err) => err.code === "AI_INVALID_JSON");
+  await assert.rejects(extractPurchaseTicket(PNG_BYTES, "image/png"), billed("AI_INVALID_JSON"));
 });
 
-test("JSON valido pero fuera del esquema: error TICKET_SCHEMA_INVALID, nunca []", async () => {
+test("JSON valido pero fuera del esquema: error TICKET_SCHEMA_INVALID con tokens, nunca []", async () => {
   mockFetch(() => anthropicMessage({ text: "[]" }));
-  await assert.rejects(extractPurchaseTicket(PNG_BYTES, "image/png"), (err) => err.code === "TICKET_SCHEMA_INVALID");
+  await assert.rejects(extractPurchaseTicket(PNG_BYTES, "image/png"), billed("TICKET_SCHEMA_INVALID"));
 });
 
 test("error de la API: mensaje sin la imagen", async () => {

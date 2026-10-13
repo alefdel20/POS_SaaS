@@ -1,6 +1,9 @@
 // Shared by every provider adapter in this folder (moved verbatim from llmService.js).
 const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS) || 60000;
 const AI_MAX_TOKENS = parseInt(process.env.AI_MAX_TOKENS) || 4096;
+// Claude vision only (ticket extraction): adaptive thinking spends from this
+// budget too, so it gets its own, larger limit.
+const AI_VISION_MAX_TOKENS = parseInt(process.env.AI_VISION_MAX_TOKENS) || 8192;
 
 function makeAbortController() {
   const controller = new AbortController();
@@ -8,4 +11,4 @@ function makeAbortController() {
   return { controller, timer };
 }
 
-module.exports = { AI_TIMEOUT_MS, AI_MAX_TOKENS, makeAbortController };
+module.exports = { AI_TIMEOUT_MS, AI_MAX_TOKENS, AI_VISION_MAX_TOKENS, makeAbortController };

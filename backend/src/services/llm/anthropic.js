@@ -8,7 +8,7 @@
 //   - role "tool" messages -> tool_result blocks, one user message per round
 // The SDK reads ANTHROPIC_API_KEY from the environment.
 const AnthropicSdk = require("@anthropic-ai/sdk");
-const { AI_MAX_TOKENS, makeAbortController } = require("./config");
+const { AI_MAX_TOKENS, AI_VISION_MAX_TOKENS, makeAbortController } = require("./config");
 
 const Anthropic = AnthropicSdk.default || AnthropicSdk;
 
@@ -177,11 +177,15 @@ async function* streamAnthropic(messages, options) {
 // instruction; the user turn carries the image alone, so text inside the
 // image is never placed in an instruction position. output_config.format
 // constrains the reply to `schema`; the caller still validates ranges.
+// Transcription needs little reasoning: effort "low" keeps thinking short
+// (supported by the default claude-haiku-5-5; Haiku 4.5 has no effort).
+// Errors raised after the API answered carry input_tokens/output_tokens so
+// the caller can still bill them.
 async function analyzeImageAnthropic(base64Image, mimeType, options) {
   const { controller, timer } = makeAbortController();
   const params = {
     model: options.model,
-    max_tokens: AI_MAX_TOKENS,
+    max_tokens: AI_VISION_MAX_TOKENS,
     system: options.system,
     messages: [
       {
@@ -189,11 +193,18 @@ async function analyzeImageAnthropic(base64Image, mimeType, options) {
         content: [{ type: "image", source: { type: "base64", media_type: mimeType, data: base64Image } }]
       }
     ],
-    output_config: { format: { type: "json_schema", schema: options.schema } }
+    output_config: { effort: "low", format: { type: "json_schema", schema: options.schema } }
   };
 
   try {
     const message = await getClient().messages.create(params, { signal: controller.signal });
+    const usage = message.usage || {};
+    const tokens = {
+      input_tokens: (usage.input_tokens || 0)
+        + (usage.cache_creation_input_tokens || 0)
+        + (usage.cache_read_input_tokens || 0),
+      output_tokens: usage.output_tokens || 0
+    };
 
     if (message.stop_reason === "refusal") {
       console.warn(
@@ -201,7 +212,7 @@ async function analyzeImageAnthropic(base64Image, mimeType, options) {
       );
       const refusal = new Error("El modelo de IA no pudo responder esta solicitud.");
       refusal.code = "AI_REFUSAL";
-      throw refusal;
+      throw Object.assign(refusal, tokens);
     }
 
     // Cut off at max_tokens: the JSON is incomplete, never parse it.
@@ -209,7 +220,7 @@ async function analyzeImageAnthropic(base64Image, mimeType, options) {
       console.warn(`[AI] anthropic vision max_tokens: model=${message.model}`);
       const truncated = new Error("La respuesta del modelo de IA se cortó por límite de tokens.");
       truncated.code = "AI_MAX_TOKENS";
-      throw truncated;
+      throw Object.assign(truncated, tokens);
     }
 
     const text = (message.content || [])
@@ -222,17 +233,10 @@ async function analyzeImageAnthropic(base64Image, mimeType, options) {
     } catch {
       const invalid = new Error("La respuesta del modelo de visión no es JSON válido.");
       invalid.code = "AI_INVALID_JSON";
-      throw invalid;
+      throw Object.assign(invalid, tokens);
     }
 
-    const usage = message.usage || {};
-    return {
-      data,
-      input_tokens: (usage.input_tokens || 0)
-        + (usage.cache_creation_input_tokens || 0)
-        + (usage.cache_read_input_tokens || 0),
-      output_tokens: usage.output_tokens || 0
-    };
+    return { data, ...tokens };
   } catch (err) {
     if (err instanceof Anthropic.APIUserAbortError) {
       throw new Error("La solicitud al modelo de visión excedió el tiempo límite.");

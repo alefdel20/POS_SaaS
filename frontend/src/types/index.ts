@@ -947,6 +947,7 @@ export interface CompanyProfile {
   prescription_template?: "clasico" | "moderno" | "compacto" | "personalizado";
   printer_name?: string | null;
   cashier_direct_stock?: boolean;
+  ticket_ai_enabled?: boolean;
   bank_name?: string | null;
   bank_clabe?: string | null;
   bank_beneficiary?: string | null;

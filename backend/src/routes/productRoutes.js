@@ -4,6 +4,11 @@ const { requireAuth, requireRole, requireStockControl } = require("../middleware
 const { uploadProductImage } = require("../middleware/productImageUpload");
 const { uploadProductImportFile } = require("../middleware/productImportUpload");
 const { exportLimiter } = require("../middleware/rateLimiters");
+const { requirePurchaseTicketAccess } = require("../middleware/purchaseTicketAccess");
+const { requireAiAccess } = require("../middleware/aiAuth");
+const aiRateLimiter = require("../middleware/aiRateLimiter");
+const { uploadTicketImage } = require("../middleware/ticketImageUpload");
+const purchaseTicketController = require("../controllers/purchaseTicketController");
 
 const router = express.Router();
 
@@ -21,6 +26,8 @@ router.get("/stock-adjust-settings", requireAuth, controller.getStockAdjustSetti
 // Cajero: el servicio exige general_settings.cashier_direct_stock (403 si esta apagado).
 router.patch("/:id/restock", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.idValidation, controller.restockUpdateValidation, controller.restockProduct);
 router.post("/restock/batch", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.restockBatchValidation, controller.restockProductsBatch);
+// Cargar ticket, solo vista previa: plan Premium+, ticket_ai_enabled, cajero con cashier_direct_stock, cuota IA.
+router.post("/restock/ticket/extract", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, requirePurchaseTicketAccess, requireAiAccess, aiRateLimiter, uploadTicketImage, purchaseTicketController.extractRestockTicket);
 router.post("/:id/stock-adjustment", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.idValidation, controller.stockAdjustmentValidation, controller.decreaseProductStock);
 router.get("/suppliers", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.supplierListValidation, controller.listSuppliers);
 router.get("/categories", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.categoryListValidation, controller.listCategories);

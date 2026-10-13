@@ -2,6 +2,7 @@ const ExcelJS = require("exceljs");
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
+const { normalizeLookup } = require("../utils/textLookup");
 const productService = require("./productService");
 const { SALE_UNIT_SYNONYMS, normalizeUnitSynonym } = require("../constants/saleUnits");
 
@@ -18,16 +19,8 @@ const SUPPLIER_CATALOG_COLUMN_ALIASES = {
   min_order_qty: ["minimo", "mínimo", "pedido minimo", "pedido mínimo", "min order", "min order qty"]
 };
 
-function stripAccents(value) {
-  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
 function normalizeHeader(value) {
-  return stripAccents(String(value || ""))
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizeLookup(value);
 }
 
 function normalizeCell(value) {
@@ -37,10 +30,6 @@ function normalizeCell(value) {
 
 function normalizeText(value) {
   return normalizeCell(value);
-}
-
-function normalizeLookup(value) {
-  return normalizeHeader(value);
 }
 
 function detectColumn(header) {

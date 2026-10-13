@@ -159,8 +159,16 @@ async function extractPurchaseTicket(buffer, mimeType) {
     { system: TICKET_SYSTEM_PROMPT, schema: TICKET_JSON_SCHEMA }
   );
 
+  let ticket;
+  try {
+    ticket = validateTicketExtraction(data);
+  } catch (error) {
+    // The call was billed: keep the tokens on the error for the caller.
+    throw Object.assign(error, { input_tokens, output_tokens });
+  }
+
   return {
-    ticket: validateTicketExtraction(data),
+    ticket,
     model: llmService.getModelName("vision"),
     input_tokens,
     output_tokens

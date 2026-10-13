@@ -10,9 +10,9 @@ const { getBusinessSubscriptionSummary } = require("./businessSubscriptionServic
 const PROFILE_FULL_ROLES = ["superusuario", "admin"];
 const PROFILE_FIELDS_BY_ROLE = {
   // Ticket (SalesPage), prellenado de factura y tema (App.tsx).
-  cajero: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "cashier_direct_stock"],
+  cajero: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "cashier_direct_stock", "ticket_ai_enabled"],
   // Ticket (SalesPage), tema (App.tsx) y bloque fiscal/timbres del Dashboard. Sin banco ni subscription.
-  gerente: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "has_fiscal_profile", "stamps_available", "billing_ready"],
+  gerente: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "has_fiscal_profile", "stamps_available", "billing_ready", "ticket_ai_enabled"],
   // Expediente completo del Carnet (CarnetPage) y tema.
   clinico: ["company_name", "theme", "accent_palette", "business_image_path", "signature_image_path"]
 };
@@ -52,6 +52,7 @@ function mapProfile(profile, subscription = null) {
       : "clasico",
     printer_name: generalSettings.printer_name || null,
     cashier_direct_stock: generalSettings.cashier_direct_stock === true,
+    ticket_ai_enabled: generalSettings.ticket_ai_enabled === true,
     bank_name: profile.bank_name,
     bank_clabe: profile.bank_clabe,
     bank_beneficiary: profile.bank_beneficiary,
@@ -127,6 +128,13 @@ async function ensureDefaultProfile(actor, client = pool) {
 async function isCashierDirectStockEnabled(actor, client = pool) {
   const profile = await getDefaultProfile(actor, client);
   return profile?.general_settings?.cashier_direct_stock === true;
+}
+
+// Interruptor por negocio: "Cargar ticket" con IA. Solo se enciende por SQL
+// (general_settings.ticket_ai_enabled); sin perfil o sin la llave = false.
+async function isTicketAiEnabled(actor, client = pool) {
+  const profile = await getDefaultProfile(actor, client);
+  return profile?.general_settings?.ticket_ai_enabled === true;
 }
 
 async function getProfile(actor) {
@@ -393,4 +401,4 @@ async function removeProfileAsset(assetType, actor) {
   }
 }
 
-module.exports = { getProfile, getDoctorProfile, updateDoctorProfile, updateProfileSection, uploadProfileAsset, removeProfileAsset, isCashierDirectStockEnabled };
+module.exports = { getProfile, getDoctorProfile, updateDoctorProfile, updateProfileSection, uploadProfileAsset, removeProfileAsset, isCashierDirectStockEnabled, isTicketAiEnabled };

@@ -4,6 +4,7 @@ import { apiRequest, apiDownload } from "../api/client";
 import { API_BASE_URL } from "../api/config";
 import { useAuth } from "../context/AuthContext";
 import type {
+  CompanyProfile,
   PaginatedProductsResponse,
   Product,
   ProductImportConfirmResponse,
@@ -58,6 +59,7 @@ import { ExtraSuppliersModal } from "../components/products/SuppliersEditor";
 import { ProductForm } from "../components/products/ProductForm";
 import { ProductsTable } from "../components/products/ProductsTable";
 import { StockAdjustDialog, type StockAdjustProduct } from "../components/products/StockAdjustDialog";
+import { TicketUploadModal } from "../components/products/TicketUploadModal";
 
 type RestockRowFeedback = {
   status: "success" | "error";
@@ -199,6 +201,13 @@ export function ProductsPage() {
   const [cashierDirectStock, setCashierDirectStock] = useState(false);
   // Solo en giros que controlan stock: en el resto el cajero queda exactamente como hoy.
   const cashierDirectStockActive = isCashier && cashierDirectStock && showStockStatus;
+  // "Cargar ticket" (solo vista previa): plan Premium o Enterprise y el interruptor
+  // ticket_ai_enabled del perfil (se enciende por SQL). Mientras carga o si falla: oculto.
+  const hasTicketAiPlan = user?.plan_key === "premium" || user?.plan_key === "enterprise";
+  const [ticketAiEnabled, setTicketAiEnabled] = useState(false);
+  const [showTicketModal, setShowTicketModal] = useState(false);
+  // El backend exige cashier_direct_stock al cajero: sin el, el boton no sirve y no se muestra.
+  const canUseTicketAi = hasTicketAiPlan && ticketAiEnabled && showStockStatus && (!isCashier || cashierDirectStock);
   // Cajero sin ajuste directo: sigue con solicitudes de cambio (comportamiento previo).
   const usesRequestFlow = isCashier && !cashierDirectStockActive;
   const canDecreaseStock = hasAnyRole(user?.role, ROUTE_ROLES.gerente) || cashierDirectStockActive;
@@ -1001,6 +1010,21 @@ export function ProductsPage() {
       cancelled = true;
     };
   }, [token, isCashier]);
+
+  useEffect(() => {
+    if (!token || !isRestockRoute || !hasTicketAiPlan) return undefined;
+    let cancelled = false;
+    apiRequest<CompanyProfile>("/profile", { token })
+      .then((profile) => {
+        if (!cancelled) setTicketAiEnabled(profile.ticket_ai_enabled === true);
+      })
+      .catch(() => {
+        if (!cancelled) setTicketAiEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, isRestockRoute, hasTicketAiPlan]);
 
   // El aviso de la lista no sobrevive a un cambio de ruta (alta, reabastecer).
   // Tampoco a paginar, buscar o cambiar de filtro.
@@ -2046,6 +2070,9 @@ export function ProductsPage() {
 	                ? (usesRequestFlow ? "Enviando lote..." : "Guardando lote...")
 	                : hasRestockDraftChanges ? `Guardar todos (${validRestockDraftEntries.length})` : "Guardar todos"}
 	            </button>
+	            {canUseTicketAi ? (
+	              <button className="button ghost" onClick={() => setShowTicketModal(true)} type="button">Cargar ticket</button>
+	            ) : null}
 	            <div className="total-box secondary compact-box">
 	              <span>{usesRequestFlow ? "Solicitudes" : "Productos"}</span>
 	              <strong>{restockTotalItems}</strong>
@@ -2353,6 +2380,10 @@ export function ProductsPage() {
           returnFocusTo={stockAdjustOpenerRef.current}
           token={token}
         />
+      ) : null}
+
+      {showTicketModal && canUseTicketAi && isRestockRoute && token ? (
+        <TicketUploadModal hideCosts={isCashier} onClose={() => setShowTicketModal(false)} token={token} />
       ) : null}
 
       {showImportModal ? (
