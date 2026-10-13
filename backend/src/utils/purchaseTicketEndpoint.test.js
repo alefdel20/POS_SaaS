@@ -21,7 +21,8 @@ const express = require("express");
 const pool = require("../db/pool");
 const productRoutes = require("../routes/productRoutes");
 const { normalizeLookup, stripAccents } = require("./textLookup");
-const { rankSupplierCandidates, buildMatchContext, matchLine, stripLegalSuffix } = require("../services/purchaseTicketMatchService");
+const { rankSupplierCandidates, buildMatchContext, matchLine, stripLegalSuffix, SIMILARITY_MATCH, SIMILARITY_SUGGEST } = require("../services/purchaseTicketMatchService");
+const { parseTicketText, similarityScore } = require("./ticketLineSimilarity");
 
 // ─── Fake Anthropic ──────────────────────────────────────────────────────────
 
@@ -424,4 +425,100 @@ test("clave ambigua (dos productos): sin match, ambos como sugerencia", () => {
   const result = matchLine({ name: "Botella", sku: "AG", barcode: "750" }, context);
   assert.equal(result.match, null);
   assert.deepEqual(result.suggestions.map((s) => s.product_id), [1, 2]);
+});
+
+// ─── Name similarity (ticket text vs. catalog name) ─────────────────────────
+
+test("normalizacion de ticket: unidad pegada, sinonimos y palabras vacias", () => {
+  const coca = parseTicketText("COCA COLA 600ml");
+  assert.deepEqual([...coca.words], ["coca", "cola"]);
+  assert.deepEqual(coca.sizes, [{ num: 600, unit: "ml" }]);
+  assert.deepEqual(parseTicketText("Agua 1L").sizes, [{ num: 1, unit: "l" }]);
+  assert.deepEqual(parseTicketText("Agua 1 litro").sizes, [{ num: 1, unit: "l" }]);
+  assert.deepEqual(parseTicketText("Leche 1,5 LTS").sizes, [{ num: 1.5, unit: "l" }]);
+  assert.deepEqual(parseTicketText("Frijol 900gr").sizes, [{ num: 900, unit: "g" }]);
+  assert.deepEqual(parseTicketText("Jabon 3 piezas").sizes, [{ num: 3, unit: "pza" }]);
+  assert.deepEqual([...parseTicketText("Cafe de la olla con canela c azucar").words], ["cafe", "olla", "canela", "azucar"]);
+});
+
+const SIMILAR_CATALOG = [
+  { id: 1, name: "Coca cola 600 ml ret", sku: null, barcode: null },
+  { id: 2, name: "Coca cola 550", sku: null, barcode: null },
+  { id: 3, name: "Sabritas Naturales", sku: null, barcode: null },
+  { id: 4, name: "Coca cola 1 l ret", sku: null, barcode: null }
+];
+
+function scoreOf(rawName, productName) {
+  return similarityScore(parseTicketText(rawName), parseTicketText(productName));
+}
+
+test("COCA COLA 600ml: match con 600 ml ret, nunca con 550 ni con 1 l", () => {
+  assert.ok(scoreOf("COCA COLA 600ml", "Coca cola 600 ml ret") > SIMILARITY_MATCH);
+  assert.equal(scoreOf("COCA COLA 600ml", "Coca cola 550"), 0);
+  assert.equal(scoreOf("COCA COLA 600ml", "Coca cola 1 l ret"), 0);
+
+  const result = matchLine({ name: "COCA COLA 600ml" }, buildMatchContext(SIMILAR_CATALOG, []));
+  assert.deepEqual(result.match, { product_id: 1, name: "Coca cola 600 ml ret", sku: null, confidence: 0.75, method: "name" });
+  assert.deepEqual(result.suggestions, []);
+
+  // Only the 550 in the catalog: no match and no suggestion.
+  const only550 = matchLine({ name: "COCA COLA 600ml" }, buildMatchContext([SIMILAR_CATALOG[1]], []));
+  assert.equal(only550.match, null);
+  assert.deepEqual(only550.suggestions, []);
+});
+
+test("NATURALES 200g y PAPAS SABRITAS: sugerencia de Sabritas Naturales, sin match", () => {
+  const context = buildMatchContext(SIMILAR_CATALOG, []);
+  for (const name of ["NATURALES 200g", "PAPAS SABRITAS"]) {
+    const score = scoreOf(name, "Sabritas Naturales");
+    assert.ok(score >= SIMILARITY_SUGGEST && score <= SIMILARITY_MATCH, `${name}: ${score}`);
+    const result = matchLine({ name }, context);
+    assert.equal(result.match, null);
+    assert.deepEqual(result.suggestions.map((s) => s.product_id), [3]);
+  }
+});
+
+test("mismo producto en dos tamanos: cada tamano va a su producto", () => {
+  const context = buildMatchContext([
+    { id: 1, name: "Coca Cola 600 ml", sku: null, barcode: null },
+    { id: 2, name: "Coca Cola 2 L", sku: null, barcode: null }
+  ], []);
+  assert.equal(matchLine({ name: "COCA COLA 2LT" }, context).match.product_id, 2);
+  assert.equal(matchLine({ name: "COCA-COLA 600 ML" }, context).match.product_id, 1);
+  // No size on the ticket: both fit equally, so suggestions, never a guess.
+  const noSize = matchLine({ name: "COCA COLA" }, context);
+  assert.equal(noSize.match, null);
+  assert.deepEqual(noSize.suggestions.map((s) => s.product_id), [1, 2]);
+});
+
+test("por debajo de 0.4 nada; sugerencias maximo 3 ordenadas por puntaje", () => {
+  const context = buildMatchContext([
+    { id: 1, name: "Galletas Maria chocolate", sku: null, barcode: null },
+    { id: 2, name: "Galletas Maria", sku: null, barcode: null },
+    { id: 3, name: "Galletas Maria canela", sku: null, barcode: null },
+    { id: 4, name: "Maria galletas mini", sku: null, barcode: null },
+    { id: 5, name: "Galletas Maria integrales light", sku: null, barcode: null }
+  ], []);
+  // 0.5 (id 2), then 0.417 x3 by id (1, 3; 4 cut by the cap); id 5 is 0.375.
+  const result = matchLine({ name: "MARIA SURTIDO 170g" }, context);
+  assert.equal(result.match, null);
+  assert.deepEqual(result.suggestions.map((s) => s.product_id), [2, 1, 3]);
+  assert.ok(scoreOf("MARIA SURTIDO 170g", "Galletas Maria integrales light") < SIMILARITY_SUGGEST);
+  // A clear winner above 0.8 is a match, even with close relatives around.
+  assert.equal(matchLine({ name: "GALLETAS MARIA 170g" }, context).match.product_id, 2);
+});
+
+test("similitud por endpoint: solo productos del negocio del actor", async () => {
+  resetDb();
+  fetchCalls = 0;
+  // Business 7 also has "Atun en agua" (id 91); only business 6's (id 5) may appear.
+  anthropicReply({ ...TICKET, lines: [
+    { name: "ATUN AGUA 140g", qty: 4, unit_cost: 18, sku: null, barcode: null },
+    { name: "GALLETAS MARIA", qty: 2, unit_cost: 12, sku: null, barcode: null }
+  ] });
+  const { status, json } = await extract({ role: "admin" });
+  assert.equal(status, 200);
+  assert.deepEqual(json.lines[0].match, { product_id: 5, name: "Atun en agua", sku: "ATU-AG", confidence: 0.75, method: "name" });
+  const ids = json.lines.flatMap((line) => [line.match?.product_id, ...line.suggestions.map((s) => s.product_id)]).filter(Boolean);
+  for (const id of ids) assert.ok(PRODUCTS.some((p) => p.id === id && p.business_id === 6), `producto ${id}`);
 });

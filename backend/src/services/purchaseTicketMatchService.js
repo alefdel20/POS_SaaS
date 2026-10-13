@@ -5,14 +5,20 @@
 const pool = require("../db/pool");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { normalizeLookup } = require("../utils/textLookup");
+const { parseTicketText, similarityScore } = require("../utils/ticketLineSimilarity");
 
 const MAX_SUPPLIER_CANDIDATES = 3;
 const MAX_SUGGESTIONS = 3;
-// Shared-word similarity (Dice) below this gives no suggestion.
-const SIMILARITY_THRESHOLD = 0.5;
+// Name similarity: above SIMILARITY_MATCH (and SIMILARITY_MARGIN clear of the
+// runner-up) it is a match; from SIMILARITY_SUGGEST up only a suggestion.
+const SIMILARITY_MATCH = 0.8;
+const SIMILARITY_MARGIN = 0.1;
+const SIMILARITY_SUGGEST = 0.4;
 
 const SUPPLIER_CONFIDENCE = { exact: 1, normalized: 0.9, contains: 0.6 };
-const MATCH_CONFIDENCE = { barcode: 1, supplier_code: 0.95, sku: 0.9, supplier_name: 0.85, name: 0.8 };
+// similar is reported as method "name" (the method set the UI knows) with a
+// confidence below an exact name match.
+const MATCH_CONFIDENCE = { barcode: 1, supplier_code: 0.95, sku: 0.9, supplier_name: 0.85, name: 0.8, similar: 0.75 };
 
 // Legal-entity suffixes, already in normalizeLookup form ("S.A. de C.V." ->
 // "s a de c v"). Longest first so "s a de c v" wins over "s a".
@@ -74,10 +80,6 @@ function pushIndex(map, key, productId) {
   map.set(key, ids);
 }
 
-function tokenize(key) {
-  return new Set(key.split(" ").filter((word) => word.length >= 2));
-}
-
 function buildMatchContext(products, catalogRows) {
   const productsById = new Map();
   const byBarcode = new Map();
@@ -91,7 +93,7 @@ function buildMatchContext(products, catalogRows) {
     pushIndex(bySku, normalizeLookup(product.sku), id);
     const nameKey = normalizeLookup(product.name);
     pushIndex(byName, nameKey, id);
-    tokens.push({ id, words: tokenize(nameKey) });
+    tokens.push({ id, text: parseTicketText(product.name) });
   }
 
   // Catalog rows count only when they point to a product loaded above
@@ -112,19 +114,23 @@ function productRef(product) {
   return { product_id: Number(product.id), name: product.name, sku: product.sku || null };
 }
 
-function similarProducts(nameKey, context, excluded) {
-  const words = tokenize(nameKey);
-  if (!words.size) return [];
+// [{ id, score }] at or above SIMILARITY_SUGGEST, best first.
+function similarProducts(rawName, context, excluded) {
+  const ticket = parseTicketText(rawName);
+  if (!ticket.words.size) return [];
   const scored = [];
-  for (const { id, words: productWords } of context.tokens) {
-    if (excluded.has(id) || !productWords.size) continue;
-    let shared = 0;
-    for (const word of words) if (productWords.has(word)) shared += 1;
-    if (!shared) continue;
-    const score = (2 * shared) / (words.size + productWords.size);
-    if (score >= SIMILARITY_THRESHOLD) scored.push({ id, score });
+  for (const { id, text } of context.tokens) {
+    if (excluded.has(id)) continue;
+    const score = similarityScore(ticket, text);
+    if (score >= SIMILARITY_SUGGEST) scored.push({ id, score });
   }
-  return scored.sort((a, b) => b.score - a.score || a.id - b.id).map((entry) => entry.id);
+  return scored.sort((a, b) => b.score - a.score || a.id - b.id);
+}
+
+// Only a single clear winner above SIMILARITY_MATCH becomes a match.
+function isClearWinner(scored) {
+  const [best, second] = scored;
+  return Boolean(best) && best.score > SIMILARITY_MATCH && (!second || best.score - second.score >= SIMILARITY_MARGIN);
 }
 
 // Exact methods in priority order. A key shared by several products is
@@ -151,7 +157,13 @@ function matchLine(line, context) {
     for (const id of ids) if (!ambiguous.includes(id)) ambiguous.push(id);
   }
 
-  const suggestionIds = [...ambiguous, ...similarProducts(nameKey, context, new Set(ambiguous))];
+  const similar = similarProducts(line.name, context, new Set(ambiguous));
+  if (!ambiguous.length && isClearWinner(similar)) {
+    const product = context.productsById.get(similar[0].id);
+    return { match: { ...productRef(product), confidence: MATCH_CONFIDENCE.similar, method: "name" }, suggestions: [] };
+  }
+
+  const suggestionIds = [...ambiguous, ...similar.map((entry) => entry.id)];
   return {
     match: null,
     suggestions: suggestionIds.slice(0, MAX_SUGGESTIONS).map((id) => productRef(context.productsById.get(id)))
@@ -220,7 +232,8 @@ async function buildTicketPreview(actor, ticket, { imageSha256, hideCosts }) {
 }
 
 module.exports = {
-  SIMILARITY_THRESHOLD,
+  SIMILARITY_MATCH,
+  SIMILARITY_SUGGEST,
   stripLegalSuffix,
   rankSupplierCandidates,
   buildMatchContext,
