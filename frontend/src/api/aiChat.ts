@@ -99,7 +99,9 @@ export function apiStreamChat(
           }
         }
       }
-      onDone(0, null);
+      // The server always ends with done or error: a stream closed without
+      // either was cut off (network, proxy timeout), not a finished answer.
+      onError("La respuesta se interrumpió, intenta de nuevo.");
     } catch (err: unknown) {
       if ((err as any)?.name !== "AbortError") {
         onError("Error al leer la respuesta del servidor.");

@@ -12,8 +12,8 @@ interface Props {
   loadingMessages: boolean;
   error: string;
   selectSession: (id: number) => Promise<void>;
-  startNewSession: (title?: string) => Promise<void>;
-  sendMessage: (content: string) => void;
+  startNewSession: (title?: string) => Promise<number | null>;
+  sendMessage: (content: string, sessionId?: number) => boolean;
   removeSession: (id: number) => Promise<void>;
   clearError: () => void;
   onClose: () => void;
@@ -337,7 +337,27 @@ function StreamingBubble({ content }: { content: string }) {
           wordBreak: "break-word",
         }}
       >
-        {content ? renderMarkdown(content) : <span style={{ color: "var(--muted)" }}>▌</span>}
+        {content ? renderMarkdown(content) : (
+          <span
+            role="status"
+            aria-label="El asistente está escribiendo"
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", padding: "0.3rem 0" }}
+          >
+            {[0, 0.2, 0.4].map((delay) => (
+              <span
+                key={delay}
+                aria-hidden="true"
+                style={{
+                  width: "0.45rem",
+                  height: "0.45rem",
+                  borderRadius: "50%",
+                  background: "var(--muted)",
+                  animation: `kds-pulse 1.2s ${delay}s infinite`,
+                }}
+              />
+            ))}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -386,24 +406,31 @@ export function AiChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Blocks a second Enter while the new session is being created (the text stays in the input).
+  const creatingSessionRef = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent]);
 
-  function handleSend() {
-    if (isStreaming) return;
+  async function handleSend() {
+    if (isStreaming || creatingSessionRef.current) return;
 
     const text = input.trim();
     if (!text) return;
+
+    let sessionId: number | undefined;
     if (!activeSessionId) {
-      startNewSession(text.slice(0, 60)).then(() => {
-        sendMessage(text);
-      });
-    } else {
-      sendMessage(text);
+      creatingSessionRef.current = true;
+      const createdId = await startNewSession(text.slice(0, 60));
+      creatingSessionRef.current = false;
+      // Creation failed: the hook already shows the error; keep the text.
+      if (createdId === null) return;
+      sessionId = createdId;
     }
-    setInput("");
+
+    // Only clear the input once the message was actually sent.
+    if (sendMessage(text, sessionId)) setInput("");
     inputRef.current?.focus();
   }
 
@@ -456,7 +483,7 @@ export function AiChatPanel({
           </button>
           <span style={{ fontWeight: 700, fontSize: "0.95rem" }}>Asistente IA</span>
           {isStreaming && (
-            <span style={{ fontSize: "0.75rem", color: "var(--accent)", animation: "pulse 1.4s infinite" }}>
+            <span style={{ fontSize: "0.75rem", color: "var(--accent)", animation: "kds-pulse 1.4s infinite" }}>
               Escribiendo...
             </span>
           )}
@@ -602,13 +629,14 @@ export function AiChatPanel({
           {/* Error */}
           {error && (
             <div
+              role="alert"
               style={{
                 margin: "0 1rem",
                 padding: "0.5rem 0.75rem",
                 borderRadius: "10px",
-                background: "rgba(255,123,123,0.12)",
-                border: "1px solid rgba(255,123,123,0.25)",
-                color: "#ffd1d1",
+                background: "color-mix(in srgb, var(--danger) 12%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--danger) 40%, transparent)",
+                color: "var(--text)",
                 fontSize: "0.82rem",
                 display: "flex",
                 alignItems: "center",
@@ -620,7 +648,8 @@ export function AiChatPanel({
               <span>{error}</span>
               <button
                 onClick={clearError}
-                style={{ ...smallGhostBtn, borderColor: "rgba(255,123,123,0.25)", color: "#ffd1d1" }}
+                aria-label="Cerrar aviso"
+                style={{ ...smallGhostBtn, borderColor: "color-mix(in srgb, var(--danger) 40%, transparent)", color: "var(--text)" }}
               >
                 ✕
               </button>

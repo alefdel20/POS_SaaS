@@ -21,8 +21,8 @@ interface UseAiChatReturn {
   loadingMessages: boolean;
   error: string;
   selectSession: (id: number) => Promise<void>;
-  startNewSession: (title?: string) => Promise<void>;
-  sendMessage: (content: string) => void;
+  startNewSession: (title?: string) => Promise<number | null>;
+  sendMessage: (content: string, sessionId?: number) => boolean;
   removeSession: (id: number) => Promise<void>;
   clearError: () => void;
 }
@@ -83,8 +83,10 @@ export function useAiChat(): UseAiChatReturn {
   );
 
   const startNewSession = useCallback(
-    async (title = "Nueva conversación") => {
-      if (!token) return;
+    // Returns the new session id (null on failure) so the caller can send the
+    // first message right away instead of waiting for activeSessionId to update.
+    async (title = "Nueva conversación"): Promise<number | null> => {
+      if (!token) return null;
       try {
         const session = await apiCreateSession(token, title);
         setSessions((prev) => [session, ...prev]);
@@ -92,16 +94,21 @@ export function useAiChat(): UseAiChatReturn {
         setActiveSession({ ...session, messages: [] });
         setMessages([]);
         setStreamingContent("");
+        return session.id;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al crear conversación.");
+        return null;
       }
     },
     [token]
   );
 
+  // Returns true when the message was sent (the caller only clears the input then).
+  // sessionId: the session just created by startNewSession, not yet in activeSessionId.
   const sendMessage = useCallback(
-    (content: string) => {
-      if (!token || !activeSessionId || isStreaming) return;
+    (content: string, sessionId?: number): boolean => {
+      const targetSessionId = sessionId ?? activeSessionId;
+      if (!token || !targetSessionId || isStreaming) return false;
 
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -109,7 +116,7 @@ export function useAiChat(): UseAiChatReturn {
 
       const tempUserMsg: AiMessage = {
         id: nextTempId.current--,
-        session_id: activeSessionId,
+        session_id: targetSessionId,
         role: "user",
         content,
         tokens_used: 0,
@@ -125,22 +132,26 @@ export function useAiChat(): UseAiChatReturn {
 
       apiStreamChat(
         token,
-        activeSessionId,
+        targetSessionId,
         content,
         (chunk) => {
           accumulated += chunk;
           setStreamingContent(accumulated);
         },
         (tokensUsed, updatedQuota) => {
-          const assistantMsg: AiMessage = {
-            id: nextTempId.current--,
-            session_id: activeSessionId,
-            role: "assistant",
-            content: accumulated,
-            tokens_used: tokensUsed,
-            created_at: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, assistantMsg]);
+          if (accumulated.trim()) {
+            const assistantMsg: AiMessage = {
+              id: nextTempId.current--,
+              session_id: targetSessionId,
+              role: "assistant",
+              content: accumulated,
+              tokens_used: tokensUsed,
+              created_at: new Date().toISOString(),
+            };
+            setMessages((prev) => [...prev, assistantMsg]);
+          } else {
+            setError("El asistente no devolvió respuesta.");
+          }
           setStreamingContent("");
           setIsStreaming(false);
 
@@ -156,7 +167,7 @@ export function useAiChat(): UseAiChatReturn {
 
           setSessions((prev) =>
             prev.map((s) =>
-              s.id === activeSessionId ? { ...s, updated_at: new Date().toISOString() } : s
+              s.id === targetSessionId ? { ...s, updated_at: new Date().toISOString() } : s
             )
           );
         },
@@ -167,6 +178,7 @@ export function useAiChat(): UseAiChatReturn {
         },
         controller.signal
       );
+      return true;
     },
     [token, activeSessionId, isStreaming, quota]
   );
