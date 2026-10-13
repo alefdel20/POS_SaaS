@@ -20,7 +20,8 @@ async function* streamDeepSeek(messages, options) {
   };
   if (tools.length) {
     requestBody.tools = tools;
-    requestBody.tool_choice = "auto";
+    // "none" = final round of the tool loop (aiChatController): answer in text.
+    requestBody.tool_choice = options.toolChoice === "none" ? "none" : "auto";
   }
 
   try {

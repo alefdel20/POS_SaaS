@@ -7,8 +7,8 @@
 //
 // Values: deepseek | anthropic | ollama. Anything else resolves to ollama,
 // same as the old `AI_PROVIDER === "deepseek" ? deepseek : ollama` switch.
-// anthropic is only honored for "quick" and only when AI_PROVIDER_QUICK says
-// so explicitly: the tool-calling chat and vision are not migrated yet.
+// anthropic is only honored for "quick" and "chat", and only when
+// AI_PROVIDER_<FEATURE> says so explicitly: vision is not migrated yet.
 //
 // Claude model per feature: ANTHROPIC_MODEL_<FEATURE>, defaults below.
 const deepseek = require("./deepseek");
@@ -16,7 +16,8 @@ const ollama = require("./ollama");
 const { streamAnthropic } = require("./anthropic");
 
 const FEATURES = new Set(["chat", "quick", "vision"]);
-const ANTHROPIC_DEFAULT_MODELS = { quick: "claude-haiku-5-5" };
+const ANTHROPIC_FEATURES = new Set(["chat", "quick"]);
+const ANTHROPIC_DEFAULT_MODELS = { quick: "claude-haiku-5-5", chat: "claude-sonnet-5-5" };
 
 function resolveProvider(feature) {
   if (!FEATURES.has(feature)) {
@@ -26,7 +27,7 @@ function resolveProvider(feature) {
   const value = explicit || process.env.AI_PROVIDER || "ollama";
 
   if (value === "anthropic") {
-    if (feature === "quick" && explicit === "anthropic") return "anthropic";
+    if (ANTHROPIC_FEATURES.has(feature) && explicit === "anthropic") return "anthropic";
     throw new Error(`El proveedor anthropic aún no está habilitado para "${feature}".`);
   }
   return value === "deepseek" ? "deepseek" : "ollama";
@@ -59,6 +60,9 @@ async function* streamChat(messages, options = {}) {
 // Non-streaming chat. Not called anywhere today; kept for interface parity.
 async function chat(messages, options = {}) {
   const provider = resolveProvider(options.feature || "chat");
+  if (provider === "anthropic") {
+    throw new Error("El proveedor anthropic solo está disponible con streaming.");
+  }
   if (provider === "deepseek") return deepseek.chatDeepSeek(messages, options);
   return ollama.chatOllama(messages, options);
 }

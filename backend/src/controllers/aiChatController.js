@@ -93,10 +93,17 @@ async function sendMessage(req, res, next) {
 
   const systemPrompt = buildSystemPrompt(actor, businessContext);
 
-  const previousMessages = (session.messages || []).slice(-10).map((m) => ({
-    role: m.role,
-    content: m.content
-  }));
+  // Empty assistant turns are skipped (Claude rejects them) and the replayed
+  // history must start with a user message.
+  const previousMessages = (session.messages || []).slice(-10)
+    .filter((m) => !(m.role === "assistant" && !String(m.content || "").trim()))
+    .map((m) => ({
+      role: m.role,
+      content: m.content
+    }));
+  while (previousMessages.length && previousMessages[0].role !== "user") {
+    previousMessages.shift();
+  }
 
   const llmMessages = [
     { role: "system", content: systemPrompt },
@@ -130,12 +137,18 @@ async function sendMessage(req, res, next) {
     while (true) {
       let pendingToolCalls = null;
       let pendingReasoningContent = null;
+      let pendingAssistantContent = null;
       const roundTokens = {};
+      // Tool rounds used up: one last request that must answer in text.
+      const finalRound = toolCallCount >= MAX_TOOL_CALLS;
+      const streamOptions = { tokenHolder: roundTokens, tools: TOOLS };
+      if (finalRound) streamOptions.toolChoice = "none";
 
-      for await (const chunk of llmService.streamChat(messages, { tokenHolder: roundTokens, tools: TOOLS })) {
+      for await (const chunk of llmService.streamChat(messages, streamOptions)) {
         if (chunk && typeof chunk === "object" && chunk.type === "tool_call") {
           pendingToolCalls = chunk.tool_calls;
           pendingReasoningContent = chunk.reasoning_content || null;
+          pendingAssistantContent = chunk.assistant_content || null;
           break;
         }
         fullResponse += chunk;
@@ -145,7 +158,7 @@ async function sendMessage(req, res, next) {
       tokenHolder.inputTokens += roundTokens.inputTokens || 0;
       tokenHolder.outputTokens += roundTokens.outputTokens || 0;
 
-      if (!pendingToolCalls || toolCallCount >= MAX_TOOL_CALLS) break;
+      if (!pendingToolCalls || finalRound) break;
 
       // Add the assistant's tool-call turn to the message history
       const assistantMsg = {
@@ -158,6 +171,8 @@ async function sendMessage(req, res, next) {
         }))
       };
       if (pendingReasoningContent) assistantMsg.reasoning_content = pendingReasoningContent;
+      // Claude only: its original blocks (thinking included), resent unchanged.
+      if (pendingAssistantContent) assistantMsg.anthropic_content = pendingAssistantContent;
       messages.push(assistantMsg);
 
       // Execute each tool and append its result
@@ -184,18 +199,24 @@ async function sendMessage(req, res, next) {
     const outputTokens = tokenHolder.outputTokens || 0;
     const totalTokens = inputTokens + outputTokens;
 
-    await aiChatService.saveAssistantTurn(
-      actor,
-      sessionId,
-      {
-        role: "assistant",
-        content: fullResponse,
-        model: llmService.getModelName("chat"),
-        input_tokens: inputTokens,
-        output_tokens: outputTokens
-      },
-      totalTokens
-    ).catch((err) => console.error("[AI] saveAssistantTurn error:", err.message));
+    if (fullResponse.trim()) {
+      await aiChatService.saveAssistantTurn(
+        actor,
+        sessionId,
+        {
+          role: "assistant",
+          content: fullResponse,
+          model: llmService.getModelName("chat"),
+          input_tokens: inputTokens,
+          output_tokens: outputTokens
+        },
+        totalTokens
+      ).catch((err) => console.error("[AI] saveAssistantTurn error:", err.message));
+    } else if (totalTokens > 0) {
+      // No message to store, but the tokens were billed: same counter as chatQuick.
+      await aiChatService.updateTokenUsage(actor, totalTokens)
+        .catch((err) => console.error("[AI] updateTokenUsage error:", err.message));
+    }
 
     res.write("data: " + JSON.stringify({ done: true, tokens: { input: inputTokens, output: outputTokens } }) + "\n\n");
     res.end();

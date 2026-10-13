@@ -1,7 +1,10 @@
-// Claude adapter (Anthropic Messages API, official SDK). Streaming text only:
-// no tools and no vision yet. Messages arrive in the internal OpenAI-style
-// format ({ role: "system" | "user" | "assistant", content: string }) and are
-// translated here: Claude takes the system prompt as a separate field.
+// Claude adapter (Anthropic Messages API, official SDK). Streaming text with
+// tool calling; no vision yet. Messages and tools arrive in the internal
+// OpenAI-style format used by aiChatController.js and are translated here:
+//   - system messages      -> the separate `system` field
+//   - assistant tool_calls -> tool_use blocks (or the original Claude blocks,
+//                             kept in `anthropic_content`, sent back unchanged)
+//   - role "tool" messages -> tool_result blocks, one user message per round
 // The SDK reads ANTHROPIC_API_KEY from the environment.
 const AnthropicSdk = require("@anthropic-ai/sdk");
 const { AI_MAX_TOKENS, makeAbortController } = require("./config");
@@ -14,24 +17,73 @@ function getClient() {
   return client;
 }
 
+// { type: "function", function: { name, description, parameters } } -> Claude tool.
+function toAnthropicTools(tools) {
+  return tools.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description || "",
+    input_schema: tool.function.parameters || { type: "object", properties: {} }
+  }));
+}
+
+function parseToolArguments(raw) {
+  try {
+    const parsed = JSON.parse(raw || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function toAssistantContent(message) {
+  // Claude's own blocks (thinking included) must go back exactly as received.
+  if (Array.isArray(message.anthropic_content)) return message.anthropic_content;
+  const blocks = [];
+  if (message.content) blocks.push({ type: "text", text: message.content });
+  for (const tc of message.tool_calls) {
+    blocks.push({
+      type: "tool_use",
+      id: tc.id,
+      name: tc.function.name,
+      input: parseToolArguments(tc.function.arguments)
+    });
+  }
+  return blocks;
+}
+
 function toAnthropicRequest(messages) {
   const system = messages
     .filter((m) => m.role === "system")
     .map((m) => m.content)
     .join("\n\n");
-  const conversation = messages
-    .filter((m) => m.role !== "system")
-    .map((m) => ({ role: m.role, content: m.content }));
+
+  const conversation = [];
+  let toolResults = null;
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    if (m.role === "tool") {
+      // Every result of a round goes into a single user message.
+      if (!toolResults) {
+        toolResults = [];
+        conversation.push({ role: "user", content: toolResults });
+      }
+      toolResults.push({ type: "tool_result", tool_use_id: m.tool_call_id, content: m.content });
+      continue;
+    }
+    toolResults = null;
+    if (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length) {
+      conversation.push({ role: "assistant", content: toAssistantContent(m) });
+    } else {
+      conversation.push({ role: m.role, content: m.content });
+    }
+  }
   return { system, messages: conversation };
 }
 
 async function* streamAnthropic(messages, options) {
-  if (options.tools?.length) {
-    throw new Error("El proveedor anthropic aún no soporta herramientas.");
-  }
-
   const { controller, timer } = makeAbortController();
   const tokenHolder = options.tokenHolder || {};
+  const tools = options.tools || [];
   const { system, messages: conversation } = toAnthropicRequest(messages);
 
   const params = {
@@ -40,6 +92,11 @@ async function* streamAnthropic(messages, options) {
     messages: conversation
   };
   if (system) params.system = system;
+  if (tools.length) {
+    params.tools = toAnthropicTools(tools);
+    // Default is auto. "none" = final round of the tool loop: answer in text.
+    if (options.toolChoice === "none") params.tool_choice = { type: "none" };
+  }
 
   const stream = getClient().messages.stream(params, { signal: controller.signal });
   let finished = false;
@@ -71,6 +128,34 @@ async function* streamAnthropic(messages, options) {
       refusal.code = "AI_REFUSAL";
       throw refusal;
     }
+
+    const toolUses = (final.content || []).filter((block) => block.type === "tool_use");
+
+    // A tool_use cut off at max_tokens may carry a truncated input: never run it.
+    if (final.stop_reason === "max_tokens") {
+      console.warn(`[AI] anthropic max_tokens: model=${final.model} tool_use=${toolUses.length}`);
+      if (toolUses.length) {
+        const truncated = new Error("La respuesta del modelo de IA se cortó por límite de tokens.");
+        truncated.code = "AI_MAX_TOKENS";
+        throw truncated;
+      }
+      return;
+    }
+
+    // Same event as the DeepSeek adapter, so aiChatController runs the tools
+    // unchanged. assistant_content keeps Claude's blocks for the next round.
+    if (final.stop_reason === "tool_use" && toolUses.length) {
+      yield {
+        type: "tool_call",
+        tool_calls: toolUses.map((block) => ({
+          id: block.id,
+          type: "function",
+          function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) }
+        })),
+        reasoning_content: null,
+        assistant_content: final.content
+      };
+    }
   } catch (err) {
     if (err instanceof Anthropic.APIUserAbortError) {
       throw new Error("La solicitud al modelo de IA excedió el tiempo límite.");
@@ -87,4 +172,4 @@ async function* streamAnthropic(messages, options) {
   }
 }
 
-module.exports = { streamAnthropic, toAnthropicRequest };
+module.exports = { streamAnthropic, toAnthropicRequest, toAnthropicTools };
