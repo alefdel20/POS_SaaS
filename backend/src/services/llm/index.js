@@ -7,17 +7,16 @@
 //
 // Values: deepseek | anthropic | ollama. Anything else resolves to ollama,
 // same as the old `AI_PROVIDER === "deepseek" ? deepseek : ollama` switch.
-// anthropic is only honored for "quick" and "chat", and only when
-// AI_PROVIDER_<FEATURE> says so explicitly: vision is not migrated yet.
+// anthropic is only honored when AI_PROVIDER_<FEATURE> says so explicitly.
 //
 // Claude model per feature: ANTHROPIC_MODEL_<FEATURE>, defaults below.
 const deepseek = require("./deepseek");
 const ollama = require("./ollama");
-const { streamAnthropic } = require("./anthropic");
+const { streamAnthropic, analyzeImageAnthropic } = require("./anthropic");
 
 const FEATURES = new Set(["chat", "quick", "vision"]);
-const ANTHROPIC_FEATURES = new Set(["chat", "quick"]);
-const ANTHROPIC_DEFAULT_MODELS = { quick: "claude-haiku-5-5", chat: "claude-sonnet-5-5" };
+const ANTHROPIC_FEATURES = new Set(["chat", "quick", "vision"]);
+const ANTHROPIC_DEFAULT_MODELS = { quick: "claude-haiku-5-5", chat: "claude-sonnet-5-5", vision: "claude-haiku-5-5" };
 
 function resolveProvider(feature) {
   if (!FEATURES.has(feature)) {
@@ -67,8 +66,22 @@ async function chat(messages, options = {}) {
   return ollama.chatOllama(messages, options);
 }
 
-async function analyzeImageWithVision(base64Image, mimeType) {
-  if (resolveProvider("vision") !== "deepseek") {
+// DeepSeek: unchanged, fixed ticket prompt, returns { products, ... }.
+// Claude: the caller supplies the system prompt and the JSON schema
+// (options.system / options.schema) and gets { data, ... } back.
+async function analyzeImageWithVision(base64Image, mimeType, options = {}) {
+  const provider = resolveProvider("vision");
+  if (provider === "anthropic") {
+    if (!options.system || !options.schema) {
+      throw new Error("La visión con anthropic requiere un prompt de sistema y un esquema JSON.");
+    }
+    return analyzeImageAnthropic(base64Image, mimeType, {
+      model: getAnthropicModel("vision"),
+      system: options.system,
+      schema: options.schema
+    });
+  }
+  if (provider !== "deepseek") {
     throw new Error("El análisis de imágenes requiere AI_PROVIDER=deepseek.");
   }
   return deepseek.analyzeImageDeepSeek(base64Image, mimeType);

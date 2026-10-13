@@ -244,19 +244,26 @@ test("interruptores por funcion: cada una se mueve sola", async () => {
   });
 });
 
-test("anthropic se acepta para quick y chat solo si AI_PROVIDER_<FUNCION> es explicito; vision no", async () => {
+test("anthropic se acepta para quick, chat y vision solo si AI_PROVIDER_<FUNCION> es explicito", async () => {
   await withEnv({ AI_PROVIDER_CHAT: "anthropic" }, () => {
     assert.equal(llmService.resolveProvider("chat"), "anthropic");
     assert.equal(llmService.resolveProvider("quick"), "deepseek");
     assert.equal(llmService.resolveProvider("vision"), "deepseek");
   });
   await withEnv({ AI_PROVIDER_VISION: "anthropic" }, async () => {
-    await assert.rejects(llmService.analyzeImageWithVision("aGVsbG8=", "image/png"), /no está habilitado para "vision"/);
+    assert.equal(llmService.resolveProvider("vision"), "anthropic");
+    assert.equal(llmService.resolveProvider("chat"), "deepseek");
+    // Without a caller-supplied prompt and schema (the unused chat analyze-image
+    // path) Claude vision fails explicitly instead of changing its output shape.
+    const calls = mockFetch(() => { throw new Error("no debe llamarse"); });
+    await assert.rejects(llmService.analyzeImageWithVision("aGVsbG8=", "image/png"), /requiere un prompt de sistema y un esquema JSON/);
+    assert.equal(calls.length, 0);
   });
   // The global AI_PROVIDER never turns on Claude by itself.
   await withEnv({ AI_PROVIDER: "anthropic" }, () => {
     assert.throws(() => llmService.resolveProvider("quick"), /no está habilitado para "quick"/);
     assert.throws(() => llmService.resolveProvider("chat"), /no está habilitado para "chat"/);
+    assert.throws(() => llmService.resolveProvider("vision"), /no está habilitado para "vision"/);
   });
   // Rollback switch: back to DeepSeek without touching code.
   await withEnv({ AI_PROVIDER_CHAT: "deepseek" }, () => {
@@ -289,6 +296,12 @@ test("getModelName reproduce el CURRENT_MODEL anterior y usa claude-haiku-5-5 pa
   });
   await withEnv({ AI_PROVIDER_CHAT: "anthropic", ANTHROPIC_MODEL_CHAT: "claude-opus-5-5" }, () => {
     assert.equal(llmService.getModelName("chat"), "claude-opus-5-5");
+  });
+  await withEnv({ AI_PROVIDER_VISION: "anthropic" }, () => {
+    assert.equal(llmService.getModelName("vision"), "claude-haiku-5-5");
+  });
+  await withEnv({ AI_PROVIDER_VISION: "anthropic", ANTHROPIC_MODEL_VISION: "claude-sonnet-5-5" }, () => {
+    assert.equal(llmService.getModelName("vision"), "claude-sonnet-5-5");
   });
 });
 
