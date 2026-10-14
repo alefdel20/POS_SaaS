@@ -35,7 +35,7 @@ export type ProductFormProps = {
   handleImageSelection: (file: File | null) => void;
   handleRemoveImage: () => void;
   handleStockMaximoEnter: (event: KeyboardEvent<HTMLInputElement>) => void;
-  handleSubmit: (event: FormEvent) => Promise<void>;
+  handleSubmit: (event: FormEvent) => Promise<unknown>;
   hasSuggestedBarcode: boolean;
   hasSuggestedSku: boolean;
   imageFile: File | null;
@@ -53,6 +53,8 @@ export type ProductFormProps = {
   requestSummary: ProductUpdateRequestSummary | null;
   resetProductEditor: () => void;
   resolveSupplierByName: (name: string) => Supplier | null;
+  // Alta: guarda y abre la etiqueta con el codigo de barras definitivo (abre la ventana en el clic).
+  saveAndPrintLabel: () => void;
   saving: boolean;
   setError: Dispatch<SetStateAction<string>>;
   setForm: Dispatch<SetStateAction<ProductFormState>>;
@@ -156,6 +158,7 @@ export function ProductForm({
   requestSummary,
   resetProductEditor,
   resolveSupplierByName,
+  saveAndPrintLabel,
   saving,
   setError,
   setForm,
@@ -237,6 +240,16 @@ export function ProductForm({
   ];
   const essentialsDone = essentials.filter((item) => item.done).length;
   const essentialsPercent = Math.round((essentialsDone / essentials.length) * 100);
+  const saveAndPrintButton = !editingId && !isCashier && !editLoadPending && !editLoadError ? (
+    <button
+      className="button ghost"
+      disabled={saving || essentialsDone !== essentials.length}
+      onClick={saveAndPrintLabel}
+      type="button"
+    >
+      Guardar e imprimir etiqueta
+    </button>
+  ) : null;
   const previewMeta = [form.category.trim(), getResolvedSaleUnit(form.unidad_de_venta)].filter(Boolean).join(" · ");
   // Cargando o fallo de ?edit=<id>: sigue siendo una edicion (nunca "Nuevo producto" vacio).
   const isEditLoadBlocked = editLoadPending || Boolean(editLoadError);
@@ -670,6 +683,7 @@ export function ProductForm({
                 <button className="button" disabled={saving || isEditLoadBlocked} type="submit">
                   {submitLabel}
                 </button>
+                {saveAndPrintButton}
                 {editingId ? (
                   <button className="button ghost product-form-cancel" onClick={resetProductEditor} type="button">
                     Cancelar
@@ -715,6 +729,7 @@ export function ProductForm({
                 <button className="button" disabled={saving || isEditLoadBlocked} type="submit">
                   {submitLabel}
                 </button>
+                {saveAndPrintButton}
                 {editingId ? (
                   <button className="button ghost product-form-cancel" onClick={resetProductEditor} type="button">
                     Cancelar

@@ -1562,8 +1562,10 @@ export function ProductsPage() {
     }
   }
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
+  // options.printWindow: "Guardar e imprimir etiqueta" (ventana ya abierta en el clic).
+  // Devuelve true solo si se empezo a imprimir la etiqueta en esa ventana.
+  async function handleSubmit(event?: FormEvent, options: { printWindow?: Window } = {}) {
+    event?.preventDefault();
     if (!token) return;
     const wasEditing = Boolean(editingId);
     setInfo("");
@@ -1733,6 +1735,8 @@ export function ProductsPage() {
     setSaving(true);
     setError("");
     let savedProduct: Product | null = null;
+    let labelTarget: { id: number; name: string; barcode: string } | null = null;
+    let labelStarted = false;
 
     try {
       if (isCashier && editingId) {
@@ -1763,6 +1767,10 @@ export function ProductsPage() {
           token,
           body: JSON.stringify(payload)
         });
+        // Antes de limpiar el formulario: el codigo de barras definitivo lo genera el backend.
+        if (options.printWindow && savedProduct?.id && savedProduct.barcode) {
+          labelTarget = { id: savedProduct.id, name: savedProduct.name, barcode: savedProduct.barcode };
+        }
       }
       if (!isCashier && savedProduct?.id) {
         await syncProductImage(savedProduct.id);
@@ -1803,6 +1811,10 @@ export function ProductsPage() {
       setSupplierDrafts([]);
       setShowSuppliersModal(false);
       setError("");
+      if (labelTarget && options.printWindow) {
+        labelStarted = true;
+        void renderBarcodeLabel(options.printWindow, labelTarget.id, labelTarget.name, labelTarget.barcode);
+      }
       if (isCashier) {
         setSearch("");
       }
@@ -1829,6 +1841,19 @@ export function ProductsPage() {
       setError(submissionError instanceof Error ? submissionError.message : "No fue posible guardar el producto");
     } finally {
       setSaving(false);
+    }
+    return labelStarted;
+  }
+
+  // "Guardar e imprimir etiqueta": la ventana se abre aqui, sincrona dentro del clic
+  // (ver openLabelWindow). Si la validacion o el guardado fallan, se cierra.
+  async function handleSaveAndPrint() {
+    if (saving) return;
+    const printWindow = openLabelWindow();
+    if (!printWindow) return;
+    const labelStartedInWindow = await handleSubmit(undefined, { printWindow });
+    if (!labelStartedInWindow && !printWindow.closed) {
+      printWindow.close();
     }
   }
 
@@ -1936,19 +1961,32 @@ export function ProductsPage() {
       return;
     }
 
-    // Abrimos la ventana ANTES del fetch, de forma sincrona dentro del mismo tick
-    // del clic: si se abre despues de un await, el navegador ya no la reconoce
-    // como iniciada por el usuario y la bloquea sin avisar (window.open retorna
-    // null en silencio). Ver investigacion del bug de codigo de barras.
-    // Sin "noopener": con esa bandera window.open retorna null aunque la ventana
-    // si se abra, y la quedabamos en blanco. Cortamos el opener a mano.
+    const printWindow = openLabelWindow();
+    if (!printWindow) return;
+    await renderBarcodeLabel(printWindow, resolvedId, resolvedName, resolvedBarcode);
+  }
+
+  // Abrimos la ventana ANTES del fetch, de forma sincrona dentro del mismo tick
+  // del clic: si se abre despues de un await, el navegador ya no la reconoce
+  // como iniciada por el usuario y la bloquea sin avisar (window.open retorna
+  // null en silencio). Ver investigacion del bug de codigo de barras.
+  // Sin "noopener": con esa bandera window.open retorna null aunque la ventana
+  // si se abra, y la quedabamos en blanco. Cortamos el opener a mano.
+  function openLabelWindow() {
     const printWindow = window.open("", "_blank", "width=520,height=420");
     if (!printWindow) {
       setError("Tu navegador bloqueó la ventana. Habilita popups para este sitio e intenta de nuevo.");
-      return;
+      return null;
     }
     printWindow.opener = null;
+    return printWindow;
+  }
 
+  // Escribe la etiqueta en una ventana ya abierta e imprime; si algo falla, la cierra.
+  async function renderBarcodeLabel(printWindow: Window, productId: number, productName: string, productBarcode: string) {
+    const resolvedId = productId;
+    const resolvedName = productName;
+    const resolvedBarcode = productBarcode;
     let svgUrl = "";
     const failPrint = (message: string) => {
       printWindow.close();
@@ -2126,6 +2164,7 @@ export function ProductsPage() {
         requestSummary={requestSummary}
         resetProductEditor={resetProductEditor}
         resolveSupplierByName={resolveSupplierByName}
+        saveAndPrintLabel={() => { void handleSaveAndPrint(); }}
         saving={saving}
         setError={setError}
         setForm={setForm}
