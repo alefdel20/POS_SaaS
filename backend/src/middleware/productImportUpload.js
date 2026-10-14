@@ -18,7 +18,7 @@ const upload = multer({
     const extension = String(file.originalname || "").toLowerCase();
     const isAllowedExtension = extension.endsWith(".csv") || extension.endsWith(".xlsx");
     if (!isAllowedExtension || (!ALLOWED_MIME_TYPES.has(file.mimetype) && file.mimetype !== "application/octet-stream")) {
-      callback(new ApiError(400, "Only CSV and XLSX files are allowed"));
+      callback(new ApiError(400, "Solo se permiten archivos CSV o XLSX."));
       return;
     }
     callback(null, true);
@@ -33,11 +33,11 @@ function uploadProductImportFile(req, res, next) {
     }
 
     if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
-      next(new ApiError(400, "Import file must be 5MB or smaller"));
+      next(new ApiError(400, "El archivo de importación debe pesar 5 MB o menos."));
       return;
     }
 
-    next(error.statusCode ? error : new ApiError(400, error.message || "Invalid import file"));
+    next(error.statusCode ? error : new ApiError(400, "Archivo de importación inválido."));
   });
 }
 

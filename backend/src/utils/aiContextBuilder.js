@@ -1,5 +1,5 @@
 const pool = require("../db/pool");
-const { getMexicoCityDate } = require("./timezone");
+const { getMexicoCityDate, getMexicoCityTime } = require("./timezone");
 const { getCatalogTotals } = require("../services/dashboardService");
 
 async function getBusinessContext(businessId, branchId) {
@@ -188,8 +188,24 @@ async function getBusinessContext(businessId, branchId) {
   return context;
 }
 
-function buildSystemPrompt(user, businessContext) {
-  const today = getMexicoCityDate();
+const WEEKDAYS_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+// "YYYY-MM-DD" (Mexico City date) plus `offset` days, with its weekday in Spanish.
+function shiftCalendarDay(dateText, offset) {
+  const [year, month, day] = dateText.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + offset, 12));
+  return { date: date.toISOString().slice(0, 10), weekday: WEEKDAYS_ES[date.getUTCDay()] };
+}
+
+// now: injectable for tests; defaults to the current instant.
+function buildSystemPrompt(user, businessContext, now = new Date()) {
+  const today = getMexicoCityDate(now);
+  const currentTime = getMexicoCityTime(now).slice(0, 5);
+  const todayWeekday = shiftCalendarDay(today, 0).weekday;
+  const nextDaysLines = [1, 2, 3, 4, 5, 6, 7].map((offset) => {
+    const { date, weekday } = shiftCalendarDay(today, offset);
+    return `  ${weekday} ${date}${offset === 1 ? " (mañana)" : ""}`;
+  });
   const roleLabel = user.role || "usuario";
   const posType = user.pos_type || "General";
   const businessName = user.business_name || "el negocio";
@@ -255,7 +271,10 @@ function buildSystemPrompt(user, businessContext) {
     `Eres el asistente IA de Ankode, un sistema POS SaaS para negocios mexicanos.`,
     `Estás asistiendo a ${businessName}${branchInfo}, tipo de negocio: ${posType}.`,
     `El usuario tiene el rol: ${roleLabel}.`,
-    `Fecha actual (zona horaria Ciudad de México): ${today}.`,
+    `Fecha actual (zona horaria Ciudad de México): ${today} (${todayWeekday}).`,
+    `Hora actual (zona horaria Ciudad de México, formato 24 h): ${currentTime}.`,
+    `Próximos 7 días:`,
+    ...nextDaysLines,
     ``,
     `CONTEXTO DEL NEGOCIO HOY:`,
     salesLine,
@@ -294,8 +313,13 @@ function buildSystemPrompt(user, businessContext) {
     `- Si el usuario pregunta sobre ventas, inventario, clientes o finanzas, usa el contexto anterior.`,
     `- Para cuántos productos hay, cuántas unidades hay en stock o cuánto vale el inventario, usa SOLO la sección CATÁLOGO; nunca uses ni sumes los productos ligados a proveedores.`,
     `- Los dos valores del catálogo están a costo: "valor del stock actual" son las existencias de hoy y "valor a stock máximo" es el inventario lleno. No tienes el valor a precio de venta; si te lo piden, dilo.`,
-    `- NO puedes modificar ningún dato del sistema — eres solo lectura.`,
-    `- Si el usuario pide cargar, registrar o dar de alta una compra, insumos o productos a partir de un ticket o factura, no digas solo que no puedes: indícale que use el botón "Cargar ticket" en la pantalla Productos por reabastecer, donde sube la foto, revisa lo que se leyó y confirma la compra. Aun así puedes ayudarle a leer y resumir el archivo si lo pide. Si el usuario dice que no ve el botón, explícale que la función depende de su plan y de su rol, y que le pida a su administrador que la revise.`,
+    `- Solo puedes crear recordatorios con la herramienta createReminder cuando el usuario lo pida; no puedes modificar ni borrar ningún otro dato del sistema.`,
+    `- Para un recordatorio: si falta la fecha o la hora es ambigua (sin a. m. o p. m. clara, una hora de hoy que ya pasó, o "el viernes" cuando hoy es viernes), pregunta UNA sola vez antes de crearlo.`,
+    `- Al crearlo, usa due_date en formato YYYY-MM-DD y time en HH:mm de 24 horas, y confirma título, fecha y hora en lenguaje claro, por ejemplo: "Listo: mañana a las 4:00 p. m., comprar a Pan Bimbo".`,
+    `- Crea un solo recordatorio por pedido, salvo que el usuario pida varios, y no lo vuelvas a crear si ya lo creaste (si la herramienta responde duplicate: true, ya existía).`,
+    `- Di con claridad que el sistema todavía NO envía un aviso a esa hora: el usuario lo verá en la sección Recordatorios.`,
+    `- Si el usuario pide cargar, registrar o dar de alta una compra, insumos o productos a partir de un ticket o factura, no digas solo que no puedes: indícale que use el botón "Cargar ticket" en la pantalla Productos por reabastecer, donde sube la foto, revisa lo que se leyó y confirma la compra. "Cargar ticket" es solo para COMPRAS reales: suma el stock y registra un egreso. Aun así puedes ayudarle a leer y resumir el archivo si lo pide. Si el usuario dice que no ve el botón, explícale que la función depende de su plan y de su rol, y que le pida a su administrador que la revise.`,
+    `- Si el usuario quiere cargar un catálogo o una lista de productos o de precios (no una compra), no lo mandes a "Cargar ticket": indícale que use "Importar productos" en la pantalla Productos, con un archivo CSV o XLSX con nombre y precio de venta obligatorios, de hasta unos 200 renglones por archivo por ahora. Solo un administrador puede importar productos; si no ve el botón, que se lo pida a su administrador.`,
     `- NO respondas sobre política, entretenimiento, deportes u otros temas ajenos al negocio.`,
     `- NO inventes datos — si no tienes la información, dilo claramente y sugiere qué acción tomar en el sistema.`
   );

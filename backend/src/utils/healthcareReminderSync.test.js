@@ -475,6 +475,10 @@ test("reminderService.upsertAutomaticReminder: administrative system reminders (
 // every reminder created through this path is the "no subject" case — no
 // patient/pet auto-heal queries are ever expected here.
 
+// The tool now checks the role (same roles as POST /reminders) and rejects
+// past dates, so these calls carry an admin actor and a far-future date.
+const AI_ADMIN = { id: 42, business_id: 7, role: "admin" };
+
 function createAiReminderMockClient() {
   const calls = [];
   let nextId = 900;
@@ -516,8 +520,8 @@ test("aiFunctions.createReminder (via executeTool): category='clinical' syncs in
   currentMockClient = createAiReminderMockClient();
 
   const result = await executeTool("createReminder", {
-    title: "Revision post-operatoria", notes: "Seguimiento", due_date: "2026-08-01", category: "clinical"
-  }, 7, 42);
+    title: "Revision post-operatoria", notes: "Seguimiento", due_date: "2099-08-01", category: "clinical"
+  }, 7, 42, AI_ADMIN);
 
   assert.ok(result.id);
   const calls = currentMockClient.calls;
@@ -542,8 +546,8 @@ test("aiFunctions.createReminder (via executeTool): category defaults to 'admini
   currentMockClient = createAiReminderMockClient();
 
   const result = await executeTool("createReminder", {
-    title: "Revisar inventario", due_date: "2026-08-01"
-  }, 7, 42);
+    title: "Revisar inventario", due_date: "2099-08-01"
+  }, 7, 42, AI_ADMIN);
 
   assert.ok(result.id);
   assert.equal(findCall(currentMockClient.calls, /^INSERT INTO healthcare\.reminders\b/i), undefined);
@@ -562,10 +566,10 @@ test("aiFunctions.createReminder (via executeTool): a thrown sync error rolls ba
   currentMockClient = client;
 
   const result = await executeTool("createReminder", {
-    title: "Revision", due_date: "2026-08-01", category: "clinical"
-  }, 7, 42);
+    title: "Revision", due_date: "2099-08-01", category: "clinical"
+  }, 7, 42, AI_ADMIN);
 
-  // executeTool's own catch swallows the error into a generic tool response
+  // createReminder's own catch turns the error into a tool response
   assert.ok(result.error);
   assert.ok(findCall(currentMockClient.calls, /^ROLLBACK$/i), "the reminders INSERT must be rolled back when the mirror sync throws");
   assert.equal(findCall(currentMockClient.calls, /^COMMIT$/i), undefined);

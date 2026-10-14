@@ -2,7 +2,7 @@
 // feature so each one can move from DeepSeek to Claude (and back) by changing
 // an environment variable and restarting, without a code deploy:
 //
-//   AI_PROVIDER_CHAT / AI_PROVIDER_QUICK / AI_PROVIDER_VISION
+//   AI_PROVIDER_CHAT / AI_PROVIDER_QUICK / AI_PROVIDER_VISION / AI_PROVIDER_IMPORT_MAP
 //     -> AI_PROVIDER -> "ollama"
 //
 // Values: deepseek | anthropic | ollama. Anything else resolves to ollama,
@@ -12,11 +12,12 @@
 // Claude model per feature: ANTHROPIC_MODEL_<FEATURE>, defaults below.
 const deepseek = require("./deepseek");
 const ollama = require("./ollama");
-const { streamAnthropic, analyzeImageAnthropic, countAnthropicInputTokens } = require("./anthropic");
+const { streamAnthropic, analyzeImageAnthropic, analyzeTextAnthropic, countAnthropicInputTokens } = require("./anthropic");
 
-const FEATURES = new Set(["chat", "quick", "vision"]);
-const ANTHROPIC_FEATURES = new Set(["chat", "quick", "vision"]);
-const ANTHROPIC_DEFAULT_MODELS = { quick: "claude-haiku-5-5", chat: "claude-sonnet-5-5", vision: "claude-haiku-5-5" };
+// import_map: "Mapear columnas con IA" in Importar productos (Claude only).
+const FEATURES = new Set(["chat", "quick", "vision", "import_map"]);
+const ANTHROPIC_FEATURES = new Set(["chat", "quick", "vision", "import_map"]);
+const ANTHROPIC_DEFAULT_MODELS = { quick: "claude-haiku-5-5", chat: "claude-sonnet-5-5", vision: "claude-haiku-5-5", import_map: "claude-haiku-5-5" };
 
 function resolveProvider(feature) {
   if (!FEATURES.has(feature)) {
@@ -107,4 +108,23 @@ async function analyzeImageWithVision(base64Image, mimeType, options = {}) {
   return deepseek.analyzeImageDeepSeek(base64Image, mimeType);
 }
 
-module.exports = { streamChat, chat, countChatInputTokens, analyzeImageWithVision, getModelName, resolveProvider };
+// Structured JSON from a text prompt (Claude only). options.feature picks the
+// provider switch and model; the caller supplies system, schema and maxTokens
+// and gets { data, input_tokens, output_tokens } back.
+async function analyzeTextStructured(text, options = {}) {
+  const feature = options.feature;
+  if (resolveProvider(feature) !== "anthropic") {
+    throw new Error(`La función "${feature}" requiere AI_PROVIDER_${String(feature).toUpperCase()}=anthropic.`);
+  }
+  if (!options.system || !options.schema || !options.maxTokens) {
+    throw new Error("El análisis de texto requiere un prompt de sistema, un esquema JSON y maxTokens.");
+  }
+  return analyzeTextAnthropic(text, {
+    model: getAnthropicModel(feature),
+    system: options.system,
+    schema: options.schema,
+    maxTokens: options.maxTokens
+  });
+}
+
+module.exports = { streamChat, chat, countChatInputTokens, analyzeImageWithVision, analyzeTextStructured, getModelName, resolveProvider };

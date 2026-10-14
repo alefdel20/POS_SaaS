@@ -208,6 +208,8 @@ async function sendMessage(req, res, next) {
   let messages = llmMessages.slice();
   let toolCallCount = 0;
   const MAX_TOOL_CALLS = 3;
+  let createReminderCount = 0;
+  const MAX_REMINDERS_PER_TURN = 3;
   // Attachment turn only: tokens of the round in flight, billed if it fails
   // (once the loop ends, the normal save below already billed them).
   let currentRoundTokens = null;
@@ -269,7 +271,17 @@ async function sendMessage(req, res, next) {
 
         res.write("data: " + JSON.stringify({ type: "tool_use", tool: toolName }) + "\n\n");
 
-        const result = await executeTool(toolName, toolArgs, actor.business_id, actor.id);
+        // At most MAX_REMINDERS_PER_TURN createReminder runs per message; the
+        // rest get an error the model can relay.
+        let result;
+        if (toolName === "createReminder" && createReminderCount >= MAX_REMINDERS_PER_TURN) {
+          result = {
+            error: `Ya se ejecutaron ${MAX_REMINDERS_PER_TURN} createReminder en este mensaje, el máximo por turno. Este no se creó: dile al usuario cuáles sí se crearon y que pida el resto en otro mensaje.`
+          };
+        } else {
+          if (toolName === "createReminder") createReminderCount++;
+          result = await executeTool(toolName, toolArgs, actor.business_id, actor.id, actor);
+        }
 
         messages.push({
           role: "tool",

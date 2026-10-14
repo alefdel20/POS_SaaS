@@ -302,4 +302,69 @@ async function analyzeImageAnthropic(base64Image, mimeType, options) {
   }
 }
 
-module.exports = { streamAnthropic, analyzeImageAnthropic, countAnthropicInputTokens, toAnthropicRequest, toAnthropicTools };
+// Text sibling of analyzeImageAnthropic: one user text, no streaming, no
+// tools, structured JSON output (output_config.format) and effort "low". The
+// system prompt is the only instruction; the caller passes the data as the
+// user text and validates the result. Same error codes, and errors raised
+// after the API answered carry input_tokens/output_tokens for billing.
+async function analyzeTextAnthropic(text, options) {
+  const { controller, timer } = makeAbortController();
+  const params = {
+    model: options.model,
+    max_tokens: options.maxTokens,
+    system: options.system,
+    messages: [{ role: "user", content: [{ type: "text", text }] }],
+    output_config: { effort: "low", format: { type: "json_schema", schema: options.schema } }
+  };
+
+  try {
+    const message = await getClient().messages.create(params, { signal: controller.signal });
+    const usage = message.usage || {};
+    const tokens = {
+      input_tokens: (usage.input_tokens || 0)
+        + (usage.cache_creation_input_tokens || 0)
+        + (usage.cache_read_input_tokens || 0),
+      output_tokens: usage.output_tokens || 0
+    };
+
+    if (message.stop_reason === "refusal") {
+      console.warn(`[AI] anthropic text refusal: model=${message.model} category=${message.stop_details?.category ?? "null"}`);
+      const refusal = new Error("El modelo de IA no pudo responder esta solicitud.");
+      refusal.code = "AI_REFUSAL";
+      throw Object.assign(refusal, tokens);
+    }
+    if (message.stop_reason === "max_tokens") {
+      console.warn(`[AI] anthropic text max_tokens: model=${message.model}`);
+      const truncated = new Error("La respuesta del modelo de IA se cortó por límite de tokens.");
+      truncated.code = "AI_MAX_TOKENS";
+      throw Object.assign(truncated, tokens);
+    }
+
+    const output = (message.content || [])
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+    let data;
+    try {
+      data = JSON.parse(output);
+    } catch {
+      const invalid = new Error("La respuesta del modelo no es JSON válido.");
+      invalid.code = "AI_INVALID_JSON";
+      throw Object.assign(invalid, tokens);
+    }
+    return { data, ...tokens };
+  } catch (err) {
+    if (err instanceof Anthropic.APIUserAbortError) {
+      throw new Error("La solicitud al modelo de IA excedió el tiempo límite.");
+    }
+    if (err instanceof Anthropic.APIError) {
+      // status/type only: never log request headers or the user's data.
+      throw new Error(`Anthropic error ${err.status ?? "-"} ${err.type ?? ""}: ${String(err.message).slice(0, 200)}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { streamAnthropic, analyzeImageAnthropic, analyzeTextAnthropic, countAnthropicInputTokens, toAnthropicRequest, toAnthropicTools };

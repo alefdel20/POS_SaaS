@@ -10,6 +10,8 @@ const aiRateLimiter = require("../middleware/aiRateLimiter");
 const { uploadTicketImage } = require("../middleware/ticketImageUpload");
 const purchaseTicketController = require("../controllers/purchaseTicketController");
 const purchaseTicketConfirmController = require("../controllers/purchaseTicketConfirmController");
+const importColumnMapController = require("../controllers/importColumnMapController");
+const { requireImportMapPlan } = require("../middleware/importMapAccess");
 
 const router = express.Router();
 
@@ -36,7 +38,10 @@ router.get("/restock/ticket/recent", requireRole(["superusuario", "superadmin", 
 router.post("/:id/stock-adjustment", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.idValidation, controller.stockAdjustmentValidation, controller.decreaseProductStock);
 router.get("/suppliers", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.supplierListValidation, controller.listSuppliers);
 router.get("/categories", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.categoryListValidation, controller.listCategories);
+router.get("/import/template", requireRole(["superusuario", "superadmin", "admin"]), controller.downloadProductImportTemplate);
 router.post("/import/preview", requireRole(["superusuario", "superadmin", "admin"]), exportLimiter, uploadProductImportFile, controller.previewProductImport);
+// Mapear columnas con IA: solo lectura (encabezados y 5 filas de ejemplo); superusuario/admin, plan Premium+, cuota IA.
+router.post("/import/map-columns", requireRole(["superusuario", "superadmin", "admin"]), requireImportMapPlan, requireAiAccess, aiRateLimiter, uploadProductImportFile, importColumnMapController.mapImportColumns);
 router.post("/import/confirm", requireRole(["superusuario", "superadmin", "admin"]), exportLimiter, controller.importConfirmValidation, controller.confirmProductImport);
 router.get("/export/excel", requireRole(["superusuario", "superadmin", "admin", "gerente"]), exportLimiter, controller.exportProductsExcel);
 router.get("/export/pdf", requireRole(["superusuario", "superadmin", "admin", "gerente"]), exportLimiter, controller.exportProductsPdf);

@@ -11,6 +11,8 @@ const { canUseExpiryDate, canUseIeps, controlsStock, normalizePosType } = requir
 const { normalizeRole } = require("../utils/roles");
 const { normalizeProductCatalogType } = require("../utils/domainEnums");
 const { getMexicoCityDate } = require("../utils/timezone");
+const { normalizeLookup } = require("../utils/textLookup");
+const { readFirstVisibleSheetRows } = require("../utils/xlsxReader");
 const {
   SALE_UNITS,
   SALE_UNIT_SYNONYMS,
@@ -33,8 +35,12 @@ const IMPORT_COLUMN_ALIASES = {
   barcode: ["codigo", "código", "barcode", "codigo barras", "código barras", "codigo_de_barras", "ean"],
   stock: ["stock", "existencia", "inventario", "cantidad", "qty"],
   unidad_de_venta: ["unidad", "unidad de venta", "unidad_de_venta", "presentacion", "presentación", "uom"],
-  supplier: ["proveedor", "supplier", "marca", "brand"]
+  supplier: ["proveedor", "supplier"]
 };
+// A brand column is not a supplier: its values are ignored (one warning per
+// file) instead of creating one supplier per brand.
+const IMPORT_BRAND_HEADERS = ["marca", "brand"];
+const IMPORT_MARKUP_MAX = 500;
 
 const PRODUCT_CATALOG_SCOPES = {
   food: {
@@ -255,6 +261,13 @@ function roundToThree(value) {
 
 function hasMoreThanThreeDecimals(value) {
   return Math.abs(Number(value) * 1000 - Math.round(Number(value) * 1000)) > 1e-9;
+}
+
+// Used by the import preview since commit 200e1ea but never defined here (it
+// only existed in supplierCatalogService.js), so any row with a valid price
+// threw a ReferenceError. Same implementation as that file.
+function hasMoreThanFiveDecimals(value) {
+  return Math.abs(Number(value) * 100000 - Math.round(Number(value) * 100000)) > 1e-9;
 }
 
 function validateQuantityByUnit(value, unit, fieldLabel) {
@@ -1151,10 +1164,14 @@ async function parseImportWorkbook(file) {
   }
 
   const headerMap = {};
+  let hasBrandColumn = false;
   headers.forEach((header, index) => {
     const detectedField = detectImportColumn(header);
     if (detectedField && headerMap[detectedField] === undefined) {
       headerMap[detectedField] = index;
+    }
+    if (!detectedField && isImportBrandHeader(header)) {
+      hasBrandColumn = true;
     }
   });
 
@@ -1162,11 +1179,31 @@ async function parseImportWorkbook(file) {
     format: extension,
     headers,
     headerMap,
+    hasBrandColumn,
     rows: dataRows.filter((row) => row.values.some((value) => normalizeImportCell(value)))
   };
 }
 
-function parseCsvLine(line) {
+function isImportBrandHeader(header) {
+  const normalizedHeader = normalizeImportHeader(header);
+  return Boolean(normalizedHeader) && IMPORT_BRAND_HEADERS.some((alias) => normalizedHeader.split(" ").includes(alias));
+}
+
+// CSV separator from the header line: ";" when it has more semicolons than
+// commas outside quotes (Excel in Spanish saves CSV that way), else ",".
+function detectCsvSeparator(line) {
+  let commas = 0;
+  let semicolons = 0;
+  let inQuotes = false;
+  for (const character of String(line || "")) {
+    if (character === "\"") inQuotes = !inQuotes;
+    else if (!inQuotes && character === ",") commas += 1;
+    else if (!inQuotes && character === ";") semicolons += 1;
+  }
+  return semicolons > commas ? ";" : ",";
+}
+
+function parseCsvLine(line, separator = ",") {
   const values = [];
   let current = "";
   let inQuotes = false;
@@ -1186,7 +1223,7 @@ function parseCsvLine(line) {
       continue;
     }
 
-    if (character === "," && !inQuotes) {
+    if (character === separator && !inQuotes) {
       values.push(current);
       current = "";
       continue;
@@ -1202,28 +1239,17 @@ function parseCsvLine(line) {
 function parseCsvImportRows(buffer) {
   const text = buffer.toString("utf-8").replace(/^\uFEFF/, "");
   const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "");
+  const separator = detectCsvSeparator(lines[0]);
   return lines.map((line, index) => ({
     rowNumber: index + 1,
-    values: parseCsvLine(line)
+    values: parseCsvLine(line, separator)
   }));
 }
 
+// Zip guard, row/column caps, first visible sheet and cell text: xlsxReader.js.
 async function parseXlsxImportRows(buffer) {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) {
-    throw new ApiError(400, "The file does not contain sheets or rows");
-  }
-
-  const rows = [];
-  worksheet.eachRow((row, rowNumber) => {
-    rows.push({
-      rowNumber,
-      values: row.values.slice(1).map((value) => normalizeImportCell(value))
-    });
-  });
-  return rows;
+  const rows = await readFirstVisibleSheetRows(buffer);
+  return rows.map((row) => ({ rowNumber: row.rowNumber, values: row.values.map((value) => normalizeImportCell(value)) }));
 }
 
 function normalizeImportUnit(unitValue, nameValue = "") {
@@ -1259,23 +1285,79 @@ function normalizeImportStock(value) {
   return raw.replace(/,/g, ".");
 }
 
-async function getImportContext(actor) {
+// withExistingNames: preview only, one query for every product name of the
+// business (normalized with normalizeLookup) to flag rows that already exist.
+async function getImportContext(actor, { withExistingNames = false, markupPercent = null } = {}) {
   const businessId = requireActorBusinessId(actor);
-  const [categories, suppliersResult, skusResult, barcodesResult] = await Promise.all([
-    listCategories("", actor),
+  const [suppliersResult, skusResult, barcodesResult, namesResult] = await Promise.all([
     pool.query("SELECT id, name FROM suppliers WHERE business_id = $1 ORDER BY name ASC", [businessId]),
     pool.query("SELECT UPPER(sku) AS value FROM products WHERE business_id = $1 AND sku IS NOT NULL AND sku <> ''", [businessId]),
-    pool.query("SELECT barcode AS value FROM products WHERE business_id = $1 AND barcode IS NOT NULL AND barcode <> ''", [businessId])
+    pool.query("SELECT barcode AS value FROM products WHERE business_id = $1 AND barcode IS NOT NULL AND barcode <> ''", [businessId]),
+    withExistingNames
+      ? pool.query("SELECT name FROM products WHERE business_id = $1", [businessId])
+      : Promise.resolve({ rows: [] })
   ]);
 
   return {
     businessId,
-    categories,
-    categoryFallback: categories[0] || IMPORT_DEFAULT_CATEGORY,
+    // Empty category: always "General" (createProduct creates it through
+    // ensureCategoryReference when missing), never the first category found.
+    categoryFallback: IMPORT_DEFAULT_CATEGORY,
+    markupPercent,
     suppliersByName: new Map(suppliersResult.rows.map((row) => [String(row.name || "").trim().toLowerCase(), row])),
     existingSkus: new Set(skusResult.rows.map((row) => String(row.value || "").toUpperCase())),
-    existingBarcodes: new Set(barcodesResult.rows.map((row) => String(row.value || "")))
+    existingBarcodes: new Set(barcodesResult.rows.map((row) => String(row.value || ""))),
+    existingNames: new Set(namesResult.rows.map((row) => normalizeLookup(row.name)).filter(Boolean))
   };
+}
+
+// Import code rule. The code/barcode column is a barcode only when it is made
+// of digits only. A value with letters (a supplier code such as "TRU-123") is
+// used as the SKU when the row has no SKU, and is never a barcode; any other
+// non-digit value is dropped. Both cases leave a warning on the row.
+function resolveImportCodes(skuValue, codeValue) {
+  const warnings = [];
+  let sku = sanitizeManualSku(skuValue || "");
+  let barcode = "";
+  const code = normalizeImportCell(codeValue);
+
+  if (code && /^\d+$/.test(code)) {
+    barcode = code;
+  } else if (code && /\p{L}/u.test(code)) {
+    if (!sku) {
+      sku = sanitizeManualSku(code);
+      warnings.push(`Codigo "${code}" tiene letras: se uso como SKU, no como codigo de barras`);
+    } else {
+      warnings.push(`Codigo "${code}" tiene letras y la fila ya tiene SKU: no se importa como codigo de barras`);
+    }
+  } else if (code) {
+    warnings.push(`Codigo "${code}" no es solo digitos: no se importa como codigo de barras`);
+  }
+
+  return { sku, barcode, warnings };
+}
+
+// markup_percent: optional, a number from 0 to 500; null when not sent.
+function parseImportMarkupPercent(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const markup = Number(String(value).trim());
+  if (!Number.isFinite(markup) || markup < 0 || markup > IMPORT_MARKUP_MAX) {
+    throw new ApiError(400, `markup_percent debe ser un número entre 0 y ${IMPORT_MARKUP_MAX}.`);
+  }
+  return markup;
+}
+
+// Rows without a sale price (empty or 0) and with a cost above 0 get
+// price = cost x (1 + markup/100), rounded to 2 decimals. Returns the price,
+// or null when nothing was calculated (no markup, a price was given, or no cost).
+function applyImportMarkup(payload, markupPercent) {
+  if (markupPercent === null) return null;
+  const price = payload.price === "" ? 0 : Number(payload.price);
+  const cost = payload.cost_price === "" ? 0 : Number(payload.cost_price);
+  if (price !== 0 || !Number.isFinite(cost) || cost <= 0) return null;
+  const calculated = Math.round((cost * (1 + markupPercent / 100) + Number.EPSILON) * 100) / 100;
+  payload.price = String(calculated);
+  return calculated;
 }
 
 function mapImportRowValues(rowValues, headerMap) {
@@ -1299,15 +1381,16 @@ function mapImportRowValues(rowValues, headerMap) {
 
 function buildImportRowPreview(index, rawRow, headerMap, context) {
   const extracted = mapImportRowValues(rawRow.values, headerMap);
-  const warnings = [];
+  const codes = resolveImportCodes(extracted.sku, extracted.barcode);
+  const warnings = [...codes.warnings];
   const errors = [];
   const payload = {
     name: normalizeImportText(extracted.name),
     price: normalizeImportMoney(extracted.price),
     cost_price: normalizeImportMoney(extracted.cost_price),
     category: normalizeImportText(extracted.category) || context.categoryFallback,
-    sku: sanitizeManualSku(extracted.sku || ""),
-    barcode: sanitizeBarcode(extracted.barcode || ""),
+    sku: codes.sku,
+    barcode: codes.barcode,
     stock: normalizeImportStock(extracted.stock),
     unidad_de_venta: normalizeImportUnit(extracted.unidad_de_venta, extracted.name),
     supplier_name: normalizeImportText(extracted.supplier_name),
@@ -1316,6 +1399,16 @@ function buildImportRowPreview(index, rawRow, headerMap, context) {
 
   if (!payload.name) {
     errors.push("Nombre requerido");
+  }
+
+  const calculatedPrice = applyImportMarkup(payload, context.markupPercent);
+  if (calculatedPrice !== null) {
+    warnings.push(`Precio de venta calculado: costo + ${context.markupPercent}% = ${calculatedPrice}. Revisalo antes de importar`);
+  }
+
+  const existingProduct = Boolean(payload.name) && context.existingNames.has(normalizeLookup(payload.name));
+  if (existingProduct) {
+    warnings.push("Ya existe un producto con este nombre en el negocio; si lo importas se creara otro");
   }
 
   const normalizedPrice = payload.price === "" ? Number.NaN : Number(payload.price);
@@ -1369,7 +1462,9 @@ function buildImportRowPreview(index, rawRow, headerMap, context) {
     payload,
     warnings,
     errors,
-    action: errors.length ? "error" : "import"
+    action: errors.length ? "error" : "import",
+    price_calculated: calculatedPrice !== null,
+    existing_product: existingProduct
   };
 }
 
@@ -1435,34 +1530,118 @@ function summarizeImportPreview(rows) {
   });
 }
 
-async function previewProductImport(file, actor) {
-  const parsedWorkbook = await parseImportWorkbook(file);
-  if (parsedWorkbook.rows.length > PRODUCT_IMPORT_LIMIT) {
-    throw new ApiError(400, `Import limit is ${PRODUCT_IMPORT_LIMIT} rows per file`);
+// Sample CSV for "Importar productos": comma separated, UTF-8 with BOM (so
+// Excel shows the accents), headers that detectImportColumn recognizes.
+function buildProductImportTemplate() {
+  const lines = [
+    "nombre,categoria,sku,codigo_barras,costo,precio,stock,unidad,proveedor",
+    "Martillo de uña 16 oz,Herramientas,MAR-UNA-16,7501206612345,120.50,189.00,0,pieza,Ferretera del Centro",
+    "Cable THW calibre 12,Electricidad,CAB-THW-12,,8.40,13.90,0,metro,Ferretera del Centro"
+  ];
+  return {
+    buffer: Buffer.from(`\uFEFF${lines.join("\r\n")}\r\n`, "utf8"),
+    filename: "plantilla_importar_productos.csv"
+  };
+}
+
+const IMPORT_FIELDS = Object.keys(IMPORT_COLUMN_ALIASES);
+const IMPORT_COLUMN_IGNORE = "ignore";
+
+// column_map: {"<column index>": "<field>" | "ignore"} (JSON text from the
+// multipart body, or an object). When present it REPLACES the alias
+// detection: unlisted or "ignore" columns are not read. Returns null when
+// absent, a headerMap {field: index} otherwise.
+function parseImportColumnMap(raw, headers) {
+  if (raw === undefined || raw === null || (typeof raw === "string" && raw.trim() === "")) return null;
+  let parsed = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new ApiError(400, "column_map no es un JSON válido.");
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ApiError(400, "column_map debe ser un objeto con la forma {\"índice de columna\": \"campo\"}.");
   }
 
-  const context = await getImportContext(actor);
+  const headerMap = {};
+  for (const [key, field] of Object.entries(parsed)) {
+    if (!/^\d+$/.test(key) || Number(key) >= headers.length) {
+      throw new ApiError(400, `La columna ${key} no existe en el archivo (tiene ${headers.length} columnas, de 0 a ${headers.length - 1}).`);
+    }
+    if (field === IMPORT_COLUMN_IGNORE) continue;
+    if (typeof field !== "string" || !IMPORT_FIELDS.includes(field)) {
+      throw new ApiError(400, `El campo "${String(field)}" no existe. Usa uno de: ${IMPORT_FIELDS.join(", ")} o ignore.`);
+    }
+    if (headerMap[field] !== undefined) {
+      throw new ApiError(400, `El campo "${field}" está asignado a más de una columna.`);
+    }
+    headerMap[field] = Number(key);
+  }
+  if (headerMap.name === undefined) {
+    throw new ApiError(400, "Asigna la columna del nombre del producto (campo name).");
+  }
+  return headerMap;
+}
+
+// Headers and a few sample values per column for the AI column mapping:
+// [{ index, header, samples: [...] }], capped in columns, rows and characters.
+async function readProductImportSample(file, { maxColumns = 40, maxRows = 5, maxCellLength = 100 } = {}) {
+  const parsedWorkbook = await parseImportWorkbook(file);
+  const clip = (value) => Array.from(String(value || "")).slice(0, maxCellLength).join("");
+  const columnCount = Math.min(parsedWorkbook.headers.length, maxColumns);
+  return {
+    total_columns: parsedWorkbook.headers.length,
+    columns: Array.from({ length: columnCount }, (_, index) => ({
+      index,
+      header: clip(parsedWorkbook.headers[index]),
+      samples: parsedWorkbook.rows.slice(0, maxRows).map((row) => clip(row.values[index]))
+    }))
+  };
+}
+
+// options.markup_percent: optional sale price markup (see applyImportMarkup).
+// options.column_map: optional explicit column assignment (see parseImportColumnMap).
+async function previewProductImport(file, actor, options = {}) {
+  const markupPercent = parseImportMarkupPercent(options.markup_percent);
+  const parsedWorkbook = await parseImportWorkbook(file);
+  if (parsedWorkbook.rows.length > PRODUCT_IMPORT_LIMIT) {
+    throw new ApiError(400, `El archivo admite como máximo ${PRODUCT_IMPORT_LIMIT} renglones.`);
+  }
+  const columnMap = parseImportColumnMap(options.column_map, parsedWorkbook.headers);
+  const headerMap = columnMap || parsedWorkbook.headerMap;
+
+  const context = await getImportContext(actor, { withExistingNames: true, markupPercent });
   const previewRows = dedupeImportPreviewRows(
-    parsedWorkbook.rows.map((row, index) => buildImportRowPreview(index, row, parsedWorkbook.headerMap, context))
+    parsedWorkbook.rows.map((row, index) => buildImportRowPreview(index, row, headerMap, context))
   );
 
   return {
     format: parsedWorkbook.format,
     headers: parsedWorkbook.headers,
-    detected_columns: parsedWorkbook.headerMap,
+    detected_columns: headerMap,
     rows: previewRows,
-    summary: summarizeImportPreview(previewRows)
+    summary: summarizeImportPreview(previewRows),
+    // One warning per file, not per row. With an explicit column_map the user
+    // already decided what each column is.
+    file_warnings: !columnMap && parsedWorkbook.hasBrandColumn
+      ? ["La columna de marca no se importa: sus valores se ignoran y no se crean proveedores con ellos."]
+      : []
   };
 }
 
 function sanitizeImportedRow(row, context) {
+  // Same code rule as the preview (resolveImportCodes): a code with letters is
+  // never a barcode.
+  const codes = resolveImportCodes(row?.payload?.sku || row?.sku || "", row?.payload?.barcode || row?.barcode || "");
   const payload = {
     name: normalizeImportText(row?.payload?.name || row?.name),
     price: normalizeImportMoney(row?.payload?.price || row?.price),
     cost_price: normalizeImportMoney(row?.payload?.cost_price || row?.cost_price),
     category: normalizeImportText(row?.payload?.category || row?.category) || context.categoryFallback,
-    sku: sanitizeManualSku(row?.payload?.sku || row?.sku || ""),
-    barcode: sanitizeBarcode(row?.payload?.barcode || row?.barcode || ""),
+    sku: codes.sku,
+    barcode: codes.barcode,
     stock: normalizeImportStock(row?.payload?.stock || row?.stock),
     unidad_de_venta: normalizeImportUnit(row?.payload?.unidad_de_venta || row?.unidad_de_venta, row?.payload?.name || row?.name),
     supplier_name: normalizeImportText(row?.payload?.supplier_name || row?.supplier_name),
@@ -1475,15 +1654,17 @@ function sanitizeImportedRow(row, context) {
 
   return payload;
 }
-async function confirmProductImport(rows, actor) {
+// options.markup_percent: same as the preview, for rows still without a price.
+async function confirmProductImport(rows, actor, options = {}) {
+  const markupPercent = parseImportMarkupPercent(options.markup_percent);
   if (!Array.isArray(rows) || rows.length === 0) {
     throw new ApiError(400, "Import rows are required");
   }
   if (rows.length > PRODUCT_IMPORT_LIMIT) {
-    throw new ApiError(400, `Import limit is ${PRODUCT_IMPORT_LIMIT} rows per request`);
+    throw new ApiError(400, `La importación admite como máximo ${PRODUCT_IMPORT_LIMIT} renglones por solicitud.`);
   }
 
-  const context = await getImportContext(actor);
+  const context = await getImportContext(actor, { markupPercent });
   const results = [];
   const seenSkus = new Set();
   const seenBarcodes = new Set();
@@ -1491,6 +1672,7 @@ async function confirmProductImport(rows, actor) {
   for (const row of rows) {
     try {
       const payload = sanitizeImportedRow(row, context);
+      const calculatedPrice = applyImportMarkup(payload, context.markupPercent);
       const normalizedSku = String(payload.sku || "").toUpperCase();
       const normalizedBarcode = String(payload.barcode || "");
 
@@ -1507,7 +1689,8 @@ async function confirmProductImport(rows, actor) {
         row_number: row?.row_number || row?.index || null,
         status: "imported",
         product_id: created.id,
-        product_name: created.name
+        product_name: created.name,
+        ...(calculatedPrice !== null ? { price_calculated: true } : {})
       });
 
       if (normalizedSku) seenSkus.add(normalizedSku);
@@ -3043,6 +3226,9 @@ module.exports = {
   listCategories,
   previewProductImport,
   confirmProductImport,
+  buildProductImportTemplate,
+  readProductImportSample,
+  IMPORT_FIELDS,
   listRestockProducts,
   listRestockHistory,
   getRestockHistoryMetrics,

@@ -1,8 +1,8 @@
-const ExcelJS = require("exceljs");
 const pool = require("../db/pool");
 const ApiError = require("../utils/ApiError");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { normalizeLookup } = require("../utils/textLookup");
+const { readFirstVisibleSheetRows } = require("../utils/xlsxReader");
 const productService = require("./productService");
 const { SALE_UNIT_SYNONYMS, normalizeUnitSynonym } = require("../constants/saleUnits");
 
@@ -92,22 +92,10 @@ function parseCsvRows(buffer) {
   }));
 }
 
+// Zip guard, row/column caps, first visible sheet and cell text: xlsxReader.js.
 async function parseXlsxRows(buffer) {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) {
-    throw new ApiError(400, "The file does not contain sheets or rows");
-  }
-
-  const rows = [];
-  worksheet.eachRow((row, rowNumber) => {
-    rows.push({
-      rowNumber,
-      values: row.values.slice(1).map((value) => normalizeCell(value))
-    });
-  });
-  return rows;
+  const rows = await readFirstVisibleSheetRows(buffer);
+  return rows.map((row) => ({ rowNumber: row.rowNumber, values: row.values.map((value) => normalizeCell(value)) }));
 }
 
 async function parseWorkbook(file) {
@@ -531,7 +519,12 @@ async function confirmSupplierCatalogImport(supplierId, rows, actor, sourceFile 
     await client.query("BEGIN");
     await requireOwnedSupplier(supplierId, actor, client);
 
+    // One SAVEPOINT per row: a SQL error rolls back only that row, so the
+    // transaction is never left aborted and every row reported as saved is
+    // really there after the COMMIT. A row's result is pushed only after its
+    // savepoint is released.
     for (const row of rows) {
+      await client.query("SAVEPOINT catalog_import_row");
       try {
         const payload = sanitizePreviewPayload(row);
         const existingItem = await findExistingItem(client, businessId, supplierId, payload);
@@ -583,6 +576,7 @@ async function confirmSupplierCatalogImport(supplierId, rows, actor, sourceFile 
             ]
           );
 
+          await client.query("RELEASE SAVEPOINT catalog_import_row");
           results.push({
             row_number: row?.row_number || row?.index || null,
             status: "updated",
@@ -633,6 +627,7 @@ async function confirmSupplierCatalogImport(supplierId, rows, actor, sourceFile 
           ]
         );
 
+        await client.query("RELEASE SAVEPOINT catalog_import_row");
         results.push({
           row_number: row?.row_number || row?.index || null,
           status: "imported",
@@ -641,6 +636,10 @@ async function confirmSupplierCatalogImport(supplierId, rows, actor, sourceFile 
           cost_changed: false
         });
       } catch (error) {
+        // Undo only this row. If this fails too (connection lost), the outer
+        // catch rolls back everything and no partial result is returned.
+        await client.query("ROLLBACK TO SAVEPOINT catalog_import_row");
+        await client.query("RELEASE SAVEPOINT catalog_import_row");
         results.push({
           row_number: row?.row_number || row?.index || null,
           status: "error",

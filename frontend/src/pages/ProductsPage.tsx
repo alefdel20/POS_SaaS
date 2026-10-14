@@ -1,9 +1,12 @@
 import { type KeyboardEvent, type MouseEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest, apiDownload } from "../api/client";
+import { apiMapImportColumns } from "../api/productImport";
 import { API_BASE_URL } from "../api/config";
 import { useAuth } from "../context/AuthContext";
 import type {
+  ImportColumnField,
+  ImportColumnSuggestion,
   CompanyProfile,
   PaginatedProductsResponse,
   Product,
@@ -94,6 +97,24 @@ function parseEditReturnTo(value: string | null): EditReturnTo | null {
   return value === "restock" ? "restock" : null;
 }
 
+// Importar productos: the confirm goes in batches so each request stays well
+// under the server's 100 kB JSON limit; markup_percent accepts 0 to 500.
+const IMPORT_BATCH_SIZE = 100;
+const IMPORT_MARKUP_MAX = 500;
+// Fields the column mapping can assign (backend IMPORT_COLUMN_ALIASES keys).
+const IMPORT_FIELD_LABELS: Record<ImportColumnField, string> = {
+  name: "Nombre",
+  price: "Precio de venta",
+  cost_price: "Costo",
+  category: "Categoría",
+  sku: "SKU / clave",
+  barcode: "Código de barras",
+  stock: "Stock",
+  unidad_de_venta: "Unidad de venta",
+  supplier: "Proveedor"
+};
+const IMPORT_LOW_CONFIDENCE = 0.6;
+
 export function ProductsPage() {
   const { token, user } = useAuth();
   const location = useLocation();
@@ -144,6 +165,19 @@ export function ProductsPage() {
   const [importLoading, setImportLoading] = useState(false);
   const [importConfirming, setImportConfirming] = useState(false);
   const [importResult, setImportResult] = useState<ProductImportConfirmResponse | null>(null);
+  // Import modal: optional markup for rows without price, skip existing names,
+  // its own error (the page error stays behind the modal), batch progress and
+  // the rows already saved (so a retry after a failed batch never repeats them).
+  const [importMarkup, setImportMarkup] = useState("");
+  const [importSkipExisting, setImportSkipExisting] = useState(true);
+  const [importError, setImportError] = useState("");
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
+  const [importSavedRowNumbers, setImportSavedRowNumbers] = useState<Set<number>>(() => new Set());
+  // "Mapear columnas con IA": the editable suggestion and the column_map in use
+  // (null = automatic detection by aliases).
+  const [importColumnSuggestions, setImportColumnSuggestions] = useState<ImportColumnSuggestion[] | null>(null);
+  const [importColumnMap, setImportColumnMap] = useState<Record<string, string> | null>(null);
+  const [importMapLoading, setImportMapLoading] = useState(false);
   const [contenidoPorUnidad, setContenidoPorUnidad] = useState("");
   const [venderAGranel, setVenderAGranel] = useState(false);
   const [precioGranel, setPrecioGranel] = useState("");
@@ -219,6 +253,9 @@ export function ProductsPage() {
   // Lista de Inventario y formulario de producto: AppRouter los abre a management/gerente
   // (el clinico no entra a Reabastecer, el cajero no entra a la lista).
   const canOpenInventoryList = hasAnyRole(user?.role, ROUTE_ROLES.gerente);
+  // Importar productos (and its AI column mapping): superusuario and admin only,
+  // the same roles the server allows; gerente and clinico would get a 403.
+  const canImportProducts = hasAnyRole(user?.role, ROUTE_ROLES.management);
   // Chip "Sin capturar · Completar" de Reabastecer mientras pide GET /products/:id.
   const [openingEditProductId, setOpeningEditProductId] = useState<number | null>(null);
   const [stockAdjustProduct, setStockAdjustProduct] = useState<StockAdjustProduct | null>(null);
@@ -248,6 +285,21 @@ export function ProductsPage() {
   const scopedModuleLabel = catalogScope ? getCatalogScopeLabel(catalogScope) : productModuleLabel;
   const veterinaryCategoryFilters = [...VETERINARY_PRODUCT_CATEGORIES];
   const importableRows = importPreview?.rows.filter((row) => row.action === "import" && row.errors.length === 0) || [];
+  const importSkippedExistingCount = importSkipExisting ? importableRows.filter((row) => row.existing_product).length : 0;
+  // What the confirm sends: importable rows, minus existing names when skipped,
+  // minus rows already saved by an earlier (partly failed) run.
+  const importRowsToSend = importableRows.filter((row) =>
+    !(importSkipExisting && row.existing_product) && !importSavedRowNumbers.has(row.row_number)
+  );
+  const importMarkupInvalid = importMarkup.trim() !== "" && !(Number(importMarkup) >= 0 && Number(importMarkup) <= IMPORT_MARKUP_MAX);
+  // Same rules the server checks for column_map: a name column and no field twice.
+  const importMappingProblem = (() => {
+    if (!importColumnSuggestions) return "";
+    const fields = importColumnSuggestions.map((column) => column.field).filter((field) => field !== "ignore");
+    if (!fields.includes("name")) return "Asigna una columna como Nombre.";
+    const repeated = fields.find((field, position) => fields.indexOf(field) !== position);
+    return repeated ? `"${IMPORT_FIELD_LABELS[repeated as ImportColumnField]}" está asignado a más de una columna.` : "";
+  })();
   const [requestSummary, setRequestSummary] = useState<ProductUpdateRequestSummary | null>(null);
   const draftStorageKey = useMemo(() => {
     if (!user?.business_id || !user?.id) return "";
@@ -914,34 +966,55 @@ export function ProductsPage() {
     setRequestSummary(response);
   }
 
-  function openImportModal() {
-    setShowImportModal(true);
+  function resetImportState() {
     setImportFile(null);
     setImportPreview(null);
     setImportResult(null);
+    setImportMarkup("");
+    setImportSkipExisting(true);
+    setImportError("");
+    setImportProgress(null);
+    setImportSavedRowNumbers(new Set());
+    setImportColumnSuggestions(null);
+    setImportColumnMap(null);
+    setImportMapLoading(false);
+  }
+
+  function openImportModal() {
+    setShowImportModal(true);
+    resetImportState();
   }
 
   function closeImportModal() {
     setShowImportModal(false);
-    setImportFile(null);
-    setImportPreview(null);
-    setImportResult(null);
+    resetImportState();
     setImportLoading(false);
     setImportConfirming(false);
   }
 
-  async function previewImportFile() {
+  // markupOverride: the markup to send (the field's value when omitted).
+  // columnMapOverride: the column_map to send; undefined = the one in use,
+  // null = automatic detection by aliases.
+  async function previewImportFile(markupOverride?: string, columnMapOverride?: Record<string, string> | null) {
     if (!token || !importFile) {
-      setError("Selecciona un archivo CSV o XLSX");
+      setImportError("Selecciona un archivo CSV o XLSX");
+      return;
+    }
+    const markup = (markupOverride ?? importMarkup).trim();
+    if (markup && !(Number(markup) >= 0 && Number(markup) <= IMPORT_MARKUP_MAX)) {
+      setImportError(`La ganancia sobre el costo debe ser un número de 0 a ${IMPORT_MARKUP_MAX}.`);
       return;
     }
 
     try {
-      setError("");
+      setImportError("");
       setImportLoading(true);
       setImportResult(null);
       const formData = new FormData();
       formData.append("file", importFile);
+      if (markup) formData.append("markup_percent", markup);
+      const columnMap = columnMapOverride === undefined ? importColumnMap : columnMapOverride;
+      if (columnMap) formData.append("column_map", JSON.stringify(columnMap));
       const response = await apiRequest<ProductImportPreviewResponse>("/products/import/preview", {
         method: "POST",
         token,
@@ -949,35 +1022,130 @@ export function ProductsPage() {
       });
       setImportPreview(response);
     } catch (previewError) {
-      setError(previewError instanceof Error ? previewError.message : "No fue posible previsualizar el archivo");
+      setImportError(previewError instanceof Error ? previewError.message : "No fue posible previsualizar el archivo");
     } finally {
       setImportLoading(false);
     }
   }
 
+  // "Mapear columnas con IA": the server reads only the headers and 5 sample
+  // rows; the answer is an editable suggestion, nothing is imported yet.
+  async function requestColumnMapping() {
+    if (!token || !importFile) return;
+    try {
+      setImportError("");
+      setImportMapLoading(true);
+      const response = await apiMapImportColumns(token, importFile);
+      setImportColumnSuggestions(response.columns);
+    } catch (mapError) {
+      setImportError(mapError instanceof Error ? mapError.message : "No fue posible proponer el mapeo de columnas.");
+    } finally {
+      setImportMapLoading(false);
+    }
+  }
+
+  function updateColumnSuggestion(index: number, field: ImportColumnField | "ignore") {
+    setImportColumnSuggestions((current) => current?.map((column) => (column.index === index ? { ...column, field } : column)) ?? null);
+  }
+
+  // Applies the edited mapping: the preview is asked again with column_map and
+  // the usual flow (batches, skip existing names, markup) continues from there.
+  function applyColumnMapping() {
+    if (!importColumnSuggestions || importMappingProblem) return;
+    const columnMap = Object.fromEntries(importColumnSuggestions.map((column) => [String(column.index), column.field]));
+    setImportColumnMap(columnMap);
+    previewImportFile(undefined, columnMap).catch(() => undefined);
+  }
+
+  function switchToAutomaticColumnDetection() {
+    setImportColumnMap(null);
+    setImportColumnSuggestions(null);
+    if (importPreview) previewImportFile(undefined, null).catch(() => undefined);
+  }
+
+  // Changing the markup asks for the preview again (debounced, and only once a
+  // preview exists, so typing does not fire one request per key).
+  useEffect(() => {
+    if (!importPreview || importMarkupInvalid) return undefined;
+    const timer = window.setTimeout(() => {
+      previewImportFile(importMarkup).catch(() => undefined);
+    }, 700);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importMarkup]);
+
+  async function downloadImportTemplate() {
+    if (!token) return;
+    try {
+      setImportError("");
+      const blob = await apiDownload("/products/import/template", { token });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "plantilla_importar_productos.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setImportError("No fue posible descargar la plantilla. Intenta de nuevo.");
+    }
+  }
+
+  // Confirm in batches of IMPORT_BATCH_SIZE, one after another, sending only
+  // row_number and payload. A failed batch stops the run; the rows saved so far
+  // are kept out of any retry.
   async function confirmImport() {
     if (!token || !importPreview) return;
+    const rows = importRowsToSend.map((row) => ({ row_number: row.row_number, payload: row.payload }));
+    if (!rows.length) return;
 
+    const results: ProductImportConfirmResponse["results"] = [];
+    const saved = new Set(importSavedRowNumbers);
+    let failed = false;
+
+    setImportError("");
+    setImportResult(null);
+    setImportConfirming(true);
     try {
-      setError("");
-      setImportConfirming(true);
-      const response = await apiRequest<ProductImportConfirmResponse>("/products/import/confirm", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          rows: importPreview.rows.filter((row) => row.action === "import" && row.errors.length === 0)
-        })
-      });
-      setImportResult(response);
+      for (let start = 0; start < rows.length; start += IMPORT_BATCH_SIZE) {
+        const batch = rows.slice(start, start + IMPORT_BATCH_SIZE);
+        setImportProgress({ done: Math.min(start + batch.length, rows.length), total: rows.length });
+        try {
+          const response = await apiRequest<ProductImportConfirmResponse>("/products/import/confirm", {
+            method: "POST",
+            token,
+            body: JSON.stringify({ rows: batch })
+          });
+          results.push(...response.results);
+          for (const result of response.results) {
+            if (result.status === "imported" && result.row_number !== null) saved.add(result.row_number);
+          }
+        } catch {
+          failed = true;
+          break;
+        }
+      }
+
+      const imported = results.filter((row) => row.status === "imported").length;
+      const errors = results.filter((row) => row.status === "error").length;
+      setImportSavedRowNumbers(saved);
+      setImportResult({ results, summary: { total: rows.length, imported, errors, omitted: 0 } });
+      if (failed) {
+        const notSaved = rows.length - imported;
+        setImportError(
+          `La importación se detuvo. Se guardaron ${imported} ${imported === 1 ? "producto" : "productos"} y ${notSaved} no se importaron. ` +
+          "Revisa tu conexión y vuelve a confirmar: solo se enviarán las filas que faltan."
+        );
+      }
       await Promise.all([
         loadProducts(search, page, pageSize, categoryFilter),
         loadCategories(),
         loadSuppliers(),
         ...(isRestockRoute ? [loadRestockProducts({ search: restockSearch, page: restockPage, pageSize: restockPageSize, stockStatus: restockStockFilter })] : [])
-      ]);
-    } catch (confirmError) {
-      setError(confirmError instanceof Error ? confirmError.message : "No fue posible importar productos");
+      ]).catch(() => undefined);
     } finally {
+      setImportProgress(null);
       setImportConfirming(false);
     }
   }
@@ -2022,6 +2190,7 @@ export function ProductsPage() {
         handleEdit={handleEdit}
         isCashier={isCashier}
         isVeterinaryView={isVeterinaryView}
+        canImport={canImportProducts}
         openImportModal={openImportModal}
         page={page}
         pageSize={pageSize}
@@ -2419,19 +2588,142 @@ export function ProductsPage() {
             <div className="grid-form">
               <label>
                 Archivo
-                <input accept=".csv,.xlsx" onChange={(event) => setImportFile(event.target.files?.[0] || null)} type="file" />
+                <input
+                  accept=".csv,.xlsx"
+                  onChange={(event) => {
+                    // A new file starts over: new preview and nothing saved yet.
+                    setImportFile(event.target.files?.[0] || null);
+                    setImportPreview(null);
+                    setImportResult(null);
+                    setImportError("");
+                    setImportSavedRowNumbers(new Set());
+                    setImportColumnSuggestions(null);
+                    setImportColumnMap(null);
+                  }}
+                  type="file"
+                />
               </label>
               <div className="info-card">
                 <strong>Orden sugerido de columnas</strong>
                 <p className="muted">Nombre, precio, costo, categoria, SKU, codigo de barras, stock, unidad de venta, proveedor.</p>
+                <div className="inline-actions">
+                  <button className="button ghost" onClick={downloadImportTemplate} type="button">Descargar plantilla</button>
+                </div>
               </div>
+              <label>
+                Ganancia sobre el costo (%)
+                <input
+                  aria-describedby="import-markup-help"
+                  inputMode="decimal"
+                  max={IMPORT_MARKUP_MAX}
+                  min={0}
+                  onChange={(event) => setImportMarkup(event.target.value)}
+                  placeholder="Opcional, por ejemplo 35"
+                  step="any"
+                  type="number"
+                  value={importMarkup}
+                />
+                <small className={importMarkupInvalid ? "error-text" : "muted"} id="import-markup-help">
+                  {importMarkupInvalid
+                    ? `Escribe un número de 0 a ${IMPORT_MARKUP_MAX}.`
+                    : "Solo para filas sin precio de venta y con costo: el precio se calcula como costo más este porcentaje."}
+                </small>
+              </label>
+              <p className="info-card" role="note" style={{ margin: 0 }}>
+                La importación crea productos con el stock del archivo (0 si va vacío) y no registra compra ni egreso.
+              </p>
               <div className="inline-actions">
-                <button className="button" disabled={!importFile || importLoading} onClick={previewImportFile} type="button">
+                <button className="button" disabled={!importFile || importLoading || importMarkupInvalid} onClick={() => previewImportFile()} type="button">
                   {importLoading ? "Analizando..." : "Generar preview"}
                 </button>
                 <span className="muted">El sistema detecta columnas comunes, completa categoria/unidad faltante y reutiliza validaciones actuales.</span>
               </div>
             </div>
+
+            {importFile && canImportProducts ? (
+              <div className="info-card" style={{ display: "grid", gap: "0.6rem" }}>
+                <div className="inline-actions" style={{ flexWrap: "wrap", alignItems: "center" }}>
+                  <button
+                    className="button ghost"
+                    disabled={!hasTicketAiPlan || importMapLoading || importLoading}
+                    onClick={requestColumnMapping}
+                    type="button"
+                  >
+                    {importMapLoading ? "Proponiendo mapeo..." : "Mapear columnas con IA"}
+                  </button>
+                  {!hasTicketAiPlan ? <span className="muted">Disponible en Premium</span> : null}
+                  {importColumnMap ? (
+                    <button className="button ghost" disabled={importLoading} onClick={switchToAutomaticColumnDetection} type="button">
+                      Volver a la detección automática
+                    </button>
+                  ) : null}
+                </div>
+                <p className="muted" role="note" style={{ margin: 0, fontSize: "0.85rem" }}>
+                  Se envían a un proveedor de inteligencia artificial (Anthropic) los encabezados y 5 filas de ejemplo para proponer el mapeo; no se guarda.
+                </p>
+                {importColumnMap ? <p className="muted" style={{ margin: 0 }}>Vista previa con el mapeo de columnas que elegiste.</p> : null}
+
+                {importColumnSuggestions ? (
+                  <>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Columna del archivo</th>
+                            <th>Campo</th>
+                            <th>Confianza</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importColumnSuggestions.map((column) => {
+                            const low = column.confidence < IMPORT_LOW_CONFIDENCE;
+                            return (
+                              <tr key={`import-map-${column.index}`}>
+                                <td style={{ overflowWrap: "anywhere" }}>{column.header || `Columna ${column.index + 1}`}</td>
+                                <td>
+                                  <select
+                                    aria-label={`Campo para la columna ${column.header || column.index + 1}`}
+                                    onChange={(event) => updateColumnSuggestion(column.index, event.target.value as ImportColumnField | "ignore")}
+                                    style={{ width: "100%", minWidth: "9rem" }}
+                                    value={column.field}
+                                  >
+                                    {(Object.keys(IMPORT_FIELD_LABELS) as ImportColumnField[]).map((field) => (
+                                      <option key={field} value={field}>{IMPORT_FIELD_LABELS[field]}</option>
+                                    ))}
+                                    <option value="ignore">Ignorar</option>
+                                  </select>
+                                </td>
+                                <td>
+                                  <span
+                                    className="pill"
+                                    style={low ? {
+                                      background: "color-mix(in srgb, var(--warning) 18%, transparent)",
+                                      border: "1px solid color-mix(in srgb, var(--warning) 55%, transparent)",
+                                      color: "var(--text)"
+                                    } : undefined}
+                                    title={low ? "Confianza baja: revisa esta columna" : undefined}
+                                  >
+                                    {Math.round(column.confidence * 100)}%{low ? " · revisar" : ""}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {importMappingProblem ? <p className="error-text" role="alert" style={{ margin: 0 }}>{importMappingProblem}</p> : null}
+                    <div className="inline-actions">
+                      <button className="button" disabled={Boolean(importMappingProblem) || importLoading} onClick={applyColumnMapping} type="button">
+                        {importLoading ? "Analizando..." : "Usar este mapeo"}
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
+            {importError ? <p className="error-text" role="alert">{importError}</p> : null}
 
             {importPreview ? (
               <div className="stack-list">
@@ -2453,6 +2745,16 @@ export function ProductsPage() {
                     <strong>{importPreview.summary.with_warnings}</strong>
                   </div>
                 </div>
+                {importPreview.file_warnings?.length ? (
+                  <div className="info-card" role="note">
+                    {importPreview.file_warnings.map((warning) => <p className="muted" key={warning} style={{ margin: 0 }}>{warning}</p>)}
+                  </div>
+                ) : null}
+                <label className="checkbox-row" style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: 0 }}>
+                  <input checked={importSkipExisting} onChange={(event) => setImportSkipExisting(event.target.checked)} type="checkbox" />
+                  Omitir productos cuyo nombre ya existe
+                  {importSkipExisting ? <span className="muted">({importSkippedExistingCount} {importSkippedExistingCount === 1 ? "se omite" : "se omiten"})</span> : null}
+                </label>
                 <div className="table-wrap">
                   <table>
                     <thead>
@@ -2472,8 +2774,20 @@ export function ProductsPage() {
                       {importPreview.rows.map((row: ProductImportPreviewRow) => (
                         <tr key={`import-preview-${row.index}`}>
                           <td>{row.row_number}</td>
-                          <td>{row.payload.name || "-"}</td>
-                          <td>{row.payload.price || "-"}</td>
+                          <td>
+                            {row.payload.name || "-"}
+                            {row.existing_product ? (
+                              <span className="pill" style={{ display: "inline-block", marginLeft: "0.35rem", fontSize: "0.72rem" }}>
+                                {importSkipExisting ? "Ya existe, se omite" : "Ya existe"}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td>
+                            {row.payload.price || "-"}
+                            {row.price_calculated ? (
+                              <span className="pill" style={{ display: "inline-block", marginLeft: "0.35rem", fontSize: "0.72rem" }}>Precio calculado</span>
+                            ) : null}
+                          </td>
                           <td>{row.payload.cost_price || "-"}</td>
                           <td>{row.payload.category || "-"}</td>
                           <td>{row.payload.unidad_de_venta}</td>
@@ -2481,7 +2795,7 @@ export function ProductsPage() {
                           <td>{row.payload.supplier_name || "-"}</td>
                           <td>
                             {row.errors.length ? <div className="error-text">{row.errors.join(" | ")}</div> : null}
-                            {!row.errors.length && row.warnings.length ? <div className="muted">{row.warnings.join(" | ")}</div> : null}
+                            {row.warnings.length ? <div className="muted">{row.warnings.join(" | ")}</div> : null}
                             {!row.errors.length && !row.warnings.length ? <span className="success-text">Lista para importar</span> : null}
                           </td>
                         </tr>
@@ -2491,10 +2805,15 @@ export function ProductsPage() {
                 </div>
                 <div className="inline-actions modal-actions-end">
                   <button className="button ghost" onClick={closeImportModal} type="button">Cancelar</button>
-                  <button className="button" disabled={importableRows.length === 0 || importConfirming} onClick={confirmImport} type="button">
-                    {importConfirming ? "Importando..." : `Confirmar importacion (${importableRows.length})`}
+                  <button className="button" disabled={importRowsToSend.length === 0 || importConfirming || importLoading} onClick={confirmImport} type="button">
+                    {importConfirming && importProgress
+                      ? `Importando ${importProgress.done} de ${importProgress.total}…`
+                      : `Confirmar importacion (${importRowsToSend.length})`}
                   </button>
                 </div>
+                {importConfirming && importProgress ? (
+                  <p className="muted" role="status" style={{ margin: 0 }}>Importando {importProgress.done} de {importProgress.total}…</p>
+                ) : null}
               </div>
             ) : null}
 

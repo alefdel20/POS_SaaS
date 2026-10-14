@@ -1,5 +1,9 @@
 const pool = require("../db/pool");
 const { syncReminderToHealthcare } = require("./healthcareSubjectTranslation");
+const { extractReminderMeta, assertClinicalReminderAccess } = require("../services/reminderService");
+const { saveAuditLog } = require("../services/auditLogService");
+const { normalizeRole } = require("./roles");
+const { getMexicoCityDate, getMexicoCityTime } = require("./timezone");
 
 const TOOLS = [
   {
@@ -67,14 +71,15 @@ const TOOLS = [
     type: "function",
     function: {
       name: "createReminder",
-      description: "Crea un recordatorio en el sistema para el negocio",
+      description: "Crea un recordatorio para el negocio, solo cuando el usuario lo pide. El sistema no envía un aviso a esa hora; el recordatorio aparece en la sección Recordatorios.",
       parameters: {
         type: "object",
         required: ["title", "due_date"],
         properties: {
-          title: { type: "string", description: "Título del recordatorio" },
+          title: { type: "string", description: "Título del recordatorio (1 a 180 caracteres)" },
           notes: { type: "string", description: "Notas adicionales" },
-          due_date: { type: "string", description: "Fecha de vencimiento YYYY-MM-DD" },
+          due_date: { type: "string", description: "Fecha YYYY-MM-DD, hoy o futura (zona horaria Ciudad de México)" },
+          time: { type: "string", description: "Hora opcional en formato HH:mm de 24 horas (por ejemplo 16:00 para las 4 de la tarde)" },
           category: { type: "string", description: "Categoría: usa 'administrative' para recordatorios de negocio, 'clinical' para recordatorios médicos" }
         }
       }
@@ -247,7 +252,67 @@ async function getSupplierInfo(args, businessId) {
   }));
 }
 
-async function createReminder(args, businessId, userId) {
+// Same roles as POST /reminders in reminderRoutes.js (cocina and soporte
+// cannot create reminders). Compared after normalizeRole, like requireRole.
+const REMINDER_CREATE_ROLES = ["superadmin", "superusuario", "admin", "gerente", "clinico", "user", "cajero"];
+const MAX_REMINDER_TITLE_LENGTH = 180;
+// Same offset the Recordatorios form sends (frontend utils/timezone.ts,
+// dateTimeLocalToIsoString): "YYYY-MM-DDTHH:mm:00-06:00".
+const MEXICO_CITY_OFFSET = "-06:00";
+const DUPLICATE_WINDOW_MINUTES = 10;
+
+function normalizeReminderTitle(title) {
+  return String(title || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function isRealDate(text) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const [year, month, day] = text.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
+// Checks the tool arguments. Returns { error } with a message meant for the
+// model (what to fix or ask the user), or the clean values.
+function validateReminderArgs(args, actor) {
+  const role = normalizeRole(actor?.role);
+  if (!role || !REMINDER_CREATE_ROLES.map(normalizeRole).includes(role)) {
+    return { error: "El rol de este usuario no puede crear recordatorios. Dile que no se creó y que se lo pida a un administrador o gerente." };
+  }
+
+  const title = String(args.title ?? "").trim();
+  if (!title) {
+    return { error: "Falta el título del recordatorio. Pregúntale al usuario qué quiere recordar; no se creó nada." };
+  }
+  if (Array.from(title).length > MAX_REMINDER_TITLE_LENGTH) {
+    return { error: `El título tiene más de ${MAX_REMINDER_TITLE_LENGTH} caracteres. Resúmelo a ${MAX_REMINDER_TITLE_LENGTH} o menos y vuelve a intentarlo; no se creó nada.` };
+  }
+
+  const dueDate = typeof args.due_date === "string" ? args.due_date.trim() : "";
+  if (!isRealDate(dueDate)) {
+    return { error: "La fecha no es válida: usa due_date en formato YYYY-MM-DD con una fecha real (por ejemplo 2026-10-14). No se creó nada." };
+  }
+  const today = getMexicoCityDate();
+  if (dueDate < today) {
+    return { error: `La fecha ${dueDate} ya pasó (hoy es ${today} en Ciudad de México). Pregúntale al usuario para qué fecha lo quiere; no se creó nada.` };
+  }
+
+  let time = null;
+  if (args.time !== undefined && args.time !== null && args.time !== "") {
+    time = typeof args.time === "string" ? args.time.trim() : "";
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      return { error: "La hora no es válida: usa time en formato HH:mm de 24 horas (por ejemplo 16:00 para las 4 de la tarde). No se creó nada." };
+    }
+    const now = getMexicoCityTime().slice(0, 5);
+    if (dueDate === today && time < now) {
+      return { error: `La hora ${time} de hoy ya pasó (son las ${now} en Ciudad de México). Pregúntale al usuario si lo quiere para otra hora o para otro día; no se creó nada.` };
+    }
+  }
+
+  return { title, dueDate, time, notes: String(args.notes || "").trim() };
+}
+
+async function createReminder(args, businessId, userId, actor = null) {
   // Fase 6 follow-up: this AI-tool path writes directly to public.reminders
   // and never went through reminderService.createReminder, so it never got
   // the healthcare.reminders sync added there — same silent-gap pattern
@@ -261,36 +326,85 @@ async function createReminder(args, businessId, userId) {
   // patient to a reminder it creates — so syncReminderToHealthcare's
   // auto-heal/resolveHealthcareSubject path never runs here; every mirror
   // row produced by this function is the "no subject" case.
+  const valid = validateReminderArgs(args, actor);
+  if (valid.error) return { error: valid.error };
+  const { title, dueDate, time, notes } = valid;
+
+  // Clinical only when the actor may create clinical reminders (same rule as
+  // the REST route); otherwise forced to administrative, which keeps
+  // syncReminderToHealthcare a no-op.
+  let category = String(args.category || "").toLowerCase().includes("clinical") ? "clinical" : "administrative";
+  if (category === "clinical") {
+    try {
+      assertClinicalReminderAccess({ category }, actor);
+    } catch {
+      category = "administrative";
+    }
+  }
+
+  // Same metadata the Recordatorios form stores (start_at / calendar_start_at).
+  const metadata = extractReminderMeta(time ? { start_date: `${dueDate}T${time}:00${MEXICO_CITY_OFFSET}` } : {});
+  const createdBy = userId || null;
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const category = String(args.category || "").toLowerCase().includes("clinical") ? "clinical" : "administrative";
+
+    // Same user, title, date and time in the last minutes: return it instead
+    // of inserting again (the model retried or the user resent the message).
+    const { rows: duplicates } = await client.query(
+      `SELECT id, title
+       FROM reminders
+       WHERE business_id = $1
+         AND created_by IS NOT DISTINCT FROM $2
+         AND LOWER(REGEXP_REPLACE(BTRIM(title), '\\s+', ' ', 'g')) = $3
+         AND due_date = $4::date
+         AND COALESCE(metadata->>'start_at', '') = $5
+         AND created_at >= NOW() - INTERVAL '${DUPLICATE_WINDOW_MINUTES} minutes'
+       ORDER BY id DESC
+       LIMIT 1`,
+      [Number(businessId), createdBy, normalizeReminderTitle(title), dueDate, metadata.start_at || ""]
+    );
+    if (duplicates[0]) {
+      await client.query("COMMIT");
+      return { id: duplicates[0].id, title: duplicates[0].title, due_date: dueDate, time, duplicate: true };
+    }
+
     const { rows } = await client.query(
       `INSERT INTO reminders
          (title, notes, status, due_date, business_id, reminder_type, category, is_completed, created_by, metadata)
-       VALUES ($1, $2, 'pending', $3, $4, 'manual', $5, FALSE, $6, '{}'::jsonb)
+       VALUES ($1, $2, 'pending', $3, $4, 'manual', $5, FALSE, $6, $7::jsonb)
        RETURNING *`,
       [
-        String(args.title || "").trim(),
-        String(args.notes || "").trim(),
-        args.due_date || null,
+        title,
+        notes,
+        dueDate,
         Number(businessId),
         category,
-        userId || null
+        createdBy,
+        JSON.stringify(metadata)
       ]
     );
     // No-op automatically when category !== 'clinical' (see
     // syncReminderToHealthcare's guard in healthcareSubjectTranslation.js).
-    await syncReminderToHealthcare(rows[0], { id: userId || null }, client);
+    await syncReminderToHealthcare(rows[0], { id: createdBy }, client);
+    // Same audit entry as reminderService.createReminder, tagged as coming from the chat.
+    await saveAuditLog({
+      business_id: Number(businessId),
+      usuario_id: createdBy,
+      modulo: "reminders",
+      accion: category === "clinical" ? "create_clinical_reminder" : "create_reminder",
+      entidad_tipo: "reminder",
+      entidad_id: rows[0].id,
+      detalle_nuevo: { snapshot: rows[0] },
+      metadata: { category, patient_id: null, source: "ai_chat" }
+    }, { client, strict: false });
     await client.query("COMMIT");
-    return {
-      id: rows[0].id,
-      title: rows[0].title,
-      due_date: rows[0].due_date
-    };
+    return { id: rows[0].id, title: rows[0].title, due_date: dueDate, time, duplicate: false };
   } catch (error) {
     await client.query("ROLLBACK");
-    throw error;
+    console.error("[AI Tool] createReminder error:", error.message);
+    return { error: "No se pudo guardar el recordatorio por un error del sistema. Dile al usuario que no se creó y que intente de nuevo en un momento." };
   } finally {
     client.release();
   }
@@ -313,14 +427,15 @@ async function getExpensesByPeriod(args, businessId) {
   return rows.map((r) => ({ category: r.category, total: Number(r.total) }));
 }
 
-async function executeTool(toolName, args, businessId, userId = null) {
+// actor: the authenticated user (role checks for createReminder).
+async function executeTool(toolName, args, businessId, userId = null, actor = null) {
   try {
     switch (toolName) {
       case "getSalesByPeriod":   return await getSalesByPeriod(args, businessId);
       case "getTopProducts":     return await getTopProducts(args, businessId);
       case "getClientBalance":   return await getClientBalance(args, businessId);
       case "getSupplierInfo":    return await getSupplierInfo(args, businessId);
-      case "createReminder":     return await createReminder(args, businessId, userId);
+      case "createReminder":     return await createReminder(args, businessId, userId, actor);
       case "getExpensesByPeriod":return await getExpensesByPeriod(args, businessId);
       default:                   return { error: "Herramienta no reconocida." };
     }
@@ -330,4 +445,4 @@ async function executeTool(toolName, args, businessId, userId = null) {
   }
 }
 
-module.exports = { TOOLS, executeTool };
+module.exports = { TOOLS, executeTool, REMINDER_CREATE_ROLES };

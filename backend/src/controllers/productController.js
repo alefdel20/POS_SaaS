@@ -236,11 +236,19 @@ const getStockAdjustSettings = asyncHandler(async (req, res) => {
 });
 
 const previewProductImport = asyncHandler(async (req, res) => {
-  res.json(await productService.previewProductImport(req.file, req.user));
+  res.json(await productService.previewProductImport(req.file, req.user, { markup_percent: req.body?.markup_percent, column_map: req.body?.column_map }));
 });
 
 const confirmProductImport = asyncHandler(async (req, res) => {
-  res.json(await productService.confirmProductImport(req.body.rows, req.user));
+  res.json(await productService.confirmProductImport(req.body.rows, req.user, { markup_percent: req.body.markup_percent }));
+});
+
+// Sample CSV for "Importar productos".
+const downloadProductImportTemplate = asyncHandler(async (_req, res) => {
+  const { buffer, filename } = productService.buildProductImportTemplate();
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(buffer);
 });
 
 const getProductBarcode = asyncHandler(async (req, res) => {
@@ -390,6 +398,7 @@ module.exports = {
   getStockAdjustSettings,
   previewProductImport,
   confirmProductImport,
+  downloadProductImportTemplate,
   getProductDetail,
   getProductBarcode,
   createProduct,

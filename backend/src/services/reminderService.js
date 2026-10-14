@@ -934,5 +934,8 @@ module.exports = {
   cancelAutomaticReminder,
   ensureAutomaticReminders,
   ensureLowStockRemindersForProductIds,
-  receiveAutomationWebhook
+  receiveAutomationWebhook,
+  // Reused by the AI chat createReminder tool (aiFunctions.js).
+  extractReminderMeta,
+  assertClinicalReminderAccess
 };

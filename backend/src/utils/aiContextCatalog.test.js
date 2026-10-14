@@ -93,14 +93,72 @@ test("buildSystemPrompt sin catalogo (consulta fallida): lo dice en lugar de inv
   assert.match(prompt, /CATÁLOGO:\nNo hay datos del catálogo disponibles por ahora\./);
 });
 
-test("buildSystemPrompt: cargar una compra desde ticket remite a Cargar ticket, justo despues de solo lectura", () => {
+test("buildSystemPrompt: cargar una compra desde ticket remite a Cargar ticket, despues de las reglas de recordatorios", () => {
   const prompt = buildSystemPrompt({ role: "admin" }, {});
   const lines = prompt.split("\n");
-  const readOnly = lines.indexOf("- NO puedes modificar ningún dato del sistema — eres solo lectura.");
-  assert.ok(readOnly > 0);
-  assert.match(lines[readOnly + 1], /cargar, registrar o dar de alta una compra, insumos o productos a partir de un ticket o factura, no digas solo que no puedes/);
-  assert.match(lines[readOnly + 1], /"Cargar ticket" en la pantalla Productos por reabastecer, donde sube la foto, revisa lo que se leyó y confirma/);
-  assert.match(lines[readOnly + 1], /puedes ayudarle a leer y resumir el archivo/);
-  assert.match(lines[readOnly + 1], /Si el usuario dice que no ve el botón, explícale que la función depende de su plan y de su rol, y que le pida a su administrador que la revise\.$/);
-  assert.equal(lines[readOnly + 2], "- NO respondas sobre política, entretenimiento, deportes u otros temas ajenos al negocio.");
+  const ticket = lines.findIndex((line) => line.includes('"Cargar ticket"'));
+  assert.ok(ticket > 0);
+  assert.match(lines[ticket], /^- Si el usuario pide cargar, registrar o dar de alta una compra, insumos o productos a partir de un ticket o factura, no digas solo que no puedes/);
+  assert.match(lines[ticket], /"Cargar ticket" en la pantalla Productos por reabastecer, donde sube la foto, revisa lo que se leyó y confirma/);
+  assert.match(lines[ticket], /puedes ayudarle a leer y resumir el archivo/);
+  assert.match(lines[ticket], /Si el usuario dice que no ve el botón, explícale que la función depende de su plan y de su rol, y que le pida a su administrador que la revise\.$/);
+  assert.match(lines[ticket - 1], /NO envía un aviso a esa hora/);
+  assert.match(lines[ticket + 1], /^- Si el usuario quiere cargar un catálogo/);
+  assert.equal(lines[ticket + 2], "- NO respondas sobre política, entretenimiento, deportes u otros temas ajenos al negocio.");
+});
+
+test("buildSystemPrompt: Cargar ticket es solo para compras reales y justo debajo los catalogos van a Importar productos", () => {
+  const lines = buildSystemPrompt({ role: "admin" }, {}).split("\n");
+  const ticket = lines.findIndex((line) => line.includes('"Cargar ticket"') && line.includes("Productos por reabastecer"));
+  assert.ok(ticket > 0);
+  assert.match(lines[ticket], /"Cargar ticket" es solo para COMPRAS reales: suma el stock y registra un egreso\./);
+
+  const catalog = lines[ticket + 1];
+  assert.match(catalog, /^- Si el usuario quiere cargar un catálogo o una lista de productos o de precios \(no una compra\)/);
+  assert.match(catalog, /no lo mandes a "Cargar ticket"/);
+  assert.match(catalog, /"Importar productos" en la pantalla Productos/);
+  assert.match(catalog, /archivo CSV o XLSX con nombre y precio de venta obligatorios/);
+  assert.match(catalog, /hasta unos 200 renglones por archivo por ahora/);
+  assert.match(catalog, /Solo un administrador puede importar productos/);
+});
+
+// Friday 2026-10-16, 16:30 in Mexico City (UTC-6).
+const FRIDAY_AFTERNOON = new Date("2026-10-16T22:30:00Z");
+
+test("buildSystemPrompt: ya no dice solo lectura; solo crea recordatorios y no modifica ni borra otros datos", () => {
+  const prompt = buildSystemPrompt({ role: "admin" }, {}, FRIDAY_AFTERNOON);
+  assert.doesNotMatch(prompt, /solo lectura/);
+  assert.doesNotMatch(prompt, /NO puedes modificar ningún dato del sistema/);
+  assert.ok(prompt.split("\n").includes(
+    "- Solo puedes crear recordatorios con la herramienta createReminder cuando el usuario lo pida; no puedes modificar ni borrar ningún otro dato del sistema."
+  ));
+  assert.match(prompt, /pregunta UNA sola vez antes de crearlo/);
+  assert.match(prompt, /sin a\. m\. o p\. m\. clara, una hora de hoy que ya pasó, o "el viernes" cuando hoy es viernes/);
+  assert.match(prompt, /"Listo: mañana a las 4:00 p\. m\., comprar a Pan Bimbo"/);
+  assert.match(prompt, /Crea un solo recordatorio por pedido, salvo que el usuario pida varios/);
+  assert.match(prompt, /duplicate: true/);
+  assert.match(prompt, /el sistema todavía NO envía un aviso a esa hora: el usuario lo verá en la sección Recordatorios/);
+});
+
+test("buildSystemPrompt: fecha con dia de la semana, hora actual de Mexico y los proximos 7 dias", () => {
+  const lines = buildSystemPrompt({ role: "admin" }, {}, FRIDAY_AFTERNOON).split("\n");
+  const dateLine = lines.indexOf("Fecha actual (zona horaria Ciudad de México): 2026-10-16 (viernes).");
+  assert.ok(dateLine > 0);
+  assert.deepEqual(lines.slice(dateLine + 1, dateLine + 10), [
+    "Hora actual (zona horaria Ciudad de México, formato 24 h): 16:30.",
+    "Próximos 7 días:",
+    "  sábado 2026-10-17 (mañana)",
+    "  domingo 2026-10-18",
+    "  lunes 2026-10-19",
+    "  martes 2026-10-20",
+    "  miércoles 2026-10-21",
+    "  jueves 2026-10-22",
+    "  viernes 2026-10-23"
+  ]);
+
+  // Month and year boundaries.
+  const december = buildSystemPrompt({ role: "admin" }, {}, new Date("2026-12-30T18:00:00Z")).split("\n");
+  assert.ok(december.includes("Fecha actual (zona horaria Ciudad de México): 2026-12-30 (miércoles)."));
+  assert.ok(december.includes("  jueves 2026-12-31 (mañana)"));
+  assert.ok(december.includes("  miércoles 2027-01-06"));
 });

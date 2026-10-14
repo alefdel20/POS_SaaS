@@ -41,6 +41,32 @@ function resolveReminderDateKey(reminder: Reminder) {
   return startAt ? getMexicoCityDateInputValue(startAt) : "";
 }
 
+// Start time of a reminder (metadata.start_at / calendar_start_at, the value
+// the form edits) as a Mexico City "YYYY-MM-DDTHH:mm", or "" when it has none,
+// it is invalid, or it falls on another day than the reminder's date.
+function resolveReminderStartLocal(reminder: Reminder) {
+  const metadata = reminder.metadata || {};
+  const startAt = typeof metadata.start_at === "string"
+    ? metadata.start_at
+    : (typeof metadata.calendar_start_at === "string" ? metadata.calendar_start_at : "");
+  if (!startAt) return "";
+  const local = getMexicoCityDateTimeLocalValue(startAt);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local)) return "";
+  return local.slice(0, 10) === resolveReminderDateKey(reminder) ? local : "";
+}
+
+// List label: with a start time, the same "dd/mm/aaaa HH:mm" as the form
+// (shortDateTime); without one, the date only, as before.
+function getReminderDateLabel(reminder: Reminder) {
+  const startLocal = resolveReminderStartLocal(reminder);
+  return startLocal ? shortDateTime(startLocal) : dateLabel(resolveReminderDateKey(reminder));
+}
+
+// Calendar views already show the day: only "HH:mm", or "" without a time.
+function getReminderTimeLabel(reminder: Reminder) {
+  return resolveReminderStartLocal(reminder).slice(11, 16);
+}
+
 function deriveIsCompleted(status: Reminder["status"]) {
   return status === "completed";
 }
@@ -479,7 +505,7 @@ export function RemindersPage() {
                         <div style={{ display: "grid", gap: "0.35rem", marginTop: "0.5rem" }}>
                           {dayItems.slice(0, 2).map((reminder) => (
                             <span className="pill" key={`month-pill-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`} style={{ justifyContent: "flex-start", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {getReminderDisplayTitle(reminder)}
+                              {getReminderTimeLabel(reminder) ? `${getReminderTimeLabel(reminder)} ` : ""}{getReminderDisplayTitle(reminder)}
                             </span>
                           ))}
                           {dayItems.length > 2 ? <span className="muted">+{dayItems.length - 2} mas</span> : null}
@@ -496,7 +522,7 @@ export function RemindersPage() {
                     {selectedDayReminders.map((reminder) => (
                       <article className="reminder-card" key={`selected-day-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`}>
                         <div>
-                          <strong>{getReminderDisplayTitle(reminder)}</strong>
+                          <strong>{getReminderTimeLabel(reminder) ? `${getReminderTimeLabel(reminder)} · ` : ""}{getReminderDisplayTitle(reminder)}</strong>
                           <p className="muted reminder-notes">{sanitizeReminderText(reminder.notes) || "Sin notas"}</p>
                           {getReminderMetaSummary(reminder) ? <small>{getReminderMetaSummary(reminder)}</small> : null}
                         </div>
@@ -533,7 +559,7 @@ export function RemindersPage() {
                     {selectedDayReminders.map((reminder) => (
                       <article className="reminder-card" key={`agenda-${getReminderIdentityKey(reminder)}-${normalizeDateKey(reminder.due_date)}`}>
                         <div>
-                          <strong>{getReminderDisplayTitle(reminder)}</strong>
+                          <strong>{getReminderTimeLabel(reminder) ? `${getReminderTimeLabel(reminder)} · ` : ""}{getReminderDisplayTitle(reminder)}</strong>
                           <p className="muted reminder-notes">{sanitizeReminderText(reminder.notes) || "Sin notas"}</p>
                           <small>{getReminderCategoryLabel(reminder)}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                           {getReminderMetaSummary(reminder) ? <><br /><small>{getReminderMetaSummary(reminder)}</small></> : null}
@@ -582,7 +608,7 @@ export function RemindersPage() {
                     <p className="muted reminder-notes">{sanitizeReminderText(reminder.notes) || "Sin notas"}</p>
                     <small>{getReminderCategoryLabel(reminder)}{reminder.patient_name ? ` · ${reminder.patient_name}` : ""}</small>
                     <br />
-                    <small>{getReminderStatusLabel(reminder.status)} | {dateLabel(resolveReminderDateKey(reminder))}</small>
+                    <small>{getReminderStatusLabel(reminder.status)} | {getReminderDateLabel(reminder)}</small>
                     {getReminderMetaSummary(reminder) ? <><br /><small>{getReminderMetaSummary(reminder)}</small></> : null}
                   </div>
                   <div className="inline-actions">

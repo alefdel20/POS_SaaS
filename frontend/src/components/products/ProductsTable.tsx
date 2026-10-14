@@ -42,6 +42,8 @@ export type ProductsTableProps = {
   handleEdit: (product: Product) => void;
   isCashier: boolean;
   isVeterinaryView: boolean;
+  // Importar productos: only superusuario and admin (same roles as the server).
+  canImport: boolean;
   openImportModal: () => void;
   page: number;
   pageSize: 10 | 15;
@@ -136,6 +138,7 @@ export function ProductsTable({
   handleEdit,
   isCashier,
   isVeterinaryView,
+  canImport,
   openImportModal,
   page,
   pageSize,
@@ -298,7 +301,7 @@ export function ProductsTable({
             {canOpenRestock ? <Link className="button ghost inventory-list-restock-link" to={restockPath}>Productos por reabastecer</Link> : null}
             {!isCashier ? (
               <>
-                <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button>
+                {canImport ? <button className="button ghost" onClick={openImportModal} type="button">Importar productos</button> : null}
                 {/* En movil lo reemplaza el boton flotante "+ Agregar" (mismo handler). */}
                 {!isMobile ? <button className="button" onClick={resetProductEditor} type="button">+ Agregar producto</button> : null}
               </>

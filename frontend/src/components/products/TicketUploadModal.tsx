@@ -16,7 +16,7 @@ import { TicketCategoryPicker } from "./TicketCategoryPicker";
 import { type TicketConfirmSummary, TicketConfirmDialog } from "./TicketConfirmDialog";
 import { TicketPurchasesList } from "./TicketPurchasesList";
 import { TicketVoidDialog } from "./TicketVoidDialog";
-import { TicketFacts, ticketSuccessStyle } from "./ticketUi";
+import { TicketFacts, ticketSuccessStyle, ticketWarningStyle } from "./ticketUi";
 
 // "Cargar ticket" (Reabastecer): lee el ticket con IA y muestra un borrador
 // editable. Con canConfirm (admin, gerente, superusuario y el interruptor
@@ -836,6 +836,15 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
 
         {step === "preview" && draft ? (
           <div style={{ display: "grid", gap: "1rem" }}>
+            {/* Many new products: likely a catalog, not a purchase. Informative only. */}
+            {(() => {
+              const newCount = draft.lines.filter((line) => line.selection.kind === "new").length;
+              return newCount > 20 || newCount > draft.lines.length / 2 ? (
+                <p role="note" style={{ ...ticketWarningStyle, margin: 0 }}>
+                  ¿Es un catálogo y no una compra? Para dar de alta productos sin stock usa Importar productos en Inventario.
+                </p>
+              ) : null;
+            })()}
             <div
               style={{
                 display: "grid",

@@ -480,6 +480,10 @@ export interface ProductImportPreviewRow {
   warnings: string[];
   errors: string[];
   action: "import" | "error";
+  // Sale price calculated with markup_percent (row had no price and a cost > 0).
+  price_calculated?: boolean;
+  // A product with the same normalized name already exists in the business.
+  existing_product?: boolean;
 }
 
 export interface ProductImportPreviewResponse {
@@ -494,6 +498,23 @@ export interface ProductImportPreviewResponse {
     with_warnings: number;
     omitted: number;
   };
+  // One warning per file (for example, the brand column is not imported).
+  file_warnings?: string[];
+}
+
+// POST /products/import/map-columns (importColumnMapService.js). Fields are
+// the keys of the backend IMPORT_COLUMN_ALIASES; "ignore" = not imported.
+export type ImportColumnField = "name" | "price" | "cost_price" | "category" | "sku" | "barcode" | "stock" | "unidad_de_venta" | "supplier";
+
+export interface ImportColumnSuggestion {
+  index: number;
+  header: string;
+  field: ImportColumnField | "ignore";
+  confidence: number;
+}
+
+export interface ImportColumnMapResponse {
+  columns: ImportColumnSuggestion[];
 }
 
 export interface ProductImportResult {
@@ -502,6 +523,7 @@ export interface ProductImportResult {
   product_id?: number;
   product_name?: string;
   message?: string;
+  price_calculated?: boolean;
 }
 
 export interface ProductImportConfirmResponse {
