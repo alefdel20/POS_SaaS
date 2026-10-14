@@ -29,9 +29,24 @@ const ATTACHMENT_MAX_BYTES: Record<string, number> = {
   "application/pdf": 3 * 1024 * 1024,
 };
 
+// Text files: the server decides by extension (case-insensitive), never by the
+// declared type, which browsers often send empty or wrong (.csv as Excel).
+const TEXT_ATTACHMENT_EXTENSIONS = [".txt", ".csv", ".md", ".xml"];
+const TEXT_ATTACHMENT_MAX_BYTES = 300 * 1024;
+
+function isTextAttachment(file: File): boolean {
+  const dot = file.name.lastIndexOf(".");
+  return dot >= 0 && TEXT_ATTACHMENT_EXTENSIONS.includes(file.name.slice(dot).toLowerCase());
+}
+
 function validateAttachment(file: File): string {
+  if (isTextAttachment(file)) {
+    if (file.size === 0) return "El archivo está vacío.";
+    if (file.size > TEXT_ATTACHMENT_MAX_BYTES) return "El archivo de texto debe pesar 300 KB o menos.";
+    return "";
+  }
   const maxBytes = ATTACHMENT_MAX_BYTES[file.type];
-  if (!maxBytes) return "Solo se pueden adjuntar imágenes jpeg, png o webp, o un PDF.";
+  if (!maxBytes) return "Solo se pueden adjuntar imágenes jpeg, png o webp, PDF, o archivos de texto (.txt, .csv, .md, .xml).";
   if (file.size === 0) return "El archivo está vacío.";
   if (file.size > maxBytes) {
     return file.type === "application/pdf"
@@ -748,7 +763,7 @@ export function AiChatPanel({
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    accept="image/jpeg,image/png,image/webp,application/pdf,.txt,.csv,.md,.xml"
                     onChange={handleAttachmentChange}
                     tabIndex={-1}
                     aria-hidden="true"
@@ -758,8 +773,8 @@ export function AiChatPanel({
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isStreaming}
-                    aria-label={attachment ? "Cambiar archivo adjunto (imagen o PDF)" : "Adjuntar imagen o PDF"}
-                    title="Adjuntar imagen o PDF"
+                    aria-label={attachment ? "Cambiar archivo adjunto (imagen, PDF o texto)" : "Adjuntar imagen, PDF o archivo de texto"}
+                    title="Adjuntar imagen, PDF o archivo de texto"
                     style={{
                       ...smallGhostBtn,
                       width: "40px",
@@ -848,7 +863,7 @@ export function AiChatPanel({
                     fontSize: "0.8rem",
                   }}
                 >
-                  <span aria-hidden="true">{attachment.type === "application/pdf" ? "📄" : "🖼️"}</span>
+                  <span aria-hidden="true">{isTextAttachment(attachment) ? "📝" : attachment.type === "application/pdf" ? "📄" : "🖼️"}</span>
                   <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {attachment.name}
                   </span>

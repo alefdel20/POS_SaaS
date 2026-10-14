@@ -111,7 +111,8 @@ async function sendMessage(req, res, next) {
     return res.status(400).json({ message: "ID de sesión inválido." });
   }
 
-  // Attachment turn: req.chatAttachment (name/kind) + req.file.buffer (bytes).
+  // Attachment turn: req.chatAttachment (name/kind) + req.file.buffer (bytes),
+  // or req.chatAttachmentText (decoded content) for a text file.
   const attachment = req.chatAttachment && req.file ? req.chatAttachment : null;
   const userMessage = attachment
     ? (String(req.body.message ?? "").trim() || ATTACHMENT_DEFAULT_MESSAGE)
@@ -156,7 +157,7 @@ async function sendMessage(req, res, next) {
     currentMessage.attachment = {
       kind: attachment.kind,
       media_type: attachment.media_type,
-      data: req.file.buffer.toString("base64")
+      data: attachment.kind === "text" ? req.chatAttachmentText : req.file.buffer.toString("base64")
     };
   }
 

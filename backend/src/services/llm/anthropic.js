@@ -52,9 +52,16 @@ function toAssistantContent(message) {
   return blocks;
 }
 
-// Internal attachment { kind: "image"|"pdf", media_type, data (base64) } ->
-// Claude image or document block. No title/context on the document.
+// Internal attachment -> Claude image or document block. No title/context on
+// the document.
+//   { kind: "image"|"pdf", media_type, data (base64) }
+//   { kind: "text", media_type: "text/plain", data (decoded UTF-8 text) }
+//     -> document with a plain-text source (SDK PlainTextSource), so the file
+//        stays a separate block and no delimiter is needed.
 function toAttachmentBlock(attachment) {
+  if (attachment.kind === "text") {
+    return { type: "document", source: { type: "text", media_type: "text/plain", data: attachment.data } };
+  }
   const source = { type: "base64", media_type: attachment.media_type, data: attachment.data };
   if (attachment.kind === "image") return { type: "image", source };
   if (attachment.kind === "pdf") return { type: "document", source };
