@@ -783,6 +783,12 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
               : "Vista previa: todavía no se guarda nada. Estamos validando la lectura."}
           </p>
         ) : null}
+        {step === "select" || step === "loading" || step === "preview" ? (
+          // Mismo estilo, pero sin sticky: dos avisos sticky en top 0 se encimarían.
+          <p role="note" style={{ ...noticeStyle, position: "static" }}>
+            La foto se envía a un proveedor de inteligencia artificial (Anthropic) para leer el ticket y no se guarda.
+          </p>
+        ) : null}
 
         {error ? <p role="alert" style={alertStyle}>{error}</p> : null}
 

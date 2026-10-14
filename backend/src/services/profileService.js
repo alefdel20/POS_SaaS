@@ -52,8 +52,8 @@ function mapProfile(profile, subscription = null) {
       : "clasico",
     printer_name: generalSettings.printer_name || null,
     cashier_direct_stock: generalSettings.cashier_direct_stock === true,
-    ticket_ai_enabled: generalSettings.ticket_ai_enabled === true,
-    ticket_ai_confirm_enabled: generalSettings.ticket_ai_confirm_enabled === true,
+    ticket_ai_enabled: isTicketSwitchOn(generalSettings.ticket_ai_enabled),
+    ticket_ai_confirm_enabled: isTicketSwitchOn(generalSettings.ticket_ai_confirm_enabled),
     bank_name: profile.bank_name,
     bank_clabe: profile.bank_clabe,
     bank_beneficiary: profile.bank_beneficiary,
@@ -131,19 +131,24 @@ async function isCashierDirectStockEnabled(actor, client = pool) {
   return profile?.general_settings?.cashier_direct_stock === true;
 }
 
-// Interruptor por negocio: "Cargar ticket" con IA. Solo se enciende por SQL
-// (general_settings.ticket_ai_enabled); sin perfil o sin la llave = false.
+// Interruptores del ticket de compra: encendidos por defecto para Premium+.
+// Solo un false booleano explicito (puesto por SQL) los apaga; sin perfil, sin
+// la llave, null o cualquier otro valor = encendido.
+function isTicketSwitchOn(value) {
+  return value !== false;
+}
+
+// Interruptor por negocio: "Cargar ticket" con IA (general_settings.ticket_ai_enabled).
 async function isTicketAiEnabled(actor, client = pool) {
   const profile = await getDefaultProfile(actor, client);
-  return profile?.general_settings?.ticket_ai_enabled === true;
+  return isTicketSwitchOn(profile?.general_settings?.ticket_ai_enabled);
 }
 
 // Interruptor por negocio: confirmar un ticket de compra (mueve stock, costos y
-// egreso). Solo se enciende por SQL (general_settings.ticket_ai_confirm_enabled);
-// sin perfil, sin la llave o cualquier valor distinto de true booleano = false.
+// egreso), general_settings.ticket_ai_confirm_enabled.
 async function isTicketAiConfirmEnabled(actor, client = pool) {
   const profile = await getDefaultProfile(actor, client);
-  return profile?.general_settings?.ticket_ai_confirm_enabled === true;
+  return isTicketSwitchOn(profile?.general_settings?.ticket_ai_confirm_enabled);
 }
 
 async function getProfile(actor) {

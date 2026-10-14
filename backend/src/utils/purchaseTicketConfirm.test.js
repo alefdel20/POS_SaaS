@@ -469,21 +469,56 @@ test("cajero: 403 en confirmar y anular, aun con cashier_direct_stock", async ()
   assert.equal(db.queries.length, 0);
 });
 
-test("bandera ticket_ai_confirm_enabled apagada, ausente o no booleana: 403", async () => {
+test("ticket_ai_confirm_enabled false explicito: 403 en confirmar, anular y recientes", async () => {
+  startCase({ ticket_ai_enabled: true, ticket_ai_confirm_enabled: false });
+  const before = snapshot();
+  const { status, json } = await confirm(ADMIN, ticketBody());
+  assert.equal(status, 403);
+  assert.match(json.message, /confirmación de tickets/);
+  assert.equal((await voidTicket(ADMIN, 1, { reason: "probando" })).status, 403);
+  assert.equal((await recent(ADMIN)).status, 403);
+  assert.deepEqual(db.state, before);
+});
+
+test("ticket_ai_enabled false explicito: 403 en confirmar, anular y recientes", async () => {
+  startCase({ ticket_ai_enabled: false });
+  const before = snapshot();
+  const { status, json } = await confirm(ADMIN, ticketBody());
+  assert.equal(status, 403);
+  assert.match(json.message, /carga de tickets con IA no está activada/);
+  assert.equal((await voidTicket(ADMIN, 1, { reason: "probando" })).status, 403);
+  assert.equal((await recent(ADMIN)).status, 403);
+  assert.deepEqual(db.state, before);
+});
+
+test("banderas ausentes, null o no booleanas: confirmar, anular y recientes pasan", async () => {
   for (const settings of [
-    { ticket_ai_enabled: true, ticket_ai_confirm_enabled: false },
+    {},
     { ticket_ai_enabled: true },
-    { ticket_ai_enabled: true, ticket_ai_confirm_enabled: "true" },
-    { ticket_ai_enabled: true, ticket_ai_confirm_enabled: null }
+    { ticket_ai_confirm_enabled: null, ticket_ai_enabled: null },
+    { ticket_ai_enabled: "true", ticket_ai_confirm_enabled: "true" },
+    { ticket_ai_enabled: 0, ticket_ai_confirm_enabled: 0 }
   ]) {
     startCase(settings);
-    const before = snapshot();
-    const { status, json } = await confirm(ADMIN, ticketBody());
-    assert.equal(status, 403, JSON.stringify(settings));
-    assert.match(json.message, /confirmación de tickets/);
-    assert.equal((await voidTicket(ADMIN, 1, { reason: "probando" })).status, 403);
-    assert.deepEqual(db.state, before);
+    const created = await confirm(ADMIN, ticketBody());
+    assert.equal(created.status, 201, JSON.stringify(settings));
+    assert.equal((await recent(ADMIN)).status, 200, JSON.stringify(settings));
+    assert.equal((await voidTicket(ADMIN, created.json.ticket_id, { reason: "probando" })).status, 200, JSON.stringify(settings));
   }
+});
+
+test("sin las llaves: plan Basico sigue en 403 y el cajero tambien", async () => {
+  startCase({}, "Basico");
+  const before = snapshot();
+  assert.equal((await confirm(ADMIN, ticketBody())).status, 403);
+  assert.equal((await voidTicket(ADMIN, 1, { reason: "probando" })).status, 403);
+  assert.equal((await recent(ADMIN)).status, 403);
+  assert.deepEqual(db.state, before);
+  startCase({ cashier_direct_stock: true });
+  assert.equal((await confirm(CAJERO, ticketBody())).status, 403);
+  assert.equal((await voidTicket(CAJERO, 1, { reason: "probando" })).status, 403);
+  assert.equal((await recent(CAJERO)).status, 403);
+  assert.equal(db.state.purchase_tickets.length, 0);
 });
 
 test("plan Basico y ticket_ai_enabled apagado: 403; giro sin control de stock: 403", async () => {
@@ -825,7 +860,7 @@ test("recientes: cajero 403; bandera de confirmar apagada o plan Basico 403; otr
   startCase();
   await confirm(ADMIN, ticketBody());
   assert.equal((await recent(CAJERO)).status, 403);
-  startCase({ ticket_ai_enabled: true });
+  startCase({ ticket_ai_enabled: true, ticket_ai_confirm_enabled: false });
   assert.equal((await recent(ADMIN)).status, 403);
   startCase(CONFIRM_ON, "Basico");
   assert.equal((await recent(ADMIN)).status, 403);

@@ -12,7 +12,7 @@
 // Claude model per feature: ANTHROPIC_MODEL_<FEATURE>, defaults below.
 const deepseek = require("./deepseek");
 const ollama = require("./ollama");
-const { streamAnthropic, analyzeImageAnthropic } = require("./anthropic");
+const { streamAnthropic, analyzeImageAnthropic, countAnthropicInputTokens } = require("./anthropic");
 
 const FEATURES = new Set(["chat", "quick", "vision"]);
 const ANTHROPIC_FEATURES = new Set(["chat", "quick", "vision"]);
@@ -44,16 +44,35 @@ function getModelName(feature = "chat") {
   return provider === "deepseek" ? deepseek.DEEPSEEK_MODEL : ollama.OLLAMA_MODEL;
 }
 
+// Chat attachments (message.attachment) are Claude only: DeepSeek and Ollama
+// never receive them.
+function assertNoAttachments(messages) {
+  if (messages.some((m) => m && m.attachment)) {
+    throw new Error("Los archivos adjuntos solo están disponibles con el proveedor anthropic.");
+  }
+}
+
 async function* streamChat(messages, options = {}) {
   const feature = options.feature || "chat";
   const provider = resolveProvider(feature);
   if (provider === "anthropic") {
     yield* streamAnthropic(messages, { ...options, model: getAnthropicModel(feature) });
   } else if (provider === "deepseek") {
+    assertNoAttachments(messages);
     yield* deepseek.streamDeepSeek(messages, options);
   } else {
+    assertNoAttachments(messages);
     yield* ollama.streamOllama(messages, options);
   }
+}
+
+// Input tokens of a chat request (Claude only), without tools.
+async function countChatInputTokens(messages, options = {}) {
+  const feature = options.feature || "chat";
+  if (resolveProvider(feature) !== "anthropic") {
+    throw new Error("El conteo de tokens solo está disponible con el proveedor anthropic.");
+  }
+  return countAnthropicInputTokens(messages, { model: getAnthropicModel(feature) });
 }
 
 // Non-streaming chat. Not called anywhere today; kept for interface parity.
@@ -62,6 +81,7 @@ async function chat(messages, options = {}) {
   if (provider === "anthropic") {
     throw new Error("El proveedor anthropic solo está disponible con streaming.");
   }
+  assertNoAttachments(messages);
   if (provider === "deepseek") return deepseek.chatDeepSeek(messages, options);
   return ollama.chatOllama(messages, options);
 }
@@ -87,4 +107,4 @@ async function analyzeImageWithVision(base64Image, mimeType, options = {}) {
   return deepseek.analyzeImageDeepSeek(base64Image, mimeType);
 }
 
-module.exports = { streamChat, chat, analyzeImageWithVision, getModelName, resolveProvider };
+module.exports = { streamChat, chat, countChatInputTokens, analyzeImageWithVision, getModelName, resolveProvider };

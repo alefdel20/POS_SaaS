@@ -2,6 +2,8 @@ const express = require("express");
 const multer = require("multer");
 const { requireAiAccess } = require("../middleware/aiAuth");
 const aiRateLimiter = require("../middleware/aiRateLimiter");
+const aiAttachmentRateLimiter = require("../middleware/aiAttachmentRateLimiter");
+const { uploadChatAttachment } = require("../middleware/chatAttachmentUpload");
 const controller = require("../controllers/aiChatController");
 
 const router = express.Router();
@@ -23,7 +25,16 @@ router.post("/sessions", controller.createSessionValidation, controller.createSe
 router.get("/sessions", controller.getSessions);
 router.get("/sessions/:sessionId", controller.getSession);
 router.delete("/sessions/:sessionId", controller.deleteSession);
-router.post("/sessions/:sessionId/messages", controller.sendMessageValidation, controller.sendMessage);
+// Optional "attachment" (multipart, read only). Without it, JSON or multipart
+// requests go through exactly as before.
+router.post(
+  "/sessions/:sessionId/messages",
+  uploadChatAttachment,
+  controller.requireAttachmentAccess,
+  aiAttachmentRateLimiter,
+  controller.sendMessageValidation,
+  controller.sendMessage
+);
 router.post("/quick", controller.chatQuickValidation, controller.chatQuick);
 router.get("/quota", controller.getQuota);
 router.post(

@@ -236,14 +236,42 @@ test("plan Enterprise: pasa el filtro de plan", async () => {
   assert.equal((await extract({ role: "admin" })).status, 200);
 });
 
-test("ticket_ai_enabled apagado o ausente: 403 con mensaje claro", async () => {
-  for (const settings of [{}, { ticket_ai_enabled: false }, { ticket_ai_enabled: "true" }]) {
-    startCase({ settings });
-    const { status, json } = await extract({ role: "admin" });
-    assert.equal(status, 403);
+test("ticket_ai_enabled false explicito: 403 con mensaje claro", async () => {
+  startCase({ settings: { ticket_ai_enabled: false, cashier_direct_stock: true } });
+  for (const role of ["admin", "gerente", "cajero"]) {
+    const { status, json } = await extract({ role });
+    assert.equal(status, 403, role);
     assert.match(json.message, /carga de tickets con IA no está activada/);
-    assert.equal(fetchCalls, 0);
   }
+  assert.equal(fetchCalls, 0);
+});
+
+test("ticket_ai_enabled ausente, null o no booleano: encendido", async () => {
+  for (const settings of [{}, { ticket_ai_enabled: null }, { ticket_ai_enabled: "true" }, { ticket_ai_enabled: "false" }, { ticket_ai_enabled: 0 }]) {
+    startCase({ settings });
+    assert.equal((await extract({ role: "admin" })).status, 200, JSON.stringify(settings));
+  }
+  // Sin perfil: tambien encendido.
+  startCase();
+  delete state.profiles[6];
+  assert.equal((await extract({ role: "admin" })).status, 200);
+});
+
+test("plan Basico sin las llaves: sigue en 403 de plan", async () => {
+  startCase({ plan: "Básico", settings: {} });
+  const { status, json } = await extract({ role: "admin" });
+  assert.equal(status, 403);
+  assert.match(json.message, /plan Premium o superior/);
+  assert.equal(fetchCalls, 0);
+});
+
+test("cajero sin las llaves: extract sigue exigiendo cashier_direct_stock", async () => {
+  startCase({ settings: {} });
+  const cajero = await extract({ role: "cajero" });
+  assert.equal(cajero.status, 403);
+  assert.match(cajero.json.message, /cajero no tiene permitido/);
+  startCase({ settings: { cashier_direct_stock: true } });
+  assert.equal((await extract({ role: "cajero" })).status, 200);
 });
 
 test("cajero sin cashier_direct_stock: 403; admin y gerente no lo necesitan", async () => {

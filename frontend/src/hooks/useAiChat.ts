@@ -22,9 +22,20 @@ interface UseAiChatReturn {
   error: string;
   selectSession: (id: number) => Promise<void>;
   startNewSession: (title?: string) => Promise<number | null>;
-  sendMessage: (content: string, sessionId?: number) => boolean;
+  sendMessage: (content: string, sessionId?: number, attachment?: File | null) => boolean;
   removeSession: (id: number) => Promise<void>;
   clearError: () => void;
+}
+
+// Same text the server stores for an attachment turn: "[Adjunto: <name>] <text>",
+// with the name stripped of control characters and cut to 80 characters, and
+// the server's default text when the user wrote nothing.
+const ATTACHMENT_DEFAULT_MESSAGE = "Analiza el archivo adjunto.";
+
+function attachmentMarker(file: File, content: string): string {
+  const name = Array.from(file.name.replace(/[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/g, "").trim())
+    .slice(0, 80).join("").trim() || "archivo";
+  return `[Adjunto: ${name}] ${content || ATTACHMENT_DEFAULT_MESSAGE}`;
 }
 
 export function useAiChat(): UseAiChatReturn {
@@ -105,8 +116,9 @@ export function useAiChat(): UseAiChatReturn {
 
   // Returns true when the message was sent (the caller only clears the input then).
   // sessionId: the session just created by startNewSession, not yet in activeSessionId.
+  // attachment: optional image or PDF; it only lives in memory for this request.
   const sendMessage = useCallback(
-    (content: string, sessionId?: number): boolean => {
+    (content: string, sessionId?: number, attachment?: File | null): boolean => {
       const targetSessionId = sessionId ?? activeSessionId;
       if (!token || !targetSessionId || isStreaming) return false;
 
@@ -118,7 +130,7 @@ export function useAiChat(): UseAiChatReturn {
         id: nextTempId.current--,
         session_id: targetSessionId,
         role: "user",
-        content,
+        content: attachment ? attachmentMarker(attachment, content) : content,
         tokens_used: 0,
         created_at: new Date().toISOString(),
       };
@@ -176,7 +188,8 @@ export function useAiChat(): UseAiChatReturn {
           setIsStreaming(false);
           setStreamingContent("");
         },
-        controller.signal
+        controller.signal,
+        attachment
       );
       return true;
     },

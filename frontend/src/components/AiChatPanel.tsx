@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import { normalizeRole } from "../utils/roles";
 import type { AiMessage, AiQuota, AiSession } from "../types/aiChat";
 
 interface Props {
@@ -13,10 +15,35 @@ interface Props {
   error: string;
   selectSession: (id: number) => Promise<void>;
   startNewSession: (title?: string) => Promise<number | null>;
-  sendMessage: (content: string, sessionId?: number) => boolean;
+  sendMessage: (content: string, sessionId?: number, attachment?: File | null) => boolean;
   removeSession: (id: number) => Promise<void>;
   clearError: () => void;
   onClose: () => void;
+}
+
+// Same limits as the server (chatAttachmentUpload.js): images 5 MB, PDF 3 MB.
+const ATTACHMENT_MAX_BYTES: Record<string, number> = {
+  "image/jpeg": 5 * 1024 * 1024,
+  "image/png": 5 * 1024 * 1024,
+  "image/webp": 5 * 1024 * 1024,
+  "application/pdf": 3 * 1024 * 1024,
+};
+
+function validateAttachment(file: File): string {
+  const maxBytes = ATTACHMENT_MAX_BYTES[file.type];
+  if (!maxBytes) return "Solo se pueden adjuntar imágenes jpeg, png o webp, o un PDF.";
+  if (file.size === 0) return "El archivo está vacío.";
+  if (file.size > maxBytes) {
+    return file.type === "application/pdf"
+      ? "El PDF debe pesar 3 MB o menos."
+      : "La imagen debe pesar 5 MB o menos.";
+  }
+  return "";
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatTime(iso: string): string {
@@ -408,21 +435,65 @@ export function AiChatPanel({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // Blocks a second Enter while the new session is being created (the text stays in the input).
   const creatingSessionRef = useRef(false);
+  // Attachment (image or PDF): memory only, one at a time. Clinico cannot attach.
+  const { user } = useAuth();
+  const canAttach = normalizeRole(user?.role) !== "clinico";
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachmentError, setAttachmentError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Set when a message left with the file: cleared once that send finishes.
+  const attachmentSentRef = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent]);
 
+  useEffect(() => {
+    if (!isStreaming && attachmentSentRef.current) {
+      attachmentSentRef.current = false;
+      setAttachment(null);
+    }
+  }, [isStreaming]);
+
+  const canSend = !isStreaming && (Boolean(input.trim()) || Boolean(attachment));
+  const shownError = attachmentError || error;
+
+  function handleAttachmentChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    // Lets the same file be picked again after removing it.
+    e.target.value = "";
+    if (!file) return;
+    const problem = validateAttachment(file);
+    if (problem) {
+      setAttachmentError(problem);
+      return;
+    }
+    setAttachmentError("");
+    setAttachment(file);
+  }
+
+  function removeAttachment() {
+    setAttachment(null);
+    setAttachmentError("");
+    inputRef.current?.focus();
+  }
+
+  function dismissError() {
+    setAttachmentError("");
+    clearError();
+  }
+
   async function handleSend() {
     if (isStreaming || creatingSessionRef.current) return;
 
     const text = input.trim();
-    if (!text) return;
+    const file = canAttach ? attachment : null;
+    if (!text && !file) return;
 
     let sessionId: number | undefined;
     if (!activeSessionId) {
       creatingSessionRef.current = true;
-      const createdId = await startNewSession(text.slice(0, 60));
+      const createdId = await startNewSession((text || `Adjunto: ${file?.name ?? ""}`).slice(0, 60));
       creatingSessionRef.current = false;
       // Creation failed: the hook already shows the error; keep the text.
       if (createdId === null) return;
@@ -430,7 +501,11 @@ export function AiChatPanel({
     }
 
     // Only clear the input once the message was actually sent.
-    if (sendMessage(text, sessionId)) setInput("");
+    if (sendMessage(text, sessionId, file)) {
+      setInput("");
+      setAttachmentError("");
+      if (file) attachmentSentRef.current = true;
+    }
     inputRef.current?.focus();
   }
 
@@ -627,7 +702,7 @@ export function AiChatPanel({
           </div>
 
           {/* Error */}
-          {error && (
+          {shownError && (
             <div
               role="alert"
               style={{
@@ -645,9 +720,9 @@ export function AiChatPanel({
                 flexShrink: 0,
               }}
             >
-              <span>{error}</span>
+              <span>{shownError}</span>
               <button
-                onClick={clearError}
+                onClick={dismissError}
                 aria-label="Cerrar aviso"
                 style={{ ...smallGhostBtn, borderColor: "color-mix(in srgb, var(--danger) 40%, transparent)", color: "var(--text)" }}
               >
@@ -668,6 +743,37 @@ export function AiChatPanel({
             }}
           >
             <div style={{ display: "flex", gap: "0.6rem", alignItems: "flex-end" }}>
+              {canAttach && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={handleAttachmentChange}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    style={{ display: "none" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isStreaming}
+                    aria-label={attachment ? "Cambiar archivo adjunto (imagen o PDF)" : "Adjuntar imagen o PDF"}
+                    title="Adjuntar imagen o PDF"
+                    style={{
+                      ...smallGhostBtn,
+                      width: "40px",
+                      height: "40px",
+                      borderRadius: "12px",
+                      fontSize: "1.05rem",
+                      cursor: isStreaming ? "not-allowed" : "pointer",
+                      opacity: isStreaming ? 0.6 : 1,
+                    }}
+                  >
+                    📎
+                  </button>
+                </>
+              )}
               <textarea
                 ref={inputRef}
                 value={input}
@@ -694,23 +800,23 @@ export function AiChatPanel({
               />
               <button
                 onClick={handleSend}
-                disabled={isStreaming || !input.trim()}
+                disabled={!canSend}
                 style={{
                   padding: "0.55rem 1rem",
                   borderRadius: "12px",
                   border: "none",
                   background:
-                    isStreaming || !input.trim()
+                    !canSend
                       ? "var(--surface-soft)"
                       : "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 42%, #2f82ff))",
                   color:
-                    isStreaming || !input.trim()
+                    !canSend
                       ? "var(--muted)"
                       : "var(--accent-contrast)",
                   fontWeight: 700,
                   fontSize: "0.85rem",
                   cursor:
-                    isStreaming || !input.trim()
+                    !canSend
                       ? "not-allowed"
                       : "pointer",
                   whiteSpace: "nowrap",
@@ -721,6 +827,50 @@ export function AiChatPanel({
                 {isStreaming ? "..." : "Enviar"}
               </button>
             </div>
+
+            {canAttach && attachment && (
+              <>
+                <div
+                  role="group"
+                  aria-label={`Archivo adjunto: ${attachment.name}, ${formatFileSize(attachment.size)}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                    alignSelf: "flex-start",
+                    maxWidth: "100%",
+                    minWidth: 0,
+                    padding: "0.3rem 0.4rem 0.3rem 0.65rem",
+                    borderRadius: "10px",
+                    border: "1px solid var(--border)",
+                    background: "var(--panel-alt)",
+                    color: "var(--text)",
+                    fontSize: "0.8rem",
+                  }}
+                >
+                  <span aria-hidden="true">{attachment.type === "application/pdf" ? "📄" : "🖼️"}</span>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {attachment.name}
+                  </span>
+                  <span style={{ color: "var(--muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                    {formatFileSize(attachment.size)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={removeAttachment}
+                    disabled={isStreaming}
+                    aria-label={`Quitar archivo adjunto ${attachment.name}`}
+                    title="Quitar archivo"
+                    style={{ ...smallGhostBtn, cursor: isStreaming ? "not-allowed" : "pointer", opacity: isStreaming ? 0.6 : 1 }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <p role="note" style={{ margin: 0, fontSize: "0.75rem", color: "var(--muted)", lineHeight: 1.4 }}>
+                  El archivo se envía a un proveedor de inteligencia artificial (Anthropic) para analizarlo y no se guarda.
+                </p>
+              </>
+            )}
           </div>
         </div>
       </div>

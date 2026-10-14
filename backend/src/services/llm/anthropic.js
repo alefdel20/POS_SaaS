@@ -52,6 +52,15 @@ function toAssistantContent(message) {
   return blocks;
 }
 
+// Internal attachment { kind: "image"|"pdf", media_type, data (base64) } ->
+// Claude image or document block. No title/context on the document.
+function toAttachmentBlock(attachment) {
+  const source = { type: "base64", media_type: attachment.media_type, data: attachment.data };
+  if (attachment.kind === "image") return { type: "image", source };
+  if (attachment.kind === "pdf") return { type: "document", source };
+  throw new Error("Tipo de archivo adjunto no soportado.");
+}
+
 function toAnthropicRequest(messages) {
   const system = messages
     .filter((m) => m.role === "system")
@@ -74,6 +83,9 @@ function toAnthropicRequest(messages) {
     toolResults = null;
     if (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length) {
       conversation.push({ role: "assistant", content: toAssistantContent(m) });
+    } else if (m.role === "user" && m.attachment) {
+      // Chat attachment: the file block goes before the user's text.
+      conversation.push({ role: "user", content: [toAttachmentBlock(m.attachment), { type: "text", text: m.content }] });
     } else {
       conversation.push({ role: m.role, content: m.content });
     }
@@ -173,6 +185,38 @@ async function* streamAnthropic(messages, options) {
   }
 }
 
+// Input tokens of a chat request before sending it (same model and system,
+// no tools). Used to cap chat attachments. API errors keep their HTTP status
+// in err.status so the caller can tell a rejected block (400) apart.
+async function countAnthropicInputTokens(messages, options) {
+  const { controller, timer } = makeAbortController();
+  const { system, messages: conversation } = toAnthropicRequest(messages);
+  const params = { model: options.model, messages: conversation };
+  if (system) params.system = system;
+
+  try {
+    const result = await getClient().messages.countTokens(params, { signal: controller.signal });
+    const inputTokens = Number(result?.input_tokens);
+    if (!Number.isFinite(inputTokens) || inputTokens < 0) {
+      throw new Error("Respuesta inválida al contar tokens.");
+    }
+    return inputTokens;
+  } catch (err) {
+    if (err instanceof Anthropic.APIUserAbortError) {
+      throw new Error("El conteo de tokens excedió el tiempo límite.");
+    }
+    if (err instanceof Anthropic.APIError) {
+      // status/type only: never log request headers or the attachment.
+      const wrapped = new Error(`Anthropic error ${err.status ?? "-"} ${err.type ?? ""}: ${String(err.message).slice(0, 200)}`);
+      wrapped.status = err.status;
+      throw wrapped;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Vision: one image, no streaming, no tools. The system prompt is the only
 // instruction; the user turn carries the image alone, so text inside the
 // image is never placed in an instruction position. output_config.format
@@ -251,4 +295,4 @@ async function analyzeImageAnthropic(base64Image, mimeType, options) {
   }
 }
 
-module.exports = { streamAnthropic, analyzeImageAnthropic, toAnthropicRequest, toAnthropicTools };
+module.exports = { streamAnthropic, analyzeImageAnthropic, countAnthropicInputTokens, toAnthropicRequest, toAnthropicTools };
