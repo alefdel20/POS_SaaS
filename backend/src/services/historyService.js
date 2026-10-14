@@ -173,7 +173,11 @@ async function listHistory(filters = {}, actor) {
          CONCAT('inventory-restock-', expenses.id)::text AS id,
          expenses.date::date AS date,
          'inventory_restock'::text AS type,
-         COALESCE(NULLIF(expenses.metadata->>'restock_history_id', ''), '-')::text AS reference,
+         COALESCE(
+           NULLIF(expenses.metadata->>'restock_history_id', ''),
+           'Ticket #' || NULLIF(expenses.metadata->>'purchase_ticket_id', ''),
+           '-'
+         )::text AS reference,
          COALESCE(NULLIF(expenses.concept, ''), 'Reabastecimiento de inventario') AS concept,
          expenses.payment_method::text AS payment_method,
          expenses.amount::numeric AS amount,

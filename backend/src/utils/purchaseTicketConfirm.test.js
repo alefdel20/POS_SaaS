@@ -270,9 +270,9 @@ test("confirmar: exito completo en una transaccion", async () => {
   assert.equal(JSON.stringify(db.state.suppliers), suppliersBefore);
   assert.equal(db.queries.filter((q) => /INSERT INTO suppliers|UPDATE suppliers/.test(q.sql)).length, 0);
 
-  // History: one entry per existing-product line, ticket cost, ticket id in metadata.
+  // History: one entry per line (created products too), ticket cost, ticket id in metadata.
   const history = db.state.product_restock_history;
-  assert.equal(history.length, 2);
+  assert.equal(history.length, 3);
   for (const row of history) {
     assert.equal(row.metadata.purchase_ticket_id, ticket.id);
     assert.equal(row.metadata.purchase_ticket_supplier_id, 10);
@@ -285,16 +285,24 @@ test("confirmar: exito completo en una transaccion", async () => {
   assert.equal(coca.supplier_id, 10);
   // supplier_id column untouched by the ticket: product 2 had no primary supplier when restocked.
   assert.equal(history.find((h) => h.product_id === 2).supplier_id, null);
+  // Created product: entry from 0 to qty, with the ticket's supplier.
+  const createdEntry = history.find((h) => h.product_id === createdId);
+  assert.deepEqual(
+    [createdEntry.quantity_added, createdEntry.stock_before, createdEntry.stock_after, createdEntry.unit_cost, createdEntry.total_cost, createdEntry.supplier_id, createdEntry.supplier_name_snapshot, createdEntry.product_name_snapshot, createdEntry.category_snapshot],
+    [6, 0, 6, 14, 84, 10, "Abarrotes El Sol", "Sabritas Naturales 45 g", "Botanas"]
+  );
+  assert.equal(createdEntry.metadata.product_created, true);
 
-  // Ticket lines.
+  // Ticket lines: every line points to its history entry.
   const lines = db.state.purchase_ticket_lines;
   assert.deepEqual(lines.map((l) => [l.product_id, l.qty, l.unit_cost, l.line_total, l.product_created, l.prev_cost_price, l.restock_history_id !== null]), [
     [1, 24, 12.5, 300, false, 12, true],
     [2, 10, 22, 220, false, 21.5, true],
-    [createdId, 6, 14, 84, true, null, false]
+    [createdId, 6, 14, 84, true, null, true]
   ]);
   for (const line of lines) assert.equal(line.ticket_id, ticket.id);
   assert.equal(lines[0].restock_history_id, coca.id);
+  assert.equal(lines[2].restock_history_id, createdEntry.id);
 
   // No per-line "Reabastecimiento" reminder; audit for the ticket.
   assert.equal(db.state.reminders.filter((r) => String(r.source_key).startsWith("auto:restock:")).length, 0);
@@ -321,8 +329,10 @@ test("egreso: uno solo por ticket, en efectivo, por el total confirmado", async 
   assert.equal(expense.concept, "Compra por ticket A-1029: Abarrotes El Sol");
   assert.deepEqual(expense.metadata, {
     source_module: "purchase_tickets", purchase_ticket_id: json.ticket_id, ticket_date: "2026-10-10", folio: "A-1029",
-    total: 500, lines_total: 604, line_count: 3, supplier_id: 10, supplier_name: "Abarrotes El Sol"
+    total: 500, lines_total: 604, line_count: 3, supplier_id: 10, supplier_name: "Abarrotes El Sol",
+    restock_history_ids: db.state.purchase_ticket_lines.map((line) => line.restock_history_id)
   });
+  assert.equal(expense.metadata.restock_history_ids.length, 3);
 });
 
 test("roles: superusuario (alias superadmin), admin y gerente confirman", async () => {
@@ -645,6 +655,14 @@ test("anular con stock suficiente: revierte stock, costo si no cambio, egreso an
   }
   const cocaReversal = compensating.find((row) => row.product_id === 1);
   assert.deepEqual([cocaReversal.quantity_added, cocaReversal.stock_before, cocaReversal.stock_after, cocaReversal.supplier_id], [-24, 29, 5, 10]);
+  // Created product: its reversal points to the entry the ticket wrote for it.
+  const createdLine = db.state.purchase_ticket_lines.find((line) => line.product_id === createdId);
+  const createdReversal = compensating.find((row) => row.product_id === createdId);
+  assert.deepEqual(
+    [createdReversal.quantity_added, createdReversal.stock_before, createdReversal.stock_after, createdReversal.supplier_id, createdReversal.supplier_name_snapshot],
+    [-6, 6, 0, 10, "Abarrotes El Sol"]
+  );
+  assert.equal(createdReversal.metadata.reverted_restock_history_id, createdLine.restock_history_id);
   assert.equal(db.state.audit_logs.filter((a) => a.accion === "void_purchase_ticket").length, 1);
   assert.deepEqual(db.transactions, { begin: 2, commit: 2, rollback: 0 });
 });
@@ -786,11 +804,11 @@ test("metricas: total_spent sin el ticket anulado; el resto no cambia", async ()
   const manualOnly = (await metrics()).json;
   assert.deepEqual(manualOnly, { total_spent: 86, inventory_value_before: 20 * 21.5, inventory_value_after: 24 * 21.5, total_movements: 1 });
 
-  // Ticket entries: 24 x 12.5 + 10 x 22 = 520 (the created product has no history entry).
+  // Ticket entries: 24 x 12.5 + 10 x 22 + 6 x 14 (created product) = 604.
   const { json: ticket } = await confirm(ADMIN, ticketBody());
   const withTicket = (await metrics()).json;
-  assert.equal(withTicket.total_spent, 86 + 520);
-  assert.equal(withTicket.total_movements, 3);
+  assert.equal(withTicket.total_spent, 86 + 604);
+  assert.equal(withTicket.total_movements, 4);
 
   await voidTicket(ADMIN, ticket.ticket_id, { reason: "proveedor cancelo" });
   const afterVoid = (await metrics()).json;

@@ -228,6 +228,7 @@ async function confirmPurchaseTicket(actor, body) {
     const ticketId = Number(ticketRows[0].id);
     const reason = `purchase_ticket:${ticketId}`;
     const createdProducts = [];
+    const restockHistoryIds = [];
     let restockedLines = 0;
 
     for (const line of input.lines) {
@@ -268,7 +269,46 @@ async function confirmPurchaseTicket(actor, body) {
         }, actor, { client, skipSupplierReference: true, supplierId: input.supplierId });
         productId = Number(created.id);
         createdProducts.push({ product_id: productId, name: created.name });
+
+        // Same history entry restockProduct writes for existing products, so the
+        // purchase shows in Historial de reabastecimiento. No expense: the
+        // ticket's single expense below already covers this line.
+        const { rows: historyRows } = await client.query(
+          `INSERT INTO product_restock_history (
+             business_id, product_id, supplier_id, quantity_added, stock_before, stock_after,
+             unit_cost, total_cost, actor_user_id, actor_name_snapshot, product_name_snapshot,
+             category_snapshot, supplier_name_snapshot, reason, metadata
+           )
+           VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+           RETURNING id`,
+          [
+            businessId,
+            productId,
+            input.supplierId,
+            line.qty,
+            line.qty,
+            line.unitCost,
+            lineTotal,
+            actor.id,
+            actor.full_name || actor.username || "Sistema",
+            created.name || "",
+            created.category || "",
+            supplier?.name || "",
+            reason,
+            JSON.stringify({
+              product_sku: created.sku || "",
+              unit: created.unidad_de_venta || "pieza",
+              entry_type: "entry",
+              actor_role: actorRole || null,
+              purchase_ticket_id: ticketId,
+              purchase_ticket_supplier_id: input.supplierId,
+              product_created: true
+            })
+          ]
+        );
+        restockHistoryId = Number(historyRows[0].id);
       }
+      if (restockHistoryId) restockHistoryIds.push(restockHistoryId);
 
       const link = input.supplierId
         ? await linkProductSupplier(client, productId, input.supplierId, businessId, line.unitCost)
@@ -310,7 +350,8 @@ async function confirmPurchaseTicket(actor, body) {
           lines_total: input.linesTotal,
           line_count: input.lines.length,
           supplier_id: input.supplierId,
-          supplier_name: supplier?.name || null
+          supplier_name: supplier?.name || null,
+          restock_history_ids: restockHistoryIds
         })
       ]
     );
