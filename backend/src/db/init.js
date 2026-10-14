@@ -6,7 +6,7 @@ const SEED_BUSINESS = { name: "Negocio Semilla", slug: "default" };
 // IMPORTANTE: incrementar este marcador cada vez que se edite el DDL de este archivo. Se guarda en
 // schema_meta al terminar la migracion; si coincide al arrancar, ensureDatabaseCompatibility() no
 // ejecuta DDL. Sin el incremento, los cambios nuevos de esquema NO se aplican en BDs ya migradas.
-const INIT_VERSION_MARKER = "=== DB INIT VERSION 2026-10-09 LOCK-FIX ===";
+const INIT_VERSION_MARKER = "=== DB INIT VERSION 2026-10-13 PURCHASE-TICKETS-2 ===";
 // Clave fija (bigint, forma de un solo argumento) del advisory lock que serializa la migracion entre
 // instancias. Los demas advisory locks del backend usan la forma (int, int), que en Postgres es un
 // espacio de claves distinto, asi que no colisionan. No cambiar: todas las instancias deben usar la misma.
@@ -534,6 +534,42 @@ async function ensureSchema(client) {
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )`,
+
+    // Ticket de compra confirmado ("Cargar ticket"). total = lo que dice el ticket (egreso);
+    // lines_total = suma de las lineas confirmadas (pueden diferir por impuestos/descuentos).
+    `CREATE TABLE IF NOT EXISTS purchase_tickets (
+      id BIGSERIAL PRIMARY KEY,
+      business_id INTEGER NOT NULL,
+      supplier_id INTEGER REFERENCES suppliers(id),
+      supplier_name_raw VARCHAR(220),
+      ticket_date DATE NOT NULL,
+      total NUMERIC(14, 2) NOT NULL,
+      lines_total NUMERIC(14, 2) NOT NULL,
+      folio VARCHAR(80),
+      image_sha256 CHAR(64) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'voided')),
+      expense_id INTEGER REFERENCES expenses(id),
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      voided_at TIMESTAMP,
+      voided_by INTEGER REFERENCES users(id),
+      void_reason TEXT NOT NULL DEFAULT ''
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS purchase_ticket_lines (
+      id BIGSERIAL PRIMARY KEY,
+      ticket_id BIGINT NOT NULL REFERENCES purchase_tickets(id),
+      business_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      qty NUMERIC(14, 3) NOT NULL,
+      unit_cost NUMERIC(12, 5) NOT NULL,
+      line_total NUMERIC(14, 5) NOT NULL,
+      product_created BOOLEAN NOT NULL DEFAULT FALSE,
+      prev_cost_price NUMERIC(12, 5),
+      prev_supplier_cost NUMERIC(12, 5),
+      supplier_link_created BOOLEAN NOT NULL DEFAULT FALSE,
+      restock_history_id BIGINT REFERENCES product_restock_history(id)
     )`,
 
     `CREATE TABLE IF NOT EXISTS support_access_logs (
@@ -2334,6 +2370,12 @@ async function ensureConstraints(client) {
     "CREATE INDEX IF NOT EXISTS idx_product_restock_history_business_product_name ON product_restock_history(business_id, LOWER(product_name_snapshot))",
     "CREATE INDEX IF NOT EXISTS idx_product_restock_history_business_category_name ON product_restock_history(business_id, LOWER(category_snapshot))",
     "CREATE INDEX IF NOT EXISTS idx_product_restock_history_business_supplier_name ON product_restock_history(business_id, LOWER(supplier_name_snapshot))",
+    // Un ticket anulado se puede volver a subir: el hash es unico solo entre confirmados.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_tickets_business_hash_confirmed ON purchase_tickets(business_id, image_sha256) WHERE status = 'confirmed'",
+    "CREATE INDEX IF NOT EXISTS idx_purchase_tickets_business_created ON purchase_tickets(business_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_purchase_tickets_business_duplicate ON purchase_tickets(business_id, supplier_id, ticket_date, total) WHERE status = 'confirmed'",
+    "CREATE INDEX IF NOT EXISTS idx_purchase_ticket_lines_business_ticket ON purchase_ticket_lines(business_id, ticket_id)",
+    "CREATE INDEX IF NOT EXISTS idx_purchase_ticket_lines_business_product ON purchase_ticket_lines(business_id, product_id)",
     "CREATE INDEX IF NOT EXISTS idx_sales_credit_customer_name ON sales(business_id, LOWER(customer_name)) WHERE payment_method = 'credit' AND COALESCE(status, 'completed') <> 'cancelled'",
     "CREATE INDEX IF NOT EXISTS idx_sales_credit_customer_phone ON sales(business_id, customer_phone) WHERE payment_method = 'credit' AND COALESCE(status, 'completed') <> 'cancelled'",
     "CREATE INDEX IF NOT EXISTS idx_company_profiles_business_id ON company_profiles(business_id)",

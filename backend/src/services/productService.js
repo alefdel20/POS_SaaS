@@ -1810,7 +1810,15 @@ async function getRestockHistoryMetrics(filters = {}, actor) {
   const { values, whereClause } = buildRestockHistoryFilterQuery(filters, actor);
   const { rows } = await pool.query(
     `SELECT
-       COALESCE(SUM(history.total_cost), 0) AS total_spent,
+       -- Entries of a voided purchase ticket are not spent money (its expense is voided too).
+       -- Rows without metadata.purchase_ticket_id never match the subquery: unchanged.
+       COALESCE(SUM(history.total_cost) FILTER (WHERE NOT EXISTS (
+         SELECT 1
+         FROM purchase_tickets voided_ticket
+         WHERE voided_ticket.business_id = history.business_id
+           AND voided_ticket.id::text = history.metadata->>'purchase_ticket_id'
+           AND voided_ticket.status = 'voided'
+       )), 0) AS total_spent,
        COALESCE(SUM(history.stock_before * history.unit_cost), 0) AS inventory_value_before,
        COALESCE(SUM(history.stock_after * history.unit_cost), 0) AS inventory_value_after,
        COUNT(*)::int AS total_movements
@@ -1858,122 +1866,150 @@ async function getRestockContext(productId, actor, client = pool) {
   return rows[0] || null;
 }
 
+// options (all optional; without them every current caller behaves as before):
+//   client           transaction already open by the caller: no BEGIN/COMMIT/ROLLBACK here
+//   unitCost         explicit unit cost instead of product_suppliers.purchase_cost / cost_price
+//   skipExpense      no inventory_restock expense (the caller records its own)
+//   skipReminder     no "Reabastecimiento: X" reminder (low-stock sync still runs)
+//   historyMetadata  extra keys for product_restock_history.metadata
+//   onRestocked      callback({ restockHistoryId, previousStock, finalStock, unitCost, totalCost })
 async function restockProduct(id, payload = {}, actor, options = {}) {
   const quantityToAdd = Number(payload.stock);
   if (!Number.isFinite(quantityToAdd) || quantityToAdd <= 0) {
     throw new ApiError(400, "Restock quantity must be greater than zero");
   }
 
-  const actorRole = normalizeRole(actor?.role);
-  const isCashierEntry = actorRole === "cajero";
   await assertCashierCanAdjustStock(actor, pool, options.cashierDirectStockEnabled);
+
+  if (options.client) {
+    return restockProductWithClient(options.client, id, payload, actor, quantityToAdd, options);
+  }
 
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    // FOR UPDATE: una venta simultanea (stock = stock - qty) espera al COMMIT y no se pierde.
-    const current = await getOwnedProduct(id, actor, client, { forUpdate: true });
-    if (!current) throw new ApiError(404, "Product not found");
-    const restockContext = await getRestockContext(id, actor, client);
+    const result = await restockProductWithClient(client, id, payload, actor, quantityToAdd, options);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
-    const unidadDeVenta = normalizeSaleUnit(current.unidad_de_venta);
-    const normalizedQuantity = validateQuantityByUnit(quantityToAdd, unidadDeVenta, "Restock quantity");
-    const previousStock = Number(current.stock || 0);
-    const finalStock = validateQuantityByUnit(
-      previousStock + normalizedQuantity,
-      unidadDeVenta,
-      "Product stock"
-    );
+async function restockProductWithClient(client, id, payload, actor, quantityToAdd, options) {
+  const actorRole = normalizeRole(actor?.role);
+  const isCashierEntry = actorRole === "cajero";
+  const hasExplicitCost = options.unitCost !== undefined && options.unitCost !== null;
+  // FOR UPDATE: una venta simultanea (stock = stock - qty) espera al COMMIT y no se pierde.
+  const current = await getOwnedProduct(id, actor, client, { forUpdate: true });
+  if (!current) throw new ApiError(404, "Product not found");
+  const restockContext = await getRestockContext(id, actor, client);
 
-    const incomingExpiresAt = payload.expires_at ? String(payload.expires_at).slice(0, 10) : null;
-    const { rows } = await client.query(
-      `UPDATE products
-       SET stock = $1,
-           expires_at = COALESCE($4, expires_at),
-           updated_at = NOW()
-       WHERE id = $2
-         AND business_id = $3
-       RETURNING *`,
-      [finalStock, id, current.business_id, incomingExpiresAt]
-    );
+  const unidadDeVenta = normalizeSaleUnit(current.unidad_de_venta);
+  const normalizedQuantity = validateQuantityByUnit(quantityToAdd, unidadDeVenta, "Restock quantity");
+  const previousStock = Number(current.stock || 0);
+  const finalStock = validateQuantityByUnit(
+    previousStock + normalizedQuantity,
+    unidadDeVenta,
+    "Product stock"
+  );
 
-    const unitCost = Number(restockContext?.purchase_cost ?? current.cost_price ?? 0);
-    // Entrada de cajero: sin egreso (no mueve el corte) y total_cost = 0.
-    const totalCost = isCashierEntry ? 0 : roundToScale(unitCost * normalizedQuantity, 5);
-    const financeAmount = roundToScale(totalCost, 2);
-    const { rows: restockRows } = await client.query(
-      `INSERT INTO product_restock_history (
-         business_id, product_id, supplier_id, quantity_added, stock_before, stock_after,
-         unit_cost, total_cost, actor_user_id, actor_name_snapshot, product_name_snapshot,
-         category_snapshot, supplier_name_snapshot, reason, metadata
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-       RETURNING id`,
-      [
-        current.business_id,
-        id,
-        restockContext?.supplier_id || null,
-        normalizedQuantity,
-        previousStock,
-        finalStock,
-        unitCost,
-        totalCost,
-        actor.id,
-        actor.full_name || actor.username || "Sistema",
-        current.name || "",
-        current.category || "",
-        restockContext?.supplier_name || "",
-        String(payload.reason || "restock_update").trim(),
-        JSON.stringify({
-          product_sku: current.sku || "",
-          supplier_name: restockContext?.supplier_name || null,
-          purchase_cost: restockContext?.purchase_cost === null || restockContext?.purchase_cost === undefined ? null : Number(restockContext.purchase_cost),
-          cost_updated_at: restockContext?.cost_updated_at || null,
-          unit: unidadDeVenta,
-          lot_number: payload.lot_number ? String(payload.lot_number).trim() : null,
-          expires_at: incomingExpiresAt,
-          actor_role: actorRole || null,
-          entry_type: "entry",
-          ...(isCashierEntry ? { cost_not_recorded: true } : {})
-        })
-      ]
-    );
-    const restockHistoryId = Number(restockRows[0]?.id || 0);
+  const incomingExpiresAt = payload.expires_at ? String(payload.expires_at).slice(0, 10) : null;
+  const { rows } = await client.query(
+    `UPDATE products
+     SET stock = $1,
+         expires_at = COALESCE($4, expires_at),
+         updated_at = NOW()
+     WHERE id = $2
+       AND business_id = $3
+     RETURNING *`,
+    [finalStock, id, current.business_id, incomingExpiresAt]
+  );
 
-    const { rows: expenseRows } = isCashierEntry ? { rows: [] } : await client.query(
-      `INSERT INTO expenses (
-         business_id, concept, category, amount, date, notes, payment_method, updated_by, movement_type, metadata
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, 'cash', $7, $8, $9)
-       RETURNING id, amount, date, movement_type`,
-      [
-        current.business_id,
-        `Reabastecimiento: ${current.name || `Producto #${id}`}`,
-        INVENTORY_RESTOCK_CATEGORY,
-        financeAmount,
-        getMexicoCityDate(),
-        String(payload.reason || "restock_update").trim(),
-        actor.id,
-        INVENTORY_RESTOCK_MOVEMENT_TYPE,
-        JSON.stringify({
-          source_module: "product_restock_history",
-          restock_history_id: restockHistoryId || null,
-          product_id: Number(id),
-          product_name: current.name || "",
-          product_sku: current.sku || "",
-          quantity_added: normalizedQuantity,
-          unit_cost: unitCost,
-          total_cost: totalCost,
-          finance_amount: financeAmount,
-          supplier_id: restockContext?.supplier_id || null,
-          supplier_name: restockContext?.supplier_name || null
-        })
-      ]
-    );
+  const unitCost = hasExplicitCost
+    ? Number(options.unitCost)
+    : Number(restockContext?.purchase_cost ?? current.cost_price ?? 0);
+  // Entrada de cajero: sin egreso (no mueve el corte) y total_cost = 0.
+  const totalCost = isCashierEntry ? 0 : roundToScale(unitCost * normalizedQuantity, 5);
+  const financeAmount = roundToScale(totalCost, 2);
+  const { rows: restockRows } = await client.query(
+    `INSERT INTO product_restock_history (
+       business_id, product_id, supplier_id, quantity_added, stock_before, stock_after,
+       unit_cost, total_cost, actor_user_id, actor_name_snapshot, product_name_snapshot,
+       category_snapshot, supplier_name_snapshot, reason, metadata
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+     RETURNING id`,
+    [
+      current.business_id,
+      id,
+      restockContext?.supplier_id || null,
+      normalizedQuantity,
+      previousStock,
+      finalStock,
+      unitCost,
+      totalCost,
+      actor.id,
+      actor.full_name || actor.username || "Sistema",
+      current.name || "",
+      current.category || "",
+      restockContext?.supplier_name || "",
+      String(payload.reason || "restock_update").trim(),
+      JSON.stringify({
+        product_sku: current.sku || "",
+        supplier_name: restockContext?.supplier_name || null,
+        purchase_cost: restockContext?.purchase_cost === null || restockContext?.purchase_cost === undefined ? null : Number(restockContext.purchase_cost),
+        cost_updated_at: restockContext?.cost_updated_at || null,
+        unit: unidadDeVenta,
+        lot_number: payload.lot_number ? String(payload.lot_number).trim() : null,
+        expires_at: incomingExpiresAt,
+        actor_role: actorRole || null,
+        entry_type: "entry",
+        ...(isCashierEntry ? { cost_not_recorded: true } : {}),
+        ...(options.historyMetadata || {})
+      })
+    ]
+  );
+  const restockHistoryId = Number(restockRows[0]?.id || 0);
 
-    // SAVEPOINT: si falla el recordatorio, la entrada se conserva (sin el savepoint
-    // Postgres abortaria toda la transaccion y fallaria el COMMIT).
+  const { rows: expenseRows } = isCashierEntry || options.skipExpense ? { rows: [] } : await client.query(
+    `INSERT INTO expenses (
+       business_id, concept, category, amount, date, notes, payment_method, updated_by, movement_type, metadata
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, 'cash', $7, $8, $9)
+     RETURNING id, amount, date, movement_type`,
+    [
+      current.business_id,
+      `Reabastecimiento: ${current.name || `Producto #${id}`}`,
+      INVENTORY_RESTOCK_CATEGORY,
+      financeAmount,
+      getMexicoCityDate(),
+      String(payload.reason || "restock_update").trim(),
+      actor.id,
+      INVENTORY_RESTOCK_MOVEMENT_TYPE,
+      JSON.stringify({
+        source_module: "product_restock_history",
+        restock_history_id: restockHistoryId || null,
+        product_id: Number(id),
+        product_name: current.name || "",
+        product_sku: current.sku || "",
+        quantity_added: normalizedQuantity,
+        unit_cost: unitCost,
+        total_cost: totalCost,
+        finance_amount: financeAmount,
+        supplier_id: restockContext?.supplier_id || null,
+        supplier_name: restockContext?.supplier_name || null
+      })
+    ]
+  );
+
+  // SAVEPOINT: si falla el recordatorio, la entrada se conserva (sin el savepoint
+  // Postgres abortaria toda la transaccion y fallaria el COMMIT).
+  if (!options.skipReminder) {
     await client.query("SAVEPOINT restock_reminder");
     try {
       const supplierName = restockContext?.supplier_name || "No especificado";
@@ -2006,39 +2042,36 @@ async function restockProduct(id, payload = {}, actor, options = {}) {
       await client.query("ROLLBACK TO SAVEPOINT restock_reminder");
       console.error("[restockProduct] Failed to create restock reminder:", reminderErr?.message || reminderErr);
     }
-
-    await syncLowStockReminderForBusiness(current.business_id, client);
-
-    await saveAuditLog({
-      business_id: current.business_id,
-      usuario_id: actor.id,
-      modulo: "products",
-      accion: "restock_product",
-      entidad_tipo: "product",
-      entidad_id: id,
-      detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(current), version: 1 },
-      detalle_nuevo: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
-      motivo: String(payload.reason || "restock_update").trim(),
-      metadata: buildProductAuditMetadata(actor, {
-        previous_stock: Number(current.stock || 0),
-        added_stock: normalizedQuantity,
-        next_stock: finalStock,
-        inventory_restock_expense_id: Number(expenseRows[0]?.id || 0),
-        inventory_restock_expense_amount: Number(expenseRows[0]?.amount || 0),
-        actor_role: actorRole || null,
-        entry_type: "entry",
-        ...(isCashierEntry ? { cost_not_recorded: true } : {})
-      })
-    }, { client });
-
-    await client.query("COMMIT");
-    return mapProductRow(rows[0]);
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
   }
+
+  await syncLowStockReminderForBusiness(current.business_id, client);
+
+  await saveAuditLog({
+    business_id: current.business_id,
+    usuario_id: actor.id,
+    modulo: "products",
+    accion: "restock_product",
+    entidad_tipo: "product",
+    entidad_id: id,
+    detalle_anterior: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(current), version: 1 },
+    detalle_nuevo: { entity: "product", entity_id: id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
+    motivo: String(payload.reason || "restock_update").trim(),
+    metadata: buildProductAuditMetadata(actor, {
+      previous_stock: Number(current.stock || 0),
+      added_stock: normalizedQuantity,
+      next_stock: finalStock,
+      inventory_restock_expense_id: Number(expenseRows[0]?.id || 0),
+      inventory_restock_expense_amount: Number(expenseRows[0]?.amount || 0),
+      actor_role: actorRole || null,
+      entry_type: "entry",
+      ...(isCashierEntry ? { cost_not_recorded: true } : {})
+    })
+  }, { client });
+
+  if (options.onRestocked) {
+    options.onRestocked({ restockHistoryId, previousStock, finalStock, unitCost, totalCost });
+  }
+  return mapProductRow(rows[0]);
 }
 
 async function restockProductsBatch(payload = {}, actor) {
@@ -2290,121 +2323,140 @@ async function decreaseProductStock(id, payload = {}, actor) {
   }
 }
 
-async function createProduct(payload, actor) {
-  const businessId = requireActorBusinessId(actor);
+// options (all optional; without them every current caller behaves as before):
+//   client                 transaction already open by the caller: no BEGIN/COMMIT/ROLLBACK here
+//   skipSupplierReference  never call ensureSupplierReference nor syncProductSuppliers (they can
+//                          create or rename suppliers); products.supplier_id = options.supplierId,
+//                          which the caller has already checked belongs to the business
+async function createProduct(payload, actor, options = {}) {
   const actorRole = normalizeRole(actor?.role);
-  const creationReason = String(payload?.reason || "").trim();
 
   if (actorRole === "cajero") {
     throw new ApiError(403, "Cashiers cannot create products directly");
+  }
+
+  if (options.client) {
+    return createProductWithClient(options.client, payload, actor, options);
   }
 
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    const sanitizedPayload = sanitizeProductPayloadByPosType(payload, actor);
-    const discountFields = normalizeDiscountFields(sanitizedPayload);
-    const ieps = normalizeIepsValue(sanitizedPayload.ieps);
-    const catalogType = resolveProductCatalogType(sanitizedPayload);
-    const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(sanitizedPayload);
-    const requestedBarcode = sanitizeBarcode(sanitizedPayload.barcode || "");
-    const primarySupplierId = await ensureSupplierReference(sanitizedPayload, businessId, client);
-    let rows = [];
-    let lastError = null;
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const resolvedSku = await resolveSku(
-        attempt === 0 ? sanitizedPayload : { ...sanitizedPayload, sku: "" },
-        businessId,
-        null,
-        client
-      );
-      const resolvedBarcode = requestedBarcode
-        ? await ensureUniqueBarcode(requestedBarcode, businessId, null, client)
-        : await generateUniqueBarcode(businessId, null, client);
-
-      try {
-        ({ rows } = await client.query(
-          `INSERT INTO products (
-            name, sku, barcode, category, catalog_type, description, price, cost_price, liquidation_price, stock, expires_at,
-            is_active, supplier_id, status, discount_type, discount_value, discount_start, discount_end,
-            stock_minimo, stock_maximo, business_id, unidad_de_venta, porcentaje_ganancia, ieps, lot_number
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
-          RETURNING *`,
-          [
-            sanitizedPayload.name.trim(), resolvedSku, resolvedBarcode, sanitizedPayload.category || null, catalogType, sanitizedPayload.description || "",
-            price, costPrice, liquidationPrice, stock,
-            sanitizedPayload.expires_at || null, sanitizedPayload.is_active ?? true, primarySupplierId, sanitizedPayload.status || "activo",
-            discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end,
-            stockMinimo, stockMaximo, businessId, unidadDeVenta, porcentajeGanancia, ieps,
-            sanitizedPayload.lot_number ? String(sanitizedPayload.lot_number).trim() : null
-          ]
-        ));
-        lastError = null;
-        break;
-      } catch (error) {
-        if (error?.code !== "23505") {
-          throw error;
-        }
-        lastError = error;
-      }
-    }
-
-    if (lastError) {
-      throw new ApiError(409, "Unable to generate unique SKU");
-    }
-
-    await syncProductSuppliers(rows[0].id, businessId, sanitizedPayload, client);
-    await ensureCategoryReference(sanitizedPayload.category, businessId, actor, client);
-    await emitActorAutomationEvent(actor, "product_created", {
-      product_id: rows[0].id,
-      name: rows[0].name,
-      sku: rows[0].sku,
-      category: rows[0].category,
-      stock: Number(rows[0].stock || 0),
-      stock_minimo: Number(rows[0].stock_minimo || 0),
-      supplier_id: primarySupplierId,
-      source: payload?.source || "products_module"
-    }, { client });
-
-    if (Number(rows[0].stock || 0) <= Number(rows[0].stock_minimo || 0)) {
-      await emitActorAutomationEvent(actor, "low_stock_detected", {
-        product_id: rows[0].id,
-        name: rows[0].name,
-        sku: rows[0].sku,
-        stock: Number(rows[0].stock || 0),
-        stock_minimo: Number(rows[0].stock_minimo || 0),
-        source: "product_created"
-      }, { client });
-    }
-
-    await saveAuditLog({
-      business_id: businessId,
-      usuario_id: actor.id,
-      modulo: "products",
-      accion: "create_product",
-      entidad_tipo: "product",
-      entidad_id: rows[0].id,
-      detalle_anterior: {},
-      detalle_nuevo: { entity: "product", entity_id: rows[0].id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
-      motivo: creationReason || actor?.support_context?.reason || "",
-      metadata: buildProductAuditMetadata(actor, {
-        actor_role: actorRole,
-        creation_source: payload?.source || "products_module",
-        product_name: rows[0].name
-      })
-    }, { client });
-
+    const result = await createProductWithClient(client, payload, actor, options);
     await client.query("COMMIT");
-    return mapProductRow(rows[0]);
+    return result;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();
   }
+}
+
+async function createProductWithClient(client, payload, actor, options) {
+  const businessId = requireActorBusinessId(actor);
+  const actorRole = normalizeRole(actor?.role);
+  const creationReason = String(payload?.reason || "").trim();
+  const sanitizedPayload = sanitizeProductPayloadByPosType(payload, actor);
+  const discountFields = normalizeDiscountFields(sanitizedPayload);
+  const ieps = normalizeIepsValue(sanitizedPayload.ieps);
+  const catalogType = resolveProductCatalogType(sanitizedPayload);
+  const { stock, stockMinimo, stockMaximo, unidadDeVenta, porcentajeGanancia, price, costPrice, liquidationPrice } = validateCoreProductData(sanitizedPayload);
+  const requestedBarcode = sanitizeBarcode(sanitizedPayload.barcode || "");
+  const primarySupplierId = options.skipSupplierReference
+    ? (options.supplierId || null)
+    : await ensureSupplierReference(sanitizedPayload, businessId, client);
+  let rows = [];
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const resolvedSku = await resolveSku(
+      attempt === 0 ? sanitizedPayload : { ...sanitizedPayload, sku: "" },
+      businessId,
+      null,
+      client
+    );
+    const resolvedBarcode = requestedBarcode
+      ? await ensureUniqueBarcode(requestedBarcode, businessId, null, client)
+      : await generateUniqueBarcode(businessId, null, client);
+
+    try {
+      ({ rows } = await client.query(
+        `INSERT INTO products (
+          name, sku, barcode, category, catalog_type, description, price, cost_price, liquidation_price, stock, expires_at,
+          is_active, supplier_id, status, discount_type, discount_value, discount_start, discount_end,
+          stock_minimo, stock_maximo, business_id, unidad_de_venta, porcentaje_ganancia, ieps, lot_number
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+        RETURNING *`,
+        [
+          sanitizedPayload.name.trim(), resolvedSku, resolvedBarcode, sanitizedPayload.category || null, catalogType, sanitizedPayload.description || "",
+          price, costPrice, liquidationPrice, stock,
+          sanitizedPayload.expires_at || null, sanitizedPayload.is_active ?? true, primarySupplierId, sanitizedPayload.status || "activo",
+          discountFields.discount_type, discountFields.discount_value, discountFields.discount_start, discountFields.discount_end,
+          stockMinimo, stockMaximo, businessId, unidadDeVenta, porcentajeGanancia, ieps,
+          sanitizedPayload.lot_number ? String(sanitizedPayload.lot_number).trim() : null
+        ]
+      ));
+      lastError = null;
+      break;
+    } catch (error) {
+      if (error?.code !== "23505") {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    throw new ApiError(409, "Unable to generate unique SKU");
+  }
+
+  if (!options.skipSupplierReference) {
+    await syncProductSuppliers(rows[0].id, businessId, sanitizedPayload, client);
+  }
+  await ensureCategoryReference(sanitizedPayload.category, businessId, actor, client);
+  await emitActorAutomationEvent(actor, "product_created", {
+    product_id: rows[0].id,
+    name: rows[0].name,
+    sku: rows[0].sku,
+    category: rows[0].category,
+    stock: Number(rows[0].stock || 0),
+    stock_minimo: Number(rows[0].stock_minimo || 0),
+    supplier_id: primarySupplierId,
+    source: payload?.source || "products_module"
+  }, { client });
+
+  if (Number(rows[0].stock || 0) <= Number(rows[0].stock_minimo || 0)) {
+    await emitActorAutomationEvent(actor, "low_stock_detected", {
+      product_id: rows[0].id,
+      name: rows[0].name,
+      sku: rows[0].sku,
+      stock: Number(rows[0].stock || 0),
+      stock_minimo: Number(rows[0].stock_minimo || 0),
+      source: "product_created"
+    }, { client });
+  }
+
+  await saveAuditLog({
+    business_id: businessId,
+    usuario_id: actor.id,
+    modulo: "products",
+    accion: "create_product",
+    entidad_tipo: "product",
+    entidad_id: rows[0].id,
+    detalle_anterior: {},
+    detalle_nuevo: { entity: "product", entity_id: rows[0].id, snapshot: buildProductSnapshot(rows[0]), version: 1 },
+    motivo: creationReason || actor?.support_context?.reason || "",
+    metadata: buildProductAuditMetadata(actor, {
+      actor_role: actorRole,
+      creation_source: payload?.source || "products_module",
+      product_name: rows[0].name
+    })
+  }, { client });
+
+  return mapProductRow(rows[0]);
 }
 
 async function getOwnedProduct(id, actor, client = pool, { forUpdate = false } = {}) {
@@ -3015,5 +3067,6 @@ module.exports = {
   cancelDiscount,
   resolveSku,
   generateUniqueBarcode,
-  ensureCategoryReference
+  ensureCategoryReference,
+  syncLowStockReminderForBusiness
 };

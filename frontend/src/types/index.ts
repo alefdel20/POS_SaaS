@@ -948,6 +948,7 @@ export interface CompanyProfile {
   printer_name?: string | null;
   cashier_direct_stock?: boolean;
   ticket_ai_enabled?: boolean;
+  ticket_ai_confirm_enabled?: boolean;
   bank_name?: string | null;
   bank_clabe?: string | null;
   bank_beneficiary?: string | null;

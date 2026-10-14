@@ -1,17 +1,28 @@
 import { type CSSProperties, type ChangeEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
-import { apiExtractPurchaseTicket, apiSearchRestockCatalog } from "../../api/purchaseTicket";
+import { TicketApiError, apiConfirmPurchaseTicket, apiExtractPurchaseTicket, apiSearchRestockCatalog } from "../../api/purchaseTicket";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type {
+  TicketConfirmRequest,
+  TicketConfirmResponse,
   TicketMatchMethod,
   TicketPreviewLine,
   TicketPreviewResponse,
   TicketProductRef,
-  TicketSupplierCandidate
+  TicketSupplierCandidate,
+  TicketVoidResponse
 } from "../../types/purchaseTicket";
+import { currency, formatDate } from "../../utils/format";
+import { TicketCategoryPicker } from "./TicketCategoryPicker";
+import { type TicketConfirmSummary, TicketConfirmDialog } from "./TicketConfirmDialog";
+import { TicketPurchasesList } from "./TicketPurchasesList";
+import { TicketVoidDialog } from "./TicketVoidDialog";
+import { TicketFacts, ticketSuccessStyle } from "./ticketUi";
 
-// "Cargar ticket" (Reabastecer), solo vista previa: lee el ticket con IA y
-// muestra un borrador editable. No guarda nada; la imagen solo vive en
-// memoria mientras el modal esta abierto.
+// "Cargar ticket" (Reabastecer): lee el ticket con IA y muestra un borrador
+// editable. Con canConfirm (admin, gerente, superusuario y el interruptor
+// ticket_ai_confirm_enabled) el borrador se confirma y la compra se puede
+// anular; sin el, es solo vista previa. La imagen solo vive en memoria
+// mientras el modal esta abierto.
 
 const MAX_IMAGE_SIDE = 1600;
 const JPEG_QUALITY = 0.85;
@@ -40,9 +51,14 @@ interface DraftLine {
   match: TicketPreviewLine["match"];
   options: TicketProductRef[];
   selection: LineSelection;
+  // Solo para selection "new" al confirmar.
+  newName: string;
+  newCategory: string;
+  newSalePrice: string;
 }
 
 interface TicketDraft {
+  imageSha256: string;
   supplierRaw: string | null;
   candidates: TicketSupplierCandidate[];
   supplierId: string;
@@ -52,13 +68,24 @@ interface TicketDraft {
   lines: DraftLine[];
 }
 
-type Step = "select" | "loading" | "preview";
+type Step = "select" | "loading" | "preview" | "done" | "purchases";
 type Tone = "high" | "medium" | "none" | "manual";
 
 interface TicketUploadModalProps {
   token: string;
   hideCosts: boolean;
-  onClose: () => void;
+  // admin, gerente o superusuario con ticket_ai_confirm_enabled.
+  canConfirm: boolean;
+  // changed: se confirmo o se anulo una compra (hay que refrescar Reabastecer).
+  onClose: (changed: boolean) => void;
+}
+
+interface LineIssues {
+  qty: boolean;
+  cost: boolean;
+  name: boolean;
+  category: boolean;
+  salePrice: boolean;
 }
 
 function numberToInput(value: number | null | undefined) {
@@ -68,6 +95,7 @@ function numberToInput(value: number | null | undefined) {
 function buildDraft(response: TicketPreviewResponse): TicketDraft {
   const topCandidate = response.supplier_candidates[0];
   return {
+    imageSha256: response.ticket.image_sha256,
     supplierRaw: response.ticket.supplier_name_raw,
     candidates: response.supplier_candidates,
     supplierId: topCandidate && topCandidate.confidence >= SUPPLIER_PRESELECT_CONFIDENCE ? String(topCandidate.id) : "",
@@ -85,7 +113,10 @@ function buildDraft(response: TicketPreviewResponse): TicketDraft {
         unitCost: numberToInput(line.unit_cost),
         match: line.match,
         options,
-        selection: line.match ? { kind: "product", product: options[0] } : { kind: "new" }
+        selection: line.match ? { kind: "product", product: options[0] } : { kind: "new" },
+        newName: line.raw_name,
+        newCategory: "",
+        newSalePrice: ""
       };
     })
   };
@@ -99,6 +130,74 @@ function isPositiveNumber(value: string) {
 function isNonNegativeNumber(value: string) {
   const parsed = Number(value);
   return value.trim() === "" || (Number.isFinite(parsed) && parsed >= 0);
+}
+
+// Al confirmar el costo y el total no pueden quedar vacios (el backend los exige).
+function isRequiredNonNegative(value: string) {
+  return value.trim() !== "" && isNonNegativeNumber(value);
+}
+
+function isValidDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+// Reglas de la confirmacion (pantalla): mismas que valida el backend.
+function lineIssues(line: DraftLine): LineIssues {
+  const isNew = line.selection.kind === "new";
+  return {
+    qty: !isPositiveNumber(line.qty),
+    cost: !isRequiredNonNegative(line.unitCost),
+    name: isNew && !line.newName.trim(),
+    category: isNew && !line.newCategory.trim(),
+    salePrice: isNew && !isPositiveNumber(line.newSalePrice)
+  };
+}
+
+function hasIssues(issues: LineIssues) {
+  return issues.qty || issues.cost || issues.name || issues.category || issues.salePrice;
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function linesTotalOf(draft: TicketDraft) {
+  return roundMoney(draft.lines.reduce((sum, line) => sum + (Number(line.qty) || 0) * (Number(line.unitCost) || 0), 0));
+}
+
+// Cuerpo exacto de POST /products/restock/ticket/confirm.
+function buildConfirmRequest(draft: TicketDraft, acknowledgeDuplicate: boolean): TicketConfirmRequest {
+  return {
+    image_sha256: draft.imageSha256,
+    supplier_id: draft.supplierId ? Number(draft.supplierId) : null,
+    ticket_date: draft.date,
+    total: Number(draft.total),
+    folio: draft.folio,
+    ...(acknowledgeDuplicate ? { acknowledge_possible_duplicate: true } : {}),
+    lines: draft.lines.map((line) => (line.selection.kind === "product"
+      ? { product_id: line.selection.product.product_id, new_product: null, qty: Number(line.qty), unit_cost: Number(line.unitCost) }
+      : {
+        product_id: null,
+        new_product: { name: line.newName.trim(), sale_price: Number(line.newSalePrice), category: line.newCategory.trim() },
+        qty: Number(line.qty),
+        unit_cost: Number(line.unitCost)
+      }))
+  };
+}
+
+function buildConfirmSummary(draft: TicketDraft): TicketConfirmSummary {
+  const restocked = new Set(draft.lines.flatMap((line) => (line.selection.kind === "product" ? [line.selection.product.product_id] : [])));
+  return {
+    supplierName: draft.candidates.find((candidate) => String(candidate.id) === draft.supplierId)?.name || null,
+    date: draft.date,
+    lineCount: draft.lines.length,
+    newCount: draft.lines.filter((line) => line.selection.kind === "new").length,
+    restockCount: restocked.size,
+    total: Number(draft.total),
+    linesTotal: linesTotalOf(draft)
+  };
 }
 
 function productLabel(product: TicketProductRef) {
@@ -366,19 +465,38 @@ function ProductPicker({ token, lineName, selection, options, open, onToggle, on
   );
 }
 
-export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadModalProps) {
+export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: TicketUploadModalProps) {
   const titleId = useId();
   const fileInputId = useId();
   const isMobile = useMediaQuery("(max-width: 640px)");
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const resultRef = useRef<HTMLParagraphElement | null>(null);
   const requestRef = useRef<AbortController | null>(null);
+  // true en cuanto se confirma o se anula una compra: al cerrar se refresca Reabastecer.
+  const changedRef = useRef(false);
   const [step, setStep] = useState<Step>("select");
+  // Paso al que regresa "Volver" desde Compras con ticket.
+  const [returnStep, setReturnStep] = useState<Step>("select");
   // Solo en memoria: se suelta al leer, al cambiar de archivo y al cerrar.
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<TicketDraft | null>(null);
   const [openPicker, setOpenPicker] = useState<number | null>(null);
+  // Confirmacion.
+  const [confirmSummary, setConfirmSummary] = useState<TicketConfirmSummary | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
+  const [conflict, setConflict] = useState<"duplicate_image" | "possible_duplicate" | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [result, setResult] = useState<{ response: TicketConfirmResponse; summary: TicketConfirmSummary } | null>(null);
+  const [showVoid, setShowVoid] = useState(false);
+  const [voidResult, setVoidResult] = useState<TicketVoidResponse | null>(null);
+
+  function close() {
+    if (submitting) return;
+    onClose(changedRef.current);
+  }
 
   // Foco inicial, regreso del foco y cancelacion de la lectura al cerrar.
   useEffect(() => {
@@ -390,10 +508,14 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
     };
   }, []);
 
+  useEffect(() => {
+    if (step === "done") resultRef.current?.focus();
+  }, [step]);
+
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      onClose();
+      close();
       return;
     }
     if (event.key !== "Tab") return;
@@ -457,8 +579,51 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
     setFile(null);
     setError("");
     setOpenPicker(null);
+    setResult(null);
+    setVoidResult(null);
     setStep("select");
     window.setTimeout(() => fileInputRef.current?.focus(), 0);
+  }
+
+  function openPurchases() {
+    setConfirmSummary(null);
+    setOpenPicker(null);
+    setReturnStep(step === "purchases" ? returnStep : step);
+    setStep("purchases");
+  }
+
+  function openConfirm() {
+    if (!draft) return;
+    setConfirmError("");
+    setConflict(null);
+    setAcknowledged(false);
+    setOpenPicker(null);
+    setConfirmSummary(buildConfirmSummary(draft));
+  }
+
+  async function submitConfirm() {
+    if (!draft || !confirmSummary || submitting) return;
+    setSubmitting(true);
+    setConfirmError("");
+    try {
+      const response = await apiConfirmPurchaseTicket(token, buildConfirmRequest(draft, conflict === "possible_duplicate" && acknowledged));
+      changedRef.current = true;
+      setResult({ response, summary: confirmSummary });
+      setVoidResult(null);
+      setConfirmSummary(null);
+      setDraft(null);
+      setStep("done");
+    } catch (confirmFailure) {
+      const reason = confirmFailure instanceof TicketApiError && confirmFailure.status === 409 ? confirmFailure.reason : null;
+      if (reason === "duplicate_image" || reason === "possible_duplicate") {
+        setConflict(reason);
+      } else {
+        setConflict(null);
+        setConfirmError(confirmFailure instanceof TicketApiError ? confirmFailure.message : "No se pudo cargar la compra. Intenta de nuevo.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function updateLine(key: number, patch: Partial<DraftLine>) {
@@ -474,6 +639,12 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
   }
 
   const unmatchedCount = draft ? draft.lines.filter((line) => !line.match).length : 0;
+  // En modo confirmar todo lo que falta se marca en rojo y bloquea el boton.
+  const issuesByLine = new Map(draft ? draft.lines.map((line) => [line.key, lineIssues(line)]) : []);
+  const totalInvalid = canConfirm ? !(draft && isRequiredNonNegative(draft.total)) : !(draft && isNonNegativeNumber(draft.total));
+  const dateInvalid = canConfirm && !(draft && isValidDate(draft.date));
+  const invalidLineCount = [...issuesByLine.values()].filter(hasIssues).length;
+  const canSubmit = Boolean(canConfirm && draft && draft.lines.length > 0 && !totalInvalid && !dateInvalid && invalidLineCount === 0);
 
   function renderQty(line: DraftLine) {
     const invalid = !isPositiveNumber(line.qty);
@@ -493,7 +664,7 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
   }
 
   function renderCost(line: DraftLine) {
-    const invalid = !isNonNegativeNumber(line.unitCost);
+    const invalid = canConfirm ? Boolean(issuesByLine.get(line.key)?.cost) : !isNonNegativeNumber(line.unitCost);
     return (
       <input
         aria-invalid={invalid}
@@ -511,15 +682,61 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
 
   function renderPicker(line: DraftLine) {
     return (
-      <ProductPicker
-        lineName={line.rawName}
-        onSelect={(selection) => updateLine(line.key, { selection })}
-        onToggle={(open) => setOpenPicker(open ? line.key : null)}
-        open={openPicker === line.key}
-        options={line.options}
-        selection={line.selection}
-        token={token}
-      />
+      <div style={{ display: "grid", gap: "0.5rem" }}>
+        <ProductPicker
+          lineName={line.rawName}
+          onSelect={(selection) => updateLine(line.key, { selection })}
+          onToggle={(open) => setOpenPicker(open ? line.key : null)}
+          open={openPicker === line.key}
+          options={line.options}
+          selection={line.selection}
+          token={token}
+        />
+        {canConfirm && line.selection.kind === "new" ? renderNewProduct(line) : null}
+      </div>
+    );
+  }
+
+  // Datos del producto que se creara al confirmar (nombre, categoria existente y precio de venta).
+  function renderNewProduct(line: DraftLine) {
+    const issues = issuesByLine.get(line.key);
+    return (
+      <div style={{ display: "grid", gap: "0.4rem", padding: "0.5rem", borderRadius: "10px", border: "1px dashed var(--border)" }}>
+        <label style={fieldStyle}>
+          <span>Nombre del producto nuevo</span>
+          <input
+            aria-invalid={Boolean(issues?.name)}
+            maxLength={200}
+            onChange={(event) => updateLine(line.key, { newName: event.target.value })}
+            style={{ ...cellInputStyle, ...invalidStyle(Boolean(issues?.name)) }}
+            type="text"
+            value={line.newName}
+          />
+        </label>
+        <div style={fieldStyle}>
+          <span>Categoría</span>
+          <TicketCategoryPicker
+            invalid={Boolean(issues?.category)}
+            lineName={line.rawName}
+            onChange={(category) => updateLine(line.key, { newCategory: category })}
+            token={token}
+            value={line.newCategory}
+          />
+        </div>
+        <label style={fieldStyle}>
+          <span>Precio de venta</span>
+          <input
+            aria-invalid={Boolean(issues?.salePrice)}
+            inputMode="decimal"
+            min="0"
+            onChange={(event) => updateLine(line.key, { newSalePrice: event.target.value })}
+            step="any"
+            style={{ ...cellInputStyle, ...invalidStyle(Boolean(issues?.salePrice)) }}
+            type="number"
+            value={line.newSalePrice}
+          />
+        </label>
+      </div>
     );
   }
 
@@ -557,13 +774,19 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
         role="dialog"
         style={cardStyle}
       >
-        <h3 id={titleId}>Cargar ticket</h3>
+        <h3 id={titleId}>{step === "purchases" ? "Compras con ticket" : "Cargar ticket"}</h3>
 
-        <p role="note" style={noticeStyle}>Vista previa: todavía no se guarda nada. Estamos validando la lectura.</p>
+        {step === "select" || step === "loading" || step === "preview" ? (
+          <p role="note" style={noticeStyle}>
+            {canConfirm
+              ? "Revisa bien: al confirmar se suma el stock, se actualiza el costo y se registra un egreso del día por el total."
+              : "Vista previa: todavía no se guarda nada. Estamos validando la lectura."}
+          </p>
+        ) : null}
 
         {error ? <p role="alert" style={alertStyle}>{error}</p> : null}
 
-        {step !== "preview" ? (
+        {step === "select" || step === "loading" ? (
           <div style={{ display: "grid", gap: "0.75rem" }}>
             <label htmlFor={fileInputId} style={fieldStyle}>
               Foto del ticket
@@ -633,22 +856,31 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
               </label>
               <label style={fieldStyle}>
                 Fecha
-                <input onChange={(event) => setDraft({ ...draft, date: event.target.value })} type="date" value={draft.date} />
+                <input
+                  aria-invalid={dateInvalid}
+                  onChange={(event) => setDraft({ ...draft, date: event.target.value })}
+                  style={invalidStyle(dateInvalid)}
+                  type="date"
+                  value={draft.date}
+                />
                 {draft.folio ? <span className="muted" style={{ fontSize: "0.78rem" }}>Folio: {draft.folio}</span> : null}
               </label>
               {!hideCosts ? (
                 <label style={fieldStyle}>
-                  Total
+                  {canConfirm ? "Total (obligatorio)" : "Total"}
                   <input
-                    aria-invalid={!isNonNegativeNumber(draft.total)}
+                    aria-invalid={totalInvalid}
                     inputMode="decimal"
                     min="0"
                     onChange={(event) => setDraft({ ...draft, total: event.target.value })}
                     step="any"
-                    style={invalidStyle(!isNonNegativeNumber(draft.total))}
+                    style={invalidStyle(totalInvalid)}
                     type="number"
                     value={draft.total}
                   />
+                  {canConfirm ? (
+                    <span className="muted" style={{ fontSize: "0.78rem" }}>Suma de las líneas: {currency(linesTotalOf(draft))}</span>
+                  ) : null}
                 </label>
               ) : null}
             </div>
@@ -659,7 +891,9 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
             </p>
 
             {draft.lines.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>No hay líneas para revisar.</p>
+              <p className="muted" role={canConfirm ? "alert" : undefined} style={{ margin: 0, ...(canConfirm ? { color: "var(--danger)" } : {}) }}>
+                {canConfirm ? "Se necesita al menos una línea para cargar la compra." : "No hay líneas para revisar."}
+              </p>
             ) : isMobile ? (
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "0.75rem" }}>
                 {draft.lines.map((line) => (
@@ -718,12 +952,67 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
           </div>
         ) : null}
 
+        {step === "done" && result ? (
+          <div style={{ display: "grid", gap: "0.25rem" }}>
+            <p ref={resultRef} role="status" style={ticketSuccessStyle} tabIndex={-1}>
+              {voidResult ? "Compra anulada. El stock y el egreso se revirtieron." : "Compra cargada."}
+            </p>
+            <TicketFacts
+              items={[
+                { label: "Proveedor", value: result.summary.supplierName || "Sin proveedor" },
+                { label: "Fecha del ticket", value: formatDate(result.summary.date) || result.summary.date },
+                { label: "Líneas", value: String(result.response.summary.lines) },
+                { label: "Productos reabastecidos", value: String(result.response.summary.restocked_lines) },
+                { label: "Productos creados", value: String(result.response.summary.products_created.length) },
+                {
+                  label: voidResult ? "Egreso (anulado)" : "Egreso registrado",
+                  value: `${currency(result.response.summary.expense.amount)} en efectivo · ${formatDate(result.response.summary.expense.date) || result.response.summary.expense.date}`
+                }
+              ]}
+            />
+            {result.response.summary.products_created.length ? (
+              <div style={{ fontSize: "0.85rem" }}>
+                <span className="muted">{voidResult ? "Productos creados (no se borraron al anular):" : "Productos nuevos:"}</span>
+                <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.1rem" }}>
+                  {result.response.summary.products_created.map((product) => (
+                    <li key={product.product_id} style={{ overflowWrap: "anywhere" }}>{product.name}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {voidResult && (voidResult.cost_kept.length || voidResult.supplier_cost_kept.length) ? (
+              <p className="muted" style={{ margin: "0.5rem 0 0", fontSize: "0.85rem" }}>
+                Algunos costos se cambiaron después de la compra y se dejaron como están.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {step === "purchases" ? (
+          <TicketPurchasesList
+            isMobile={isMobile}
+            onChanged={() => {
+              changedRef.current = true;
+            }}
+            token={token}
+          />
+        ) : null}
+
         <div className="inline-actions modal-actions-end" style={{ marginTop: "1rem", flexWrap: "wrap" }}>
-          {step === "preview" ? (
+          {canConfirm && step !== "purchases" && step !== "loading" ? (
+            <button className="button ghost" onClick={openPurchases} type="button">Compras con ticket</button>
+          ) : null}
+          {step === "purchases" ? (
+            <button className="button ghost" onClick={() => setStep(returnStep)} type="button">Volver</button>
+          ) : null}
+          {step === "preview" || step === "done" ? (
             <button className="button ghost" onClick={readAnother} type="button">Leer otro ticket</button>
           ) : null}
-          <button className="button ghost" onClick={onClose} type="button">Cerrar</button>
-          {step !== "preview" ? (
+          {step === "done" && result && !voidResult ? (
+            <button className="button ghost" onClick={() => setShowVoid(true)} type="button">Anular esta compra</button>
+          ) : null}
+          <button className="button ghost" disabled={submitting} onClick={close} type="button">Cerrar</button>
+          {step === "select" || step === "loading" ? (
             <button
               className="button"
               disabled={!file || step === "loading"}
@@ -733,7 +1022,49 @@ export function TicketUploadModal({ token, hideCosts, onClose }: TicketUploadMod
               {step === "loading" ? "Leyendo..." : "Leer ticket"}
             </button>
           ) : null}
+          {step === "preview" && canConfirm ? (
+            <button className="button" disabled={!canSubmit} onClick={openConfirm} type="button">Confirmar compra</button>
+          ) : null}
         </div>
+        {step === "preview" && canConfirm && draft && !canSubmit ? (
+          <p className="muted" style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", textAlign: "right" }}>
+            Completa lo marcado en rojo para confirmar
+            {invalidLineCount ? ` (${invalidLineCount} ${invalidLineCount === 1 ? "línea" : "líneas"} con datos pendientes)` : ""}.
+          </p>
+        ) : null}
+
+        {confirmSummary ? (
+          <TicketConfirmDialog
+            acknowledged={acknowledged}
+            conflict={conflict}
+            error={confirmError}
+            onAcknowledgedChange={setAcknowledged}
+            onBack={() => setConfirmSummary(null)}
+            onConfirm={() => submitConfirm().catch(() => undefined)}
+            onShowPurchases={openPurchases}
+            submitting={submitting}
+            summary={confirmSummary}
+          />
+        ) : null}
+
+        {showVoid && result ? (
+          <TicketVoidDialog
+            facts={[
+              { label: "Proveedor", value: result.summary.supplierName || "Sin proveedor" },
+              { label: "Fecha", value: formatDate(result.summary.date) || result.summary.date },
+              { label: "Total", value: currency(result.response.summary.total) }
+            ]}
+            onClose={() => setShowVoid(false)}
+            onVoided={(voided) => {
+              changedRef.current = true;
+              setVoidResult(voided);
+              setShowVoid(false);
+              window.setTimeout(() => resultRef.current?.focus(), 0);
+            }}
+            ticketId={result.response.ticket_id}
+            token={token}
+          />
+        ) : null}
       </div>
     </div>
   );

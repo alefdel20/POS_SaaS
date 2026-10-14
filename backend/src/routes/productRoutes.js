@@ -4,11 +4,12 @@ const { requireAuth, requireRole, requireStockControl } = require("../middleware
 const { uploadProductImage } = require("../middleware/productImageUpload");
 const { uploadProductImportFile } = require("../middleware/productImportUpload");
 const { exportLimiter } = require("../middleware/rateLimiters");
-const { requirePurchaseTicketAccess } = require("../middleware/purchaseTicketAccess");
+const { requirePurchaseTicketAccess, requirePurchaseTicketConfirmAccess } = require("../middleware/purchaseTicketAccess");
 const { requireAiAccess } = require("../middleware/aiAuth");
 const aiRateLimiter = require("../middleware/aiRateLimiter");
 const { uploadTicketImage } = require("../middleware/ticketImageUpload");
 const purchaseTicketController = require("../controllers/purchaseTicketController");
+const purchaseTicketConfirmController = require("../controllers/purchaseTicketConfirmController");
 
 const router = express.Router();
 
@@ -28,6 +29,10 @@ router.patch("/:id/restock", requireRole(["superusuario", "superadmin", "admin",
 router.post("/restock/batch", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.restockBatchValidation, controller.restockProductsBatch);
 // Cargar ticket, solo vista previa: plan Premium+, ticket_ai_enabled, cajero con cashier_direct_stock, cuota IA.
 router.post("/restock/ticket/extract", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, requirePurchaseTicketAccess, requireAiAccess, aiRateLimiter, uploadTicketImage, purchaseTicketController.extractRestockTicket);
+// Confirmar / anular / listar tickets: superusuario, admin y gerente (cajero 403); plan Premium+, ticket_ai_enabled y ticket_ai_confirm_enabled; sin cuota IA.
+router.post("/restock/ticket/confirm", requireRole(["superusuario", "superadmin", "admin", "gerente"]), requireStockControl, requirePurchaseTicketConfirmAccess, purchaseTicketConfirmController.confirmRestockTicket);
+router.post("/restock/ticket/:id/void", requireRole(["superusuario", "superadmin", "admin", "gerente"]), requireStockControl, requirePurchaseTicketConfirmAccess, purchaseTicketConfirmController.voidRestockTicket);
+router.get("/restock/ticket/recent", requireRole(["superusuario", "superadmin", "admin", "gerente"]), requireStockControl, requirePurchaseTicketConfirmAccess, purchaseTicketConfirmController.listRecentRestockTickets);
 router.post("/:id/stock-adjustment", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), requireStockControl, controller.idValidation, controller.stockAdjustmentValidation, controller.decreaseProductStock);
 router.get("/suppliers", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.supplierListValidation, controller.listSuppliers);
 router.get("/categories", requireRole(["superusuario", "superadmin", "admin", "gerente", "cajero"]), controller.categoryListValidation, controller.listCategories);

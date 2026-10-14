@@ -10,9 +10,9 @@ const { getBusinessSubscriptionSummary } = require("./businessSubscriptionServic
 const PROFILE_FULL_ROLES = ["superusuario", "admin"];
 const PROFILE_FIELDS_BY_ROLE = {
   // Ticket (SalesPage), prellenado de factura y tema (App.tsx).
-  cajero: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "cashier_direct_stock", "ticket_ai_enabled"],
+  cajero: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "cashier_direct_stock", "ticket_ai_enabled", "ticket_ai_confirm_enabled"],
   // Ticket (SalesPage), tema (App.tsx) y bloque fiscal/timbres del Dashboard. Sin banco ni subscription.
-  gerente: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "has_fiscal_profile", "stamps_available", "billing_ready", "ticket_ai_enabled"],
+  gerente: ["company_name", "theme", "accent_palette", "printer_name", "fiscal_rfc", "fiscal_business_name", "fiscal_regime", "fiscal_address", "has_fiscal_profile", "stamps_available", "billing_ready", "ticket_ai_enabled", "ticket_ai_confirm_enabled"],
   // Expediente completo del Carnet (CarnetPage) y tema.
   clinico: ["company_name", "theme", "accent_palette", "business_image_path", "signature_image_path"]
 };
@@ -53,6 +53,7 @@ function mapProfile(profile, subscription = null) {
     printer_name: generalSettings.printer_name || null,
     cashier_direct_stock: generalSettings.cashier_direct_stock === true,
     ticket_ai_enabled: generalSettings.ticket_ai_enabled === true,
+    ticket_ai_confirm_enabled: generalSettings.ticket_ai_confirm_enabled === true,
     bank_name: profile.bank_name,
     bank_clabe: profile.bank_clabe,
     bank_beneficiary: profile.bank_beneficiary,
@@ -135,6 +136,14 @@ async function isCashierDirectStockEnabled(actor, client = pool) {
 async function isTicketAiEnabled(actor, client = pool) {
   const profile = await getDefaultProfile(actor, client);
   return profile?.general_settings?.ticket_ai_enabled === true;
+}
+
+// Interruptor por negocio: confirmar un ticket de compra (mueve stock, costos y
+// egreso). Solo se enciende por SQL (general_settings.ticket_ai_confirm_enabled);
+// sin perfil, sin la llave o cualquier valor distinto de true booleano = false.
+async function isTicketAiConfirmEnabled(actor, client = pool) {
+  const profile = await getDefaultProfile(actor, client);
+  return profile?.general_settings?.ticket_ai_confirm_enabled === true;
 }
 
 async function getProfile(actor) {
@@ -401,4 +410,4 @@ async function removeProfileAsset(assetType, actor) {
   }
 }
 
-module.exports = { getProfile, getDoctorProfile, updateDoctorProfile, updateProfileSection, uploadProfileAsset, removeProfileAsset, isCashierDirectStockEnabled, isTicketAiEnabled };
+module.exports = { getProfile, getDoctorProfile, updateDoctorProfile, updateProfileSection, uploadProfileAsset, removeProfileAsset, isCashierDirectStockEnabled, isTicketAiEnabled, isTicketAiConfirmEnabled };

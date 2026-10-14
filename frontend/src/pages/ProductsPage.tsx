@@ -205,9 +205,12 @@ export function ProductsPage() {
   // ticket_ai_enabled del perfil (se enciende por SQL). Mientras carga o si falla: oculto.
   const hasTicketAiPlan = user?.plan_key === "premium" || user?.plan_key === "enterprise";
   const [ticketAiEnabled, setTicketAiEnabled] = useState(false);
+  const [ticketAiConfirmEnabled, setTicketAiConfirmEnabled] = useState(false);
   const [showTicketModal, setShowTicketModal] = useState(false);
   // El backend exige cashier_direct_stock al cajero: sin el, el boton no sirve y no se muestra.
   const canUseTicketAi = hasTicketAiPlan && ticketAiEnabled && showStockStatus && (!isCashier || cashierDirectStock);
+  // Confirmar y anular compras con ticket: superusuario, admin y gerente con ticket_ai_confirm_enabled (cajero nunca).
+  const canConfirmTicket = canUseTicketAi && ticketAiConfirmEnabled && hasAnyRole(user?.role, ROUTE_ROLES.gerente);
   // Cajero sin ajuste directo: sigue con solicitudes de cambio (comportamiento previo).
   const usesRequestFlow = isCashier && !cashierDirectStockActive;
   const canDecreaseStock = hasAnyRole(user?.role, ROUTE_ROLES.gerente) || cashierDirectStockActive;
@@ -1016,10 +1019,14 @@ export function ProductsPage() {
     let cancelled = false;
     apiRequest<CompanyProfile>("/profile", { token })
       .then((profile) => {
-        if (!cancelled) setTicketAiEnabled(profile.ticket_ai_enabled === true);
+        if (cancelled) return;
+        setTicketAiEnabled(profile.ticket_ai_enabled === true);
+        setTicketAiConfirmEnabled(profile.ticket_ai_confirm_enabled === true);
       })
       .catch(() => {
-        if (!cancelled) setTicketAiEnabled(false);
+        if (cancelled) return;
+        setTicketAiEnabled(false);
+        setTicketAiConfirmEnabled(false);
       });
     return () => {
       cancelled = true;
@@ -2383,7 +2390,20 @@ export function ProductsPage() {
       ) : null}
 
       {showTicketModal && canUseTicketAi && isRestockRoute && token ? (
-        <TicketUploadModal hideCosts={isCashier} onClose={() => setShowTicketModal(false)} token={token} />
+        <TicketUploadModal
+          canConfirm={canConfirmTicket}
+          hideCosts={isCashier}
+          onClose={(changed) => {
+            setShowTicketModal(false);
+            // Compra confirmada o anulada: la lista de Reabastecer cambio.
+            if (changed) {
+              loadRestockProducts({ search: restockSearch, page: restockPage, pageSize: restockPageSize, stockStatus: restockStockFilter }).catch((loadError) => {
+                setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
+              });
+            }
+          }}
+          token={token}
+        />
       ) : null}
 
       {showImportModal ? (
