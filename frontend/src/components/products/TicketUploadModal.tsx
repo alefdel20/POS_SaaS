@@ -672,7 +672,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
         inputMode="decimal"
         min="0"
         onChange={(event) => updateLine(line.key, { unitCost: event.target.value })}
-        step="any"
+        step="0.01"
         style={{ ...cellInputStyle, ...invalidStyle(invalid) }}
         type="number"
         value={line.unitCost}
@@ -730,7 +730,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
             inputMode="decimal"
             min="0"
             onChange={(event) => updateLine(line.key, { newSalePrice: event.target.value })}
-            step="any"
+            step="0.01"
             style={{ ...cellInputStyle, ...invalidStyle(Boolean(issues?.salePrice)) }}
             type="number"
             value={line.newSalePrice}
@@ -888,7 +888,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                     inputMode="decimal"
                     min="0"
                     onChange={(event) => setDraft({ ...draft, total: event.target.value })}
-                    step="any"
+                    step="0.01"
                     style={invalidStyle(totalInvalid)}
                     type="number"
                     value={draft.total}
