@@ -21,7 +21,15 @@ const listHistory = asyncHandler(async (req, res) => {
   res.json(await historyService.listHistory(req.query, req.user));
 });
 
+const exportHistoryExcel = asyncHandler(async (req, res) => {
+  const { buffer, filename } = await historyService.exportHistoryExcel(req.query, req.user);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(Buffer.from(buffer));
+});
+
 module.exports = {
   listValidation,
-  listHistory
+  listHistory,
+  exportHistoryExcel
 };

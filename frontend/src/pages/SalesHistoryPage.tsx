@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { apiRequest } from "../api/client";
+import { apiDownload, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { HistoryMovement, Sale, SaleDetail } from "../types";
 import { currency, shortDate, shortDateTime } from "../utils/format";
@@ -85,6 +85,7 @@ export function SalesHistoryPage() {
   const [cancelTarget, setCancelTarget] = useState<Sale | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const activeRange = useMemo(() => getRangeDates(range, selectedDate), [range, selectedDate]);
   const today = getMexicoCityDateInputValue(new Date());
@@ -96,9 +97,8 @@ export function SalesHistoryPage() {
   );
   const selectedSaleId = selectedMovement?.sale_id || null;
 
-  async function loadHistory() {
-    if (!token) return;
-
+  // Filtros activos: los mismos para el listado y para Exportar Excel.
+  function buildHistoryParams() {
     const params = new URLSearchParams();
     params.set("type", movementType);
     if (range === "day") {
@@ -119,10 +119,38 @@ export function SalesHistoryPage() {
     if (total.trim()) {
       params.set("total", total.trim());
     }
+    return params;
+  }
 
+  async function loadHistory() {
+    if (!token) return;
+
+    const params = buildHistoryParams();
     const response = await apiRequest<HistoryMovement[]>(`/history?${params.toString()}`, { token });
     setMovements(response);
     setSelectedMovementId((current) => (response.some((movement) => movement.id === current) ? current : null));
+  }
+
+  async function exportExcel() {
+    if (!token) return;
+    setExporting(true);
+    setError("");
+    try {
+      const params = buildHistoryParams();
+      const blob = await apiDownload(`/history/export/excel?${params.toString()}`, { token });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `historial-${activeRange.start}${range === "day" ? "" : `_${activeRange.end}`}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "No fue posible exportar el historial");
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function loadSaleDetail(saleId: number) {
@@ -213,6 +241,14 @@ export function SalesHistoryPage() {
             <h2>Historial general</h2>
             <p className="muted">Incluye ventas, abonos, facturas, gastos, reabastecimientos, gastos fijos y deuda del dueno.</p>
           </div>
+          <button
+            className="button ghost"
+            disabled={exporting || movements.length === 0}
+            onClick={() => { void exportExcel(); }}
+            type="button"
+          >
+            {exporting ? "Exportando..." : "Exportar Excel"}
+          </button>
         </div>
         {error ? <p className="error-text">{error}</p> : null}
         <div className="form-section-grid">

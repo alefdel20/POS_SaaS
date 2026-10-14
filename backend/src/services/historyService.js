@@ -313,9 +313,81 @@ async function listHistory(filters = {}, actor) {
   }));
 }
 
+const HISTORY_TYPE_LABELS = {
+  sales: "Ventas",
+  credit_collections: "Abonos",
+  invoice_payments: "Facturas",
+  expenses: "Gastos",
+  inventory_restock: "Reabastecimiento",
+  fixed_expenses: "Gastos fijos",
+  owner_debt: "Deuda del dueno"
+};
+
+const PAYMENT_METHOD_LABELS = {
+  cash: "Efectivo",
+  card: "Tarjeta",
+  credit: "Credito",
+  transfer: "Transferencia"
+};
+
+// pg returns DATE columns as a local-midnight Date: format with local parts.
+function formatHistoryDate(value) {
+  if (!(value instanceof Date)) return String(value || "").slice(0, 10);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+}
+
+// GET /history/export/excel: same filters and rows as listHistory.
+async function exportHistoryExcel(filters = {}, actor) {
+  const rows = await listHistory(filters, actor);
+  const ExcelJS = require("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  const ws = workbook.addWorksheet("Historial");
+
+  ws.columns = [
+    { header: "Folio",    key: "reference",      width: 14 },
+    { header: "Fecha",    key: "date",           width: 12 },
+    { header: "Tipo",     key: "type",           width: 18 },
+    { header: "Cajero",   key: "cashier_name",   width: 22 },
+    { header: "Pago",     key: "payment_method", width: 14 },
+    { header: "Concepto", key: "concept",        width: 40 },
+    { header: "Monto",    key: "amount",         width: 16 },
+    { header: "Estado",   key: "status",         width: 12 }
+  ];
+
+  const headerRow = ws.getRow(1);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1a1a2e" } };
+
+  const MONEY_FMT = '"$"#,##0.00';
+
+  rows.forEach((row) => {
+    const addedRow = ws.addRow({
+      reference: row.reference,
+      date: formatHistoryDate(row.date),
+      type: HISTORY_TYPE_LABELS[row.type] || row.type,
+      cashier_name: row.cashier_name || "-",
+      payment_method: PAYMENT_METHOD_LABELS[row.payment_method] || "-",
+      concept: row.concept,
+      amount: Number(row.amount),
+      status: row.status === "cancelled" ? "Anulada" : ""
+    });
+    addedRow.getCell(7).numFmt = MONEY_FMT;
+  });
+
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const from = filters.date || filters.date_from || "";
+  const to = filters.date ? "" : filters.date_to || "";
+  const suffix = [from, to].filter(Boolean).join("_") || "completo";
+  return { buffer, filename: `historial-${suffix}.xlsx` };
+}
+
 module.exports = {
   HISTORY_TYPES: Array.from(HISTORY_TYPES.values()),
-  listHistory
+  listHistory,
+  exportHistoryExcel
 };
 
 
