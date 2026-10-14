@@ -443,7 +443,7 @@ async function changeGuidedPosType(business, user, newPosType) {
 
 async function getBundleStatus(business) {
   const businessId = Number(business?.id);
-  const [{ rows }, seeded] = await Promise.all([
+  const [{ rows }, seeded, { rows: activityRows }] = await Promise.all([
     pool.query(
       `SELECT general_settings
        FROM company_profiles
@@ -451,14 +451,24 @@ async function getBundleStatus(business) {
        LIMIT 1`,
       [businessId]
     ),
-    hasSeededCatalog(businessId)
+    hasSeededCatalog(businessId),
+    // Negocio que ya opera (productos o ventas): no redirigir al paquete aunque nunca lo
+    // confirmara (omitir solo vive en sessionStorage). Indices: idx_products_business_id,
+    // idx_sales_business_id.
+    pool.query(
+      `SELECT
+         EXISTS (SELECT 1 FROM products WHERE business_id = $1) AS has_products,
+         EXISTS (SELECT 1 FROM sales WHERE business_id = $1) AS has_sales`,
+      [businessId]
+    )
   ]);
   const posType = normalizePosType(business?.pos_type);
   // Ya sembrado por la siembra automatica: no ofrecer el paquete (solo lectura, no se escribe general_settings).
   const confirmed = Boolean(rows[0]?.general_settings?.bundle_confirmed) || seeded;
+  const hasActivity = Boolean(activityRows[0]?.has_products) || Boolean(activityRows[0]?.has_sales);
   return {
     posType,
-    needsBundle: POS_TYPES_WITH_GUIDED_BUNDLE.includes(posType) && !confirmed,
+    needsBundle: POS_TYPES_WITH_GUIDED_BUNDLE.includes(posType) && !confirmed && !hasActivity,
     items: getBundleForBusiness(business),
     // Mismo dato que getBundleDraft, tomado de la fila que ya se leyo arriba (sin segunda consulta).
     draft: extractBundleDraft(rows[0]?.general_settings)
