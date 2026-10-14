@@ -92,3 +92,15 @@ test("buildSystemPrompt sin catalogo (consulta fallida): lo dice en lugar de inv
   const prompt = buildSystemPrompt({ role: "admin" }, {});
   assert.match(prompt, /CATÁLOGO:\nNo hay datos del catálogo disponibles por ahora\./);
 });
+
+test("buildSystemPrompt: cargar una compra desde ticket remite a Cargar ticket, justo despues de solo lectura", () => {
+  const prompt = buildSystemPrompt({ role: "admin" }, {});
+  const lines = prompt.split("\n");
+  const readOnly = lines.indexOf("- NO puedes modificar ningún dato del sistema — eres solo lectura.");
+  assert.ok(readOnly > 0);
+  assert.match(lines[readOnly + 1], /cargar, registrar o dar de alta una compra, insumos o productos a partir de un ticket o factura, no digas solo que no puedes/);
+  assert.match(lines[readOnly + 1], /"Cargar ticket" en la pantalla Productos por reabastecer, donde sube la foto, revisa lo que se leyó y confirma/);
+  assert.match(lines[readOnly + 1], /puedes ayudarle a leer y resumir el archivo/);
+  assert.match(lines[readOnly + 1], /Si el usuario dice que no ve el botón, explícale que la función depende de su plan y de su rol, y que le pida a su administrador que la revise\.$/);
+  assert.equal(lines[readOnly + 2], "- NO respondas sobre política, entretenimiento, deportes u otros temas ajenos al negocio.");
+});
