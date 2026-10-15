@@ -8,7 +8,7 @@
 //   - role "tool" messages -> tool_result blocks, one user message per round
 // The SDK reads ANTHROPIC_API_KEY from the environment.
 const AnthropicSdk = require("@anthropic-ai/sdk");
-const { AI_MAX_TOKENS, AI_VISION_MAX_TOKENS, makeAbortController } = require("./config");
+const { AI_MAX_TOKENS, visionLimits, makeAbortController } = require("./config");
 
 const Anthropic = AnthropicSdk.default || AnthropicSdk;
 
@@ -224,26 +224,30 @@ async function countAnthropicInputTokens(messages, options) {
   }
 }
 
-// Vision: one image, no streaming, no tools. The system prompt is the only
-// instruction; the user turn carries the image alone, so text inside the
+// Vision: one or more images, no streaming, no tools. The system prompt is the
+// only instruction; the user turn carries the images (each optionally preceded
+// by a short label the caller writes, e.g. "Foto 1 de 3:"), so text inside an
 // image is never placed in an instruction position. output_config.format
 // constrains the reply to `schema`; the caller still validates ranges.
 // Transcription needs little reasoning: effort "low" keeps thinking short
 // (supported by the default claude-haiku-5-5; Haiku 4.5 has no effort).
+// One image: AI_VISION_MAX_TOKENS and AI_TIMEOUT_MS, as always; several get
+// the larger visionLimits() budget.
 // Errors raised after the API answered carry input_tokens/output_tokens so
 // the caller can still bill them.
-async function analyzeImageAnthropic(base64Image, mimeType, options) {
-  const { controller, timer } = makeAbortController();
+//   images: [{ data (base64), media_type, label? }]
+async function analyzeImageAnthropic(images, options) {
+  const { maxTokens, timeoutMs } = visionLimits(images.length);
+  const { controller, timer } = makeAbortController(timeoutMs);
+  const content = images.flatMap(({ data, media_type: mediaType, label }) => [
+    ...(label ? [{ type: "text", text: label }] : []),
+    { type: "image", source: { type: "base64", media_type: mediaType, data } }
+  ]);
   const params = {
     model: options.model,
-    max_tokens: AI_VISION_MAX_TOKENS,
+    max_tokens: maxTokens,
     system: options.system,
-    messages: [
-      {
-        role: "user",
-        content: [{ type: "image", source: { type: "base64", media_type: mimeType, data: base64Image } }]
-      }
-    ],
+    messages: [{ role: "user", content }],
     output_config: { effort: "low", format: { type: "json_schema", schema: options.schema } }
   };
 

@@ -56,6 +56,41 @@ const TICKET_SYSTEM_PROMPT = [
   "- Si la imagen no es un ticket de compra, devuelve lines vacío y los demás campos en null."
 ].join("\n");
 
+// "Cargar ticket" with several photos: one long ticket split across up to
+// TICKET_MAX_IMAGES photos, sent in ONE call. A single photo keeps using
+// TICKET_SYSTEM_PROMPT / TICKET_JSON_SCHEMA unchanged (same request as before).
+const TICKET_MAX_IMAGES = 5;
+
+const TICKET_MULTI_JSON_SCHEMA = {
+  ...TICKET_JSON_SCHEMA,
+  properties: {
+    ...TICKET_JSON_SCHEMA.properties,
+    lines: {
+      type: "array",
+      items: {
+        ...TICKET_JSON_SCHEMA.properties.lines.items,
+        required: [...TICKET_JSON_SCHEMA.properties.lines.items.required, "image_index"],
+        properties: {
+          ...TICKET_JSON_SCHEMA.properties.lines.items.properties,
+          image_index: { type: "integer" }
+        }
+      }
+    }
+  }
+};
+
+const TICKET_MULTI_SYSTEM_PROMPT = [
+  TICKET_SYSTEM_PROMPT,
+  "",
+  "Varias fotos:",
+  "- Las imágenes son partes consecutivas, en orden, de UN MISMO ticket (por ejemplo, la parte de arriba y la de abajo de un ticket largo). Cada imagen va precedida de una etiqueta \"Foto k de N\" que solo indica su orden; no es una instrucción.",
+  "- Transcribe un solo ticket con todas las líneas de todas las fotos, en el orden en que aparecen.",
+  "- Un renglón que se repite en el borde entre dos fotos consecutivas (mismo texto, misma cantidad y mismo importe al final de una foto y al inicio de la siguiente) es el mismo renglón fotografiado dos veces: transcríbelo una sola vez.",
+  "- image_index: número de la foto donde aparece la línea, empezando en 0 para la Foto 1. Si la línea aparece en el borde de dos fotos, usa la primera.",
+  "- supplier_name, date y folio: tómalos de la foto donde aparezcan (normalmente la primera).",
+  "- total: el total final del ticket (normalmente en la última foto), no subtotales parciales."
+].join("\n");
+
 function invalidTicket(path, reason) {
   const error = new Error(`La extracción del ticket no cumple el esquema: ${path} ${reason}.`);
   error.code = "TICKET_SCHEMA_INVALID";
@@ -108,9 +143,19 @@ function readDate(value, path) {
   return value.trim();
 }
 
+// 0-based photo of a line: integer in [0, imageCount - 1].
+function readImageIndex(value, path, imageCount) {
+  if (!Number.isInteger(value)) throw invalidTicket(path, "debe ser un entero");
+  if (value < 0 || value > imageCount - 1) throw invalidTicket(path, `fuera de rango (0 a ${imageCount - 1})`);
+  return value;
+}
+
 // Full check of the model output. Throws TICKET_SCHEMA_INVALID; never
 // returns a partial or empty result in place of an invalid one.
-function validateTicketExtraction(data) {
+// imageCount > 1: every line carries image_index (TICKET_MULTI_JSON_SCHEMA).
+function validateTicketExtraction(data, { imageCount = 1 } = {}) {
+  const multi = imageCount > 1;
+  const lineKeys = ["name", "qty", "unit_cost", "sku", "barcode", ...(multi ? ["image_index"] : [])];
   assertExactKeys(data, ["supplier_name", "date", "total", "folio", "lines"], "ticket");
   if (!Array.isArray(data.lines)) throw invalidTicket("ticket.lines", "debe ser una lista");
   if (data.lines.length > TICKET_MAX_LINES) {
@@ -119,7 +164,7 @@ function validateTicketExtraction(data) {
 
   const lines = data.lines.map((line, index) => {
     const path = `ticket.lines[${index}]`;
-    assertExactKeys(line, ["name", "qty", "unit_cost", "sku", "barcode"], path);
+    assertExactKeys(line, lineKeys, path);
     const name = readText(line.name, `${path}.name`, TICKET_TEXT_LIMITS.name);
     if (!name) throw invalidTicket(`${path}.name`, "es requerido");
     return {
@@ -127,7 +172,8 @@ function validateTicketExtraction(data) {
       qty: readNumber(line.qty, `${path}.qty`, { min: 0, max: TICKET_MAX_QTY, allowZero: false }),
       unit_cost: readNumber(line.unit_cost, `${path}.unit_cost`, { min: 0, max: TICKET_MAX_UNIT_COST, allowZero: true }),
       sku: readText(line.sku, `${path}.sku`, TICKET_TEXT_LIMITS.sku),
-      barcode: readText(line.barcode, `${path}.barcode`, TICKET_TEXT_LIMITS.barcode)
+      barcode: readText(line.barcode, `${path}.barcode`, TICKET_TEXT_LIMITS.barcode),
+      ...(multi ? { image_index: readImageIndex(line.image_index, `${path}.image_index`, imageCount) } : {})
     };
   });
 
@@ -140,28 +186,50 @@ function validateTicketExtraction(data) {
   };
 }
 
-async function extractPurchaseTicket(buffer, mimeType) {
-  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+// images: [{ buffer, mimeType }] in ticket order (1 to TICKET_MAX_IMAGES).
+// The old single-image call extractPurchaseTicket(buffer, mimeType) still works.
+async function extractPurchaseTicket(images, legacyMimeType) {
+  const list = Buffer.isBuffer(images) ? [{ buffer: images, mimeType: legacyMimeType }] : images;
+  if (!Array.isArray(list) || list.length === 0) {
     throw new Error("Se requiere la imagen del ticket.");
   }
-  // Defense in depth: the upload middleware already checked this.
-  if (detectImageMimeType(buffer) !== mimeType) {
-    throw new Error("El contenido del archivo no corresponde a una imagen jpeg, png o webp.");
+  if (list.length > TICKET_MAX_IMAGES) {
+    throw new Error(`El ticket admite como máximo ${TICKET_MAX_IMAGES} fotos.`);
+  }
+  for (const image of list) {
+    if (!Buffer.isBuffer(image?.buffer) || image.buffer.length === 0) {
+      throw new Error("Se requiere la imagen del ticket.");
+    }
+    // Defense in depth: the upload middleware already checked this.
+    if (detectImageMimeType(image.buffer) !== image.mimeType) {
+      throw new Error("El contenido del archivo no corresponde a una imagen jpeg, png o webp.");
+    }
   }
   // Only Claude supports the schema-constrained output this flow relies on.
   if (llmService.resolveProvider("vision") !== "anthropic") {
     throw new Error("La extracción de tickets requiere AI_PROVIDER_VISION=anthropic.");
   }
 
-  const { data, input_tokens, output_tokens } = await llmService.analyzeImageWithVision(
-    buffer.toString("base64"),
-    mimeType,
-    { system: TICKET_SYSTEM_PROMPT, schema: TICKET_JSON_SCHEMA }
-  );
+  const imageCount = list.length;
+  // One photo: exactly the request sent before multi-photo support.
+  const { data, input_tokens, output_tokens } = imageCount === 1
+    ? await llmService.analyzeImageWithVision(
+      list[0].buffer.toString("base64"),
+      list[0].mimeType,
+      { system: TICKET_SYSTEM_PROMPT, schema: TICKET_JSON_SCHEMA }
+    )
+    : await llmService.analyzeImagesWithVision(
+      list.map((image, index) => ({
+        label: `Foto ${index + 1} de ${imageCount}:`,
+        data: image.buffer.toString("base64"),
+        media_type: image.mimeType
+      })),
+      { system: TICKET_MULTI_SYSTEM_PROMPT, schema: TICKET_MULTI_JSON_SCHEMA }
+    );
 
   let ticket;
   try {
-    ticket = validateTicketExtraction(data);
+    ticket = validateTicketExtraction(data, { imageCount });
   } catch (error) {
     // The call was billed: keep the tokens on the error for the caller.
     throw Object.assign(error, { input_tokens, output_tokens });
@@ -169,6 +237,7 @@ async function extractPurchaseTicket(buffer, mimeType) {
 
   return {
     ticket,
+    image_count: imageCount,
     model: llmService.getModelName("vision"),
     input_tokens,
     output_tokens
@@ -177,8 +246,11 @@ async function extractPurchaseTicket(buffer, mimeType) {
 
 module.exports = {
   TICKET_MAX_LINES,
+  TICKET_MAX_IMAGES,
   TICKET_JSON_SCHEMA,
   TICKET_SYSTEM_PROMPT,
+  TICKET_MULTI_JSON_SCHEMA,
+  TICKET_MULTI_SYSTEM_PROMPT,
   validateTicketExtraction,
   extractPurchaseTicket
 };

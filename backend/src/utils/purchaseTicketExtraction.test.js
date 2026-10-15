@@ -23,8 +23,11 @@ const assert = require("node:assert/strict");
 
 const {
   TICKET_MAX_LINES,
+  TICKET_MAX_IMAGES,
   TICKET_JSON_SCHEMA,
   TICKET_SYSTEM_PROMPT,
+  TICKET_MULTI_JSON_SCHEMA,
+  TICKET_MULTI_SYSTEM_PROMPT,
   validateTicketExtraction,
   extractPurchaseTicket
 } = require("../services/purchaseTicketService");
@@ -308,4 +311,130 @@ test("texto con instrucciones en la imagen: el formato de salida no cambia", asy
   const body = JSON.parse(calls[0].init.body);
   assert.ok(body.messages[0].content.every((block) => block.type === "image"));
   assert.equal(body.tools, undefined);
+});
+
+// ─── Several photos of one ticket (one call) ──────────────────────────────────
+
+const MULTI_TICKET = {
+  supplier_name: "Abarrotes El Sol",
+  date: "2026-10-10",
+  total: 640,
+  folio: "A-1030",
+  lines: [
+    { name: "Leche entera 1L", qty: 12, unit_cost: 24.5, sku: null, barcode: null, image_index: 0 },
+    { name: "Pan blanco", qty: 5, unit_cost: 32.3, sku: null, barcode: null, image_index: 0 },
+    { name: "Arroz 1kg", qty: 10, unit_cost: 21.5, sku: null, barcode: null, image_index: 1 }
+  ]
+};
+
+test("una imagen en arreglo: la solicitud es identica a la de la firma anterior", async () => {
+  const legacy = mockFetch(() => anthropicMessage({ text: JSON.stringify(VALID_TICKET) }));
+  const before = await extractPurchaseTicket(PNG_BYTES, "image/png");
+  const legacyBody = JSON.parse(legacy[0].init.body);
+
+  const current = mockFetch(() => anthropicMessage({ text: JSON.stringify(VALID_TICKET) }));
+  const after = await extractPurchaseTicket([{ buffer: PNG_BYTES, mimeType: "image/png" }]);
+  const body = JSON.parse(current[0].init.body);
+
+  assert.deepEqual(body, legacyBody);
+  assert.equal(body.max_tokens, 8192);
+  assert.equal(body.system, TICKET_SYSTEM_PROMPT);
+  assert.deepEqual(body.output_config.format.schema, TICKET_JSON_SCHEMA);
+  assert.deepEqual(after.ticket, before.ticket);
+  // Una foto: las lineas no traen image_index (forma de siempre).
+  assert.deepEqual(Object.keys(after.ticket.lines[0]), ["name", "qty", "unit_cost", "sku", "barcode"]);
+  assert.equal(after.image_count, 1);
+});
+
+test("N imagenes: UNA llamada, etiqueta por foto en orden, prompt/esquema multi y mas tokens", async () => {
+  const calls = mockFetch(() => anthropicMessage({ text: JSON.stringify(MULTI_TICKET) }));
+  const result = await extractPurchaseTicket([
+    { buffer: PNG_BYTES, mimeType: "image/png" },
+    { buffer: JPEG_BYTES, mimeType: "image/jpeg" }
+  ]);
+
+  assert.equal(calls.length, 1);
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.system, TICKET_MULTI_SYSTEM_PROMPT);
+  assert.deepEqual(body.output_config, { effort: "low", format: { type: "json_schema", schema: TICKET_MULTI_JSON_SCHEMA } });
+  assert.equal(body.max_tokens, 16384);
+  assert.equal(body.tools, undefined);
+  assert.deepEqual(body.messages[0].content, [
+    { type: "text", text: "Foto 1 de 2:" },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: PNG_BYTES.toString("base64") } },
+    { type: "text", text: "Foto 2 de 2:" },
+    { type: "image", source: { type: "base64", media_type: "image/jpeg", data: JPEG_BYTES.toString("base64") } }
+  ]);
+  // Los unicos textos del turno de usuario son las etiquetas fijas del servidor.
+  for (const block of body.messages[0].content.filter((b) => b.type === "text")) {
+    assert.match(block.text, /^Foto \d de \d:$/);
+  }
+  // El esquema multi exige image_index entero; el de una foto no lo tiene.
+  assert.deepEqual(TICKET_MULTI_JSON_SCHEMA.properties.lines.items.properties.image_index, { type: "integer" });
+  assert.ok(TICKET_MULTI_JSON_SCHEMA.properties.lines.items.required.includes("image_index"));
+  assert.equal(TICKET_JSON_SCHEMA.properties.lines.items.properties.image_index, undefined);
+
+  assert.equal(result.image_count, 2);
+  assert.equal(result.ticket.total, 640);
+  assert.deepEqual(result.ticket.lines.map((line) => line.image_index), [0, 0, 1]);
+});
+
+test("N imagenes: max_tokens min(8192 x N, 16384) y AI_VISION_MAX_TOKENS_MULTI lo sobrescribe", async () => {
+  const fiveLines = { ...MULTI_TICKET, lines: MULTI_TICKET.lines.map((line) => ({ ...line, image_index: 0 })) };
+  const five = Array.from({ length: TICKET_MAX_IMAGES }, () => ({ buffer: PNG_BYTES, mimeType: "image/png" }));
+  const calls = mockFetch(() => anthropicMessage({ text: JSON.stringify(fiveLines) }));
+  await extractPurchaseTicket(five);
+  assert.equal(JSON.parse(calls[0].init.body).max_tokens, 16384);
+  assert.equal(JSON.parse(calls[0].init.body).messages[0].content.filter((b) => b.type === "image").length, 5);
+
+  // config.js lee la variable al cargarse: se verifica con un modulo fresco.
+  await withEnv({ AI_VISION_MAX_TOKENS_MULTI: "12000" }, async () => {
+    delete require.cache[require.resolve("../services/llm/config")];
+    const { visionLimits } = require("../services/llm/config");
+    assert.deepEqual(visionLimits(3), { maxTokens: 12000, timeoutMs: 120000 });
+    assert.deepEqual(visionLimits(1), { maxTokens: 8192, timeoutMs: 60000 });
+  });
+  delete require.cache[require.resolve("../services/llm/config")];
+});
+
+test("N imagenes: image_index fuera de rango, ausente o no entero -> TICKET_SCHEMA_INVALID con tokens", async () => {
+  const two = [{ buffer: PNG_BYTES, mimeType: "image/png" }, { buffer: PNG_BYTES, mimeType: "image/png" }];
+  const line = MULTI_TICKET.lines[0];
+  const bad = [
+    { ...MULTI_TICKET, lines: [{ ...line, image_index: 2 }] },
+    { ...MULTI_TICKET, lines: [{ ...line, image_index: -1 }] },
+    { ...MULTI_TICKET, lines: [{ ...line, image_index: 0.5 }] },
+    { ...MULTI_TICKET, lines: [{ ...line, image_index: "0" }] },
+    { ...MULTI_TICKET, lines: [{ name: "Leche", qty: 1, unit_cost: 10, sku: null, barcode: null }] }
+  ];
+  for (const ticket of bad) {
+    mockFetch(() => anthropicMessage({ text: JSON.stringify(ticket) }));
+    await assert.rejects(extractPurchaseTicket(two), billed("TICKET_SCHEMA_INVALID"), JSON.stringify(ticket.lines[0]));
+  }
+  // Y con una sola foto image_index no esta permitido (esquema de siempre).
+  assert.throws(() => validateTicketExtraction(MULTI_TICKET), (err) => err.code === "TICKET_SCHEMA_INVALID");
+  assert.equal(validateTicketExtraction(MULTI_TICKET, { imageCount: 2 }).lines.length, 3);
+});
+
+test("N imagenes: mas de 5, lista vacia o una foto con magic bytes falsos -> rechazo sin llamar al modelo", async () => {
+  const calls = mockFetch(() => { throw new Error("no debe llamarse"); });
+  const six = Array.from({ length: TICKET_MAX_IMAGES + 1 }, () => ({ buffer: PNG_BYTES, mimeType: "image/png" }));
+  await assert.rejects(extractPurchaseTicket(six), /como máximo 5 fotos/);
+  await assert.rejects(extractPurchaseTicket([]), /Se requiere la imagen/);
+  await assert.rejects(extractPurchaseTicket([
+    { buffer: PNG_BYTES, mimeType: "image/png" },
+    { buffer: Buffer.from("<?php ?>"), mimeType: "image/jpeg" }
+  ]), /no corresponde a una imagen/);
+  assert.equal(calls.length, 0);
+});
+
+test("N imagenes: exige AI_PROVIDER_VISION=anthropic", async () => {
+  await withEnv({ AI_PROVIDER_VISION: "deepseek" }, async () => {
+    const calls = mockFetch(() => { throw new Error("no debe llamarse"); });
+    await assert.rejects(
+      extractPurchaseTicket([{ buffer: PNG_BYTES, mimeType: "image/png" }, { buffer: PNG_BYTES, mimeType: "image/png" }]),
+      /requiere AI_PROVIDER_VISION=anthropic/
+    );
+    assert.equal(calls.length, 0);
+  });
 });

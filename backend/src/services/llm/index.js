@@ -96,7 +96,7 @@ async function analyzeImageWithVision(base64Image, mimeType, options = {}) {
     if (!options.system || !options.schema) {
       throw new Error("La visión con anthropic requiere un prompt de sistema y un esquema JSON.");
     }
-    return analyzeImageAnthropic(base64Image, mimeType, {
+    return analyzeImageAnthropic([{ data: base64Image, media_type: mimeType }], {
       model: getAnthropicModel("vision"),
       system: options.system,
       schema: options.schema
@@ -106,6 +106,25 @@ async function analyzeImageWithVision(base64Image, mimeType, options = {}) {
     throw new Error("El análisis de imágenes requiere AI_PROVIDER=deepseek.");
   }
   return deepseek.analyzeImageDeepSeek(base64Image, mimeType);
+}
+
+// Several images in ONE call (Claude only: e.g. the photos of one long ticket).
+//   images: [{ data (base64), media_type, label? }]
+async function analyzeImagesWithVision(images, options = {}) {
+  if (resolveProvider("vision") !== "anthropic") {
+    throw new Error("El análisis de varias imágenes requiere AI_PROVIDER_VISION=anthropic.");
+  }
+  if (!options.system || !options.schema) {
+    throw new Error("La visión con anthropic requiere un prompt de sistema y un esquema JSON.");
+  }
+  if (!Array.isArray(images) || images.length === 0) {
+    throw new Error("Se requiere al menos una imagen.");
+  }
+  return analyzeImageAnthropic(images, {
+    model: getAnthropicModel("vision"),
+    system: options.system,
+    schema: options.schema
+  });
 }
 
 // Structured JSON from a text prompt (Claude only). options.feature picks the
@@ -127,4 +146,4 @@ async function analyzeTextStructured(text, options = {}) {
   });
 }
 
-module.exports = { streamChat, chat, countChatInputTokens, analyzeImageWithVision, analyzeTextStructured, getModelName, resolveProvider };
+module.exports = { streamChat, chat, countChatInputTokens, analyzeImageWithVision, analyzeImagesWithVision, analyzeTextStructured, getModelName, resolveProvider };
