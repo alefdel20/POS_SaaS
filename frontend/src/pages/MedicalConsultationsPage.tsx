@@ -8,7 +8,8 @@ import { useAuth } from "../context/AuthContext";
 import type { ClinicalAppointment, ClinicalConsultation, ClinicalPatientDetail, MedicalPrescription, Product } from "../types";
 import { formatDate, shortDateTime } from "../utils/format";
 import { getConsultationModeFromPath } from "../utils/navigation";
-import { showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
+import { getPrescriptionClientLabel, getPrescriptionPatientLabel, isVeterinaryPos, showsPatientSpecies, usesHumanPatientsOnly } from "../utils/pos";
+import { getMexicoCityDateTimeLocalValue } from "../utils/timezone";
 
 type ConsultationFormState = {
   appointment_id: string;
@@ -349,6 +350,11 @@ export function MedicalConsultationsPage() {
   const [pendingFields, setPendingFields] = useState<PendingField[] | null>(null);
   const showSpecies = showsPatientSpecies(user?.pos_type);
   const humanPatientsOnly = usesHumanPatientsOnly(user?.pos_type);
+  // "Mascota"/"Tutor" en veterinaria; "Paciente"/"Cliente" en los demas giros (texto de siempre).
+  const patientLabel = getPrescriptionPatientLabel(user?.pos_type);
+  const clientLabel = getPrescriptionClientLabel(user?.pos_type);
+  // Solo para frases con genero ("una mascota" / "un paciente") que no salen de las etiquetas.
+  const isVet = isVeterinaryPos(user?.pos_type);
   const visibleConsultations = search.trim() ? consultations : consultations.slice(0, 5);
   const formRef = useRef<HTMLDivElement | null>(null);
   const errorRef = useRef<HTMLParagraphElement | null>(null);
@@ -476,7 +482,7 @@ export function MedicalConsultationsPage() {
 
   useEffect(() => {
     loadPatientAppointments(patientValue.id).catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar las citas del paciente");
+      setError(loadError instanceof Error ? loadError.message : `No fue posible cargar las citas ${isVet ? "de la mascota" : "del paciente"}`);
     });
   }, [patientValue.id, token]);
 
@@ -560,7 +566,7 @@ export function MedicalConsultationsPage() {
       current.delete("consultation");
       return current;
     }, { replace: true });
-    setForm({ ...emptyForm, consultation_date: new Date().toISOString().slice(0, 16) });
+    setForm({ ...emptyForm, consultation_date: getMexicoCityDateTimeLocalValue(new Date().toISOString()) });
     setPatientValue(emptyPatientValue);
     setNewPatientSex("Macho");
     setNewPatientWeight("");
@@ -868,15 +874,15 @@ export function MedicalConsultationsPage() {
     if (!patientValue.id && !patientValue.confirmedNew && patientValue.name.trim()) {
       pending.push({
         kind: "patient",
-        label: "Paciente / mascota",
-        detail: `'${patientValue.name.trim()}' se creará como paciente nuevo`
+        label: getPrescriptionPatientLabel(user?.pos_type, "Paciente / mascota"),
+        detail: `'${patientValue.name.trim()}' se creará como ${isVet ? "mascota nueva" : "paciente nuevo"}`
       });
     }
     if (!clientValue.id && !clientValue.confirmedNew && clientValue.name.trim()) {
       pending.push({
         kind: "client",
-        label: "Cliente",
-        detail: `'${clientValue.name.trim()}' se creará como cliente nuevo`
+        label: clientLabel,
+        detail: `'${clientValue.name.trim()}' se creará como ${clientLabel.toLowerCase()} nuevo`
       });
     }
     const tratamientoResolution = computeTratamientoResolution();
@@ -986,7 +992,8 @@ export function MedicalConsultationsPage() {
     // Red de seguridad final — solo se alcanza cuando de verdad no hay ni
     // seleccion/confirmacion NI texto pendiente (campo realmente vacio).
     if (!patientValue.id && !patientValue.confirmedNew) {
-      setError("Selecciona un paciente existente o confirma la creación de uno nuevo con “Crear como paciente nuevo”.");
+      // El texto del boton citado viene de NameAutocomplete (compartido), por eso no cambia.
+      setError(`Selecciona ${isVet ? "una mascota existente o confirma la creación de una nueva" : "un paciente existente o confirma la creación de uno nuevo"} con “Crear como paciente nuevo”.`);
       return;
     }
     if (!form.tratamiento.trim()) {
@@ -1223,7 +1230,7 @@ export function MedicalConsultationsPage() {
             <p className="muted">Se muestran arriba las 5 mas recientes; la busqueda mantiene el listado completo.</p>
           </div>
           <div className="inline-actions">
-            <input className="search-input" placeholder="Buscar paciente o diagnostico" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <input className="search-input" placeholder={`Buscar ${patientLabel.toLowerCase()} o diagnostico`} value={search} onChange={(event) => setSearch(event.target.value)} />
             <button className="button" onClick={startCreate} type="button">Nueva consulta</button>
           </div>
         </div>
@@ -1233,8 +1240,8 @@ export function MedicalConsultationsPage() {
           <table>
             <thead>
               <tr>
-                <th>Paciente</th>
-                <th>{humanPatientsOnly ? "Contacto" : "Cliente"}</th>
+                <th>{patientLabel}</th>
+                <th>{humanPatientsOnly ? "Contacto" : clientLabel}</th>
                 <th>Fecha</th>
                 <th>Motivo</th>
                 <th>Receta</th>
@@ -1265,15 +1272,15 @@ export function MedicalConsultationsPage() {
           <div className="panel-header">
             <div>
               <h2>{mode === "edit" ? "Editar consulta" : "Nueva consulta"}</h2>
-              <p className="muted">Paciente, diagnostico y receta se guardan juntos con un solo boton.</p>
+              <p className="muted">{patientLabel}, diagnostico y receta se guardan juntos con un solo boton.</p>
             </div>
             <button className="button ghost" onClick={cancelForm} type="button">Cancelar</button>
           </div>
 
           <form className="grid-form" onSubmit={handleSubmit}>
-            <NameAutocomplete kind="patient" label={humanPatientsOnly ? "Paciente" : "Paciente / mascota"} onChange={setPatientValue} required token={token} value={patientValue} />
+            <NameAutocomplete kind="patient" label={humanPatientsOnly ? "Paciente" : getPrescriptionPatientLabel(user?.pos_type, "Paciente / mascota")} onChange={setPatientValue} required token={token} value={patientValue} />
             {!humanPatientsOnly ? (
-              <NameAutocomplete kind="client" label="Cliente" onChange={setClientValue} token={token} value={clientValue} />
+              <NameAutocomplete kind="client" label={clientLabel}onChange={setClientValue} token={token} value={clientValue} />
             ) : null}
             {!patientValue.id || (!humanPatientsOnly && !clientValue.id) ? (
               <div className="auth-grid-form">
@@ -1302,7 +1309,7 @@ export function MedicalConsultationsPage() {
                 ) : null}
                 {!humanPatientsOnly && !clientValue.id ? (
                   <label>
-                    Teléfono del cliente
+                    Teléfono del {clientLabel.toLowerCase()}
                     <input type="tel" value={newClientPhone} onChange={(event) => setNewClientPhone(event.target.value)} />
                   </label>
                 ) : null}
@@ -1387,10 +1394,10 @@ export function MedicalConsultationsPage() {
                 </div>
 
                 <div className="info-card">
-                  <p><strong>Paciente:</strong> {detail.patient_name}</p>
+                  <p><strong>{patientLabel}:</strong> {detail.patient_name}</p>
                   {!humanPatientsOnly ? (
                     <p>
-                      <strong>Cliente:</strong>{" "}
+                      <strong>{clientLabel}:</strong>{" "}
                       {detail.client_name || <AssignPatientResponsible onAssigned={() => loadDetail(detail.id)} patientId={detail.patient_id} token={token} />}
                     </p>
                   ) : null}
@@ -1423,7 +1430,7 @@ export function MedicalConsultationsPage() {
                     </button>
                     <button className="button ghost" onClick={() => navigate(`/medical-history?patient_id=${detail.patient_id}&client_id=${detail.client_id}`)} type="button">Ver bitacora clinica</button>
                     <button className="button ghost" onClick={() => navigate(`/patients?patient=${detail.patient_id}`)} type="button">Ver historial medico</button>
-                    {!humanPatientsOnly ? <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver cliente</button> : null}
+                    {!humanPatientsOnly ? <button className="button ghost" onClick={() => navigate(`/clients?client=${detail.client_id}`)} type="button">Ver {clientLabel.toLowerCase()}</button> : null}
                     {originAppointment ? (
                       <button
                         className="button ghost"

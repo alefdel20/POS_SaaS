@@ -41,6 +41,57 @@ export function ticketInvalidStyle(invalid: boolean): CSSProperties {
   return invalid ? { borderColor: "var(--danger)" } : {};
 }
 
+// Estado de una linea del borrador (solo con confirmar): missing = producto
+// nuevo sin categoria ni precio de venta, partial = otro pendiente, complete = lista.
+export type TicketLineStatus = "complete" | "partial" | "missing";
+
+const STATUS_VARS: Record<TicketLineStatus, string> = {
+  complete: "var(--accent)",
+  partial: "var(--warning)",
+  missing: "var(--danger)"
+};
+
+const STATUS_TEXT: Record<TicketLineStatus, { icon: string; label: string }> = {
+  complete: { icon: "✓", label: "Completo" },
+  partial: { icon: "!", label: "Incompleto" },
+  missing: { icon: "✕", label: "Nuevo sin completar" }
+};
+
+export function ticketStatusRowStyle(status: TicketLineStatus): CSSProperties {
+  return {
+    background: `color-mix(in srgb, ${STATUS_VARS[status]} 9%, transparent)`,
+    boxShadow: `inset 3px 0 0 ${STATUS_VARS[status]}`
+  };
+}
+
+// Icono + texto (no solo color) y la lista de lo que falta.
+export function TicketLineStatusBadge({ status, missing }: { status: TicketLineStatus; missing: string[] }) {
+  const text = STATUS_TEXT[status];
+  return (
+    <div style={{ display: "grid", gap: "0.25rem", justifyItems: "start" }}>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.3rem",
+          padding: "0.15rem 0.5rem",
+          borderRadius: "999px",
+          fontSize: "0.75rem",
+          fontWeight: 600,
+          whiteSpace: "nowrap",
+          color: "var(--text)",
+          background: `color-mix(in srgb, ${STATUS_VARS[status]} 18%, transparent)`,
+          border: `1px solid color-mix(in srgb, ${STATUS_VARS[status]} 50%, transparent)`
+        }}
+      >
+        <span aria-hidden="true">{text.icon}</span>
+        {text.label}
+      </span>
+      {missing.length ? <span style={{ fontSize: "0.78rem" }}>Falta: {missing.join(", ")}</span> : null}
+    </div>
+  );
+}
+
 // Lista de dato: valor (resumenes de confirmar, resultado y anulacion).
 export function TicketFacts({ items }: { items: { label: string; value: ReactNode }[] }) {
   return (

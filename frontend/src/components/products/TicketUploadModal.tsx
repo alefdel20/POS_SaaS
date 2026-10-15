@@ -12,11 +12,19 @@ import type {
   TicketVoidResponse
 } from "../../types/purchaseTicket";
 import { currency, formatDate } from "../../utils/format";
+import { getMexicoCityDateInputValue } from "../../utils/timezone";
 import { TicketCategoryPicker } from "./TicketCategoryPicker";
 import { type TicketConfirmSummary, TicketConfirmDialog } from "./TicketConfirmDialog";
 import { TicketPurchasesList } from "./TicketPurchasesList";
 import { TicketVoidDialog } from "./TicketVoidDialog";
-import { TicketFacts, ticketSuccessStyle, ticketWarningStyle } from "./ticketUi";
+import {
+  TicketFacts,
+  TicketLineStatusBadge,
+  type TicketLineStatus,
+  ticketStatusRowStyle,
+  ticketSuccessStyle,
+  ticketWarningStyle
+} from "./ticketUi";
 
 // "Cargar ticket" (Reabastecer): lee el ticket con IA y muestra un borrador
 // editable. Con canConfirm (admin, gerente, superusuario y el interruptor
@@ -69,8 +77,11 @@ interface TicketDraft {
   candidates: TicketSupplierCandidate[];
   supplierId: string;
   date: string;
+  // true: la fecha no se leyo y se prellenó con hoy (hasta que el usuario la cambie).
+  dateDefaulted: boolean;
   total: string;
-  // true: el total no se leyo y se prellenó con la suma de las líneas (2+ fotos).
+  // true: el total no se leyo y se prellenó con la suma de las líneas; la
+  // sigue mientras el usuario no lo edite.
   totalComputed: boolean;
   folio: string | null;
   lines: DraftLine[];
@@ -110,12 +121,12 @@ function numberToInput(value: number | null | undefined) {
   return value === null || value === undefined ? "" : String(value);
 }
 
-function buildDraft(response: TicketPreviewResponse): TicketDraft {
+function buildDraft(response: TicketPreviewResponse, hideCosts: boolean): TicketDraft {
   const topCandidate = response.supplier_candidates[0];
   const imageCount = response.ticket.image_count ?? 1;
-  // 2+ fotos y el total impreso no se leyó (null; para cajero la llave no viene):
-  // se prellena con la suma de las líneas. Con una foto, sin cambios.
-  const computeTotal = imageCount > 1 && response.ticket.total === null;
+  // El total impreso no se leyó (null): se prellena con la suma de las líneas.
+  // Para cajero (hideCosts) no: no recibe total ni costos.
+  const computeTotal = !hideCosts && response.ticket.total === null;
   const computedTotal = roundMoney(response.lines.reduce((sum, line) => sum + (line.qty ?? 0) * (line.unit_cost ?? 0), 0));
   return {
     imageSha256: response.ticket.image_sha256,
@@ -123,7 +134,8 @@ function buildDraft(response: TicketPreviewResponse): TicketDraft {
     supplierRaw: response.ticket.supplier_name_raw,
     candidates: response.supplier_candidates,
     supplierId: topCandidate && topCandidate.confidence >= SUPPLIER_PRESELECT_CONFIDENCE ? String(topCandidate.id) : "",
-    date: response.ticket.date || "",
+    date: response.ticket.date || getMexicoCityDateInputValue(),
+    dateDefaulted: !response.ticket.date,
     total: computeTotal ? String(computedTotal) : numberToInput(response.ticket.total),
     totalComputed: computeTotal,
     folio: response.ticket.folio,
@@ -192,12 +204,35 @@ function hasIssues(issues: LineIssues) {
   return issues.qty || issues.cost || issues.name || issues.category || issues.salePrice;
 }
 
+const ISSUE_LABELS: Record<keyof LineIssues, string> = {
+  qty: "cantidad",
+  cost: "costo unitario",
+  name: "nombre",
+  category: "categoría",
+  salePrice: "precio de venta"
+};
+
+// Estado de la linea a partir de lineIssues: rojo = producto nuevo sin
+// categoria ni precio de venta, amarillo = otro pendiente, verde = completa.
+function lineStatus(line: DraftLine): { status: TicketLineStatus; missing: string[] } {
+  const issues = lineIssues(line);
+  const missing = (Object.keys(ISSUE_LABELS) as (keyof LineIssues)[]).filter((key) => issues[key]).map((key) => ISSUE_LABELS[key]);
+  if (!missing.length) return { status: "complete", missing };
+  const isNew = line.selection.kind === "new";
+  return { status: isNew && issues.category && issues.salePrice ? "missing" : "partial", missing };
+}
+
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 function linesTotalOf(draft: TicketDraft) {
   return roundMoney(draft.lines.reduce((sum, line) => sum + (Number(line.qty) || 0) * (Number(line.unitCost) || 0), 0));
+}
+
+// Total calculado (no leído y sin editar): sigue a la suma de las líneas.
+function syncComputedTotal(draft: TicketDraft): TicketDraft {
+  return draft.totalComputed ? { ...draft, total: String(linesTotalOf(draft)) } : draft;
 }
 
 // Cuerpo exacto de POST /products/restock/ticket/confirm.
@@ -352,6 +387,14 @@ const unmatchedStyle: CSSProperties = {
 function invalidStyle(invalid: boolean): CSSProperties {
   return invalid ? { borderColor: "var(--danger)" } : {};
 }
+
+const pendingItemStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "0.5rem",
+  fontSize: "0.85rem"
+};
 
 interface ProductPickerProps {
   token: string;
@@ -526,6 +569,12 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<TicketDraft | null>(null);
   const [openPicker, setOpenPicker] = useState<number | null>(null);
+  // Panel "Quedan pendientes" (solo con canConfirm): se abre al presionar Confirmar con datos faltantes.
+  const [showPending, setShowPending] = useState(false);
+  const lineIdPrefix = useId();
+  const dateInputRef = useRef<HTMLInputElement | null>(null);
+  const totalInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingRef = useRef<HTMLDivElement | null>(null);
   // Confirmacion.
   const [confirmSummary, setConfirmSummary] = useState<TicketConfirmSummary | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -648,7 +697,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
       const response = await apiExtractPurchaseTicket(token, images, controller.signal);
       if (controller.signal.aborted) return;
       clearPhotos();
-      setDraft(buildDraft(response));
+      setDraft(buildDraft(response, hideCosts));
       setStep("preview");
     } catch (readError) {
       if (controller.signal.aborted || (readError as { name?: string })?.name === "AbortError") return;
@@ -666,6 +715,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
     clearPhotos();
     setError("");
     setOpenPicker(null);
+    setShowPending(false);
     setResult(null);
     setVoidResult(null);
     setStep("select");
@@ -681,6 +731,14 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
 
   function openConfirm() {
     if (!draft) return;
+    // Con datos faltantes no se abre el diálogo: se muestra qué queda pendiente.
+    if (!canSubmit) {
+      setOpenPicker(null);
+      setShowPending(true);
+      window.setTimeout(() => focusField(pendingRef.current), 0);
+      return;
+    }
+    setShowPending(false);
     setConfirmError("");
     setConflict(null);
     setAcknowledged(false);
@@ -714,15 +772,29 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
   }
 
   function updateLine(key: number, patch: Partial<DraftLine>) {
-    setDraft((current) => current && {
+    setDraft((current) => current && syncComputedTotal({
       ...current,
       lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line))
-    });
+    }));
   }
 
   function removeLine(key: number) {
     setOpenPicker((current) => (current === key ? null : current));
-    setDraft((current) => current && { ...current, lines: current.lines.filter((line) => line.key !== key) });
+    setDraft((current) => current && syncComputedTotal({ ...current, lines: current.lines.filter((line) => line.key !== key) }));
+  }
+
+  // "Ir" del panel de pendientes: lleva a la línea y enfoca su primer campo marcado.
+  function focusLine(key: number) {
+    const row = document.getElementById(`${lineIdPrefix}-${key}`);
+    if (!row) return;
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    (row.querySelector<HTMLElement>('[aria-invalid="true"]') ?? row).focus({ preventScroll: true });
+  }
+
+  function focusField(element: HTMLElement | null) {
+    if (!element) return;
+    element.scrollIntoView({ block: "center", behavior: "smooth" });
+    element.focus({ preventScroll: true });
   }
 
   const unmatchedCount = draft ? draft.lines.filter((line) => !line.match).length : 0;
@@ -732,6 +804,10 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
   const dateInvalid = canConfirm && !(draft && isValidDate(draft.date));
   const invalidLineCount = [...issuesByLine.values()].filter(hasIssues).length;
   const canSubmit = Boolean(canConfirm && draft && draft.lines.length > 0 && !totalInvalid && !dateInvalid && invalidLineCount === 0);
+  // Estado por línea y contador: solo con canConfirm (vista previa sin cambios).
+  const statusByLine = new Map(canConfirm && draft ? draft.lines.map((line) => [line.key, lineStatus(line)]) : []);
+  const completeCount = [...statusByLine.values()].filter((entry) => entry.status === "complete").length;
+  const pendingVisible = Boolean(showPending && canConfirm && draft && draft.lines.length > 0 && !canSubmit);
 
   function renderQty(line: DraftLine) {
     const invalid = !isPositiveNumber(line.qty);
@@ -852,7 +928,21 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
 
   function renderBadge(line: DraftLine) {
     const confidence = confidenceOf(line);
-    return <span style={toneBadgeStyle(confidence.tone)}>{confidence.text}</span>;
+    // Con canConfirm el error lo indica el estado: "Sin coincidencia" queda neutro.
+    const tone = canConfirm && confidence.tone === "none" ? "manual" : confidence.tone;
+    return <span style={toneBadgeStyle(tone)}>{confidence.text}</span>;
+  }
+
+  function renderStatus(line: DraftLine) {
+    const entry = statusByLine.get(line.key);
+    return entry ? <TicketLineStatusBadge missing={entry.missing} status={entry.status} /> : null;
+  }
+
+  // Con canConfirm el tinte es el del estado; sin él, el de siempre (sin coincidencia).
+  function rowStyle(line: DraftLine): CSSProperties | undefined {
+    const entry = statusByLine.get(line.key);
+    if (entry) return ticketStatusRowStyle(entry.status);
+    return line.match ? undefined : unmatchedStyle;
   }
 
   function renderRemove(line: DraftLine) {
@@ -1066,11 +1156,15 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                 Fecha
                 <input
                   aria-invalid={dateInvalid}
-                  onChange={(event) => setDraft({ ...draft, date: event.target.value })}
+                  onChange={(event) => setDraft({ ...draft, date: event.target.value, dateDefaulted: false })}
+                  ref={dateInputRef}
                   style={invalidStyle(dateInvalid)}
                   type="date"
                   value={draft.date}
                 />
+                {draft.dateDefaulted ? (
+                  <span style={{ fontSize: "0.78rem", color: "var(--warning)" }}>Hoy: no se leyó la fecha del ticket</span>
+                ) : null}
                 {draft.folio ? <span className="muted" style={{ fontSize: "0.78rem" }}>Folio: {draft.folio}</span> : null}
               </label>
               {!hideCosts ? (
@@ -1081,13 +1175,16 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                     inputMode="decimal"
                     min="0"
                     onChange={(event) => setDraft({ ...draft, total: event.target.value, totalComputed: false })}
+                    ref={totalInputRef}
                     step="0.01"
                     style={invalidStyle(totalInvalid)}
                     type="number"
                     value={draft.total}
                   />
                   {draft.totalComputed ? (
-                    <span style={{ fontSize: "0.78rem", color: "var(--warning)" }}>Calculado: no se leyó el total impreso</span>
+                    <span style={{ fontSize: "0.78rem", color: "var(--warning)" }}>
+                      Calculado con costo × cantidad: no se leyó el total del ticket. Se actualiza hasta que lo edites.
+                    </span>
                   ) : null}
                   {canConfirm ? (
                     <span className="muted" style={{ fontSize: "0.78rem" }}>Suma de las líneas: {currency(linesTotalOf(draft))}</span>
@@ -1099,6 +1196,9 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
             <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>
               {draft.lines.length} {draft.lines.length === 1 ? "línea" : "líneas"}
               {unmatchedCount ? ` · ${unmatchedCount} sin coincidencia en el catálogo` : ""}
+              {canConfirm && draft.lines.length ? (
+                <strong style={{ color: "var(--text)" }}> · {completeCount} de {draft.lines.length} completos</strong>
+              ) : null}
             </p>
 
             {draft.lines.length === 0 ? (
@@ -1109,6 +1209,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "0.75rem" }}>
                 {draft.lines.map((line) => (
                   <li
+                    id={`${lineIdPrefix}-${line.key}`}
                     key={line.key}
                     style={{
                       display: "grid",
@@ -1116,13 +1217,15 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                       padding: "0.75rem",
                       borderRadius: "12px",
                       border: "1px solid var(--border)",
-                      ...(line.match ? {} : unmatchedStyle)
+                      ...rowStyle(line)
                     }}
+                    tabIndex={-1}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", alignItems: "flex-start" }}>
                       <strong style={{ overflowWrap: "anywhere" }}>{line.rawName}</strong>
                       {renderBadge(line)}
                     </div>
+                    {renderStatus(line)}
                     {renderPhotoInfo(line)}
                     <div style={{ display: "grid", gap: "0.5rem", gridTemplateColumns: hideCosts ? "1fr" : "1fr 1fr" }}>
                       <div style={fieldStyle}><span>Cantidad</span>{renderQty(line)}</div>
@@ -1143,12 +1246,13 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                       {!hideCosts ? <th scope="col">Costo unitario</th> : null}
                       <th scope="col">Producto</th>
                       <th scope="col">Confianza</th>
+                      {canConfirm ? <th scope="col">Estado</th> : null}
                       <th aria-label="Acciones" scope="col" />
                     </tr>
                   </thead>
                   <tbody>
                     {draft.lines.map((line) => (
-                      <tr key={line.key} style={line.match ? undefined : unmatchedStyle}>
+                      <tr id={`${lineIdPrefix}-${line.key}`} key={line.key} style={rowStyle(line)} tabIndex={-1}>
                         <td style={{ minWidth: "10rem", overflowWrap: "anywhere" }}>
                           {line.rawName}
                           {renderPhotoInfo(line)}
@@ -1157,6 +1261,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                         {!hideCosts ? <td>{renderCost(line)}</td> : null}
                         <td>{renderPicker(line)}</td>
                         <td>{renderBadge(line)}</td>
+                        {canConfirm ? <td style={{ minWidth: "9rem" }}>{renderStatus(line)}</td> : null}
                         <td>{renderRemove(line)}</td>
                       </tr>
                     ))}
@@ -1213,6 +1318,49 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
           />
         ) : null}
 
+        {step === "preview" && pendingVisible && draft ? (
+          <div
+            aria-labelledby={`${lineIdPrefix}-pending`}
+            ref={pendingRef}
+            role="region"
+            style={{ ...ticketWarningStyle, margin: "1rem 0 0", display: "grid", gap: "0.5rem", maxHeight: "16rem", overflowY: "auto" }}
+            tabIndex={-1}
+          >
+            <strong id={`${lineIdPrefix}-pending`}>Quedan pendientes</strong>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "0.4rem" }}>
+              {dateInvalid ? (
+                <li style={pendingItemStyle}>
+                  <span>
+                    <span aria-hidden="true">! </span><strong>Fecha del ticket</strong>: falta una fecha válida
+                  </span>
+                  <button aria-label="Ir a la fecha del ticket" className="button ghost" onClick={() => focusField(dateInputRef.current)} type="button">Ir</button>
+                </li>
+              ) : null}
+              {totalInvalid ? (
+                <li style={pendingItemStyle}>
+                  <span>
+                    <span aria-hidden="true">! </span><strong>Total del ticket</strong>: falta el monto
+                  </span>
+                  <button aria-label="Ir al total del ticket" className="button ghost" onClick={() => focusField(totalInputRef.current)} type="button">Ir</button>
+                </li>
+              ) : null}
+              {draft.lines.map((line) => {
+                const entry = statusByLine.get(line.key);
+                if (!entry || entry.status === "complete") return null;
+                return (
+                  <li key={line.key} style={pendingItemStyle}>
+                    <span style={{ overflowWrap: "anywhere" }}>
+                      <span aria-hidden="true">{entry.status === "missing" ? "✕ " : "! "}</span>
+                      <strong>{line.rawName}</strong>: falta {entry.missing.join(", ")}
+                    </span>
+                    <button aria-label={`Ir a ${line.rawName}`} className="button ghost" onClick={() => focusLine(line.key)} type="button">Ir</button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="inline-actions modal-actions-end" style={{ marginTop: "1rem", flexWrap: "wrap" }}>
           {canConfirm && step !== "purchases" && step !== "loading" ? (
             <button className="button ghost" onClick={openPurchases} type="button">Compras con ticket</button>
@@ -1238,13 +1386,16 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
             </button>
           ) : null}
           {step === "preview" && canConfirm ? (
-            <button className="button" disabled={!canSubmit} onClick={openConfirm} type="button">Confirmar compra</button>
+            <button className="button" disabled={!draft || draft.lines.length === 0} onClick={openConfirm} type="button">Confirmar compra</button>
           ) : null}
         </div>
-        {step === "preview" && canConfirm && draft && !canSubmit ? (
+        {step === "preview" && canConfirm && draft && draft.lines.length > 0 && !canSubmit && !pendingVisible ? (
           <p className="muted" style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", textAlign: "right" }}>
-            Completa lo marcado en rojo para confirmar
-            {invalidLineCount ? ` (${invalidLineCount} ${invalidLineCount === 1 ? "línea" : "líneas"} con datos pendientes)` : ""}.
+            Pendiente: {[
+              invalidLineCount ? `${invalidLineCount} ${invalidLineCount === 1 ? "producto" : "productos"} por completar` : "",
+              dateInvalid ? "la fecha" : "",
+              totalInvalid ? "el total" : ""
+            ].filter(Boolean).join(", ")}. Presiona “Confirmar compra” para ver qué falta.
           </p>
         ) : null}
 

@@ -110,7 +110,7 @@ function getDateParts(value: Date | string | number = new Date()) {
 
 function getDateTimeParts(value: Date | string | number = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
-  return partsToRecord(new Intl.DateTimeFormat("en-CA", {
+  const parts = partsToRecord(new Intl.DateTimeFormat("en-CA", {
     timeZone: MEXICO_CITY_TIMEZONE,
     year: "numeric",
     month: "2-digit",
@@ -118,8 +118,14 @@ function getDateTimeParts(value: Date | string | number = new Date()) {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: false
+    // hourCycle en vez de hour12: algunos navegadores con hour12:false devuelven "24" a medianoche
+    // (y hour12 anula hourCycle si se pasan ambos). Se normaliza "24" igual que backend/src/utils/timezone.js.
+    hourCycle: "h23"
   }).formatToParts(date));
+  if (parts.hour === "24") {
+    parts.hour = "00";
+  }
+  return parts;
 }
 
 export function getMexicoCityDateInputValue(value: Date | string | number = new Date()) {

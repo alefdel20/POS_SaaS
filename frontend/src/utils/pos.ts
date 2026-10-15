@@ -116,6 +116,16 @@ export function getClinicalPatientLabel(posType?: string | null) {
   return isVeterinaryPos(posType) ? "Pacientes / Mascotas" : "Pacientes";
 }
 
+// Etiquetas singulares del modulo de consulta/receta. Veterinaria dice "Mascota"/"Tutor";
+// cualquier otro giro recibe `fallback` sin cambios (cada pantalla conserva su texto actual).
+export function getPrescriptionPatientLabel(posType?: string | null, fallback = "Paciente") {
+  return isVeterinaryPos(posType) ? "Mascota" : fallback;
+}
+
+export function getPrescriptionClientLabel(posType?: string | null, fallback = "Cliente") {
+  return isVeterinaryPos(posType) ? "Tutor" : fallback;
+}
+
 export function getHealthcareSidebarTitle(posType?: string | null) {
   return isVeterinaryPos(posType) ? "Area Salud / Veterinaria" : "Area Salud";
 }

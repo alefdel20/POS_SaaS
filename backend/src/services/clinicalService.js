@@ -2980,10 +2980,10 @@ function resolvePrescriptionAccentColor(accentPalette) {
   return PRESCRIPTION_ACCENT_COLORS[accentPalette] || PRESCRIPTION_ACCENT_COLORS.default;
 }
 
-function drawPrescriptionPatientInfo(document, { patient, prescription }) {
-  document.text(`Paciente: ${patient.name}`);
-  document.text(`Cliente / tutor: ${patient.client_name || "-"}`);
-  document.text(`Fecha de emision: ${prescription.created_at}`);
+function drawPrescriptionPatientInfo(document, { patient, prescription, isVet }) {
+  document.text(`${isVet ? "Mascota" : "Paciente"}: ${patient.name}`);
+  document.text(`${isVet ? "Tutor" : "Cliente / tutor"}: ${patient.client_name || "-"}`);
+  document.text(`Fecha de emision: ${formatPrescriptionDateTime(prescription.created_at)}`);
   document.text(`Estado: ${prescription.status}`);
 }
 
@@ -3048,6 +3048,19 @@ function formatPrescriptionDate(value) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+// dd/mm/yyyy HH:MM — hora de pared de un TIMESTAMP (sin zona). La sesion de pg guarda
+// NOW() en hora de CDMX y node-pg lo parsea como si fuera UTC (proceso Node en UTC),
+// asi que los getUTC* devuelven justo la hora de CDMX guardada. Mismo criterio que
+// shortDateTime en el frontend, que recorta el ISO sin convertir zona.
+function formatPrescriptionDateTime(value) {
+  if (!value) return "-";
+  if (value instanceof Date) {
+    const pad = (number) => String(number).padStart(2, "0");
+    return `${pad(value.getUTCDate())}/${pad(value.getUTCMonth() + 1)}/${value.getUTCFullYear()} ${pad(value.getUTCHours())}:${pad(value.getUTCMinutes())}`;
+  }
+  return formatPrescriptionDate(value);
+}
+
 // "3 años 2 meses" / "5 meses" style age, computed from patients.birth_date —
 // there is no stored "age" field, birth_date is the source of truth.
 function formatPatientAge(birthDate) {
@@ -3084,7 +3097,7 @@ function drawSexCheckbox(document, x, y, checked) {
 // comes from the linked consultation (migration 54), not from patient —
 // see getPrescriptionConsultationTemperature.
 function renderClassicPrescription(document, ctx) {
-  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName, footerDoctors, temperature } = ctx;
+  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName, footerDoctors, temperature, isVet } = ctx;
   const contentX = 36;
   const contentWidth = document.page.width - 72;
 
@@ -3133,8 +3146,8 @@ function renderClassicPrescription(document, ctx) {
     rowY += 15;
   }
 
-  infoRow("Paciente:", patient.name || "-", "Peso:", patient.weight !== null && patient.weight !== undefined ? `${patient.weight} kg` : "-");
-  infoRow("Propietario:", patient.client_name || "-", "Temperatura:", temperature !== null && temperature !== undefined ? `${temperature} °C` : "-");
+  infoRow(isVet ? "Mascota:" : "Paciente:", patient.name || "-", "Peso:", patient.weight !== null && patient.weight !== undefined ? `${patient.weight} kg` : "-");
+  infoRow(isVet ? "Tutor:" : "Propietario:", patient.client_name || "-", "Temperatura:", temperature !== null && temperature !== undefined ? `${temperature} °C` : "-");
   infoRow("Especie:", patient.species || "-", "Teléfono:", patient.client_phone || patient.phone || "-");
   infoRow("Raza:", patient.breed || "-", null, null);
   infoRow("Edad:", formatPatientAge(patient.birth_date), null, null);
@@ -3233,7 +3246,7 @@ function renderClassicPrescription(document, ctx) {
 // palette as the app UI) with the logo inside it, accent-colored section
 // labels, and thin accent rules between medications.
 function renderModernPrescription(document, ctx) {
-  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName, accentColor } = ctx;
+  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName, accentColor, isVet } = ctx;
 
   document.rect(0, 0, document.page.width, 90).fill(accentColor);
   if (businessImagePath) {
@@ -3256,11 +3269,11 @@ function renderModernPrescription(document, ctx) {
   document.text(`Correo: ${business?.email || "-"}`);
   document.moveDown();
 
-  document.fillColor(accentColor).text("Paciente y medico");
+  document.fillColor(accentColor).text(isVet ? "Mascota y medico" : "Paciente y medico");
   document.fillColor("#000000");
   document.text(`Medico: ${doctorName}`);
   if (doctorLicense) document.text(`Cedula profesional: ${doctorLicense}`);
-  drawPrescriptionPatientInfo(document, { patient, prescription });
+  drawPrescriptionPatientInfo(document, { patient, prescription, isVet });
   document.moveDown();
 
   document.fillColor(accentColor).text("Diagnostico e indicaciones");
@@ -3303,7 +3316,7 @@ function renderModernPrescription(document, ctx) {
 // Template "compacto": tighter margins, smaller type, medication fields
 // grouped onto fewer lines — fits more medications on a single page.
 function renderCompactPrescription(document, ctx) {
-  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName } = ctx;
+  const { business, patient, prescription, businessImagePath, signatureImagePath, doctorLicense, doctorName, isVet } = ctx;
 
   if (businessImagePath) {
     try {
@@ -3318,7 +3331,7 @@ function renderCompactPrescription(document, ctx) {
   document.fontSize(9);
   document.text(`Negocio: ${business?.company_name || business?.fiscal_business_name || "-"}    Tel: ${business?.phone || "-"}    Correo: ${business?.email || "-"}`);
   document.text(`Medico: ${doctorName}${doctorLicense ? `    Cedula: ${doctorLicense}` : ""}`);
-  document.text(`Paciente: ${patient.name}    Tutor: ${patient.client_name || "-"}    Fecha: ${prescription.created_at}    Estado: ${prescription.status}`);
+  document.text(`${isVet ? "Mascota" : "Paciente"}: ${patient.name}    Tutor: ${patient.client_name || "-"}    Fecha: ${formatPrescriptionDateTime(prescription.created_at)}    Estado: ${prescription.status}`);
   document.moveDown(0.5);
   document.text(`Historia clinica: ${prescription.historia_clinica || "-"}`);
   document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
@@ -3363,7 +3376,7 @@ function renderCompactPrescription(document, ctx) {
 const PRESCRIPTION_CUSTOM_TEMPLATE_CONTENT_START_RATIO = 1 / 3;
 
 function renderCustomPrescription(document, ctx) {
-  const { business, patient, prescription, prescriptionBackgroundPath, signatureImagePath, doctorLicense, doctorName } = ctx;
+  const { business, patient, prescription, prescriptionBackgroundPath, signatureImagePath, doctorLicense, doctorName, isVet } = ctx;
 
   if (prescriptionBackgroundPath) {
     try {
@@ -3385,7 +3398,7 @@ function renderCustomPrescription(document, ctx) {
     document.text(`Cedula profesional: ${doctorLicense}`);
   }
   document.moveDown();
-  drawPrescriptionPatientInfo(document, { patient, prescription });
+  drawPrescriptionPatientInfo(document, { patient, prescription, isVet });
   document.moveDown();
   document.text(`Historia clinica: ${prescription.historia_clinica || "-"}`);
   document.text(`Diagnostico: ${prescription.diagnosis || "-"}`);
@@ -3440,6 +3453,8 @@ async function exportPrescriptionPdf(id, actor) {
     signatureImagePath: resolveStoredBusinessAssetAbsolutePath(business?.signature_image_path),
     prescriptionBackgroundPath,
     accentColor: resolvePrescriptionAccentColor(business?.accent_palette),
+    // Etiquetas "Mascota"/"Tutor" solo en veterinaria (mismo criterio que isVeterinaryPos del frontend).
+    isVet: actor?.pos_type === "Veterinaria",
     // Only consumed by renderClassicPrescription's veterinary-receta layout.
     footerDoctors: await listPrescriptionFooterDoctors(businessId),
     temperature: await getPrescriptionConsultationTemperature(prescription.consultation_id, businessId)
