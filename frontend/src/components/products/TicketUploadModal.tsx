@@ -21,8 +21,9 @@ import { TicketFacts, ticketSuccessStyle, ticketWarningStyle } from "./ticketUi"
 // "Cargar ticket" (Reabastecer): lee el ticket con IA y muestra un borrador
 // editable. Con canConfirm (admin, gerente, superusuario y el interruptor
 // ticket_ai_confirm_enabled) el borrador se confirma y la compra se puede
-// anular; sin el, es solo vista previa. La imagen solo vive en memoria
-// mientras el modal esta abierto.
+// anular; sin el, es solo vista previa. Un ticket largo puede ir en hasta
+// MAX_PHOTOS fotos que se leen juntas (un solo ticket, un solo egreso). Las
+// imagenes solo viven en memoria mientras el modal esta abierto.
 
 const MAX_IMAGE_SIDE = 1600;
 const JPEG_QUALITY = 0.85;
@@ -55,17 +56,34 @@ interface DraftLine {
   newName: string;
   newCategory: string;
   newSalePrice: string;
+  // Varias fotos: foto de la linea (desde 0) y la marca de posible repetido
+  // (key de la linea anterior; null si no hay o si el usuario dijo "Es distinta").
+  imageIndex: number;
+  possibleDuplicateOf: number | null;
 }
 
 interface TicketDraft {
   imageSha256: string;
+  imageCount: number;
   supplierRaw: string | null;
   candidates: TicketSupplierCandidate[];
   supplierId: string;
   date: string;
   total: string;
+  // true: el total no se leyo y se prellenó con la suma de las líneas (2+ fotos).
+  totalComputed: boolean;
   folio: string | null;
   lines: DraftLine[];
+}
+
+// Varias fotos del mismo ticket (una sola lectura).
+const MAX_PHOTOS = 5;
+
+interface TicketPhoto {
+  id: number;
+  file: File;
+  // Miniatura (createObjectURL): se libera al quitar la foto, al leer con éxito y al cerrar.
+  url: string;
 }
 
 type Step = "select" | "loading" | "preview" | "done" | "purchases";
@@ -94,13 +112,20 @@ function numberToInput(value: number | null | undefined) {
 
 function buildDraft(response: TicketPreviewResponse): TicketDraft {
   const topCandidate = response.supplier_candidates[0];
+  const imageCount = response.ticket.image_count ?? 1;
+  // 2+ fotos y el total impreso no se leyó (null; para cajero la llave no viene):
+  // se prellena con la suma de las líneas. Con una foto, sin cambios.
+  const computeTotal = imageCount > 1 && response.ticket.total === null;
+  const computedTotal = roundMoney(response.lines.reduce((sum, line) => sum + (line.qty ?? 0) * (line.unit_cost ?? 0), 0));
   return {
     imageSha256: response.ticket.image_sha256,
+    imageCount,
     supplierRaw: response.ticket.supplier_name_raw,
     candidates: response.supplier_candidates,
     supplierId: topCandidate && topCandidate.confidence >= SUPPLIER_PRESELECT_CONFIDENCE ? String(topCandidate.id) : "",
     date: response.ticket.date || "",
-    total: numberToInput(response.ticket.total),
+    total: computeTotal ? String(computedTotal) : numberToInput(response.ticket.total),
+    totalComputed: computeTotal,
     folio: response.ticket.folio,
     lines: response.lines.map((line) => {
       const options = line.match
@@ -116,10 +141,18 @@ function buildDraft(response: TicketPreviewResponse): TicketDraft {
         selection: line.match ? { kind: "product", product: options[0] } : { kind: "new" },
         newName: line.raw_name,
         newCategory: "",
-        newSalePrice: ""
+        newSalePrice: "",
+        imageIndex: line.image_index ?? 0,
+        possibleDuplicateOf: line.possible_duplicate_of ?? null
       };
     })
   };
+}
+
+// Marca vigente: la linea anterior sigue en el borrador (si se quitó, ya no hay repetido).
+function duplicateOf(draft: TicketDraft, line: DraftLine): DraftLine | null {
+  if (line.possibleDuplicateOf === null) return null;
+  return draft.lines.find((other) => other.key === line.possibleDuplicateOf) ?? null;
 }
 
 function isPositiveNumber(value: string) {
@@ -196,7 +229,8 @@ function buildConfirmSummary(draft: TicketDraft): TicketConfirmSummary {
     newCount: draft.lines.filter((line) => line.selection.kind === "new").length,
     restockCount: restocked.size,
     total: Number(draft.total),
-    linesTotal: linesTotalOf(draft)
+    linesTotal: linesTotalOf(draft),
+    possibleDuplicateCount: draft.lines.filter((line) => duplicateOf(draft, line)).length
   };
 }
 
@@ -478,8 +512,17 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
   const [step, setStep] = useState<Step>("select");
   // Paso al que regresa "Volver" desde Compras con ticket.
   const [returnStep, setReturnStep] = useState<Step>("select");
-  // Solo en memoria: se suelta al leer, al cambiar de archivo y al cerrar.
-  const [file, setFile] = useState<File | null>(null);
+  // Solo en memoria: de 1 a MAX_PHOTOS fotos del mismo ticket, en orden. Se
+  // sueltan al leer con éxito, al quitarlas y al cerrar; si la lectura falla se conservan.
+  const [photos, setPhotos] = useState<TicketPhoto[]>([]);
+  const photosRef = useRef<TicketPhoto[]>([]);
+  photosRef.current = photos;
+  const nextPhotoIdRef = useRef(1);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraButtonRef = useRef<HTMLButtonElement | null>(null);
+  // "Preparando foto 2 de 3…" / "Leyendo el ticket (3 fotos)…".
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<TicketDraft | null>(null);
   const [openPicker, setOpenPicker] = useState<number | null>(null);
@@ -501,9 +544,11 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
   // Foco inicial, regreso del foco y cancelacion de la lectura al cerrar.
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    fileInputRef.current?.focus();
+    (fileInputRef.current ?? cameraButtonRef.current)?.focus();
     return () => {
       requestRef.current?.abort();
+      // Al cerrar: liberar las miniaturas que sigan en memoria.
+      for (const photo of photosRef.current) URL.revokeObjectURL(photo.url);
       previouslyFocused?.focus?.();
     };
   }, []);
@@ -536,20 +581,55 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
     }
   }
 
+  // Agrega las fotos elegidas al final de la lista (hasta MAX_PHOTOS). Cámara:
+  // una por vez; galería y escritorio: varias. El input se limpia para poder
+  // volver a elegir el mismo archivo.
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const nextFile = event.target.files?.[0] ?? null;
+    const chosen = Array.from(event.target.files ?? []);
+    event.target.value = "";
     setError("");
-    if (nextFile && !nextFile.type.startsWith("image/")) {
-      setFile(null);
-      event.target.value = "";
-      setError("El archivo no es una imagen. Elige una foto del ticket.");
-      return;
+    if (chosen.length === 0) return;
+    const images = chosen.filter((file) => file.type.startsWith("image/"));
+    const free = MAX_PHOTOS - photosRef.current.length;
+    const added = images.slice(0, Math.max(free, 0)).map((file) => ({
+      id: nextPhotoIdRef.current++,
+      file,
+      url: URL.createObjectURL(file)
+    }));
+    if (added.length) setPhotos((current) => [...current, ...added]);
+    if (images.length < chosen.length) {
+      setError(chosen.length === 1 ? "El archivo no es una imagen. Elige una foto del ticket." : "Algunos archivos no son imágenes y no se agregaron.");
+    } else if (images.length > added.length) {
+      setError(`Un ticket admite como máximo ${MAX_PHOTOS} fotos; se agregaron ${added.length}.`);
     }
-    setFile(nextFile);
+  }
+
+  function removePhoto(id: number) {
+    setPhotos((current) => {
+      const photo = current.find((item) => item.id === id);
+      if (photo) URL.revokeObjectURL(photo.url);
+      return current.filter((item) => item.id !== id);
+    });
+  }
+
+  function movePhoto(index: number, offset: -1 | 1) {
+    setPhotos((current) => {
+      const target = index + offset;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function clearPhotos() {
+    for (const photo of photosRef.current) URL.revokeObjectURL(photo.url);
+    setPhotos([]);
   }
 
   async function readTicket() {
-    if (!file) {
+    const toRead = photosRef.current;
+    if (toRead.length === 0) {
       setError("Elige una foto del ticket.");
       return;
     }
@@ -558,31 +638,38 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
     const controller = new AbortController();
     requestRef.current = controller;
     try {
-      const image = await resizeImage(file);
+      const images: Blob[] = [];
+      for (const [index, photo] of toRead.entries()) {
+        if (toRead.length > 1) setProgress(`Preparando foto ${index + 1} de ${toRead.length}…`);
+        images.push(await resizeImage(photo.file));
+        if (controller.signal.aborted) return;
+      }
+      setProgress(toRead.length > 1 ? `Leyendo el ticket (${toRead.length} fotos)…` : "");
+      const response = await apiExtractPurchaseTicket(token, images, controller.signal);
       if (controller.signal.aborted) return;
-      const response = await apiExtractPurchaseTicket(token, image, "ticket.jpg", controller.signal);
-      if (controller.signal.aborted) return;
-      setFile(null);
+      clearPhotos();
       setDraft(buildDraft(response));
       setStep("preview");
     } catch (readError) {
       if (controller.signal.aborted || (readError as { name?: string })?.name === "AbortError") return;
+      // Las fotos se conservan para reintentar o cambiar alguna.
       setError(readError instanceof Error ? readError.message : "No se pudo leer el ticket.");
       setStep("select");
     } finally {
+      setProgress("");
       if (requestRef.current === controller) requestRef.current = null;
     }
   }
 
   function readAnother() {
     setDraft(null);
-    setFile(null);
+    clearPhotos();
     setError("");
     setOpenPicker(null);
     setResult(null);
     setVoidResult(null);
     setStep("select");
-    window.setTimeout(() => fileInputRef.current?.focus(), 0);
+    window.setTimeout(() => (fileInputRef.current ?? cameraButtonRef.current)?.focus(), 0);
   }
 
   function openPurchases() {
@@ -740,6 +827,29 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
     );
   }
 
+  // Varias fotos: de qué foto viene la línea y, si el backend la marcó, el aviso
+  // de posible repetido en el borde entre fotos. Con una foto no se muestra nada.
+  function renderPhotoInfo(line: DraftLine) {
+    if (!draft || draft.imageCount < 2) return null;
+    const earlier = duplicateOf(draft, line);
+    return (
+      <div style={{ display: "grid", gap: "0.35rem", marginTop: "0.25rem" }}>
+        <span className="muted" style={{ fontSize: "0.78rem" }}>Foto {line.imageIndex + 1}</span>
+        {earlier ? (
+          <div role="note" style={{ ...ticketWarningStyle, margin: 0, fontSize: "0.8rem", display: "grid", gap: "0.35rem" }}>
+            <span>
+              <strong>¿Repetida?</strong> Parece el mismo renglón que “{earlier.rawName}” (foto {earlier.imageIndex + 1}).
+            </span>
+            <span className="inline-actions" style={{ flexWrap: "wrap" }}>
+              <button className="button ghost" onClick={() => removeLine(line.key)} type="button">Quitar</button>
+              <button className="button ghost" onClick={() => updateLine(line.key, { possibleDuplicateOf: null })} type="button">Es distinta</button>
+            </span>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderBadge(line: DraftLine) {
     const confidence = confidenceOf(line);
     return <span style={toneBadgeStyle(confidence.tone)}>{confidence.text}</span>;
@@ -786,7 +896,9 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
         {step === "select" || step === "loading" || step === "preview" ? (
           // Mismo estilo, pero sin sticky: dos avisos sticky en top 0 se encimarían.
           <p role="note" style={{ ...noticeStyle, position: "static" }}>
-            La foto se envía a un proveedor de inteligencia artificial (Anthropic) para leer el ticket y no se guarda.
+            {photos.length > 1 || (draft?.imageCount ?? 1) > 1
+              ? "Las fotos se envían a un proveedor de inteligencia artificial (Anthropic) para leer el ticket y no se guardan."
+              : "La foto se envía a un proveedor de inteligencia artificial (Anthropic) para leer el ticket y no se guarda."}
           </p>
         ) : null}
 
@@ -794,24 +906,105 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
 
         {step === "select" || step === "loading" ? (
           <div style={{ display: "grid", gap: "0.75rem" }}>
-            <label htmlFor={fileInputId} style={fieldStyle}>
-              Foto del ticket
-              <input
-                accept="image/*"
-                capture={isMobile ? "environment" : undefined}
-                disabled={step === "loading"}
-                id={fileInputId}
-                onChange={handleFileChange}
-                ref={fileInputRef}
-                type="file"
-              />
-            </label>
-            <p className="muted" style={{ margin: 0, fontSize: "0.85rem", overflowWrap: "anywhere" }}>
-              {file ? `Archivo: ${file.name}` : "Ningún archivo seleccionado."}
+            {isMobile ? (
+              // Móvil: la cámara toma una foto por vez y vuelve a la lista; la galería permite varias.
+              <div style={fieldStyle}>
+                <span>Fotos del ticket</span>
+                <div className="inline-actions" style={{ flexWrap: "wrap" }}>
+                  <button
+                    className="button ghost"
+                    disabled={step === "loading" || photos.length >= MAX_PHOTOS}
+                    onClick={() => cameraInputRef.current?.click()}
+                    ref={cameraButtonRef}
+                    type="button"
+                  >
+                    Tomar foto
+                  </button>
+                  <button
+                    className="button ghost"
+                    disabled={step === "loading" || photos.length >= MAX_PHOTOS}
+                    onClick={() => galleryInputRef.current?.click()}
+                    type="button"
+                  >
+                    Elegir de galería
+                  </button>
+                </div>
+                <input accept="image/*" capture="environment" hidden onChange={handleFileChange} ref={cameraInputRef} type="file" />
+                <input accept="image/*" hidden multiple onChange={handleFileChange} ref={galleryInputRef} type="file" />
+              </div>
+            ) : (
+              <label htmlFor={fileInputId} style={fieldStyle}>
+                Fotos del ticket
+                <input
+                  accept="image/*"
+                  disabled={step === "loading" || photos.length >= MAX_PHOTOS}
+                  id={fileInputId}
+                  multiple
+                  onChange={handleFileChange}
+                  ref={fileInputRef}
+                  type="file"
+                />
+              </label>
+            )}
+            <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>
+              {photos.length === 0
+                ? `Ningún archivo seleccionado. Si el ticket es largo, agrega hasta ${MAX_PHOTOS} fotos en orden, de arriba hacia abajo.`
+                : `${photos.length} de ${MAX_PHOTOS} fotos`}
             </p>
+            {photos.length ? (
+              <ol aria-label="Fotos del ticket" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "0.5rem" }}>
+                {photos.map((photo, index) => {
+                  const role = photos.length > 1 ? (index === 0 ? " · encabezado" : index === photos.length - 1 ? " · total" : "") : "";
+                  const label = `Foto ${index + 1}${role}`;
+                  return (
+                    <li
+                      key={photo.id}
+                      style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.4rem", borderRadius: "10px", border: "1px solid var(--border)" }}
+                    >
+                      <img
+                        alt={`${label} del ticket`}
+                        src={photo.url}
+                        style={{ width: "56px", height: "56px", objectFit: "cover", borderRadius: "8px", flex: "none" }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <strong style={{ display: "block", fontSize: "0.9rem" }}>{label}</strong>
+                        <span className="muted" style={{ fontSize: "0.78rem", overflowWrap: "anywhere" }}>{photo.file.name}</span>
+                      </div>
+                      <button
+                        aria-label={`Subir ${label}`}
+                        className="button ghost"
+                        disabled={step === "loading" || index === 0}
+                        onClick={() => movePhoto(index, -1)}
+                        type="button"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        aria-label={`Bajar ${label}`}
+                        className="button ghost"
+                        disabled={step === "loading" || index === photos.length - 1}
+                        onClick={() => movePhoto(index, 1)}
+                        type="button"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        aria-label={`Quitar ${label}`}
+                        className="button ghost"
+                        disabled={step === "loading"}
+                        onClick={() => removePhoto(photo.id)}
+                        type="button"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : null}
             {step === "loading" ? (
               <span
-                aria-label="Leyendo el ticket"
+                aria-label={progress || "Leyendo el ticket"}
                 role="status"
                 style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", padding: "0.3rem 0" }}
               >
@@ -828,7 +1021,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                     }}
                   />
                 ))}
-                <span className="muted" style={{ fontSize: "0.85rem", marginLeft: "0.4rem" }}>Leyendo el ticket...</span>
+                <span className="muted" style={{ fontSize: "0.85rem", marginLeft: "0.4rem" }}>{progress || "Leyendo el ticket..."}</span>
               </span>
             ) : null}
           </div>
@@ -887,12 +1080,15 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                     aria-invalid={totalInvalid}
                     inputMode="decimal"
                     min="0"
-                    onChange={(event) => setDraft({ ...draft, total: event.target.value })}
+                    onChange={(event) => setDraft({ ...draft, total: event.target.value, totalComputed: false })}
                     step="0.01"
                     style={invalidStyle(totalInvalid)}
                     type="number"
                     value={draft.total}
                   />
+                  {draft.totalComputed ? (
+                    <span style={{ fontSize: "0.78rem", color: "var(--warning)" }}>Calculado: no se leyó el total impreso</span>
+                  ) : null}
                   {canConfirm ? (
                     <span className="muted" style={{ fontSize: "0.78rem" }}>Suma de las líneas: {currency(linesTotalOf(draft))}</span>
                   ) : null}
@@ -927,6 +1123,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                       <strong style={{ overflowWrap: "anywhere" }}>{line.rawName}</strong>
                       {renderBadge(line)}
                     </div>
+                    {renderPhotoInfo(line)}
                     <div style={{ display: "grid", gap: "0.5rem", gridTemplateColumns: hideCosts ? "1fr" : "1fr 1fr" }}>
                       <div style={fieldStyle}><span>Cantidad</span>{renderQty(line)}</div>
                       {!hideCosts ? <div style={fieldStyle}><span>Costo unitario</span>{renderCost(line)}</div> : null}
@@ -952,7 +1149,10 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
                   <tbody>
                     {draft.lines.map((line) => (
                       <tr key={line.key} style={line.match ? undefined : unmatchedStyle}>
-                        <td style={{ minWidth: "10rem", overflowWrap: "anywhere" }}>{line.rawName}</td>
+                        <td style={{ minWidth: "10rem", overflowWrap: "anywhere" }}>
+                          {line.rawName}
+                          {renderPhotoInfo(line)}
+                        </td>
                         <td>{renderQty(line)}</td>
                         {!hideCosts ? <td>{renderCost(line)}</td> : null}
                         <td>{renderPicker(line)}</td>
@@ -1030,7 +1230,7 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
           {step === "select" || step === "loading" ? (
             <button
               className="button"
-              disabled={!file || step === "loading"}
+              disabled={photos.length === 0 || step === "loading"}
               onClick={() => readTicket().catch(() => undefined)}
               type="button"
             >

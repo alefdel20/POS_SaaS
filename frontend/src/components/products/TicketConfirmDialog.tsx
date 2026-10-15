@@ -9,6 +9,8 @@ export interface TicketConfirmSummary {
   restockCount: number;
   total: number;
   linesTotal: number;
+  // Varias fotos: lineas que siguen marcadas como posible repetido entre fotos.
+  possibleDuplicateCount: number;
 }
 
 interface TicketConfirmDialogProps {
@@ -68,6 +70,14 @@ export function TicketConfirmDialog({
           El total del ticket y la suma de las líneas difieren por {currency(Math.abs(difference))}
           {difference > 0 ? " (el ticket es mayor)" : " (las líneas suman más)"}. Puede deberse a impuestos o descuentos.
           El egreso se registrará por el total del ticket: {currency(summary.total)}.
+        </p>
+      ) : null}
+      {summary.possibleDuplicateCount > 0 ? (
+        <p role="note" style={ticketWarningStyle}>
+          {summary.possibleDuplicateCount === 1
+            ? "1 línea sigue marcada como posible repetida entre fotos."
+            : `${summary.possibleDuplicateCount} líneas siguen marcadas como posibles repetidas entre fotos.`}
+          {" "}Si es el mismo renglón fotografiado dos veces, vuelve y quítala; si no, puedes cargar la compra así.
         </p>
       ) : null}
       <p className="muted" style={{ margin: "0 0 0.75rem", fontSize: "0.85rem" }}>

@@ -12,14 +12,19 @@ import type {
 } from "../types/purchaseTicket";
 
 // Solo lectura: el backend no guarda nada en esta etapa.
+// images: de 1 a 5 fotos del MISMO ticket, en orden. Una foto va en el campo
+// "image" (igual que siempre); varias, en "images".
 export function apiExtractPurchaseTicket(
   token: string,
-  image: Blob,
-  fileName: string,
+  images: Blob[],
   signal?: AbortSignal
 ): Promise<TicketPreviewResponse> {
   const body = new FormData();
-  body.append("image", image, fileName);
+  if (images.length === 1) {
+    body.append("image", images[0], "ticket.jpg");
+  } else {
+    images.forEach((image, index) => body.append("images", image, `ticket-${index + 1}.jpg`));
+  }
   return apiRequest<TicketPreviewResponse>("/products/restock/ticket/extract", { method: "POST", token, body, signal });
 }
 

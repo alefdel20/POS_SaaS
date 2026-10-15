@@ -315,7 +315,8 @@ test("admin: vista previa completa con emparejamiento por cada metodo", async ()
     date: "2026-10-10",
     total: 912.5,
     folio: "A-1029",
-    image_sha256: require("crypto").createHash("sha256").update(PNG_BYTES).digest("hex")
+    image_sha256: require("crypto").createHash("sha256").update(PNG_BYTES).digest("hex"),
+    image_count: 1
   });
   // Exact (normalized) first, then containment; the inactive supplier and
   // business 7's identical name never appear.
@@ -340,8 +341,11 @@ test("admin: vista previa completa con emparejamiento por cada metodo", async ()
   assert.deepEqual(byIndex(6).suggestions, []);
 
   for (const line of json.lines) {
-    assert.deepEqual(Object.keys(line).sort(), ["index", "match", "qty", "raw_name", "suggestions", "unit_cost"]);
+    assert.deepEqual(Object.keys(line).sort(), ["image_index", "index", "match", "possible_duplicate_of", "qty", "raw_name", "suggestions", "unit_cost"]);
     if (line.match) assert.deepEqual(line.suggestions, []);
+    // Una foto: todo en la foto 0 y nunca se marca un posible repetido.
+    assert.equal(line.image_index, 0);
+    assert.equal(line.possible_duplicate_of, null);
   }
   assert.equal(byIndex(1).unit_cost, 14);
 });
@@ -549,4 +553,123 @@ test("similitud por endpoint: solo productos del negocio del actor", async () =>
   assert.deepEqual(json.lines[0].match, { product_id: 5, name: "Atun en agua", sku: "ATU-AG", confidence: 0.75, method: "name" });
   const ids = json.lines.flatMap((line) => [line.match?.product_id, ...line.suggestions.map((s) => s.product_id)]).filter(Boolean);
   for (const id of ids) assert.ok(PRODUCTS.some((p) => p.id === id && p.business_id === 6), `producto ${id}`);
+});
+
+// ─── Several photos of one ticket (field "images") ───────────────────────────
+
+const crypto = require("crypto");
+const photo = (n) => Buffer.concat([PNG_BYTES, Buffer.from(`-foto-${n}`)]);
+
+async function extractMany(user, count) {
+  const body = new FormData();
+  for (let i = 0; i < count; i += 1) body.append("images", new Blob([photo(i)], { type: "image/png" }), `ticket-${i}.png`);
+  const response = await fetch(`${baseUrl}/products/restock/ticket/extract`, {
+    method: "POST",
+    body,
+    headers: { "x-test-user": JSON.stringify({ id: nextUserId++, business_id: 6, pos_type: "Tienda", ...user }) }
+  });
+  return { status: response.status, json: await response.json() };
+}
+
+// Two photos: "Arroz" photographed at the end of photo 1 and the start of
+// photo 2 (same qty and cost); "Leche" repeated at the start of photo 2 but
+// not at the end of photo 1 (not a boundary pair); "Atun" same name at the
+// boundary but different cost.
+const MULTI_TICKET = {
+  supplier_name: "Abarrotes El Sol",
+  date: "2026-10-10",
+  total: 640,
+  folio: "A-1030",
+  lines: [
+    { name: "Leche entera 1L", qty: 12, unit_cost: 24.5, sku: null, barcode: null, image_index: 0 },
+    { name: "Frijol negro 900g", qty: 6, unit_cost: 31, sku: null, barcode: null, image_index: 0 },
+    { name: "Atún en agua", qty: 8, unit_cost: 18.75, sku: null, barcode: null, image_index: 0 },
+    { name: "Arroz 1kg", qty: 10, unit_cost: 22, sku: null, barcode: null, image_index: 0 },
+    { name: "ARROZ 1 KG", qty: 10, unit_cost: 22.004, sku: null, barcode: null, image_index: 1 },
+    { name: "Atun en agua", qty: 8, unit_cost: 19.5, sku: null, barcode: null, image_index: 1 },
+    { name: "Leche entera 1L", qty: 12, unit_cost: 24.5, sku: null, barcode: null, image_index: 1 },
+    { name: "Galletas maria chocolate", qty: 3, unit_cost: 15, sku: null, barcode: null, image_index: 1 }
+  ]
+};
+
+function captureModelRequests(ticket) {
+  anthropicReply(ticket);
+  const reply = fetchHandler;
+  const bodies = [];
+  fetchHandler = async (url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return reply(url, init);
+  };
+  return bodies;
+}
+
+test("varias fotos con el switch apagado: 403 igual que hoy, sin llamar al modelo", async () => {
+  startCase({ settings: { ticket_ai_enabled: false, cashier_direct_stock: true } });
+  for (const role of ["admin", "cajero"]) {
+    const { status, json } = await extractMany({ role }, 3);
+    assert.equal(status, 403, role);
+    assert.match(json.message, /carga de tickets con IA no está activada/);
+  }
+  assert.equal(fetchCalls, 0);
+});
+
+test("cinco fotos: UNA llamada con 5 imagenes, image_count, image_index y hash compuesto", async () => {
+  startCase();
+  const five = { ...MULTI_TICKET, lines: MULTI_TICKET.lines.map((line) => ({ ...line, image_index: Math.min(line.image_index, 4) })) };
+  const bodies = captureModelRequests(five);
+  const { status, json } = await extractMany({ role: "admin" }, 5);
+  assert.equal(status, 200, JSON.stringify(json));
+  assert.equal(fetchCalls, 1);
+  assert.equal(bodies[0].messages[0].content.filter((block) => block.type === "image").length, 5);
+
+  assert.equal(json.ticket.image_count, 5);
+  const hashes = [0, 1, 2, 3, 4].map((n) => crypto.createHash("sha256").update(photo(n)).digest("hex"));
+  assert.equal(json.ticket.image_sha256, crypto.createHash("sha256").update([...hashes].sort().join(",")).digest("hex"));
+  assert.deepEqual(json.lines.map((line) => line.image_index), five.lines.map((line) => line.image_index));
+  // El emparejamiento con el catalogo no cambia por venir de varias fotos.
+  assert.equal(json.lines[0].match.product_id, 1);
+});
+
+test("seis fotos: 400 sin llamar al modelo ni registrar tokens", async () => {
+  startCase();
+  const { status, json } = await extractMany({ role: "admin" }, 6);
+  assert.equal(status, 400);
+  assert.match(json.message, /como máximo 5 fotos/);
+  assert.equal(fetchCalls, 0);
+  assert.equal(writes().length, 0);
+});
+
+test("una foto en el campo images: igual que en image (sin marcas, image_count 1)", async () => {
+  startCase();
+  const { status, json } = await extractMany({ role: "admin" }, 1);
+  assert.equal(status, 200);
+  assert.equal(json.ticket.image_count, 1);
+  assert.equal(json.ticket.image_sha256, crypto.createHash("sha256").update(photo(0)).digest("hex"));
+  assert.ok(json.lines.every((line) => line.image_index === 0 && line.possible_duplicate_of === null));
+});
+
+test("repetido en el borde: se marca possible_duplicate_of y NUNCA se borra la linea", async () => {
+  startCase();
+  captureModelRequests(MULTI_TICKET);
+  const { status, json } = await extractMany({ role: "admin" }, 2);
+  assert.equal(status, 200);
+  // Todas las lineas siguen ahi.
+  assert.equal(json.lines.length, MULTI_TICKET.lines.length);
+  const flagged = json.lines.filter((line) => line.possible_duplicate_of !== null)
+    .map((line) => [line.index, line.possible_duplicate_of]);
+  // Solo "ARROZ 1 KG" (foto 2, 1a linea) apunta a "Arroz 1kg" (foto 1, ultima):
+  // misma cantidad y costo con diferencia < 0.01. "Atun" tiene otro costo y
+  // "Leche" de la foto 2 no esta en el borde de la foto 1 (no esta entre sus 3 ultimas).
+  assert.deepEqual(flagged, [[4, 3]]);
+});
+
+test("cajero con varias fotos: sin costos ni total, pero el repetido se marca igual", async () => {
+  startCase({ settings: { cashier_direct_stock: true } });
+  captureModelRequests(MULTI_TICKET);
+  const { status, json } = await extractMany({ role: "cajero" }, 2);
+  assert.equal(status, 200);
+  assert.equal("total" in json.ticket, false);
+  assert.equal(JSON.stringify(json).includes("unit_cost"), false);
+  assert.equal(json.ticket.image_count, 2);
+  assert.equal(json.lines[4].possible_duplicate_of, 3);
 });

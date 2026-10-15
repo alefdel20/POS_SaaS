@@ -170,7 +170,38 @@ function matchLine(line, context) {
   };
 }
 
-async function buildTicketPreview(actor, ticket, { imageSha256, hideCosts }) {
+// Several photos of one ticket: safety net behind the model's own de-duplication.
+// The last BOUNDARY_LINES lines of photo k are compared with the first
+// BOUNDARY_LINES of photo k+1; a later line that looks like the same row
+// photographed twice (similar name, same qty, cost within 0.01) gets
+// possible_duplicate_of = index of the earlier line. Lines are only flagged,
+// never removed: the user decides. Returns Map(lineIndex -> earlierIndex).
+const BOUNDARY_LINES = 3;
+const DUPLICATE_SIMILARITY = 0.9;
+
+function sameNumber(a, b, tolerance) {
+  return a !== null && a !== undefined && b !== null && b !== undefined && Math.abs(Number(a) - Number(b)) < tolerance;
+}
+
+function findBoundaryDuplicates(lines, imageCount) {
+  const flags = new Map();
+  if (imageCount < 2) return flags;
+  const indexed = lines.map((line, index) => ({ ...line, index, image_index: line.image_index ?? 0 }));
+  for (let k = 0; k < imageCount - 1; k += 1) {
+    const tail = indexed.filter((line) => line.image_index === k).slice(-BOUNDARY_LINES);
+    const head = indexed.filter((line) => line.image_index === k + 1).slice(0, BOUNDARY_LINES);
+    for (const later of head) {
+      const earlier = tail.find((candidate) =>
+        sameNumber(candidate.qty, later.qty, 1e-9)
+        && sameNumber(candidate.unit_cost, later.unit_cost, 0.01)
+        && similarityScore(parseTicketText(candidate.name), parseTicketText(later.name)) >= DUPLICATE_SIMILARITY);
+      if (earlier) flags.set(later.index, earlier.index);
+    }
+  }
+  return flags;
+}
+
+async function buildTicketPreview(actor, ticket, { imageSha256, imageCount = 1, hideCosts }) {
   const businessId = requireActorBusinessId(actor);
 
   const [{ rows: suppliers }, { rows: products }] = await Promise.all([
@@ -203,6 +234,8 @@ async function buildTicketPreview(actor, ticket, { imageSha256, hideCosts }) {
   }
 
   const context = buildMatchContext(products, catalogRows);
+  // Computed before costs are hidden: the cost comparison still applies for cajero.
+  const duplicates = findBoundaryDuplicates(ticket.lines, imageCount);
 
   const preview = {
     ticket: {
@@ -210,7 +243,8 @@ async function buildTicketPreview(actor, ticket, { imageSha256, hideCosts }) {
       date: ticket.date,
       total: ticket.total,
       folio: ticket.folio,
-      image_sha256: imageSha256
+      image_sha256: imageSha256,
+      image_count: imageCount
     },
     supplier_candidates: supplierCandidates,
     lines: ticket.lines.map((line, index) => ({
@@ -218,6 +252,8 @@ async function buildTicketPreview(actor, ticket, { imageSha256, hideCosts }) {
       raw_name: line.name,
       qty: line.qty,
       unit_cost: line.unit_cost,
+      image_index: line.image_index ?? 0,
+      possible_duplicate_of: duplicates.has(index) ? duplicates.get(index) : null,
       ...matchLine(line, context)
     }))
   };
@@ -238,5 +274,6 @@ module.exports = {
   rankSupplierCandidates,
   buildMatchContext,
   matchLine,
+  findBoundaryDuplicates,
   buildTicketPreview
 };

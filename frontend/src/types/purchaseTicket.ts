@@ -20,6 +20,11 @@ export interface TicketPreviewLine {
   unit_cost?: number | null;
   match: TicketLineMatch | null;
   suggestions: TicketProductRef[];
+  // Foto (desde 0) donde aparece la linea; 0 con una sola foto.
+  image_index?: number;
+  // Varias fotos: indice de una linea anterior que parece el mismo renglon
+  // fotografiado en el borde entre dos fotos. Solo es una marca: nunca se borra.
+  possible_duplicate_of?: number | null;
 }
 
 export interface TicketSupplierCandidate {
@@ -34,7 +39,9 @@ export interface TicketPreviewResponse {
     date: string | null;
     total?: number | null;
     folio: string | null;
+    // Una foto: su sha256. Varias: sha256 de los hashes ordenados (mismo juego, mismo valor).
     image_sha256: string;
+    image_count?: number;
   };
   supplier_candidates: TicketSupplierCandidate[];
   lines: TicketPreviewLine[];

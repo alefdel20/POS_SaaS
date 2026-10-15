@@ -1,5 +1,6 @@
-// POST /products/restock/ticket/extract: preview only. One vision call, the
-// token count, and read-only matching. Nothing is written to inventory.
+// POST /products/restock/ticket/extract: preview only. One vision call (for
+// 1 to 5 photos of the same ticket), the token count, and read-only
+// matching. Nothing is written to inventory.
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const { normalizeRole } = require("../utils/roles");
@@ -31,10 +32,12 @@ function toClientError(error) {
   return new ApiError(502, "El servicio de lectura de tickets no está disponible. Intenta más tarde.");
 }
 
+// 1 to 5 photos of the same ticket (uploadTicketImage), read in one call.
 const extractRestockTicket = asyncHandler(async (req, res) => {
+  const images = req.ticketImages.map((file) => ({ buffer: file.buffer, mimeType: file.mimetype }));
   let extraction;
   try {
-    extraction = await extractPurchaseTicket(req.file.buffer, req.file.mimetype);
+    extraction = await extractPurchaseTicket(images);
   } catch (error) {
     await recordTokens(req.user, error);
     throw toClientError(error);
@@ -42,7 +45,8 @@ const extractRestockTicket = asyncHandler(async (req, res) => {
   await recordTokens(req.user, extraction);
 
   res.json(await buildTicketPreview(req.user, extraction.ticket, {
-    imageSha256: req.file.sha256,
+    imageSha256: req.ticketImagesSha256,
+    imageCount: images.length,
     hideCosts: normalizeRole(req.user.role) === "cajero"
   }));
 });
