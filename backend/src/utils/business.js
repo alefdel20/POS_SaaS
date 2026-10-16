@@ -124,6 +124,13 @@ function controlsStock(posType) {
   return !POS_TYPES_WITHOUT_STOCK_CONTROL.has(normalizePosType(posType));
 }
 
+// Espejo de CLINICAL_POS_TYPES (frontend/src/utils/pos.ts): giros con recetas, firma y cedula.
+const CLINICAL_POS_TYPES = new Set(["Veterinaria", "Dentista", "FarmaciaConsultorio", "ClinicaChica"]);
+
+function isClinicalPos(posType) {
+  return CLINICAL_POS_TYPES.has(normalizePosType(posType));
+}
+
 module.exports = {
   POS_TYPE_CATALOG,
   POS_TYPE_OPTIONS,
@@ -138,5 +145,6 @@ module.exports = {
   hidesAesthetics,
   usesHumanPatientsOnly,
   isPharmacyClinicPos,
-  controlsStock
+  controlsStock,
+  isClinicalPos
 };

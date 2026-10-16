@@ -7,6 +7,7 @@ import { PrescriptionTemplatePreview, type PrescriptionTemplateKey } from "../co
 import { setStoredTheme } from "../services/storage";
 import type { CompanyProfile, DoctorProfile } from "../types";
 import { resolveUploadedAssetUrl } from "../utils/assets";
+import { controlsStock, isClinicalPos } from "../utils/pos";
 import { normalizeRole } from "../utils/roles";
 
 type ProfileFormState = {
@@ -170,7 +171,13 @@ export function ProfilePage() {
   const [csdPassword, setCsdPassword] = useState("");
   const [liveActivating, setLiveActivating] = useState(false);
   const currentRole = normalizeRole(user?.role);
-  const canManageCashierDirectStock = currentRole === "admin" || currentRole === "superusuario";
+  // Restaurante no controla existencias (NO_STOCK_CONTROL_POS_TYPES): no aplica el ajuste directo del cajero.
+  const canManageCashierDirectStock = (currentRole === "admin" || currentRole === "superusuario") && controlsStock(user?.pos_type);
+  // Cedula, plantilla de receta, membrete y firma: solo giros clinicos (el backend tambien lo aplica).
+  const isClinical = isClinicalPos(user?.pos_type);
+  // Imagen del negocio: clinicos (recetas/historial PDF) y Restaurante (logo del menu publico).
+  const isRestaurant = user?.pos_type === "Restaurante";
+  const showBusinessImage = isClinical || isRestaurant;
 
   async function loadProfile() {
     if (!token) return;
@@ -693,11 +700,11 @@ export function ProfilePage() {
         phone: formData.phone,
         email: formData.email,
         address: formData.address,
-        professional_license: formData.professional_license,
         theme: formData.theme,
         accent_palette: formData.accent_palette,
-        prescription_template: formData.prescription_template,
         printer_name: formData.printer_name,
+        // Solo giros clinicos (el backend los ignora en los demas).
+        ...(isClinical ? { professional_license: formData.professional_license, prescription_template: formData.prescription_template } : {}),
         // Solo superusuario/admin pueden cambiarlo (el backend tambien lo exige).
         ...(canManageCashierDirectStock ? { cashier_direct_stock: formData.cashier_direct_stock } : {})
       })}>
@@ -727,10 +734,12 @@ export function ProfilePage() {
           Dirección
           <textarea value={formData.address} onChange={(event) => updateField("address", event.target.value)} />
         </label>
-        <label>
-          Cedula profesional
-          <input value={formData.professional_license} onChange={(event) => updateField("professional_license", event.target.value)} />
-        </label>
+        {isClinical ? (
+          <label>
+            Cedula profesional
+            <input value={formData.professional_license} onChange={(event) => updateField("professional_license", event.target.value)} />
+          </label>
+        ) : null}
         <label>
           Nombre de la impresora (QZ Tray)
           <input value={formData.printer_name} onChange={(event) => updateField("printer_name", event.target.value)} />
@@ -768,6 +777,7 @@ export function ProfilePage() {
             <option value="ember">Ember</option>
           </select>
         </label>
+        {isClinical ? (
         <div className="form-span-2">
           <span className="template-picker-label">Plantilla de receta</span>
           <div className="template-picker">
@@ -803,7 +813,8 @@ export function ProfilePage() {
             </p>
           ) : null}
         </div>
-        {formData.prescription_template === "personalizado" ? (
+        ) : null}
+        {isClinical && formData.prescription_template === "personalizado" ? (
           <div className="info-card form-span-2">
             <div className="panel-header">
               <div>
@@ -827,11 +838,12 @@ export function ProfilePage() {
             />
           </div>
         ) : null}
+        {showBusinessImage ? (
         <div className="info-card form-span-2">
           <div className="panel-header">
             <div>
               <h3>Imagen del negocio</h3>
-              <p className="muted">Se usara despues en recetas e historial medico PDF.</p>
+              <p className="muted">{isClinical ? "Se usara despues en recetas e historial medico PDF." : "Logo de tu menú público."}</p>
             </div>
             {profile?.business_image_path ? (
               <button className="button ghost" disabled={assetLoading === "business_image"} onClick={() => handleAssetDelete("business_image")} type="button">
@@ -842,6 +854,8 @@ export function ProfilePage() {
           {profile?.business_image_path ? <img alt="Imagen del negocio" className="profile-asset-preview" src={resolveUploadedAssetUrl(profile.business_image_path) || ""} /> : null}
           <input accept=".jpg,.jpeg,.png,.webp" disabled={assetLoading === "business_image"} onChange={(event) => handleAssetUpload("business_image", event.target.files?.[0] || null)} type="file" />
         </div>
+        ) : null}
+        {isClinical ? (
         <div className="info-card form-span-2">
           <div className="panel-header">
             <div>
@@ -857,6 +871,7 @@ export function ProfilePage() {
           {profile?.signature_image_path ? <img alt="Firma del negocio" className="profile-asset-preview" src={resolveUploadedAssetUrl(profile.signature_image_path) || ""} /> : null}
           <input accept=".jpg,.jpeg,.png,.webp" disabled={assetLoading === "signature"} onChange={(event) => handleAssetUpload("signature", event.target.files?.[0] || null)} type="file" />
         </div>
+        ) : null}
         <button className="button" disabled={savingSection === "general"} type="submit">
           {savingSection === "general" ? "Guardando..." : "Guardar información general"}
         </button>

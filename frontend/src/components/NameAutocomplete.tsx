@@ -40,6 +40,12 @@ interface NameAutocompleteProps {
   onChange: (value: NameAutocompleteValue) => void;
   required?: boolean;
   placeholder?: string;
+  // Texto del boton de confirmar alta (default "Crear como paciente/cliente nuevo").
+  createLabel?: string;
+  // Prefijo del aviso tras confirmar alta (default "Se creará como paciente/cliente nuevo"); se le agrega ": <nombre>".
+  confirmedNewLabel?: string;
+  // Prefijo del aviso al elegir un registro (default "Vinculado a paciente/cliente existente"); se le agrega " #<id> — <nombre>".
+  linkedLabel?: string;
 }
 
 const KIND_LABEL: Record<NameAutocompleteProps["kind"], string> = {
@@ -69,7 +75,10 @@ export function NameAutocomplete({
   value,
   onChange,
   required = false,
-  placeholder
+  placeholder,
+  createLabel,
+  confirmedNewLabel,
+  linkedLabel
 }: NameAutocompleteProps) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [searching, setSearching] = useState(false);
@@ -176,15 +185,15 @@ export function NameAutocomplete({
         </div>
       ) : null}
       {value.id ? (
-        <p className="success-text">Vinculado a {kindLabel} existente #{value.id} — {value.name}</p>
+        <p className="success-text">{linkedLabel || `Vinculado a ${kindLabel} existente`} #{value.id} — {value.name}</p>
       ) : hasFreeText ? (
         value.confirmedNew ? (
-          <p className="success-text">Se creará como {kindLabel} nuevo: {value.name.trim()}</p>
+          <p className="success-text">{confirmedNewLabel || `Se creará como ${kindLabel} nuevo`}: {value.name.trim()}</p>
         ) : (
           <div className="inline-actions">
             <span className="warning-text">Sin coincidencia seleccionada.</span>
             <button className="button ghost btn-link" onClick={handleConfirmNew} type="button">
-              Crear como {kindLabel} nuevo
+              {createLabel || `Crear como ${kindLabel} nuevo`}
             </button>
           </div>
         )

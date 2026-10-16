@@ -992,8 +992,10 @@ export function MedicalConsultationsPage() {
     // Red de seguridad final — solo se alcanza cuando de verdad no hay ni
     // seleccion/confirmacion NI texto pendiente (campo realmente vacio).
     if (!patientValue.id && !patientValue.confirmedNew) {
-      // El texto del boton citado viene de NameAutocomplete (compartido), por eso no cambia.
-      setError(`Selecciona ${isVet ? "una mascota existente o confirma la creación de una nueva" : "un paciente existente o confirma la creación de uno nuevo"} con “Crear como paciente nuevo”.`);
+      // Cita el texto exacto del boton de NameAutocomplete (createLabel arriba).
+      setError(isVet
+        ? "Selecciona una mascota existente o confirma la creación de una nueva con “Crear como mascota nueva”."
+        : "Selecciona un paciente existente o confirma la creación de uno nuevo con “Crear como paciente nuevo”.");
       return;
     }
     if (!form.tratamiento.trim()) {
@@ -1278,9 +1280,30 @@ export function MedicalConsultationsPage() {
           </div>
 
           <form className="grid-form" onSubmit={handleSubmit}>
-            <NameAutocomplete kind="patient" label={humanPatientsOnly ? "Paciente" : getPrescriptionPatientLabel(user?.pos_type, "Paciente / mascota")} onChange={setPatientValue} required token={token} value={patientValue} />
+            <NameAutocomplete
+              confirmedNewLabel={isVet ? "Se creará como mascota nueva" : undefined}
+              createLabel={isVet ? "Crear como mascota nueva" : undefined}
+              kind="patient"
+              label={humanPatientsOnly ? "Paciente" : getPrescriptionPatientLabel(user?.pos_type, "Paciente / mascota")}
+              linkedLabel={isVet ? "Vinculado a mascota existente" : undefined}
+              onChange={setPatientValue}
+              placeholder={isVet ? "Busca o escribe una mascota nueva" : undefined}
+              required
+              token={token}
+              value={patientValue}
+            />
             {!humanPatientsOnly ? (
-              <NameAutocomplete kind="client" label={clientLabel}onChange={setClientValue} token={token} value={clientValue} />
+              <NameAutocomplete
+                confirmedNewLabel={isVet ? "Se creará como tutor nuevo" : undefined}
+                createLabel={isVet ? "Crear como tutor nuevo" : undefined}
+                kind="client"
+                label={clientLabel}
+                linkedLabel={isVet ? "Vinculado a tutor existente" : undefined}
+                onChange={setClientValue}
+                placeholder={isVet ? "Busca o escribe un tutor nuevo" : undefined}
+                token={token}
+                value={clientValue}
+              />
             ) : null}
             {!patientValue.id || (!humanPatientsOnly && !clientValue.id) ? (
               <div className="auth-grid-form">

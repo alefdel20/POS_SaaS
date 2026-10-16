@@ -5,6 +5,7 @@ const { normalizeRole } = require("../utils/roles");
 const { requireActorBusinessId } = require("../utils/tenant");
 const { buildStoredBusinessAssetPath, deleteStoredBusinessAsset } = require("../utils/businessAssets");
 const { getBusinessSubscriptionSummary } = require("./businessSubscriptionService");
+const { isClinicalPos, normalizePosType } = require("../utils/business");
 
 // GET /profile proyectado por rol (unica fuente de verdad de los campos por rol).
 const PROFILE_FULL_ROLES = ["superusuario", "admin"];
@@ -292,10 +293,13 @@ async function updateProfileSection(payload, actor, section) {
         ? payload.accent_palette
         : "default";
     }
-    if (section === "general" && payload.professional_license !== undefined) {
+    // Cedula y plantilla de receta solo aplican a giros clinicos: en los demas se ignoran en
+    // silencio (sin 400, para no romper "Guardar informacion general") y lo ya guardado se conserva.
+    const clinical = isClinicalPos(actor?.pos_type);
+    if (section === "general" && clinical && payload.professional_license !== undefined) {
       generalSettings.professional_license = payload.professional_license || "";
     }
-    if (section === "general" && payload.prescription_template !== undefined) {
+    if (section === "general" && clinical && payload.prescription_template !== undefined) {
       generalSettings.prescription_template = ["clasico", "moderno", "compacto", "personalizado"].includes(payload.prescription_template)
         ? payload.prescription_template
         : "clasico";
@@ -347,8 +351,25 @@ function resolveProfileAssetSettingKey(assetType) {
   throw new ApiError(400, "Invalid profile asset type");
 }
 
+// Firma y membrete: solo giros clinicos. Imagen del negocio: clinicos (recetas/historial PDF)
+// y Restaurante (logo del menu publico). Valida antes de tocar general_settings.
+function ensureProfileAssetAllowed(assetType, actor) {
+  const clinical = isClinicalPos(actor?.pos_type);
+  const allowed = assetType === "business_image"
+    ? clinical || normalizePosType(actor?.pos_type) === "Restaurante"
+    : clinical;
+  if (!allowed) throw new ApiError(403, "Acceso denegado");
+}
+
 async function uploadProfileAsset(assetType, file, actor) {
   if (!file) throw new ApiError(400, "Profile image file is required");
+  try {
+    ensureProfileAssetAllowed(assetType, actor);
+  } catch (error) {
+    // El middleware de subida ya guardo el archivo en disco: se descarta.
+    await deleteStoredBusinessAsset(buildStoredBusinessAssetPath(file.filename)).catch(() => {});
+    throw error;
+  }
 
   const client = await pool.connect();
   let previousAssetPath = null;
@@ -384,6 +405,7 @@ async function uploadProfileAsset(assetType, file, actor) {
 }
 
 async function removeProfileAsset(assetType, actor) {
+  ensureProfileAssetAllowed(assetType, actor);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
