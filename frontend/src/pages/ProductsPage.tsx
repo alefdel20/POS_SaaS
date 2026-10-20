@@ -2603,10 +2603,13 @@ export function ProductsPage() {
           hideCosts={isCashier}
           onClose={(changed) => {
             setShowTicketModal(false);
-            // Compra confirmada o anulada: la lista de Reabastecer cambio.
+            // Compra confirmada o anulada: cambian Reabastecer y el listado de productos (altas y stock).
             if (changed) {
               loadRestockProducts({ search: restockSearch, page: restockPage, pageSize: restockPageSize, stockStatus: restockStockFilter }).catch((loadError) => {
                 setError(loadError instanceof Error ? loadError.message : "No fue posible cargar reabastecimiento");
+              });
+              loadProducts(search, page, pageSize, categoryFilter).catch((loadError) => {
+                setError(loadError instanceof Error ? loadError.message : "No fue posible cargar productos");
               });
             }
           }}

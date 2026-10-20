@@ -45,6 +45,8 @@ export function DashboardPage() {
   const recentManualCuts = summary?.operations?.recent_manual_cuts || [];
   const adminAppointmentsToday = summary?.operations?.appointments_today || [];
   const isHealthManagementPos = user?.pos_type === "FarmaciaConsultorio" || user?.pos_type === "Veterinaria" || user?.pos_type === "Dentista" || user?.pos_type === "ClinicaChica" || user?.pos_type === "Farmacia";
+  // Mismos giros que dashboardService.getSummary (isClinicalVertical): solo ellos reciben citas.
+  const isClinicalVertical = user?.pos_type === "Veterinaria" || user?.pos_type === "Dentista" || user?.pos_type === "FarmaciaConsultorio" || user?.pos_type === "ClinicaChica";
   const approvalPath = summary?.operations?.approval_path || (isHealthManagementPos ? "/health/admin/approvals" : "/retail/admin/approvals");
   const restockPath = summary?.operations?.restock_path || (user?.pos_type === "FarmaciaConsultorio" || user?.pos_type === "Farmacia" ? "/health/products/medications/restock" : user?.pos_type === "Veterinaria" || user?.pos_type === "Dentista" || user?.pos_type === "ClinicaChica" ? "/health/products/accessories/restock" : "/retail/products/restock");
   const restockShortcuts = summary?.operations?.restock_shortcuts || [];
@@ -64,9 +66,11 @@ export function DashboardPage() {
       { label: "Ventas del día", value: summary === null ? "—" : summary.total_sales_today === 0 ? "Sin ventas hoy" : currency(summary.total_sales_today), accent: "#6cf0c2" },
       { label: "Productos registrados", value: summary === null ? "—" : summary.total_products || 0, accent: "#7dd3fc" },
       { label: "Cambios por aprobar", value: summary === null ? "—" : adminApprovals?.pending || 0, accent: "#ffb454" },
-      { label: "Citas de hoy", value: summary === null ? "—" : adminAppointmentsToday.length, accent: "#8b5cf6" }
+      ...(isClinicalVertical
+        ? [{ label: "Citas de hoy", value: summary === null ? "—" : adminAppointmentsToday.length, accent: "#8b5cf6" }]
+        : [])
     ];
-  }, [adminAppointmentsToday.length, adminApprovals?.pending, doctorSummary?.appointments_today.length, doctorSummary?.next_appointments.length, doctorSummary?.patients_today, doctorSummary?.status, role, summary?.total_products, summary?.total_sales_today]);
+  }, [adminAppointmentsToday.length, adminApprovals?.pending, doctorSummary?.appointments_today.length, doctorSummary?.next_appointments.length, doctorSummary?.patients_today, doctorSummary?.status, isClinicalVertical, role, summary?.total_products, summary?.total_sales_today]);
 
   return (
     <section className="page-grid">

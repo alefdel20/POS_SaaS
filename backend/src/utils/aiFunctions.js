@@ -3,21 +3,25 @@ const { syncReminderToHealthcare } = require("./healthcareSubjectTranslation");
 const { extractReminderMeta, assertClinicalReminderAccess } = require("../services/reminderService");
 const { saveAuditLog } = require("../services/auditLogService");
 const { normalizeRole } = require("./roles");
-const { getMexicoCityDate, getMexicoCityTime } = require("./timezone");
+const { getMexicoCityDate, getMexicoCityTime, getMonthRange } = require("./timezone");
+const { isValidBusinessDate } = require("./businessDate");
+// listDailyCuts = listRealizedDailyCuts: solo lectura (recomputeDailyCut escribe en daily_cuts).
+const { listDailyCuts } = require("../services/dailyCutService");
 
 const TOOLS = [
   {
     type: "function",
     function: {
       name: "getSalesByPeriod",
-      description: "Obtiene el resumen de ventas de un período específico (mes/año o rango de fechas)",
+      description: "Obtiene las ventas de cualquier día, rango de fechas o mes (zona horaria Ciudad de México) con la misma regla del Corte Diario: ventas de contado + enganche de ventas a crédito en su fecha de venta + abonos cobrados ese día; excluye canceladas. Para un solo día usa date. Para un rango usa start_date y end_date. Para un mes usa month y year. Sin parámetros devuelve el mes actual.",
       parameters: {
         type: "object",
         properties: {
-          month: { type: "integer", description: "Mes (1-12)" },
-          year: { type: "integer", description: "Año (ej. 2026)" },
-          start_date: { type: "string", description: "Fecha inicio YYYY-MM-DD (alternativa a month/year)" },
-          end_date: { type: "string", description: "Fecha fin YYYY-MM-DD" }
+          date: { type: "string", description: "Un solo día YYYY-MM-DD" },
+          start_date: { type: "string", description: "Fecha inicio YYYY-MM-DD; sin end_date se toma solo ese día" },
+          end_date: { type: "string", description: "Fecha fin YYYY-MM-DD (incluida)" },
+          month: { type: "integer", description: "Mes (1-12), alternativa a las fechas" },
+          year: { type: "integer", description: "Año (ej. 2026); con month. Sin year se usa el año actual" }
         }
       }
     }
@@ -103,10 +107,11 @@ const TOOLS = [
 
 // Returns { clause, params } for a date filter starting at paramIdx (1-based, businessId is always $1)
 function buildPeriodClause(args, nextIdx, col) {
-  if (args.start_date && args.end_date) {
+  // Solo start_date: ese día (nunca el mes actual).
+  if (args.start_date) {
     return {
       clause: `${col} BETWEEN $${nextIdx} AND $${nextIdx + 1}`,
-      params: [args.start_date, args.end_date]
+      params: [args.start_date, args.end_date || args.start_date]
     };
   }
   if (args.month && args.year) {
@@ -121,41 +126,69 @@ function buildPeriodClause(args, nextIdx, col) {
   };
 }
 
-async function getSalesByPeriod(args, businessId) {
-  const period = buildPeriodClause(args, 2, "sale_date");
-  const params = [Number(businessId), ...period.params];
+// { start, end } en YYYY-MM-DD (fechas de negocio, Ciudad de México) o { error }.
+function resolveSalesRange(args = {}) {
+  const today = getMexicoCityDate();
+  const start = args.date || args.start_date || args.end_date;
+  if (start) {
+    const end = args.date ? args.date : (args.end_date || start);
+    if (!isValidBusinessDate(start) || !isValidBusinessDate(end)) {
+      return { error: "Fecha inválida: usa el formato AAAA-MM-DD." };
+    }
+    if (start > end) return { error: "La fecha inicial es posterior a la fecha final." };
+    return { start, end };
+  }
+  if (args.month !== undefined && args.month !== null) {
+    const month = Number(args.month);
+    const year = args.year ? Number(args.year) : Number(today.slice(0, 4));
+    if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 1000 || year > 9999) {
+      return { error: "Mes o año inválido." };
+    }
+    return getMonthRange(`${year}-${String(month).padStart(2, "0")}`);
+  }
+  if (args.year) return { error: "Indica el mes (month) o un rango de fechas (start_date y end_date)." };
+  return getMonthRange(today.slice(0, 7));
+}
 
-  const [summaryRes, breakdownRes] = await Promise.all([
-    pool.query(
-      `SELECT COUNT(*) AS count,
-              COALESCE(SUM(total), 0) AS revenue,
-              COALESCE(AVG(total), 0) AS avg_ticket
-       FROM sales
-       WHERE business_id = $1 AND ${period.clause}`,
-      params
-    ),
-    pool.query(
-      `SELECT payment_method,
-              COUNT(*) AS count,
-              COALESCE(SUM(total), 0) AS revenue
-       FROM sales
-       WHERE business_id = $1 AND ${period.clause}
-       GROUP BY payment_method
-       ORDER BY revenue DESC`,
-      params
-    )
-  ]);
+const SALES_DAYS_DETAIL_LIMIT = 31;
 
-  const r = summaryRes.rows[0];
+function roundMoney(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+// Misma fuente que el Corte Diario (dailyCutService.listRealizedDailyCuts):
+// business_id del actor, canceladas fuera, total_day = contado + enganche en
+// la fecha de venta + abonos cobrados ese día. sales.sale_type es NOT NULL con
+// CHECK ('ticket', 'invoice'), así que ticket_count + invoice_count = ventas.
+async function getSalesByPeriod(args, businessId, actor) {
+  const range = resolveSalesRange(args);
+  if (range.error) return { error: range.error };
+
+  const days = await listDailyCuts({ date_from: range.start, date_to: range.end }, actor || { business_id: businessId });
+  const sum = (key) => roundMoney(days.reduce((total, day) => total + Number(day[key] || 0), 0));
+  const salesCount = days.reduce((total, day) => total + Number(day.ticket_count || 0) + Number(day.invoice_count || 0), 0);
+  const totalDay = sum("total_day");
+
   return {
-    count: Number(r.count),
-    revenue: Number(r.revenue),
-    avg_ticket: Number(r.avg_ticket),
-    payment_breakdown: breakdownRes.rows.map((b) => ({
-      method: b.payment_method,
-      count: Number(b.count),
-      revenue: Number(b.revenue)
-    }))
+    start_date: range.start,
+    end_date: range.end,
+    sales_count: salesCount,
+    total_day: totalDay,
+    payment_breakdown: {
+      cash: sum("cash_total"),
+      card: sum("card_total"),
+      transfer: sum("transfer_total"),
+      credit_generated: sum("credit_generated")
+    },
+    credit_collected: sum("credit_collected"),
+    days: days.length <= SALES_DAYS_DETAIL_LIMIT
+      ? days.map((day) => ({
+        date: day.cut_date,
+        sales_count: Number(day.ticket_count || 0) + Number(day.invoice_count || 0),
+        total_day: roundMoney(day.total_day)
+      }))
+      : undefined,
+    notes: "total_day sigue la regla del Corte Diario. cash/card/transfer incluyen ventas de contado y abonos cobrados con ese método; el enganche de ventas a crédito cuenta en total_day pero no en cash/card/transfer; credit_generated es lo vendido a crédito que quedó pendiente de cobro."
   };
 }
 
@@ -431,7 +464,7 @@ async function getExpensesByPeriod(args, businessId) {
 async function executeTool(toolName, args, businessId, userId = null, actor = null) {
   try {
     switch (toolName) {
-      case "getSalesByPeriod":   return await getSalesByPeriod(args, businessId);
+      case "getSalesByPeriod":   return await getSalesByPeriod(args, businessId, actor);
       case "getTopProducts":     return await getTopProducts(args, businessId);
       case "getClientBalance":   return await getClientBalance(args, businessId);
       case "getSupplierInfo":    return await getSupplierInfo(args, businessId);
@@ -440,7 +473,11 @@ async function executeTool(toolName, args, businessId, userId = null, actor = nu
       default:                   return { error: "Herramienta no reconocida." };
     }
   } catch (err) {
-    console.error(`[AI Tool] ${toolName} error:`, err.message);
+    // Error real con contexto en el log; al modelo solo le llega el mensaje genérico.
+    console.error(
+      `[AI Tool] ${toolName} failed: business_id=${businessId} user_id=${userId ?? "-"} args=${JSON.stringify(args ?? {})} code=${err?.code ?? "-"} message=${err?.message}`,
+      err?.stack || ""
+    );
     return { error: "No se pudo obtener la información." };
   }
 }

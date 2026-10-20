@@ -41,6 +41,15 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const SUPPLIER_PRESELECT_CONFIDENCE = 0.9;
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_DEBOUNCE_MS = 300;
+// Solo un emparejamiento exacto (codigo de barras, codigo del proveedor o SKU)
+// se preselecciona. Por nombre o parecido queda como sugerencia: el usuario
+// elige el producto existente a mano o se crea uno nuevo.
+const EXACT_MATCH_METHODS = new Set<TicketMatchMethod>(["barcode", "supplier_code", "sku"]);
+const EXACT_MATCH_CONFIDENCE = 0.9;
+
+function isExactMatch(match: TicketPreviewLine["match"]) {
+  return Boolean(match && EXACT_MATCH_METHODS.has(match.method) && match.confidence >= EXACT_MATCH_CONFIDENCE);
+}
 
 const METHOD_LABELS: Record<TicketMatchMethod, string> = {
   barcode: "Código de barras",
@@ -150,7 +159,7 @@ function buildDraft(response: TicketPreviewResponse, hideCosts: boolean): Ticket
         unitCost: numberToInput(line.unit_cost),
         match: line.match,
         options,
-        selection: line.match ? { kind: "product", product: options[0] } : { kind: "new" },
+        selection: isExactMatch(line.match) ? { kind: "product", product: options[0] } : { kind: "new" },
         newName: line.raw_name,
         newCategory: "",
         newSalePrice: "",
@@ -855,7 +864,28 @@ export function TicketUploadModal({ token, hideCosts, canConfirm, onClose }: Tic
           selection={line.selection}
           token={token}
         />
+        {renderMatchSuggestion(line)}
         {canConfirm && line.selection.kind === "new" ? renderNewProduct(line) : null}
+      </div>
+    );
+  }
+
+  // Coincidencia solo por nombre o parecido: se sugiere sin preseleccionar.
+  // Mientras siga "Nuevo producto", el usuario puede elegir el existente aqui.
+  function renderMatchSuggestion(line: DraftLine) {
+    const match = line.match;
+    if (!match || isExactMatch(match) || line.selection.kind !== "new") return null;
+    const product: TicketProductRef = { product_id: match.product_id, name: match.name, sku: match.sku };
+    return (
+      <div role="note" style={{ ...ticketWarningStyle, margin: 0, fontSize: "0.8rem", display: "grid", gap: "0.35rem" }}>
+        <span style={{ overflowWrap: "anywhere" }}>
+          <strong>¿Es este producto?</strong> {productLabel(product)}
+        </span>
+        <span className="inline-actions" style={{ flexWrap: "wrap" }}>
+          <button className="button ghost" onClick={() => updateLine(line.key, { selection: { kind: "product", product } })} type="button">
+            Sí, sumar a este producto
+          </button>
+        </span>
       </div>
     );
   }

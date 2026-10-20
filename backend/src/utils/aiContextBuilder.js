@@ -93,15 +93,15 @@ async function getBusinessContext(businessId, branchId) {
       }));
     }),
 
-    // Ventas últimos 7 días
+    // Ventas últimos 7 días (fecha de hoy en America/Mexico_City, no la del servidor)
     pool.query(
       `SELECT sale_date, COUNT(*) AS count, SUM(total) AS revenue
        FROM sales
        WHERE business_id = $1
-         AND sale_date BETWEEN (CURRENT_DATE - INTERVAL '7 days') AND CURRENT_DATE
+         AND sale_date BETWEEN ($2::date - INTERVAL '7 days') AND $2::date
        GROUP BY sale_date
        ORDER BY sale_date DESC`,
-      [bid]
+      [bid, today]
     ).then(({ rows }) => {
       context.weeklySales = rows.map((r) => ({
         date: r.sale_date,
@@ -306,7 +306,7 @@ function buildSystemPrompt(user, businessContext, now = new Date()) {
     `INSTRUCCIONES:`,
     `- Responde SIEMPRE en español.`,
     `- Sé conciso y directo. Prioriza información accionable.`,
-    `- Puedes consultar ventas de hoy, últimos 7 días y del mes actual.`,
+    `- Para ventas de cualquier día, rango de fechas o mes (por ejemplo "¿cuántas ventas hubo el 15 de octubre?" o "la semana pasada"), usa la herramienta getSalesByPeriod. Resuelve las fechas relativas ("ayer", "el lunes", "la semana pasada") con la fecha actual de Ciudad de México indicada arriba y pásalas en formato YYYY-MM-DD; para un solo día usa date. Responde con sales_count y total_day de la herramienta, que siguen la regla del Corte Diario; el contexto de arriba es solo un resumen y no la sustituye.`,
     `- Puedes informar sobre proveedores activos y sus productos.`,
     `- Puedes informar sobre gastos del mes por categoría.`,
     `- Puedes informar sobre sucursales del negocio.`,
