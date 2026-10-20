@@ -13,7 +13,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "getSalesByPeriod",
-      description: "Obtiene las ventas de cualquier día, rango de fechas o mes (zona horaria Ciudad de México) con la misma regla del Corte Diario: ventas de contado + enganche de ventas a crédito en su fecha de venta + abonos cobrados ese día; excluye canceladas. Para un solo día usa date. Para un rango usa start_date y end_date. Para un mes usa month y year. Sin parámetros devuelve el mes actual.",
+      description: "Obtiene las ventas de cualquier día (incluidos hoy y ayer), rango de fechas o mes (zona horaria Ciudad de México) con la misma regla del Corte Diario: ventas de contado + enganche de ventas a crédito en su fecha de venta + abonos cobrados ese día; excluye canceladas. Devuelve resumen_texto ya redactado: úsalo tal cual y no recalcules. Para un solo día usa date. Para un rango usa start_date y end_date. Para un mes usa month y year. Sin parámetros devuelve el mes actual.",
       parameters: {
         type: "object",
         properties: {
@@ -153,13 +153,34 @@ function resolveSalesRange(args = {}) {
 const SALES_DAYS_DETAIL_LIMIT = 31;
 
 function roundMoney(value) {
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100 || 0;
+}
+
+function formatMoney(value) {
+  return `$${Number(value).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN`;
+}
+
+// Texto final que el modelo debe repetir; todas las cifras salen del backend.
+function buildSalesSummaryText({ start, end, salesCount, total, collectedFromCredits, pendingCredit }) {
+  const period = start === end ? `El ${start}` : `Del ${start} al ${end}`;
+  const parts = [`${period}: ${salesCount} venta(s), total cobrado ${formatMoney(total)} (regla del Corte Diario)`];
+  if (collectedFromCredits > 0) {
+    parts[0] += `, de los cuales ${formatMoney(collectedFromCredits)} son abonos cobrados a ventas a crédito (del periodo o anteriores) y ${formatMoney(roundMoney(total - collectedFromCredits))} corresponde a las ventas del periodo`;
+  }
+  parts[0] += ".";
+  if (pendingCredit > 0) {
+    parts.push(`Además se vendieron ${formatMoney(pendingCredit)} a crédito que quedaron pendientes de cobro al momento de la venta; esa cantidad NO está incluida en el total.`);
+  }
+  return parts.join(" ");
 }
 
 // Misma fuente que el Corte Diario (dailyCutService.listRealizedDailyCuts):
-// business_id del actor, canceladas fuera, total_day = contado + enganche en
+// business_id del actor, canceladas fuera, total = contado + enganche en
 // la fecha de venta + abonos cobrados ese día. sales.sale_type es NOT NULL con
 // CHECK ('ticket', 'invoice'), así que ticket_count + invoice_count = ventas.
+// cash/card/transfer_total ya incluyen los abonos cobrados con ese método; el
+// enganche no tiene método en el corte, así que es el remanente del total
+// (también absorbe abonos registrados con método 'credit').
 async function getSalesByPeriod(args, businessId, actor) {
   const range = resolveSalesRange(args);
   if (range.error) return { error: range.error };
@@ -167,28 +188,38 @@ async function getSalesByPeriod(args, businessId, actor) {
   const days = await listDailyCuts({ date_from: range.start, date_to: range.end }, actor || { business_id: businessId });
   const sum = (key) => roundMoney(days.reduce((total, day) => total + Number(day[key] || 0), 0));
   const salesCount = days.reduce((total, day) => total + Number(day.ticket_count || 0) + Number(day.invoice_count || 0), 0);
-  const totalDay = sum("total_day");
+  const total = sum("total_day");
+  const cash = sum("cash_total");
+  const card = sum("card_total");
+  const transfer = sum("transfer_total");
+  const collectedFromCredits = sum("credit_collected");
+  const pendingCredit = sum("credit_generated");
 
   return {
-    start_date: range.start,
-    end_date: range.end,
-    sales_count: salesCount,
-    total_day: totalDay,
-    payment_breakdown: {
-      cash: sum("cash_total"),
-      card: sum("card_total"),
-      transfer: sum("transfer_total"),
-      credit_generated: sum("credit_generated")
+    fecha_inicio: range.start,
+    fecha_fin: range.end,
+    resumen_texto: buildSalesSummaryText({ start: range.start, end: range.end, salesCount, total, collectedFromCredits, pendingCredit }),
+    numero_de_ventas: salesCount,
+    total_cobrado_en_el_periodo: total,
+    total_se_compone_de: {
+      cobrado_por_ventas_del_periodo: roundMoney(total - collectedFromCredits),
+      abonos_cobrados_a_ventas_a_credito: collectedFromCredits
     },
-    credit_collected: sum("credit_collected"),
-    days: days.length <= SALES_DAYS_DETAIL_LIMIT
+    total_cobrado_por_metodo: {
+      efectivo: cash,
+      tarjeta: card,
+      transferencia: transfer,
+      enganches_de_ventas_a_credito: roundMoney(total - cash - card - transfer)
+    },
+    ventas_a_credito_pendientes_no_incluidas_en_total: pendingCredit,
+    detalle_por_dia: days.length <= SALES_DAYS_DETAIL_LIMIT
       ? days.map((day) => ({
-        date: day.cut_date,
-        sales_count: Number(day.ticket_count || 0) + Number(day.invoice_count || 0),
-        total_day: roundMoney(day.total_day)
+        fecha: day.cut_date,
+        numero_de_ventas: Number(day.ticket_count || 0) + Number(day.invoice_count || 0),
+        total_cobrado: roundMoney(day.total_day)
       }))
       : undefined,
-    notes: "total_day sigue la regla del Corte Diario. cash/card/transfer incluyen ventas de contado y abonos cobrados con ese método; el enganche de ventas a crédito cuenta en total_day pero no en cash/card/transfer; credit_generated es lo vendido a crédito que quedó pendiente de cobro."
+    instrucciones: "Responde con resumen_texto. Reporta numero_de_ventas y total_cobrado_en_el_periodo tal cual. total_se_compone_de y total_cobrado_por_metodo ya suman el total cada uno; no los combines ni calcules otras cifras. ventas_a_credito_pendientes_no_incluidas_en_total NO forma parte del total."
   };
 }
 

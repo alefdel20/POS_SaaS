@@ -554,13 +554,13 @@ test("sendMessage con Claude: bucle de herramientas completo, bloques reenviados
     assert.equal(second.messages[2].content.length, 1);
     assert.equal(second.messages[2].content[0].type, "tool_result");
     assert.equal(second.messages[2].content[0].tool_use_id, "toolu_1");
-    assert.equal(JSON.parse(second.messages[2].content[0].content).count, 0);
+    assert.equal(JSON.parse(second.messages[2].content[0].content).numero_de_ventas, 0);
     assert.equal(second.tool_choice, undefined);
 
-    // The tool ran against the authenticated business only.
-    const salesQueries = harness.queries.filter((q) => /FROM sales/.test(q.sql) && /EXTRACT\(MONTH/.test(q.sql));
+    // The tool ran against the authenticated business only (Corte Diario query, January range).
+    const salesQueries = harness.queries.filter((q) => /FROM sales/.test(q.sql) && /cashflow_rows/.test(q.sql));
     assert.ok(salesQueries.length > 0);
-    assert.ok(salesQueries.every((q) => q.params[0] === 7));
+    assert.ok(salesQueries.every((q) => q.params[0] === 7 && q.params[1] === "2026-01-01" && q.params[2] === "2026-01-31"));
 
     assert.ok(harness.writes.some((w) => w.includes('"type":"tool_use","tool":"getSalesByPeriod"')));
     assert.equal(harness.saved.length, 1);

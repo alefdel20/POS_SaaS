@@ -6,12 +6,9 @@ async function getBusinessContext(businessId, branchId) {
   const today = getMexicoCityDate();
   const context = {
     today,
-    salesSummary: null,
     lowStockProducts: [],
     topSellersToday: [],
     pendingCredits: [],
-    weeklySales: [],
-    monthlySummary: null,
     suppliers: [],
     monthlyExpenses: [],
     branches: [],
@@ -27,18 +24,8 @@ async function getBusinessContext(businessId, branchId) {
       context.catalog = totals;
     }),
 
-    // Ventas de hoy
-    pool.query(
-      `SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS revenue
-       FROM sales
-       WHERE business_id = $1 AND sale_date = $2`,
-      [bid, today]
-    ).then(({ rows }) => {
-      context.salesSummary = {
-        count: Number(rows[0].count),
-        revenue: Number(rows[0].revenue)
-      };
-    }),
+    // Sin cifras de ventas (hoy, 7 días, mes): usaban otra regla que el Corte Diario
+    // y el modelo contestaba con ellas sin llamar a getSalesByPeriod.
 
     // Productos bajo mínimo
     pool.query(
@@ -91,37 +78,6 @@ async function getBusinessContext(businessId, branchId) {
         name: r.customer_name || "Sin nombre",
         pending: Number(r.total_pending)
       }));
-    }),
-
-    // Ventas últimos 7 días (fecha de hoy en America/Mexico_City, no la del servidor)
-    pool.query(
-      `SELECT sale_date, COUNT(*) AS count, SUM(total) AS revenue
-       FROM sales
-       WHERE business_id = $1
-         AND sale_date BETWEEN ($2::date - INTERVAL '7 days') AND $2::date
-       GROUP BY sale_date
-       ORDER BY sale_date DESC`,
-      [bid, today]
-    ).then(({ rows }) => {
-      context.weeklySales = rows.map((r) => ({
-        date: r.sale_date,
-        count: Number(r.count),
-        revenue: Number(r.revenue)
-      }));
-    }),
-
-    // Ventas del mes actual
-    pool.query(
-      `SELECT COUNT(*) AS count, SUM(total) AS revenue
-       FROM sales
-       WHERE business_id = $1
-         AND DATE_TRUNC('month', sale_date) = DATE_TRUNC('month', CURRENT_DATE)`,
-      [bid]
-    ).then(({ rows }) => {
-      context.monthlySummary = {
-        count: Number(rows[0].count),
-        revenue: Number(rows[0].revenue)
-      };
     }),
 
     // Proveedores activos
@@ -202,6 +158,7 @@ function buildSystemPrompt(user, businessContext, now = new Date()) {
   const today = getMexicoCityDate(now);
   const currentTime = getMexicoCityTime(now).slice(0, 5);
   const todayWeekday = shiftCalendarDay(today, 0).weekday;
+  const yesterday = shiftCalendarDay(today, -1).date;
   const nextDaysLines = [1, 2, 3, 4, 5, 6, 7].map((offset) => {
     const { date, weekday } = shiftCalendarDay(today, offset);
     return `  ${weekday} ${date}${offset === 1 ? " (mañana)" : ""}`;
@@ -212,12 +169,9 @@ function buildSystemPrompt(user, businessContext, now = new Date()) {
   const branchInfo = businessContext?.branchName ? ` (sucursal: ${businessContext.branchName})` : "";
 
   const ctx = businessContext || {};
-  const sales = ctx.salesSummary;
   const lowStock = ctx.lowStockProducts || [];
   const topSellers = ctx.topSellersToday || [];
   const credits = ctx.pendingCredits || [];
-  const weeklySales = ctx.weeklySales || [];
-  const monthlySummary = ctx.monthlySummary;
   const suppliers = ctx.suppliers || [];
   const monthlyExpenses = ctx.monthlyExpenses || [];
   const branches = ctx.branches || [];
@@ -231,29 +185,17 @@ function buildSystemPrompt(user, businessContext, now = new Date()) {
       `Ambos valores están a costo, no a precio de venta.`
     : "No hay datos del catálogo disponibles por ahora.";
 
-  const salesLine = sales
-    ? `Hoy se han registrado ${sales.count} venta(s) por $${Number(sales.revenue).toFixed(2)} MXN.`
-    : "No hay datos de ventas disponibles por ahora.";
-
   const lowStockLine = lowStock.length
     ? `Productos bajo mínimo: ${lowStock.map((p) => `${p.name} (stock ${p.stock}/${p.minimo})`).join(", ")}.`
     : "No hay productos bajo mínimo de stock.";
 
   const topSellersLine = topSellers.length
-    ? `Más vendidos hoy: ${topSellers.map((p) => `${p.name} (${p.qty} uds)`).join(", ")}.`
-    : "Sin ventas registradas hoy aún.";
+    ? `Más vendidos hoy, solo por unidades (no usar para responder ventas por fecha): ${topSellers.map((p) => `${p.name} (${p.qty} uds)`).join(", ")}.`
+    : "Más vendidos hoy: sin productos registrados aún (no usar para responder ventas por fecha).";
 
   const creditsLine = credits.length
     ? `Clientes con crédito pendiente: ${credits.slice(0, 5).map((c) => `${c.name} ($${Number(c.pending).toFixed(2)})`).join(", ")}.`
     : "No hay créditos pendientes.";
-
-  const weeklyLine = weeklySales.length
-    ? `Últimos 7 días:\n${weeklySales.map((d) => `  ${d.date}: ${d.count} venta(s), $${Number(d.revenue).toFixed(2)} MXN`).join("\n")}`
-    : "Sin datos de ventas de los últimos 7 días.";
-
-  const monthlyLine = monthlySummary && monthlySummary.count > 0
-    ? `Mes actual: ${monthlySummary.count} venta(s) por $${Number(monthlySummary.revenue).toFixed(2)} MXN en total.`
-    : "Sin ventas registradas en el mes actual.";
 
   const suppliersLine = suppliers.length
     ? `Proveedores activos (${suppliers.length}): ${suppliers.map((s) => `${s.name} (${s.product_count} producto(s) ligado(s))`).join(", ")}.`
@@ -277,17 +219,12 @@ function buildSystemPrompt(user, businessContext, now = new Date()) {
     ...nextDaysLines,
     ``,
     `CONTEXTO DEL NEGOCIO HOY:`,
-    salesLine,
     lowStockLine,
     topSellersLine,
     creditsLine,
     ``,
     `CATÁLOGO:`,
     catalogLine,
-    ``,
-    `HISTORIAL DE VENTAS:`,
-    weeklyLine,
-    monthlyLine,
     ``,
     `PROVEEDORES:`,
     suppliersLine,
@@ -306,11 +243,12 @@ function buildSystemPrompt(user, businessContext, now = new Date()) {
     `INSTRUCCIONES:`,
     `- Responde SIEMPRE en español.`,
     `- Sé conciso y directo. Prioriza información accionable.`,
-    `- Para ventas de cualquier día, rango de fechas o mes (por ejemplo "¿cuántas ventas hubo el 15 de octubre?" o "la semana pasada"), usa la herramienta getSalesByPeriod. Resuelve las fechas relativas ("ayer", "el lunes", "la semana pasada") con la fecha actual de Ciudad de México indicada arriba y pásalas en formato YYYY-MM-DD; para un solo día usa date. Responde con sales_count y total_day de la herramienta, que siguen la regla del Corte Diario; el contexto de arriba es solo un resumen y no la sustituye.`,
+    `- VENTAS: toda pregunta con cifras de ventas (cuántas ventas, cuánto se vendió o se cobró, ingresos, corte) de cualquier fecha, incluidos hoy (${today}) y ayer (${yesterday}), DEBE llamar a la herramienta getSalesByPeriod antes de responder. El contexto de arriba NO trae cifras de ventas: nunca respondas una cifra de ventas, ni "0 ventas", sin haber llamado la herramienta para esa fecha. Resuelve las fechas relativas ("ayer", "el lunes", "la semana pasada") con la fecha actual de Ciudad de México y pásalas en formato YYYY-MM-DD; para un solo día usa date, para un rango start_date y end_date, para un mes month y year.`,
+    `- Al responder ventas, usa el resumen_texto de la herramienta y reporta numero_de_ventas y total_cobrado_en_el_periodo tal cual vienen. NO calcules, sumes, restes ni infieras desgloses por tu cuenta: solo menciona un desglose si la herramienta lo trae con ese nombre. ventas_a_credito_pendientes_no_incluidas_en_total NO forma parte del total.`,
     `- Puedes informar sobre proveedores activos y sus productos.`,
     `- Puedes informar sobre gastos del mes por categoría.`,
     `- Puedes informar sobre sucursales del negocio.`,
-    `- Si el usuario pregunta sobre ventas, inventario, clientes o finanzas, usa el contexto anterior.`,
+    `- Si el usuario pregunta sobre inventario, clientes, proveedores o gastos, usa el contexto anterior; para cifras de ventas usa siempre getSalesByPeriod.`,
     `- Para cuántos productos hay, cuántas unidades hay en stock o cuánto vale el inventario, usa SOLO la sección CATÁLOGO; nunca uses ni sumes los productos ligados a proveedores.`,
     `- Los dos valores del catálogo están a costo: "valor del stock actual" son las existencias de hoy y "valor a stock máximo" es el inventario lleno. No tienes el valor a precio de venta; si te lo piden, dilo.`,
     `- Solo puedes crear recordatorios con la herramienta createReminder cuando el usuario lo pida; no puedes modificar ni borrar ningún otro dato del sistema.`,
