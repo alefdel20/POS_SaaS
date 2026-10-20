@@ -1250,7 +1250,7 @@ export function ProfilePage() {
         ) : !cfdiStatus || cfdiStatus.addon.status !== "active" ? (
           <div className="info-card">
             <p className="muted">El add-on de Facturación CFDI no está activo en tu cuenta.</p>
-            <p className="muted">Contacta a soporte en contacto@ankode.cloud para activarlo.</p>
+            <p className="muted">Contacta a soporte en soporte@ankode.cloud para activarlo.</p>
           </div>
         ) : (
           <>

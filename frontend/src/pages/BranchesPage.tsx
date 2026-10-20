@@ -83,7 +83,7 @@ export function BranchesPage() {
     } catch (submitError) {
       const message = submitError instanceof Error ? submitError.message : "No fue posible crear la sucursal";
       if (message.includes("403") || message.toLowerCase().includes("plan") || message.toLowerCase().includes("límite") || message.toLowerCase().includes("limite")) {
-        setError("Tu plan actual no permite agregar más sucursales. Escríbenos a ankodemx@gmail.com para ampliar tu plan.");
+        setError("Tu plan actual no permite agregar más sucursales. Escríbenos a soporte@ankode.cloud para ampliar tu plan.");
       } else {
         setError(message);
       }

@@ -77,7 +77,7 @@ async function sendWelcomeEmail(to, data = {}) {
       <p class="note">Por seguridad, te recomendamos cambiar tu contraseña en tu primer inicio de sesión.</p>
     </div>
     <div class="footer">
-      © Ankode · ankode.cloud · contacto@ankode.cloud
+      © Ankode · ankode.cloud · soporte@ankode.cloud
     </div>
   </div>
 </body>
@@ -198,7 +198,7 @@ async function sendTrialWelcomeEmail(to, data = {}) {
       </p>
     </div>
     <div class="footer">
-      © Ankode · ankode.cloud · contacto@ankode.cloud
+      © Ankode · ankode.cloud · soporte@ankode.cloud
     </div>
   </div>
 </body>
@@ -281,7 +281,7 @@ async function sendPaymentFailedEmail(to, data = {}) {
       <a class="btn" href="${loginUrl}">Intentar de nuevo</a>
     </div>
     <div class="footer">
-      ¿Necesitas ayuda? Escríbenos a soporte@ankode.mx
+      ¿Necesitas ayuda? Escríbenos a soporte@ankode.cloud
     </div>
   </div>
 </body>
@@ -296,7 +296,7 @@ async function sendPaymentFailedEmail(to, data = {}) {
     `No se realizó ningún cargo.`,
     ``,
     `Por favor intenta de nuevo en: ${loginUrl}`,
-    `O contacta a soporte@ankode.mx`
+    `O contacta a soporte@ankode.cloud`
   ].join("\n");
 
   try {
@@ -361,7 +361,7 @@ async function sendPaymentConfirmationEmail(to, data = {}) {
       <p>Gracias por confiar en Ankode.</p>
     </div>
     <div class="footer">
-      ¿Dudas? Escríbenos a soporte@ankode.mx
+      ¿Dudas? Escríbenos a soporte@ankode.cloud
     </div>
   </div>
 </body>
@@ -375,7 +375,7 @@ async function sendPaymentConfirmationEmail(to, data = {}) {
     `Fecha: ${fecha}`,
     ``,
     `Gracias por confiar en Ankode.`,
-    `¿Dudas? soporte@ankode.mx`
+    `¿Dudas? soporte@ankode.cloud`
   ].join("\n");
 
   try {
@@ -427,7 +427,7 @@ async function sendSpeiInstructionsEmail(to, data = {}) {
       <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:16px;margin:16px 0;">
         <p style="margin:0;color:#92400e;font-size:14px;">⚠️ <strong>Importante:</strong> Usa exactamente el monto indicado. Tu suscripción se activará automáticamente al detectarse el pago.</p>
       </div>
-      <p style="color:#6b7280;font-size:13px;margin-top:24px;">¿Tienes dudas? Escríbenos a <a href="mailto:ankodemx@gmail.com" style="color:#6d4aff;">ankodemx@gmail.com</a></p>
+      <p style="color:#6b7280;font-size:13px;margin-top:24px;">¿Tienes dudas? Escríbenos a <a href="mailto:soporte@ankode.cloud" style="color:#6d4aff;">soporte@ankode.cloud</a></p>
     </div>
   `;
 
@@ -484,7 +484,7 @@ async function sendPasswordResetEmail(to, resetLink, userName = "") {
       <p class="note">Si no solicitaste este cambio, puedes ignorar este correo. Tu cuenta está segura.</p>
     </div>
     <div class="footer">
-      © Ankode · ankode.cloud · contacto@ankode.cloud
+      © Ankode · ankode.cloud · soporte@ankode.cloud
     </div>
   </div>
 </body>
@@ -568,7 +568,7 @@ async function sendCancellationEmail(to, data = {}) {
       <p>Si deseas reactivar tu suscripción, puedes hacerlo en cualquier momento desde nuestro sitio.</p>
       <a class="btn" href="${frontendUrl}">Reactivar mi cuenta</a>
       <p style="margin-top:24px; font-size:13px; color:#555;">
-        ¿Necesitas ayuda? Contáctanos en <a href="mailto:soporte@ankode.mx">soporte@ankode.mx</a>
+        ¿Necesitas ayuda? Contáctanos en <a href="mailto:soporte@ankode.cloud">soporte@ankode.cloud</a>
       </p>
     </div>
     <div class="footer">
@@ -586,7 +586,7 @@ async function sendCancellationEmail(to, data = {}) {
     accessText ? `Tu acceso continuará hasta el ${accessText}.` : "",
     ``,
     `Para reactivar tu cuenta visita: ${frontendUrl}`,
-    `¿Dudas? soporte@ankode.mx`
+    `¿Dudas? soporte@ankode.cloud`
   ].filter(Boolean).join("\n");
 
   try {
@@ -659,7 +659,7 @@ async function sendReactivationEmail(to, data = {}) {
       </p>
     </div>
     <div class="footer">
-      ¿Dudas? Escríbenos a soporte@ankode.mx
+      ¿Dudas? Escríbenos a soporte@ankode.cloud
     </div>
   </div>
 </body>
@@ -673,7 +673,7 @@ async function sendReactivationEmail(to, data = {}) {
     nextPaymentText ? `Próximo pago: ${nextPaymentText}` : "",
     ``,
     `Accede en: ${loginUrl}`,
-    `¿Dudas? soporte@ankode.mx`
+    `¿Dudas? soporte@ankode.cloud`
   ].filter(Boolean).join("\n");
 
   try {
